@@ -1,0 +1,18 @@
+[project]
+name = "dcr"
+version = "0.1.0"
+description = "Reproduction of 'Distant Collision Response in Rigid Body Simulations' (SCA 2020)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "warp-lang>=1.0",
+    "polyscope>=2.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
