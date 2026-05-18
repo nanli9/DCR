@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 
 from .body import RigidBody
 from .collision import Contact
+from .joint import DistanceJoint
 
 
 def _skew(v: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -115,14 +116,18 @@ class ConstraintSolver:
         return (min(c.body_a, c.body_b), max(c.body_a, c.body_b),
                 px, py, pz, row_type)
 
-    def solve(self, bodies: list[RigidBody], contacts: list[Contact]
+    def solve(self, bodies: list[RigidBody], contacts: list[Contact],
+              joints: list[DistanceJoint] | None = None,
               ) -> NDArray[np.float64]:
         """Solve for constraint impulses and update body velocities.
 
         Returns the solved lambda vector (for diagnostics / DCR coupling).
         """
-        if not contacts:
-            # No contacts — just apply forces.
+        if joints is None:
+            joints = []
+
+        if not contacts and not joints:
+            # No constraints — just apply forces.
             for body in bodies:
                 if body.is_static:
                     continue
@@ -132,8 +137,9 @@ class ConstraintSolver:
 
         n_bodies = len(bodies)
         n_contacts = len(contacts)
-        # 3 rows per contact: 1 normal + 2 friction
-        n_constraints = 3 * n_contacts
+        n_joints = len(joints)
+        # 3 rows per contact (normal + 2 friction) + 1 row per distance joint
+        n_constraints = 3 * n_contacts + n_joints
 
         # --- Pre-compute per-body inverse mass matrices ---
         M_inv_list: list[NDArray[np.float64]] = []
@@ -213,6 +219,34 @@ class ConstraintSolver:
             phi[row_f2] = 0.0
             friction_normal_map[row_f2] = row_n
             friction_mu[row_f2] = mu
+
+        # --- Distance joint constraints (bilateral: lambda unbounded) ---
+        for ji, joint in enumerate(joints):
+            row = 3 * n_contacts + ji
+            n_dir = joint.direction(bodies)  # from anchor_B toward anchor_A
+
+            # Lever arms in world frame
+            wa = joint.world_anchor_a(bodies)
+            wb = joint.world_anchor_b(bodies)
+            r_a = wa - bodies[joint.body_a].position
+            r_b = wb - bodies[joint.body_b].position
+
+            J_a = np.zeros(6)
+            J_a[0:3] = n_dir
+            J_a[3:6] = np.cross(r_a, n_dir)
+
+            J_b = np.zeros(6)
+            J_b[0:3] = -n_dir
+            J_b[3:6] = -np.cross(r_b, n_dir)
+
+            J_blocks.append((joint.body_a, J_a, joint.body_b, J_b))
+            constraint_keys.append(("joint", ji))
+
+            # For distance joints: positive violation = stretched → need lambda < 0 to pull.
+            # -(erp/h)*phi with phi > 0 → negative → lambda < 0 → contracting. Correct.
+            phi[row] = joint.violation(bodies)
+            lo[row] = -np.inf  # bilateral: no bounds
+            hi[row] = np.inf
 
         # --- Build A and b (Eq. 2) ---
         # A_ij = (1/h^2)*cfm*delta_ij + sum_body( J_i_body * M_inv_body * J_j_body^T )

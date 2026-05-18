@@ -11,22 +11,15 @@ from numpy.typing import NDArray
 
 from .body import RigidBody, quat_integrate
 from .collision import Contact, detect_contacts
+from .joint import DistanceJoint
 from .solver import ConstraintSolver
 
 
 @dataclass
 class World:
-    """Container for rigid body simulation state.
-
-    Attributes:
-        bodies: list of RigidBody objects.
-        gravity: (3,) gravitational acceleration. Default (0, -9.81, 0).
-        h: time step size (seconds). Paper default 1e-2.
-        solver: the constraint solver.
-        time: current simulation time.
-        prev_contacts: contacts from the previous step (for restitution).
-    """
+    """Container for rigid body simulation state."""
     bodies: list[RigidBody] = field(default_factory=list)
+    joints: list[DistanceJoint] = field(default_factory=list)
     gravity: NDArray[np.float64] = field(
         default_factory=lambda: np.array([0.0, -9.81, 0.0]))
     h: float = 1e-2
@@ -41,6 +34,10 @@ class World:
         """Add a body and return its index."""
         self.bodies.append(body)
         return len(self.bodies) - 1
+
+    def add_joint(self, joint: DistanceJoint) -> None:
+        """Add a distance joint between two bodies."""
+        self.joints.append(joint)
 
     def step(self) -> list[Contact]:
         """Advance simulation by one time step h.
@@ -57,7 +54,7 @@ class World:
         contacts = detect_contacts(self.bodies, self.prev_contacts)
 
         # 3. Solve constraints and update velocities.
-        lam = self.solver.solve(self.bodies, contacts)
+        lam = self.solver.solve(self.bodies, contacts, self.joints)
 
         # 4. Integrate positions with symplectic Euler.
         for body in self.bodies:

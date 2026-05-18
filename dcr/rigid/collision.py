@@ -117,9 +117,9 @@ def _detect_sphere_sphere(idx_a: int, a: RigidBody,
     if dist < 1e-12:
         normal = np.array([0.0, 1.0, 0.0])
     else:
-        normal = diff / dist  # from A toward B
+        normal = -diff / dist  # from B toward A (Jacobian convention)
 
-    contact_point = a.position + normal * (ra - overlap * 0.5)
+    contact_point = a.position - normal * (ra - overlap * 0.5)
     return [Contact(
         body_a=idx_a,
         body_b=idx_b,
@@ -153,19 +153,18 @@ def _detect_box_sphere(idx_box: int, box: RigidBody,
 
     if dist < 1e-12:
         # Sphere center inside box — use the axis of least penetration
-        # to push sphere out
+        # to push sphere out. Normal points from sphere (B) toward box (A).
         pen_axes = half - np.abs(local)
         axis = int(np.argmin(pen_axes))
         normal_local = np.zeros(3)
-        normal_local[axis] = 1.0 if local[axis] >= 0 else -1.0
+        normal_local[axis] = -1.0 if local[axis] >= 0 else 1.0
         normal = R @ normal_local
         penetration = pen_axes[axis] + radius
     else:
-        normal = diff / dist  # from box toward sphere
+        normal = -diff / dist  # from B (sphere) toward A (box)
         penetration = radius - dist
 
-    # Normal from A (box) into B (sphere)
-    contact_point = closest_world + normal * (penetration * 0.5)
+    contact_point = closest_world - normal * (penetration * 0.5)
     return [Contact(
         body_a=idx_box,
         body_b=idx_sphere,
