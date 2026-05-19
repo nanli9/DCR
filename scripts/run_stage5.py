@@ -32,8 +32,10 @@ def main() -> None:
         dcr_enabled=dcr_on,
     )
 
-    # --- Table (static plane for collision + elastic FEM) ---
-    table = make_static_plane(normal=(0, 1, 0), point=(0, 0, 0), friction=0.5)
+    # --- Table (static plane at slab top surface + elastic FEM) ---
+    table_top = 0.025  # height/2 of slab
+    table = make_static_plane(normal=(0, 1, 0),
+                              point=(0, table_top, 0), friction=0.5)
     table_idx = world.add_body(table)
 
     length, width, height = 1.0, 0.6, 0.05
@@ -56,24 +58,26 @@ def main() -> None:
     coupler = ModalDCRCoupler(modal=modal, elastic_body_idx=table_idx)
     world.add_dcr_coupler(coupler)
 
-    # --- Plates ---
+    # --- Plates (resting on top of slab) ---
+    plate_hy = 0.02
     plate_positions = [
-        (-0.3, 0.025, 0.15),
-        (0.3, 0.025, -0.1),
-        (0.0, 0.025, -0.2),
+        (-0.3, table_top + plate_hy + 0.001, 0.15),
+        (0.3, table_top + plate_hy + 0.001, -0.1),
+        (0.0, table_top + plate_hy + 0.001, -0.2),
     ]
     plate_indices = []
     for pos in plate_positions:
         plate = make_dynamic_box(
-            mass=0.2, hx=0.06, hy=0.02, hz=0.06,
+            mass=0.2, hx=0.06, hy=plate_hy, hz=0.06,
             position=pos, restitution=0.0, friction=0.5,
         )
         plate_indices.append(world.add_body(plate))
 
     # --- Heavy pot ---
+    pot_hy = 0.08
     pot = make_dynamic_box(
-        mass=5.0, hx=0.08, hy=0.08, hz=0.08,
-        position=(0.0, 0.8, 0.0),
+        mass=5.0, hx=0.08, hy=pot_hy, hz=0.08,
+        position=(0.0, table_top + pot_hy + 0.8, 0.0),
         restitution=0.1, friction=0.5,
     )
     pot_idx = world.add_body(pot)

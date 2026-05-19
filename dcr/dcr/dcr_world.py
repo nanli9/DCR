@@ -17,6 +17,7 @@ from ..rigid.collision import Contact, detect_contacts
 from ..rigid.joint import DistanceJoint
 from ..rigid.solver import ConstraintSolver
 from .modal_dcr import ModalDCRCoupler
+from .spatial_dcr import SpatialDCRCoupler
 
 
 @dataclass
@@ -41,6 +42,7 @@ class DCRWorld:
     prev_contacts: list[Contact] = field(default_factory=list)
 
     dcr_couplers: list[ModalDCRCoupler] = field(default_factory=list)
+    spatial_couplers: list[SpatialDCRCoupler] = field(default_factory=list)
     dcr_enabled: bool = True
 
     # Diagnostics.
@@ -58,6 +60,9 @@ class DCRWorld:
 
     def add_dcr_coupler(self, coupler: ModalDCRCoupler) -> None:
         self.dcr_couplers.append(coupler)
+
+    def add_spatial_coupler(self, coupler: SpatialDCRCoupler) -> None:
+        self.spatial_couplers.append(coupler)
 
     def step(self) -> list[Contact]:
         """Advance simulation by one time step h with DCR.
@@ -86,49 +91,18 @@ class DCRWorld:
 
         # 4. DCR pipeline (Path B: apply velocity corrections post-solve).
         self.last_dcr_ke_injected = 0.0
-        if self.dcr_enabled and self.dcr_couplers and len(lam) > 0:
+        if self.dcr_enabled and len(lam) > 0:
+            # Modal-path couplers (Stage 5).
             for coupler in self.dcr_couplers:
                 dcr_velocities = coupler.process_step(contacts, lam, self.h)
+                self._apply_dcr_velocities(
+                    dcr_velocities, contacts, coupler.elastic_body_idx)
 
-                # Eq. 13: Apply Δv to resting bodies in the normal direction.
-                for body_idx, dv in dcr_velocities.items():
-                    body = self.bodies[body_idx]
-                    if body.is_static:
-                        continue
-
-                    # Find the contact normal for this body (use the first
-                    # resting contact with the elastic body).
-                    for c in contacts:
-                        if c.is_new:
-                            continue
-                        elastic_idx = coupler.elastic_body_idx
-                        if (c.body_a == elastic_idx and c.body_b == body_idx) or \
-                           (c.body_b == elastic_idx and c.body_a == body_idx):
-                            # Apply separation velocity along normal.
-                            # DEVIATION: the solver's contact normals point
-                            # from body B toward body A (see collision.py).
-                            # We want to push the resting body away from
-                            # the elastic surface.
-                            normal = c.normal
-                            if c.body_b == elastic_idx:
-                                # Normal from elastic (B) toward rigid (A).
-                                # Push A in +normal (away from elastic).
-                                push_dir = normal
-                            else:
-                                # Normal from rigid (B) toward elastic (A).
-                                # Push B in -normal (away from elastic).
-                                push_dir = -normal
-
-                            # Track KE before/after for diagnostics.
-                            ke_before = 0.5 * body.mass * np.dot(
-                                body.velocity[:3], body.velocity[:3])
-
-                            body.velocity[:3] += dv * push_dir
-
-                            ke_after = 0.5 * body.mass * np.dot(
-                                body.velocity[:3], body.velocity[:3])
-                            self.last_dcr_ke_injected += ke_after - ke_before
-                            break
+            # Spatial-attenuation couplers (Stage 6).
+            for coupler in self.spatial_couplers:
+                dcr_velocities = coupler.process_step(contacts, lam, self.h)
+                self._apply_dcr_velocities(
+                    dcr_velocities, contacts, coupler.elastic_body_idx)
 
         # 5. Integrate positions.
         for body in self.bodies:
@@ -141,6 +115,38 @@ class DCRWorld:
         self.time += self.h
         self.prev_contacts = contacts
         return contacts
+
+    def _apply_dcr_velocities(
+        self,
+        dcr_velocities: dict[int, float],
+        contacts: list[Contact],
+        elastic_idx: int,
+    ) -> None:
+        """Apply DCR separation velocities to resting bodies (Eq. 13/19)."""
+        for body_idx, dv in dcr_velocities.items():
+            body = self.bodies[body_idx]
+            if body.is_static:
+                continue
+
+            for c in contacts:
+                if c.is_new:
+                    continue
+                if (c.body_a == elastic_idx and c.body_b == body_idx) or \
+                   (c.body_b == elastic_idx and c.body_a == body_idx):
+                    # DEVIATION: solver normals point from B toward A.
+                    normal = c.normal
+                    if c.body_b == elastic_idx:
+                        push_dir = normal   # push A away from elastic B
+                    else:
+                        push_dir = -normal  # push B away from elastic A
+
+                    ke_before = 0.5 * body.mass * np.dot(
+                        body.velocity[:3], body.velocity[:3])
+                    body.velocity[:3] += dv * push_dir
+                    ke_after = 0.5 * body.mass * np.dot(
+                        body.velocity[:3], body.velocity[:3])
+                    self.last_dcr_ke_injected += ke_after - ke_before
+                    break
 
     def kinetic_energy(self) -> float:
         ke = 0.0
