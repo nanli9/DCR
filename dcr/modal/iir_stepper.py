@@ -120,8 +120,19 @@ class IIRModalStepper:
     def step(self, r: NDArray[np.float64] | None = None) -> NDArray[np.float64]:
         """Advance one IIR sub-step (Eq. 10).
 
+        The forcing r is a modal impulse (Ns in physical units). The IIR
+        uses the impulse-invariant discretization:
+
+            q_j^(k) = a1 q^(k-1) - a2 q^(k-2) + (a_r / m_j) * r_j^(k-1)
+
+        # DEVIATION: The paper's Eq. 10 writes r/(m T), which is correct for
+        # continuous force input f=r/T spread over one sub-step. Since we
+        # inject an impulse directly (λ_N from PGS), we use the impulse-
+        # invariant form r/m without the 1/T factor. The result is identical
+        # when r_paper = impulse and their formula applies force = impulse/T.
+
         Args:
-            r: Modal forcing vector (m,). Applied at this sub-step only.
+            r: Modal impulse vector (m,). Applied at this sub-step only.
                Pass None or zeros for free vibration sub-steps.
 
         Returns:
@@ -130,8 +141,8 @@ class IIRModalStepper:
         q_new = self.a1 * self.q_prev - self.a2 * self.q_prev2
 
         if r is not None:
-            # r_j / (m_j T) scaled by a_r,j.
-            q_new += self.ar * r / (self.m_diag * self.T)
+            # Impulse-invariant: a_r * r_j / m_j
+            q_new += self.ar * r / self.m_diag
 
         self.q_prev2 = self.q_prev
         self.q_prev = q_new
