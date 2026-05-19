@@ -98,8 +98,15 @@ def make_slab_tet_mesh(
     ny: int = 6,
     nz: int = 1,
 ) -> TetMesh:
-    """Thin table-like slab centered at the origin."""
-    return _make_box_tet_mesh(length, width, height, nx, ny, nz)
+    """Thin table-like slab centered at the origin (Y-up convention).
+
+    The slab extends in X (length) and Z (width), and is thin in Y (height).
+    Caller parameters nx/ny/nz map to cells along length/width/height
+    respectively, so ny controls the "wide" Z axis and nz the thin Y axis.
+    """
+    # Reorder so the box is (lx=length, ly=height, lz=width) with
+    # cell counts (nx, nz, ny) to match the Y-up convention.
+    return _make_box_tet_mesh(length, height, width, nx, nz, ny)
 
 
 def _make_box_tet_mesh(

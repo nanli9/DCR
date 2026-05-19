@@ -16,7 +16,35 @@ uv sync
 
 ## Run
 
-Launch the test scene (box on a ground plane) in polyscope:
+Run all tests:
+
+```bash
+uv run pytest tests/ -v
+```
+
+### Stage 1 — Rigid body demos
+
+```bash
+uv run python scripts/run_stage1.py bounce    # Single box bouncing
+uv run python scripts/run_stage1.py stack     # 10 stacked boxes
+uv run python scripts/run_stage1.py incline   # Box on inclined plane
+uv run python scripts/run_stage1.py pair      # Sphere drops onto box
+uv run python scripts/run_stage1.py collide   # Two spheres colliding
+uv run python scripts/run_stage1.py linked    # Two spheres linked by rod
+uv run python scripts/run_stage1.py chain     # Three boxes linked by rods
+```
+
+### Stage 2 — FEM demo
+
+```bash
+uv run python scripts/run_stage2.py              # Default: 1 kg box on table
+uv run python scripts/run_stage2.py --mass 5.0   # Heavier box
+uv run python scripts/run_stage2.py --scale 500  # Amplify deformation display
+```
+
+### Viewer
+
+Launch a scene in polyscope:
 
 ```bash
 uv run python scripts/run_viewer.py scenes/test_box.py
