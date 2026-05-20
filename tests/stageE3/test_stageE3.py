@@ -131,11 +131,12 @@ def test_eta_one_energy_bounded():
     for step_i in range(500):
         world.step()
 
-        # Track energy injection per step
-        dE_injected = max(0.0,
-            coupler.last_E_modal_post_kick - coupler.last_E_modal_pre_kick)
+        # Track true energy injection per step (no clipping — dissipative
+        # kicks are negative dE and SHOULD reduce the cumulative total).
+        dE_injected = (coupler.last_E_modal_post_kick
+                       - coupler.last_E_modal_pre_kick)
         cumulative_injected += dE_injected
-        cumulative_loss += world.last_E_loss
+        cumulative_loss += world.last_E_loss  # eta=1 so E_max = E_loss
 
         # Check invariant every step (foundation §15)
         assert cumulative_injected <= cumulative_loss + 1e-9, (

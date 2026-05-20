@@ -115,8 +115,11 @@ def _run_sim(world, plate_indices, coupler=None):
     plate_y = [[] for _ in plate_indices]
     plate_pos = [[] for _ in plate_indices]
     pot_pos = []
-    cum_injected = []
-    cum_loss = []
+    # Track true cumulative energy (no clipping — dissipative kicks count
+    # as negative injection, which is physically correct).
+    cum_injected = []   # true sum of dE_modal per kick (can be negative)
+    cum_loss = []       # eta * sum of E_loss
+    E_modal_hist = []   # modal energy over time
     c_inj = 0.0
     c_loss = 0.0
 
@@ -134,9 +137,12 @@ def _run_sim(world, plate_indices, coupler=None):
         pot_pos.append(world.bodies[pot_idx].position.copy())
 
         if coupler is not None:
-            dE = max(0.0, coupler.last_E_modal_post_kick - coupler.last_E_modal_pre_kick)
+            # True dE: includes negative (dissipative) kicks.
+            dE = coupler.last_E_modal_post_kick - coupler.last_E_modal_pre_kick
             c_inj += dE
-            c_loss += world.last_E_loss
+            c_loss += world.eta * world.last_E_loss
+            E_modal_hist.append(modal_energy(
+                coupler._stepper.q, coupler._stepper.qdot, omega))
         cum_injected.append(c_inj)
         cum_loss.append(c_loss)
 
@@ -148,7 +154,26 @@ def _run_sim(world, plate_indices, coupler=None):
         "pot_pos": np.array(pot_pos),
         "cum_injected": np.array(cum_injected),
         "cum_loss": np.array(cum_loss),
+        "E_modal": np.array(E_modal_hist) if E_modal_hist else np.array([]),
     }
+
+
+def _print_energy_summary(res, label):
+    """Print energy invariant summary with violation check."""
+    inj = res["cum_injected"]
+    loss = res["cum_loss"]
+    margin = loss - inj  # should be >= 0 everywhere
+    min_margin = np.min(margin)
+    final_inj = inj[-1]
+    final_loss = loss[-1]
+    status = "PASS" if min_margin >= -1e-9 else "VIOLATION"
+    print(f"  Σ ΔE_modal:  {final_inj:.4f} J")
+    print(f"  η · Σ E_loss: {final_loss:.4f} J")
+    print(f"  Min margin:   {min_margin:.6f} J  [{status}]")
+    if len(res["E_modal"]) > 0:
+        print(f"  E_modal(end):  {res['E_modal'][-1]:.4f} J\n")
+    else:
+        print()
 
 
 def make_plots(results_orig, results_03, results_10):
@@ -187,18 +212,40 @@ def make_plots(results_orig, results_03, results_10):
     ax.plot(t_ms, results_10["cum_loss"], "r-", linewidth=1.5,
             label="η · Σ E_loss (η=1.0)")
     ax.plot(t_ms, results_10["cum_injected"], "b-", linewidth=1.5,
-            label="Σ E_modal_injected")
+            label="Σ ΔE_modal (true, incl. dissipative)")
     ax.fill_between(t_ms, results_10["cum_injected"], results_10["cum_loss"],
                     alpha=0.15, color="green", label="headroom")
     ax.set_xlabel("Time (ms)")
     ax.set_ylabel("Cumulative energy (J)")
-    ax.set_title("Stage E3: Energy invariant — cumulative injection ≤ cumulative loss")
+    ax.set_title("Stage E3: Energy invariant — Σ ΔE_modal ≤ η · Σ E_loss (foundation §15)")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(os.path.join(OUT_DIR, "energy_invariant.png"), dpi=150)
     plt.close(fig)
     print("  Saved energy_invariant.png")
+
+    # --- Plot 2b: Modal energy over time (physics benchmark) ---
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    for ax, res, label in [(axes[0], results_03, "η=0.3"),
+                           (axes[1], results_10, "η=1.0")]:
+        if len(res["E_modal"]) > 0:
+            t = res["times"] * 1000
+            ax.plot(t, res["E_modal"], "b-", linewidth=0.8, label="E_modal(t)")
+            ax.plot(t, res["cum_loss"], "r--", linewidth=1.0,
+                    label="η · Σ E_loss (budget ceiling)")
+            ax.set_xlabel("Time (ms)")
+            ax.set_ylabel("Energy (J)")
+            ax.set_title(f"Modal energy evolution ({label})")
+            ax.legend(fontsize=8)
+            ax.grid(True, alpha=0.3)
+    fig.suptitle("Stage E3: Modal energy — injected at impact, then decays via damping",
+                 y=1.02)
+    fig.tight_layout()
+    fig.savefig(os.path.join(OUT_DIR, "modal_energy_evolution.png"),
+                dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print("  Saved modal_energy_evolution.png")
 
     # --- Plot 3: Plate Y position (height) comparison ---
     fig, axes = plt.subplots(1, 3, figsize=(14, 4), sharey=True)
@@ -327,8 +374,7 @@ def main():
     results_03 = _run_sim(world_03, plates_03, coupler_03)
     max_vy_03 = max(max(r) for r in results_03["plate_vy"])
     print(f"  Max plate vy: {max_vy_03*1000:.2f} mm/s")
-    print(f"  Cum injected: {results_03['cum_injected'][-1]:.6f} J")
-    print(f"  Cum loss:     {results_03['cum_loss'][-1]:.6f} J\n")
+    _print_energy_summary(results_03, "eta=0.3")
 
     # --- Run passive DCR eta=1.0 ---
     print("Running passive DCR (eta=1.0)...")
@@ -337,18 +383,12 @@ def main():
     results_10 = _run_sim(world_10, plates_10, coupler_10)
     max_vy_10 = max(max(r) for r in results_10["plate_vy"])
     print(f"  Max plate vy: {max_vy_10*1000:.2f} mm/s")
-    print(f"  Cum injected: {results_10['cum_injected'][-1]:.6f} J")
-    print(f"  Cum loss:     {results_10['cum_loss'][-1]:.6f} J\n")
-
-    # Amplitude ratio
-    if max_vy_orig > 1e-10:
-        print(f"Amplitude ratios vs original DCR:")
-        print(f"  eta=0.3: {max_vy_03/max_vy_orig:.3f}x")
-        print(f"  eta=1.0: {max_vy_10/max_vy_orig:.3f}x\n")
+    _print_energy_summary(results_10, "eta=1.0")
 
     # Generate plots
     print("Generating plots...")
     make_plots(results_orig, results_03, results_10)
+    print()
 
     if not plot_only:
         print("\nLaunching polyscope...")
