@@ -50,6 +50,17 @@ uv run python scripts/run_stage6.py --beta 1   # Volume-like attenuation
 uv run python scripts/run_stage6.py --beta 2   # Strong decay
 ```
 
+### Stage 7 — End-to-end scenes and ground-truth comparison
+
+```bash
+uv run python scripts/run_stage7.py            # Dinner scene (pre-recorded playback)
+uv run python scripts/run_stage7.py spatial    # Spatial attenuation (pre-recorded)
+uv run python scripts/run_stage7.py compare    # DCR vs ground-truth (matplotlib)
+uv run python scripts/run_stage7.py --realtime          # Dinner scene, physics stepping live
+uv run python scripts/run_stage7.py spatial --realtime   # Spatial scene, physics live
+uv run python scripts/run_stage7.py --save     # Save all GIFs to docs/stage7/
+```
+
 ### Viewer
 
 Launch a scene in polyscope:
@@ -63,6 +74,7 @@ uv run python scripts/run_viewer.py scenes/test_box.py
 - **numpy** / **scipy** — linear algebra, sparse FEM assembly, eigenproblems
 - **warp-lang** (CPU) — hot inner loops
 - **polyscope** — 3D visualization
+- **matplotlib** — 2D plots and GIF animation (Stage 7)
 
 ## Project structure
 
