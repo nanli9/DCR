@@ -109,9 +109,12 @@ def _settle(world, plate_indices, n_steps=200):
 
 def _run_sim(world, plate_indices, coupler=None):
     """Run simulation and collect diagnostics."""
+    pot_idx = len(world.bodies) - 1
     times = []
     plate_vy = [[] for _ in plate_indices]
     plate_y = [[] for _ in plate_indices]
+    plate_pos = [[] for _ in plate_indices]
+    pot_pos = []
     cum_injected = []
     cum_loss = []
     c_inj = 0.0
@@ -126,6 +129,9 @@ def _run_sim(world, plate_indices, coupler=None):
         for i, idx in enumerate(plate_indices):
             plate_vy[i].append(world.bodies[idx].velocity[1])
             plate_y[i].append(world.bodies[idx].position[1])
+            plate_pos[i].append(world.bodies[idx].position.copy())
+
+        pot_pos.append(world.bodies[pot_idx].position.copy())
 
         if coupler is not None:
             dE = max(0.0, coupler.last_E_modal_post_kick - coupler.last_E_modal_pre_kick)
@@ -138,6 +144,8 @@ def _run_sim(world, plate_indices, coupler=None):
         "times": np.array(times),
         "plate_vy": [np.array(v) for v in plate_vy],
         "plate_y": [np.array(y) for y in plate_y],
+        "plate_pos": [np.array(p) for p in plate_pos],
+        "pot_pos": np.array(pot_pos),
         "cum_injected": np.array(cum_injected),
         "cum_loss": np.array(cum_loss),
     }
@@ -215,7 +223,7 @@ def make_plots(results_orig, results_03, results_10):
 
 
 def run_polyscope(mesh, modal, results_03, results_10, plate_indices_03):
-    """Interactive polyscope playback of passive DCR (eta=0.3 and eta=1.0)."""
+    """Interactive polyscope playback of passive DCR (eta=1.0)."""
     import polyscope as ps
 
     ps.init()
@@ -227,24 +235,32 @@ def run_polyscope(mesh, modal, results_03, results_10, plate_indices_03):
     ps.register_surface_mesh("table", table_surface.vertices,
                              table_surface.faces, color=(0.6, 0.4, 0.2))
 
-    # We'll show eta=1.0 results in polyscope for maximum visual effect
+    # Show eta=1.0 results for maximum visual effect
     res = results_10
 
-    # Reconstruct body positions from plate_y
     plate_meshes = [_box_mesh(0.06, 0.02, 0.06) for _ in range(3)]
-    pot_mesh = _box_mesh(0.08, 0.08, 0.08)
+    pot_mesh_vf = _box_mesh(0.08, 0.08, 0.08)
 
+    # Register pot
+    pot_ps = ps.register_surface_mesh(
+        "pot", pot_mesh_vf[0] + res["pot_pos"][0],
+        pot_mesh_vf[1], color=(0.3, 0.3, 0.3))
+
+    # Register plates
     plate_ps = []
     for i in range(3):
         pm = ps.register_surface_mesh(
-            f"plate_{i}", plate_meshes[i][0], plate_meshes[i][1],
+            f"plate_{i}",
+            plate_meshes[i][0] + res["plate_pos"][i][0],
+            plate_meshes[i][1],
             color=(0.8, 0.2, 0.2))
         plate_ps.append(pm)
 
     frame_idx = [0]
     is_playing = [True]
     record_every = 5
-    n_frames = len(res["times"]) // record_every
+    n_total = len(res["times"])
+    n_frames = n_total // record_every
 
     def callback():
         import polyscope.imgui as imgui
@@ -253,8 +269,7 @@ def run_polyscope(mesh, modal, results_03, results_10, plate_indices_03):
             frame_idx[0] = new_val
         _, is_playing[0] = imgui.Checkbox("Play", is_playing[0])
 
-        si = frame_idx[0] * record_every
-        si = min(si, len(res["times"]) - 1)
+        si = min(frame_idx[0] * record_every, n_total - 1)
         t_ms = res["times"][si] * 1000
         imgui.Text(f"Passive DCR (eta=1.0)  t = {t_ms:.1f} ms")
         imgui.Text(f"Cum injected: {res['cum_injected'][si]:.4f} J")
@@ -263,14 +278,13 @@ def run_polyscope(mesh, modal, results_03, results_10, plate_indices_03):
         if is_playing[0]:
             frame_idx[0] = (frame_idx[0] + 1) % n_frames
 
+        # Update pot position
+        pot_ps.update_vertex_positions(pot_mesh_vf[0] + res["pot_pos"][si])
+
         # Update plate positions
         for i in range(3):
-            pos = np.array([
-                [(-0.3, 0.3, 0.0)[i]],
-                [res["plate_y"][i][si]],
-                [(0.15, -0.1, -0.2)[i]],
-            ]).flatten()
-            plate_ps[i].update_vertex_positions(plate_meshes[i][0] + pos)
+            plate_ps[i].update_vertex_positions(
+                plate_meshes[i][0] + res["plate_pos"][i][si])
 
     ps.set_user_callback(callback)
     ps.show()
