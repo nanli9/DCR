@@ -59,12 +59,6 @@ class PassiveDCRCoupler:
     last_E_modal_post_kick: float = 0.0
     last_alpha: float = 0.0
 
-    # E6: per-mode dissipation from the last step_n call (foundation §9).
-    last_E_diss_per_mode: NDArray[np.float64] = field(
-        init=False, repr=False, default_factory=lambda: np.zeros(0))
-    # E6: robust total dissipation = E_modal(post_kick) - E_modal(post_step).
-    last_E_diss_robust: float = 0.0
-
     def __post_init__(self) -> None:
         self._stepper = HomogeneousStepper.from_modal_analysis(self.modal)
         self._surface = self.modal.fem.mesh.extract_surface()
@@ -139,12 +133,7 @@ class PassiveDCRCoupler:
             self.last_E_modal_pre_kick = modal_energy(
                 self._stepper.q, self._stepper.qdot, omega)
             self.last_E_modal_post_kick = self.last_E_modal_pre_kick
-            self.last_E_diss_per_mode = self._stepper.step_n_with_dissipation(
-                n_substeps)
-            E_post_step = modal_energy(
-                self._stepper.q, self._stepper.qdot, omega)
-            self.last_E_diss_robust = max(
-                0.0, self.last_E_modal_post_kick - E_post_step)
+            self._stepper.step_n(n_substeps)
             return {}
 
         s_total = aggregate_kicks(kicks)
@@ -165,12 +154,7 @@ class PassiveDCRCoupler:
             self._stepper.q, self._stepper.qdot, omega)
 
         # --- Step persistent state for energy bookkeeping (E3.1) ---
-        self.last_E_diss_per_mode = self._stepper.step_n_with_dissipation(
-            n_substeps)
-        E_post_step = modal_energy(
-            self._stepper.q, self._stepper.qdot, omega)
-        self.last_E_diss_robust = max(
-            0.0, self.last_E_modal_post_kick - E_post_step)
+        self._stepper.step_n(n_substeps)
 
         # --- Transient displacement for DCR response (Eqs. 11-13) ---
         # Use ONLY this step's kick for the displacement response, not
