@@ -110,3 +110,58 @@ def aggregate_kicks(
     if not kick_list:
         return np.zeros(0, dtype=np.float64)
     return np.sum(kick_list, axis=0)
+
+
+# ---- Stage E2: passive scaling coefficient α (foundation §6) ----
+
+_EPS_TINY = 1e-18  # Numerical floor for division (default parameter table)
+
+
+def passive_alpha(
+    s: NDArray[np.float64],
+    qdot: NDArray[np.float64],
+    E_max: float,
+) -> float:
+    """Passive scaling coefficient (foundation §6, core eq. §15).
+
+    Given the raw modal kick s and current modal velocity qdot, find the
+    largest alpha in [0, 1] such that
+
+        dE_modal(alpha) = alpha * b + 0.5 * alpha^2 * a  <=  E_max
+
+    where a = s^T s, b = qdot^T s.
+
+    Edge cases (foundation §6, implementation prompt E2.2):
+    - a = 0 (zero impulse): alpha = 0.
+    - E_max = 0, dE_full <= 0 (dissipative kick): alpha = 1.
+    - b < 0, |b| > 0.5*a: dE_full < 0 → alpha = 1 regardless of E_max.
+
+    Args:
+        s: (n_modes,) raw modal velocity kick vector.
+        qdot: (n_modes,) current modal velocity.
+        E_max: Maximum allowed energy increase (eta * E_loss >= 0).
+
+    Returns:
+        alpha: Scaling coefficient in [0, 1].
+    """
+    a = float(np.dot(s, s))
+    b = float(np.dot(qdot, s))
+
+    if a < _EPS_TINY:
+        # Zero impulse → no kick.
+        return 0.0
+
+    dE_full = b + 0.5 * a  # dE_modal(alpha=1)
+
+    if dE_full <= E_max:
+        # Full kick fits in budget (includes dissipative case dE_full < 0).
+        return 1.0
+
+    # Quadratic cap: solve alpha*b + 0.5*alpha^2*a = E_max for positive root.
+    discr = b * b + 2.0 * a * E_max
+    if discr < 0.0:
+        # Can happen only if E_max < 0, which shouldn't occur by construction.
+        return 0.0
+
+    alpha_star = (-b + np.sqrt(max(0.0, discr))) / a
+    return float(np.clip(alpha_star, 0.0, 1.0))
