@@ -14,9 +14,11 @@ from numpy.typing import NDArray
 
 from ..rigid.body import RigidBody, quat_integrate
 from ..rigid.collision import Contact, detect_contacts
+from ..rigid.energy import rigid_kinetic_energy
 from ..rigid.joint import DistanceJoint
 from ..rigid.solver import ConstraintSolver
 from .modal_dcr import ModalDCRCoupler
+from .passive_dcr import PassiveDCRCoupler
 from .spatial_dcr import SpatialDCRCoupler
 
 
@@ -27,8 +29,13 @@ class DCRWorld:
     Usage is identical to rigid.World, but with added DCR couplers
     that process elastic body vibrations after each PGS solve.
 
+    Supports both original forced-IIR couplers (Stage 5) and passive
+    energy-bounded couplers (Stage E3). Use one or the other per body.
+
     Attributes:
         dcr_couplers: List of ModalDCRCoupler, one per elastic body.
+        passive_couplers: List of PassiveDCRCoupler for energy-bounded injection.
+        eta: Transfer efficiency for passive couplers (foundation §1).
         dcr_enabled: Toggle DCR on/off (for A/B comparison).
     """
 
@@ -42,11 +49,15 @@ class DCRWorld:
     prev_contacts: list[Contact] = field(default_factory=list)
 
     dcr_couplers: list[ModalDCRCoupler] = field(default_factory=list)
+    passive_couplers: list[PassiveDCRCoupler] = field(default_factory=list)
     spatial_couplers: list[SpatialDCRCoupler] = field(default_factory=list)
     dcr_enabled: bool = True
+    eta: float = 0.3  # Transfer efficiency η ∈ [0, 1] (foundation §1)
 
     # Diagnostics.
     last_dcr_ke_injected: float = 0.0
+    last_E_loss: float = 0.0
+    last_E_max: float = 0.0
 
     def __post_init__(self) -> None:
         self.solver.h = self.h
@@ -60,6 +71,9 @@ class DCRWorld:
 
     def add_dcr_coupler(self, coupler: ModalDCRCoupler) -> None:
         self.dcr_couplers.append(coupler)
+
+    def add_passive_coupler(self, coupler: PassiveDCRCoupler) -> None:
+        self.passive_couplers.append(coupler)
 
     def add_spatial_coupler(self, coupler: SpatialDCRCoupler) -> None:
         self.spatial_couplers.append(coupler)
@@ -86,15 +100,30 @@ class DCRWorld:
         # 2. Detect contacts.
         contacts = detect_contacts(self.bodies, self.prev_contacts)
 
+        # E0.3: sample rigid KE before solve (foundation §1).
+        E_pre = rigid_kinetic_energy(self.bodies)
+
         # 3. Solve constraints → velocities updated, get λ.
         lam = self.solver.solve(self.bodies, contacts, self.joints)
+
+        # E0.3: sample rigid KE after solve, compute E_loss (foundation §1).
+        E_post = rigid_kinetic_energy(self.bodies)
+        self.last_E_loss = max(0.0, E_pre - E_post)
+        self.last_E_max = self.eta * self.last_E_loss
 
         # 4. DCR pipeline (Path B: apply velocity corrections post-solve).
         self.last_dcr_ke_injected = 0.0
         if self.dcr_enabled and len(lam) > 0:
-            # Modal-path couplers (Stage 5).
+            # Original modal-path couplers (Stage 5, forced IIR).
             for coupler in self.dcr_couplers:
                 dcr_velocities = coupler.process_step(contacts, lam, self.h)
+                self._apply_dcr_velocities(
+                    dcr_velocities, contacts, coupler.elastic_body_idx)
+
+            # Passive energy-bounded couplers (Stage E3).
+            for coupler in self.passive_couplers:
+                dcr_velocities = coupler.process_step(
+                    contacts, lam, self.h, self.last_E_max)
                 self._apply_dcr_velocities(
                     dcr_velocities, contacts, coupler.elastic_body_idx)
 

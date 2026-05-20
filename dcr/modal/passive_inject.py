@@ -10,7 +10,60 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..geom.mesh import TriMesh
-from ..dcr.modal_dcr import _closest_point_on_triangle
+
+
+def _closest_point_on_triangle(
+    p: NDArray[np.float64],
+    v0: NDArray[np.float64],
+    v1: NDArray[np.float64],
+    v2: NDArray[np.float64],
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Closest point on triangle (v0, v1, v2) to point p.
+
+    Returns (closest_point, barycentric_coords).
+    Uses the Voronoi region method (Real-Time Collision Detection, §5.1.5).
+    Duplicated from dcr.dcr.modal_dcr to avoid circular imports.
+    """
+    ab = v1 - v0
+    ac = v2 - v0
+    ap = p - v0
+
+    d1 = np.dot(ab, ap)
+    d2 = np.dot(ac, ap)
+    if d1 <= 0.0 and d2 <= 0.0:
+        return v0.copy(), np.array([1.0, 0.0, 0.0])
+
+    bp = p - v1
+    d3 = np.dot(ab, bp)
+    d4 = np.dot(ac, bp)
+    if d3 >= 0.0 and d4 <= d3:
+        return v1.copy(), np.array([0.0, 1.0, 0.0])
+
+    vc = d1 * d4 - d3 * d2
+    if vc <= 0.0 and d1 >= 0.0 and d3 <= 0.0:
+        v = d1 / (d1 - d3)
+        return v0 + v * ab, np.array([1.0 - v, v, 0.0])
+
+    cp = p - v2
+    d5 = np.dot(ab, cp)
+    d6 = np.dot(ac, cp)
+    if d6 >= 0.0 and d5 <= d6:
+        return v2.copy(), np.array([0.0, 0.0, 1.0])
+
+    vb = d5 * d2 - d1 * d6
+    if vb <= 0.0 and d2 >= 0.0 and d6 <= 0.0:
+        w = d2 / (d2 - d6)
+        return v0 + w * ac, np.array([1.0 - w, 0.0, w])
+
+    va = d3 * d6 - d5 * d4
+    if va <= 0.0 and (d4 - d3) >= 0.0 and (d5 - d6) >= 0.0:
+        w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+        return v1 + w * (v2 - v1), np.array([0.0, 1.0 - w, w])
+
+    denom = 1.0 / (va + vb + vc)
+    v = vb * denom
+    w = vc * denom
+    return v0 + v * ab + w * ac, np.array([1.0 - v - w, v, w])
 
 
 def eval_basis_at_point(
