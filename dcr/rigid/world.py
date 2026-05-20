@@ -11,8 +11,18 @@ from numpy.typing import NDArray
 
 from .body import RigidBody, quat_integrate
 from .collision import Contact, detect_contacts
+from .energy import rigid_kinetic_energy
 from .joint import DistanceJoint
 from .solver import ConstraintSolver
+
+
+@dataclass
+class EnergyRecord:
+    """One row of energy telemetry per rigid step (Stage E0.3)."""
+    t: float
+    E_rigid_pre: float
+    E_rigid_post: float
+    E_loss: float
 
 
 @dataclass
@@ -26,6 +36,8 @@ class World:
     solver: ConstraintSolver = field(default_factory=lambda: ConstraintSolver())
     time: float = 0.0
     prev_contacts: list[Contact] = field(default_factory=list)
+    log_energy: bool = False
+    energy_log: list[EnergyRecord] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         self.solver.h = self.h
@@ -53,8 +65,21 @@ class World:
         # 2. Detect contacts.
         contacts = detect_contacts(self.bodies, self.prev_contacts)
 
+        # E0.3: sample rigid KE before solve (foundation §1).
+        if self.log_energy:
+            E_pre = rigid_kinetic_energy(self.bodies)
+
         # 3. Solve constraints and update velocities.
         lam = self.solver.solve(self.bodies, contacts, self.joints)
+
+        # E0.3: sample rigid KE after solve, compute E_loss (foundation §1).
+        if self.log_energy:
+            E_post = rigid_kinetic_energy(self.bodies)
+            E_loss = max(0.0, E_pre - E_post)
+            self.energy_log.append(EnergyRecord(
+                t=self.time, E_rigid_pre=E_pre, E_rigid_post=E_post,
+                E_loss=E_loss))
+            self._last_E_loss = E_loss
 
         # 4. Integrate positions with symplectic Euler.
         for body in self.bodies:

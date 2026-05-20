@@ -6,9 +6,10 @@ from .body import (
     quat_identity, quat_to_rot, quat_multiply, quat_integrate,
 )
 from .collision import Contact, detect_contacts
+from .energy import rigid_kinetic_energy
 from .joint import DistanceJoint
 from .solver import ConstraintSolver
-from .world import World
+from .world import World, EnergyRecord
 
 __all__ = [
     "RigidBody", "Shape", "ShapeType",
@@ -20,4 +21,6 @@ __all__ = [
     "DistanceJoint",
     "ConstraintSolver",
     "World",
+    "EnergyRecord",
+    "rigid_kinetic_energy",
 ]
