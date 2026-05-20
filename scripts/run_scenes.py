@@ -67,10 +67,14 @@ def _box_mesh(hx, hy, hz):
 # ======================================================================
 
 def build_truck_scene():
-    """Heavy truck bounces on road. Cones and lumber stack respond via DCR.
+    """Heavy objects dropped sequentially on road. Cones and lumber respond.
+
+    Three drops at different positions and heights so they hit the ground
+    one after another — each impact shakes the cones and lumber stack
+    progressively harder.
 
     Inspired by the paper's 'Low-rider truck' scene (Figure 5).
-    Ground is the elastic body; truck, cones, and lumber are rigid.
+    Ground is the elastic body; impactors, cones, and lumber are rigid.
     """
     world = DCRWorld(
         h=H, eta=ETA,
@@ -78,9 +82,9 @@ def build_truck_scene():
         dcr_enabled=True,
     )
 
-    # Ground: wide elastic slab (2m x 1.5m, thin).
-    mesh = make_slab_tet_mesh(length=2.0, width=1.5, height=0.06,
-                              nx=14, ny=10, nz=2)
+    # Ground: wide elastic slab (2.5m x 1.5m, thin).
+    mesh = make_slab_tet_mesh(length=2.5, width=1.5, height=0.06,
+                              nx=16, ny=10, nz=2)
     mat = Material(E=10.0e9, nu=0.3, rho=500.0)  # stiff ground
     ground_top = 0.03
     ground = make_static_plane(normal=(0, 1, 0),
@@ -96,41 +100,49 @@ def build_truck_scene():
 
     body_info = {}  # name -> (idx, hx, hy, hz, color)
 
-    # Truck: heavy box on left side of ground.
-    truck_hx, truck_hy, truck_hz = 0.15, 0.10, 0.10
-    truck = make_dynamic_box(
-        mass=200.0, hx=truck_hx, hy=truck_hy, hz=truck_hz,
-        position=(-0.6, ground_top + truck_hy + 0.4, 0.0),
-        restitution=0.15, friction=0.6,
-    )
-    truck_idx = world.add_body(truck)
-    body_info["truck"] = (truck_idx, truck_hx, truck_hy, truck_hz, (0.2, 0.3, 0.7))
+    # Three sequential drops at different positions and heights.
+    # Low drops with staggered timing via height:
+    #   drop_0 hits at ~0.14s (0.1m), drop_1 at ~0.32s (0.5m), drop_2 at ~0.54s (1.4m)
+    drops = [
+        ("drop_light", -0.7,  0.10,  20.0, (0.4, 0.6, 0.9)),   # light, low
+        ("drop_mid",   -0.3,  0.50,  50.0, (0.3, 0.4, 0.8)),   # medium
+        ("drop_heavy",  0.1,  1.40, 120.0, (0.2, 0.25, 0.6)),  # heavy
+    ]
+    drop_hx, drop_hy, drop_hz = 0.10, 0.07, 0.08
+    for name, dx, dy, mass, color in drops:
+        drop = make_dynamic_box(
+            mass=mass, hx=drop_hx, hy=drop_hy, hz=drop_hz,
+            position=(dx, ground_top + drop_hy + dy, 0.0),
+            restitution=0.05, friction=0.6,
+        )
+        idx = world.add_body(drop)
+        body_info[name] = (idx, drop_hx, drop_hy, drop_hz, color)
 
-    # Traffic cones: line of 4 small light boxes on right side.
-    for ci, cz in enumerate([-0.3, -0.1, 0.1, 0.3]):
+    # Traffic cones: line of 5 small light boxes on right side.
+    for ci, cz in enumerate([-0.4, -0.2, 0.0, 0.2, 0.4]):
         cone_hx, cone_hy, cone_hz = 0.025, 0.04, 0.025
         cone = make_dynamic_box(
             mass=0.3, hx=cone_hx, hy=cone_hy, hz=cone_hz,
-            position=(0.4, ground_top + cone_hy + 0.001, cz),
+            position=(0.6, ground_top + cone_hy + 0.001, cz),
             restitution=0.0, friction=0.5,
         )
         idx = world.add_body(cone)
         body_info[f"cone_{ci}"] = (idx, cone_hx, cone_hy, cone_hz, (1.0, 0.5, 0.0))
 
-    # Lumber stack: 3 blocks stacked vertically.
+    # Lumber stack: 4 blocks stacked vertically.
     lumber_hx, lumber_hy, lumber_hz = 0.06, 0.025, 0.12
-    for li in range(3):
+    for li in range(4):
         y = ground_top + lumber_hy + li * 2 * lumber_hy + 0.001 * (li + 1)
         lumber = make_dynamic_box(
             mass=2.0, hx=lumber_hx, hy=lumber_hy, hz=lumber_hz,
-            position=(0.15, y, 0.0),
+            position=(0.3, y, 0.0),
             restitution=0.0, friction=0.7,
         )
         idx = world.add_body(lumber)
         body_info[f"lumber_{li}"] = (idx, lumber_hx, lumber_hy, lumber_hz,
                                      (0.6, 0.35, 0.15))
 
-    return world, coupler, body_info, mesh, "Truck on Road"
+    return world, coupler, body_info, mesh, "Road Impact (3 sequential drops)"
 
 
 # ======================================================================
@@ -270,27 +282,26 @@ def build_ledge_scene():
 
 def simulate(world, coupler, body_info, n_steps=1500):
     """Settle then simulate, recording positions."""
-    # Find the heaviest dynamic body — that's the impactor. Hold it static during settle.
-    max_mass = 0
-    impactor_idx = None
+    # Identify impactors: bodies named drop_*, truck, boulder, drop.
+    impactor_names = {"drop", "truck", "boulder"}
+    impactor_idxs = []
     for name, (idx, *_) in body_info.items():
-        if world.bodies[idx].mass > max_mass and not world.bodies[idx].is_static:
-            max_mass = world.bodies[idx].mass
-            impactor_idx = idx
+        if name in impactor_names or name.startswith("drop_"):
+            impactor_idxs.append(idx)
 
-    # Settle: hold impactor static, DCR off.
-    if impactor_idx is not None:
-        world.bodies[impactor_idx].is_static = True
+    # Settle: hold impactors static, DCR off.
+    for idx in impactor_idxs:
+        world.bodies[idx].is_static = True
     old_dcr = world.dcr_enabled
     world.dcr_enabled = False
     for _ in range(200):
         world.step()
     # Zero velocities of non-impactor bodies.
     for idx_body in range(len(world.bodies)):
-        if idx_body != impactor_idx and not world.bodies[idx_body].is_static:
+        if idx_body not in impactor_idxs and not world.bodies[idx_body].is_static:
             world.bodies[idx_body].velocity[:] = 0.0
-    if impactor_idx is not None:
-        world.bodies[impactor_idx].is_static = False
+    for idx in impactor_idxs:
+        world.bodies[idx].is_static = False
     world.dcr_enabled = old_dcr
     world.time = 0.0
 
@@ -397,8 +408,9 @@ def main():
         print(f"  Bodies: {len(world.bodies)}")
         print(f"  Dynamic: {[n for n in body_info]}")
 
-        print(f"Simulating ({1500 * H:.1f}s)...")
-        times, positions = simulate(world, coupler, body_info, n_steps=1500)
+        n_steps = 1800 if name == "truck" else 1500
+        print(f"Simulating ({n_steps * H:.1f}s)...")
+        times, positions = simulate(world, coupler, body_info, n_steps=n_steps)
         print(f"  Done. {len(times)} frames recorded.")
 
         print("Launching polyscope...")
