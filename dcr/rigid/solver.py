@@ -352,6 +352,12 @@ class ConstraintSolver:
 
         Friction bounds are updated dynamically:
             lo = -mu * lambda_N,  hi = +mu * lambda_N
+
+        Note: fixed sequential ordering creates a small systematic friction
+        residual for multi-contact configurations (O(0.1mm) drift for 80
+        iterations). This is a known PGS convergence artifact — not a bug.
+        Increasing iterations to 320+ eliminates it. See
+        scripts/investigate_lateral_drift.py for the full analysis.
         """
         n = len(lam)
         diag = A.diagonal().copy()
