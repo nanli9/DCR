@@ -91,6 +91,10 @@ class PassiveDCRCoupler:
         # --- Identify new and resting contacts on the elastic body ---
         new_contacts_data: list[tuple[Contact, int]] = []  # (contact, ci)
         resting_contacts: list[Contact] = []
+        # Track which bodies are involved in new impacts so we can exclude
+        # them from distant response — they are at the impact site, not
+        # "distant" resting contacts (matches original DCR Stage 5 intent).
+        impacting_body_ids: set[int] = set()
 
         for ci, contact in enumerate(contacts):
             if contact.body_a != self.elastic_body_idx and \
@@ -98,8 +102,19 @@ class PassiveDCRCoupler:
                 continue
             if contact.is_new:
                 new_contacts_data.append((contact, ci))
+                other = contact.body_a if contact.body_b == self.elastic_body_idx \
+                    else contact.body_b
+                impacting_body_ids.add(other)
             else:
                 resting_contacts.append(contact)
+
+        # Filter resting contacts: exclude bodies that caused new impacts
+        # this step. They are at the impact site, not distant.
+        resting_contacts = [
+            c for c in resting_contacts
+            if (c.body_a if c.body_b == self.elastic_body_idx else c.body_b)
+            not in impacting_body_ids
+        ]
 
         # --- Project new contact impulses → s_total (E1, foundation §4, §8) ---
         kicks: list[NDArray[np.float64]] = []
@@ -125,15 +140,16 @@ class PassiveDCRCoupler:
             kicks.append(s_c)
 
         if not kicks:
-            # No new impulses — still step the homogeneous stepper for decay.
+            # No new impulses — step the homogeneous stepper for free decay,
+            # but do NOT produce distant responses (matches Stage 5 behavior:
+            # no new impact → no DCR velocity corrections).
             n_substeps = max(1, int(np.ceil(h / self._stepper.T)))
             self.last_alpha = 0.0
             self.last_E_modal_pre_kick = modal_energy(
                 self._stepper.q, self._stepper.qdot, omega)
             self.last_E_modal_post_kick = self.last_E_modal_pre_kick
-            q_history = self._stepper.step_n(n_substeps)
-            return self._compute_distant_response(
-                resting_contacts, q_history, h)
+            self._stepper.step_n(n_substeps)
+            return {}
 
         s_total = aggregate_kicks(kicks)
 
