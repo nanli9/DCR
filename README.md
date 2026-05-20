@@ -42,6 +42,14 @@ uv run python scripts/run_stage2.py --mass 5.0   # Heavier box
 uv run python scripts/run_stage2.py --scale 500  # Amplify deformation display
 ```
 
+### Stage 6 — Spatial attenuation DCR
+
+```bash
+uv run python scripts/run_stage6.py            # Default: β=0.5 (shell-like)
+uv run python scripts/run_stage6.py --beta 1   # Volume-like attenuation
+uv run python scripts/run_stage6.py --beta 2   # Strong decay
+```
+
 ### Viewer
 
 Launch a scene in polyscope:
