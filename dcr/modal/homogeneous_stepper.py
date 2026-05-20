@@ -130,6 +130,31 @@ class HomogeneousStepper:
 
         return q_history
 
+    def step_n_with_dissipation(self, n_steps: int) -> NDArray[np.float64]:
+        """Step n_steps sub-steps, returning per-mode cumulative dissipation.
+
+        At each sub-step k, per-mode instantaneous dissipation power is
+        (foundation §9, implementation prompt E6.1):
+
+            P_diss_i^(k) = 2 * zeta_i * omega_i * qdot_i^(k)^2
+
+        Accumulated as E_diss_i = sum_k T * P_diss_i^(k).
+
+        Returns:
+            E_diss_per_mode: (n_modes,) cumulative dissipated energy per mode
+                             over the n_steps sub-steps.
+        """
+        m = len(self.omega)
+        E_diss = np.zeros(m, dtype=np.float64)
+        T = self.T
+
+        for k in range(n_steps):
+            # Log dissipation BEFORE stepping (uses current qdot).
+            E_diss += T * 2.0 * self.zeta * self.omega * self.qdot**2
+            self.step()
+
+        return E_diss
+
     def transient_step_n(
         self, qdot_kick: NDArray[np.float64], n_steps: int,
     ) -> NDArray[np.float64]:
