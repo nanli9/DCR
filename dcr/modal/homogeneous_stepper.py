@@ -130,6 +130,39 @@ class HomogeneousStepper:
 
         return q_history
 
+    def transient_step_n(
+        self, qdot_kick: NDArray[np.float64], n_steps: int,
+    ) -> NDArray[np.float64]:
+        """Step from (q=0, qdot=qdot_kick) for n_steps. Pure — no side effects.
+
+        Computes the transient response to a single velocity kick, using the
+        same precomputed transition matrices as the persistent stepper.
+        Does NOT modify self.q or self.qdot.
+
+        This separates the displacement response (transient, for DCR Eqs. 11-13)
+        from the persistent energy state (for the passivity bound, foundation §15).
+
+        Args:
+            qdot_kick: (n_modes,) initial velocity (typically alpha * s_total).
+            n_steps: Number of sub-steps.
+
+        Returns:
+            q_history: (n_steps, n_modes) transient displacement history.
+        """
+        m = len(self.omega)
+        q_history = np.zeros((n_steps, m), dtype=np.float64)
+        q = np.zeros(m, dtype=np.float64)
+        qdot = qdot_kick.copy()
+
+        for k in range(n_steps):
+            q_new = self._A00 * q + self._A01 * qdot
+            qdot_new = self._A10 * q + self._A11 * qdot
+            q = q_new
+            qdot = qdot_new
+            q_history[k] = q
+
+        return q_history
+
     @classmethod
     def from_modal_analysis(cls, modal) -> "HomogeneousStepper":
         """Construct from a ModalAnalysis instance, matching IIR stepper conventions."""

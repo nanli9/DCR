@@ -91,10 +91,6 @@ class PassiveDCRCoupler:
         # --- Identify new and resting contacts on the elastic body ---
         new_contacts_data: list[tuple[Contact, int]] = []  # (contact, ci)
         resting_contacts: list[Contact] = []
-        # Track which bodies are involved in new impacts so we can exclude
-        # them from distant response — they are at the impact site, not
-        # "distant" resting contacts (matches original DCR Stage 5 intent).
-        impacting_body_ids: set[int] = set()
 
         for ci, contact in enumerate(contacts):
             if contact.body_a != self.elastic_body_idx and \
@@ -102,19 +98,8 @@ class PassiveDCRCoupler:
                 continue
             if contact.is_new:
                 new_contacts_data.append((contact, ci))
-                other = contact.body_a if contact.body_b == self.elastic_body_idx \
-                    else contact.body_b
-                impacting_body_ids.add(other)
             else:
                 resting_contacts.append(contact)
-
-        # Filter resting contacts: exclude bodies that caused new impacts
-        # this step. They are at the impact site, not distant.
-        resting_contacts = [
-            c for c in resting_contacts
-            if (c.body_a if c.body_b == self.elastic_body_idx else c.body_b)
-            not in impacting_body_ids
-        ]
 
         # --- Project new contact impulses → s_total (E1, foundation §4, §8) ---
         kicks: list[NDArray[np.float64]] = []
@@ -139,11 +124,11 @@ class PassiveDCRCoupler:
             s_c = project_impulse(Phi_x, j_world)
             kicks.append(s_c)
 
+        n_substeps = max(1, int(np.ceil(h / self._stepper.T)))
+
         if not kicks:
-            # No new impulses — step the homogeneous stepper for free decay,
-            # but do NOT produce distant responses (matches Stage 5 behavior:
-            # no new impact → no DCR velocity corrections).
-            n_substeps = max(1, int(np.ceil(h / self._stepper.T)))
+            # No new impulses — step the persistent state for free decay,
+            # but produce no distant responses (no new impact → no DCR).
             self.last_alpha = 0.0
             self.last_E_modal_pre_kick = modal_energy(
                 self._stepper.q, self._stepper.qdot, omega)
@@ -159,19 +144,26 @@ class PassiveDCRCoupler:
         alpha = passive_alpha(s_total, self._stepper.qdot, E_max)
         self.last_alpha = alpha
 
+        # The scaled kick applied to the persistent energy state.
+        alpha_s = alpha * s_total
+
         # --- Velocity kick (foundation §7): qdot += alpha * s_total ---
-        self._stepper.qdot += alpha * s_total
+        self._stepper.qdot += alpha_s
 
         self.last_E_modal_post_kick = modal_energy(
             self._stepper.q, self._stepper.qdot, omega)
 
-        # --- Homogeneous stepping for h/T sub-steps (E3.1) ---
-        n_substeps = max(1, int(np.ceil(h / self._stepper.T)))
-        q_history = self._stepper.step_n(n_substeps)
+        # --- Step persistent state for energy bookkeeping (E3.1) ---
+        self._stepper.step_n(n_substeps)
 
-        # --- Distant contact response (Eqs. 11-13, unchanged from Stage 5) ---
+        # --- Transient displacement for DCR response (Eqs. 11-13) ---
+        # Use ONLY this step's kick for the displacement response, not
+        # the full persistent state. This matches the original IIR behavior
+        # (reset each step) while keeping the persistent state for energy.
+        q_history_transient = self._stepper.transient_step_n(alpha_s, n_substeps)
+
         return self._compute_distant_response(
-            resting_contacts, q_history, h)
+            resting_contacts, q_history_transient, h)
 
     def _compute_distant_response(
         self,
