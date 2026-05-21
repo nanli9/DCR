@@ -104,9 +104,9 @@ def build_truck_scene():
     # Low drops with staggered timing via height:
     #   drop_0 hits at ~0.14s (0.1m), drop_1 at ~0.32s (0.5m), drop_2 at ~0.54s (1.4m)
     drops = [
-        ("drop_light", -0.7,  0.10,  20.0, (0.4, 0.6, 0.9)),   # light, low
+        ("drop_light", -0.2,  0.10,  20.0, (0.4, 0.6, 0.9)),   # light, low
         ("drop_mid",   -0.3,  0.50,  50.0, (0.3, 0.4, 0.8)),   # medium
-        ("drop_heavy",  0.1,  1.40, 120.0, (0.2, 0.25, 0.6)),  # heavy
+        ("drop_heavy", -0.4,  1.40, 120.0, (0.2, 0.25, 0.6)),  # heavy
     ]
     drop_hx, drop_hy, drop_hz = 0.10, 0.07, 0.08
     for name, dx, dy, mass, color in drops:
@@ -166,7 +166,7 @@ def build_shelf_scene():
     mesh = make_slab_tet_mesh(length=0.8, width=0.3, height=0.03,
                               nx=12, ny=5, nz=2)
     mat = Material(E=8.0e9, nu=0.3, rho=600.0)  # wood shelf
-    shelf_top = 0.5  # shelf is elevated
+    shelf_top = 0.015  # top of slab (height/2)
     shelf = make_static_plane(normal=(0, 1, 0),
                               point=(0, shelf_top, 0), friction=0.5)
     shelf_idx = world.add_body(shelf)
@@ -180,18 +180,18 @@ def build_shelf_scene():
 
     body_info = {}
 
-    # Books: 5 squat boxes standing upright on the shelf.
+    # Books: thin tall dominoes standing upright on the shelf.
     book_colors = [
         (0.8, 0.2, 0.2), (0.2, 0.6, 0.2), (0.2, 0.2, 0.8),
         (0.7, 0.5, 0.1), (0.6, 0.2, 0.6),
     ]
     for bi in range(5):
-        book_hx, book_hy, book_hz = 0.015, 0.05, 0.035
-        bx = -0.15 + bi * 0.06
+        book_hx, book_hy, book_hz = 0.005, 0.04, 0.03  # thin x, tall y
+        bx = -0.15 + bi * 0.04  # spaced ~1.5x height apart for domino chain
         book = make_dynamic_box(
-            mass=0.4, hx=book_hx, hy=book_hy, hz=book_hz,
+            mass=0.3, hx=book_hx, hy=book_hy, hz=book_hz,
             position=(bx, shelf_top + book_hy + 0.001, 0.0),
-            restitution=0.0, friction=0.4,
+            restitution=0.0, friction=0.3,
         )
         idx = world.add_body(book)
         body_info[f"book_{bi}"] = (idx, book_hx, book_hy, book_hz, book_colors[bi])
@@ -200,7 +200,7 @@ def build_shelf_scene():
     drop_hx, drop_hy, drop_hz = 0.05, 0.05, 0.05
     drop = make_dynamic_box(
         mass=8.0, hx=drop_hx, hy=drop_hy, hz=drop_hz,
-        position=(0.3, shelf_top + drop_hy + 0.4, 0.0),
+        position=(0.15, shelf_top + drop_hy + 0.5, 0.0),
         restitution=0.1, friction=0.5,
     )
     idx = world.add_body(drop)
@@ -244,30 +244,42 @@ def build_ledge_scene():
 
     body_info = {}
 
-    # Rocks: small boxes near the free edge (right side).
-    rock_positions = [
-        (0.4, 0.0, -0.2), (0.45, 0.0, 0.1), (0.35, 0.0, 0.25),
-        (0.5, 0.0, -0.05), (0.38, 0.0, -0.3),
-    ]
-    for ri, (rx, _, rz) in enumerate(rock_positions):
-        rock_hx = 0.03 + 0.01 * (ri % 3)
-        rock_hy = 0.025 + 0.01 * (ri % 2)
-        rock_hz = 0.03 + 0.005 * (ri % 3)
-        rock = make_dynamic_box(
-            mass=1.5 + 0.5 * ri, hx=rock_hx, hy=rock_hy, hz=rock_hz,
-            position=(rx, ledge_top + rock_hy + 0.001, rz),
-            restitution=0.0, friction=0.4,
-        )
-        idx = world.add_body(rock)
-        gray = 0.4 + 0.1 * (ri % 3)
-        body_info[f"rock_{ri}"] = (idx, rock_hx, rock_hy, rock_hz,
-                                   (gray, gray - 0.05, gray - 0.1))
+    # Big box sitting at the free edge (right side) of the ledge.
+    pedestal_hx, pedestal_hy, pedestal_hz = 0.06, 0.05, 0.06
+    pedestal = make_dynamic_box(
+        mass=5.0, hx=pedestal_hx, hy=pedestal_hy, hz=pedestal_hz,
+        position=(0.0, ledge_top + pedestal_hy + 0.001, 0.0),
+        restitution=0.0, friction=0.4,
+    )
+    idx = world.add_body(pedestal)
+    body_info["pedestal"] = (idx, pedestal_hx, pedestal_hy, pedestal_hz,
+                             (0.55, 0.45, 0.35))
 
-    # Boulder: heavy box dropped from above onto the ledge center.
+    # Tall, thin pillars at the outer edge of the pedestal — barely balanced.
+    pillar_hx, pillar_hy, pillar_hz = 0.01, 0.04, 0.01
+    # Place at outer x-edge of pedestal (pedestal edge is at x = 0.5 + 0.06 = 0.56)
+    # Pillar center at x = 0.54, so inner edge at 0.53, outer edge at 0.55 — near the lip.
+    stack_offsets = [
+        (0.04, 0.0, -0.035),  # front-edge
+        (0.04, 0.0,  0.00),   # center-edge
+        (0.04, 0.0,  0.035),  # back-edge
+    ]
+    colors = [(0.7, 0.3, 0.3), (0.3, 0.6, 0.3), (0.3, 0.3, 0.7)]
+    pedestal_top = ledge_top + 2 * pedestal_hy + 0.001
+    for si, ((sx, _, sz), color) in enumerate(zip(stack_offsets, colors)):
+        box = make_dynamic_box(
+            mass=0.5, hx=pillar_hx, hy=pillar_hy, hz=pillar_hz,
+            position=(0.0 + sx, pedestal_top + pillar_hy + 0.001, sz),
+            restitution=0.0, friction=0.5,
+        )
+        idx = world.add_body(box)
+        body_info[f"box_{si}"] = (idx, pillar_hx, pillar_hy, pillar_hz, color)
+
+    # Boulder: heavy rock dropped right next to the pedestal.
     boulder_h = 0.08
     boulder = make_dynamic_box(
         mass=50.0, hx=boulder_h, hy=boulder_h, hz=boulder_h,
-        position=(-0.1, ledge_top + boulder_h + 0.8, 0.0),
+        position=(0.30, ledge_top + boulder_h + 0.8, 0.0),
         restitution=0.1, friction=0.5,
     )
     idx = world.add_body(boulder)
@@ -308,19 +320,22 @@ def simulate(world, coupler, body_info, n_steps=1500):
     # Record.
     times = []
     positions = {name: [] for name in body_info}
+    orientations = {name: [] for name in body_info}
 
     for step_i in range(n_steps):
         world.step()
         times.append(world.time)
         for name, (idx, *_) in body_info.items():
             positions[name].append(world.bodies[idx].position.copy())
+            orientations[name].append(world.bodies[idx].orientation.copy())
 
-    return times, positions
+    return times, positions, orientations
 
 
-def playback_polyscope(mesh, body_info, times, positions, title):
-    """Interactive polyscope playback."""
+def playback_polyscope(mesh, body_info, times, positions, orientations, title):
+    """Interactive polyscope playback with rotation."""
     import polyscope as ps
+    from dcr.rigid.body import quat_to_rot
 
     ps.init()
     ps.set_up_dir("y_up")
@@ -337,8 +352,9 @@ def playback_polyscope(mesh, body_info, times, positions, title):
     for name, (idx, hx, hy, hz, color) in body_info.items():
         bm = _box_mesh(hx, hy, hz)
         box_meshes[name] = bm
+        R0 = quat_to_rot(orientations[name][0])
         pos0 = positions[name][0]
-        sm = ps.register_surface_mesh(name, bm[0] + pos0, bm[1], color=color)
+        sm = ps.register_surface_mesh(name, (R0 @ bm[0].T).T + pos0, bm[1], color=color)
         ps_meshes[name] = sm
 
     frame_idx = [0]
@@ -365,8 +381,9 @@ def playback_polyscope(mesh, body_info, times, positions, title):
                 is_playing[0] = False
 
         for name in body_info:
+            R = quat_to_rot(orientations[name][si])
             ps_meshes[name].update_vertex_positions(
-                box_meshes[name][0] + positions[name][si])
+                (R @ box_meshes[name][0].T).T + positions[name][si])
 
     ps.set_user_callback(callback)
     ps.show()
@@ -410,11 +427,11 @@ def main():
 
         n_steps = 1800 if name == "truck" else 1500
         print(f"Simulating ({n_steps * H:.1f}s)...")
-        times, positions = simulate(world, coupler, body_info, n_steps=n_steps)
+        times, positions, orientations = simulate(world, coupler, body_info, n_steps=n_steps)
         print(f"  Done. {len(times)} frames recorded.")
 
         print("Launching polyscope...")
-        playback_polyscope(mesh, body_info, times, positions, title)
+        playback_polyscope(mesh, body_info, times, positions, orientations, title)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,7 @@ from dcr.rigid import (
     ConstraintSolver,
 )
 from dcr.dcr import ModalDCRCoupler, DCRWorld
+from dcr.rigid.body import quat_to_rot
 
 
 def main() -> None:
@@ -108,7 +109,9 @@ def main() -> None:
         if step_i % record_every == 0:
             frame = {
                 "pot": world.bodies[pot_idx].position.copy(),
+                "pot_ori": world.bodies[pot_idx].orientation.copy(),
                 "plates": [world.bodies[idx].position.copy() for idx in plate_indices],
+                "plate_oris": [world.bodies[idx].orientation.copy() for idx in plate_indices],
                 "time": world.time,
             }
             frames.append(frame)
@@ -172,10 +175,13 @@ def main() -> None:
         if is_playing[0]:
             frame_idx[0] = (frame_idx[0] + 1) % n_frames
 
-        pot_ps.update_vertex_positions(pot_mesh[0] + frames[fi]["pot"])
+        R_pot = quat_to_rot(frames[fi]["pot_ori"])
+        pot_ps.update_vertex_positions(
+            (R_pot @ pot_mesh[0].T).T + frames[fi]["pot"])
         for i in range(len(plate_indices)):
+            R_pl = quat_to_rot(frames[fi]["plate_oris"][i])
             plate_ps[i].update_vertex_positions(
-                plate_meshes[i][0] + frames[fi]["plates"][i])
+                (R_pl @ plate_meshes[i][0].T).T + frames[fi]["plates"][i])
 
     ps.set_user_callback(callback)
     ps.show()

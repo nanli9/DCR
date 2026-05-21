@@ -30,6 +30,7 @@ from dcr.fem import Material, FEMModel, NewmarkIntegrator, SimpleRigidBody, Coup
 from dcr.modal import ModalAnalysis
 from dcr.rigid import make_dynamic_box, make_static_plane, ConstraintSolver
 from dcr.dcr import ModalDCRCoupler, SpatialDCRCoupler, DCRWorld
+from dcr.rigid.body import quat_to_rot
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "docs" / "stage7"
 
@@ -112,18 +113,23 @@ def run_dinner() -> dict:
     # Simulate.
     n_steps = 800
     times, pot_ys, plate_ys, plate_vys = [], [], [], []
+    pot_oris, plate_oris_all = [], []
     for step_i in range(n_steps):
         world.step()
         times.append(world.time)
         pot_ys.append(world.bodies[pot_idx].position[1])
+        pot_oris.append(world.bodies[pot_idx].orientation.copy())
         plate_ys.append([world.bodies[i].position[1] for i in plate_idxs])
         plate_vys.append([world.bodies[i].velocity[1] for i in plate_idxs])
+        plate_oris_all.append([world.bodies[i].orientation.copy() for i in plate_idxs])
 
     return {
         "times": np.array(times),
         "pot_y": np.array(pot_ys),
+        "pot_oris": pot_oris,
         "plate_ys": np.array(plate_ys),
         "plate_vys": np.array(plate_vys),
+        "plate_oris": plate_oris_all,
         "table_top": table_top,
         "table_length": length,
         "plate_positions": plate_positions,
@@ -279,18 +285,23 @@ def run_spatial(beta: float = 0.5) -> dict:
     # Simulate.
     n_steps = 1200
     times, imp_ys, box_ys, box_vys = [], [], [], []
+    imp_oris, box_oris_all = [], []
     for step_i in range(n_steps):
         world.step()
         times.append(world.time)
         imp_ys.append(world.bodies[imp_idx].position[1])
+        imp_oris.append(world.bodies[imp_idx].orientation.copy())
         box_ys.append([world.bodies[i].position[1] for i in box_idxs])
         box_vys.append([world.bodies[i].velocity[1] for i in box_idxs])
+        box_oris_all.append([world.bodies[i].orientation.copy() for i in box_idxs])
 
     return {
         "times": np.array(times),
         "imp_y": np.array(imp_ys),
+        "imp_oris": imp_oris,
         "box_ys": np.array(box_ys),
         "box_vys": np.array(box_vys),
+        "box_oris": box_oris_all,
         "table_top": table_top,
         "box_xs": box_xs,
         "beta": beta,
@@ -701,11 +712,14 @@ def show_dinner(data: dict) -> None:
         if is_playing[0]:
             frame_idx[0] = (frame_idx[0] + 1) % n_frames
 
+        R_pot = quat_to_rot(data["pot_oris"][fi])
         pot_ps.update_vertex_positions(
-            pot_mesh_v + np.array([0.0, pot_y[fi], 0.0]))
+            (R_pot @ pot_mesh_v.T).T + np.array([0.0, pot_y[fi], 0.0]))
         for i in range(n_plates):
             pos = np.array([plate_xs[i], plate_ys[fi, i], plate_zs[i]])
-            plate_ps[i].update_vertex_positions(plate_meshes[i][0] + pos)
+            R_pl = quat_to_rot(data["plate_oris"][fi][i])
+            plate_ps[i].update_vertex_positions(
+                (R_pl @ plate_meshes[i][0].T).T + pos)
 
     ps.set_user_callback(callback)
     ps.show()
@@ -766,11 +780,14 @@ def show_spatial(data: dict) -> None:
         if is_playing[0]:
             frame_idx[0] = (frame_idx[0] + 1) % n_frames
 
+        R_imp = quat_to_rot(data["imp_oris"][fi])
         imp_ps.update_vertex_positions(
-            imp_mesh_v + np.array([-0.9, imp_y[fi], 0.0]))
+            (R_imp @ imp_mesh_v.T).T + np.array([-0.9, imp_y[fi], 0.0]))
         for i in range(n_boxes):
             pos = np.array([box_xs[i], box_ys[fi, i], 0.0])
-            box_ps[i].update_vertex_positions(box_meshes[i][0] + pos)
+            R_box = quat_to_rot(data["box_oris"][fi][i])
+            box_ps[i].update_vertex_positions(
+                (R_box @ box_meshes[i][0].T).T + pos)
 
     ps.set_user_callback(callback)
     ps.show()
@@ -991,11 +1008,13 @@ def realtime_dinner() -> None:
                 world.step()
 
         # Update visuals.
+        R_pot = quat_to_rot(world.bodies[pot_idx].orientation)
         pot_ps.update_vertex_positions(
-            pot_mesh_v + world.bodies[pot_idx].position)
+            (R_pot @ pot_mesh_v.T).T + world.bodies[pot_idx].position)
         for i, idx in enumerate(plate_idxs):
+            R_pl = quat_to_rot(world.bodies[idx].orientation)
             plate_ps[i].update_vertex_positions(
-                plate_meshes[i][0] + world.bodies[idx].position)
+                (R_pl @ plate_meshes[i][0].T).T + world.bodies[idx].position)
 
     ps.set_user_callback(callback)
     ps.show()
@@ -1056,11 +1075,13 @@ def realtime_spatial(beta: float = 0.5) -> None:
             for _ in range(steps_per_frame[0]):
                 world.step()
 
+        R_imp = quat_to_rot(world.bodies[imp_idx].orientation)
         imp_ps.update_vertex_positions(
-            imp_mesh_v + world.bodies[imp_idx].position)
+            (R_imp @ imp_mesh_v.T).T + world.bodies[imp_idx].position)
         for i, idx in enumerate(box_idxs):
+            R_box = quat_to_rot(world.bodies[idx].orientation)
             box_ps[i].update_vertex_positions(
-                box_meshes[i][0] + world.bodies[idx].position)
+                (R_box @ box_meshes[i][0].T).T + world.bodies[idx].position)
 
     ps.set_user_callback(callback)
     ps.show()

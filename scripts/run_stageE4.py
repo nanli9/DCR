@@ -362,6 +362,7 @@ def run_two_ball_visual(out_dir: Path) -> dict:
     # Record
     times = []
     pos_a, pos_b, pos_plate = [], [], []
+    ori_a, ori_b, ori_plate = [], [], []
     E_modal_hist = []
     cum_injected, cum_loss = [], []
     c_inj, c_loss = 0.0, 0.0
@@ -374,6 +375,9 @@ def run_two_ball_visual(out_dir: Path) -> dict:
         pos_a.append(world.bodies[idx_a].position.copy())
         pos_b.append(world.bodies[idx_b].position.copy())
         pos_plate.append(world.bodies[idx_plate].position.copy())
+        ori_a.append(world.bodies[idx_a].orientation.copy())
+        ori_b.append(world.bodies[idx_b].orientation.copy())
+        ori_plate.append(world.bodies[idx_plate].orientation.copy())
 
         # Only count dE when the coupler was actually invoked this step.
         cur_post = coupler.last_E_modal_post_kick
@@ -394,6 +398,9 @@ def run_two_ball_visual(out_dir: Path) -> dict:
         "pos_a": [p.tolist() for p in pos_a],
         "pos_b": [p.tolist() for p in pos_b],
         "pos_plate": [p.tolist() for p in pos_plate],
+        "ori_a": [o.tolist() for o in ori_a],
+        "ori_b": [o.tolist() for o in ori_b],
+        "ori_plate": [o.tolist() for o in ori_plate],
         "E_modal": E_modal_hist,
         "cum_injected": cum_injected,
         "cum_loss": cum_loss,
@@ -421,6 +428,7 @@ def _box_mesh(hx, hy, hz):
 def run_polyscope(modal, vis_data: dict) -> None:
     """Interactive polyscope playback of the two-ball + plate scene."""
     import polyscope as ps
+    from dcr.rigid.body import quat_to_rot
 
     ps.init()
     ps.set_up_dir("y_up")
@@ -434,6 +442,9 @@ def run_polyscope(modal, vis_data: dict) -> None:
     pos_a = [np.array(p) for p in vis_data["pos_a"]]
     pos_b = [np.array(p) for p in vis_data["pos_b"]]
     pos_plate = [np.array(p) for p in vis_data["pos_plate"]]
+    ori_a = [np.array(o) for o in vis_data["ori_a"]]
+    ori_b = [np.array(o) for o in vis_data["ori_b"]]
+    ori_plate = [np.array(o) for o in vis_data["ori_plate"]]
     times = vis_data["times"]
     E_modal = vis_data["E_modal"]
     cum_inj = vis_data["cum_injected"]
@@ -484,9 +495,15 @@ def run_polyscope(modal, vis_data: dict) -> None:
             else:
                 is_playing[0] = False  # stop at end, don't loop
 
-        ball_a_ps.update_vertex_positions(ball_mesh[0] + pos_a[si])
-        ball_b_ps.update_vertex_positions(ball_mesh[0] + pos_b[si])
-        plate_ps.update_vertex_positions(plate_mesh[0] + pos_plate[si])
+        R_a = quat_to_rot(ori_a[si])
+        ball_a_ps.update_vertex_positions(
+            (R_a @ ball_mesh[0].T).T + pos_a[si])
+        R_b = quat_to_rot(ori_b[si])
+        ball_b_ps.update_vertex_positions(
+            (R_b @ ball_mesh[0].T).T + pos_b[si])
+        R_pl = quat_to_rot(ori_plate[si])
+        plate_ps.update_vertex_positions(
+            (R_pl @ plate_mesh[0].T).T + pos_plate[si])
 
     ps.set_user_callback(callback)
     ps.show()

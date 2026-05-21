@@ -17,6 +17,7 @@ from dcr.fem import Material, FEMModel
 from dcr.modal import ModalAnalysis
 from dcr.rigid import make_dynamic_box, make_static_plane, ConstraintSolver
 from dcr.dcr import DCRWorld, SpatialDCRCoupler
+from dcr.rigid.body import quat_to_rot
 
 
 def main() -> None:
@@ -118,7 +119,9 @@ def main() -> None:
         if step_i % record_every == 0:
             frames.append({
                 "imp": world.bodies[imp_idx].position.copy(),
+                "imp_ori": world.bodies[imp_idx].orientation.copy(),
                 "boxes": [world.bodies[idx].position.copy() for idx in box_idxs],
+                "box_oris": [world.bodies[idx].orientation.copy() for idx in box_idxs],
                 "time": world.time,
             })
 
@@ -163,10 +166,13 @@ def main() -> None:
         imgui.Text(f"t = {t_ms:.1f} ms, beta = {beta}")
         if is_playing[0]:
             frame_idx[0] = (frame_idx[0] + 1) % n_frames
-        imp_ps.update_vertex_positions(imp_mesh[0] + frames[fi]["imp"])
+        R_imp = quat_to_rot(frames[fi]["imp_ori"])
+        imp_ps.update_vertex_positions(
+            (R_imp @ imp_mesh[0].T).T + frames[fi]["imp"])
         for i in range(len(box_idxs)):
+            R_box = quat_to_rot(frames[fi]["box_oris"][i])
             box_ps[i].update_vertex_positions(
-                box_meshes[i][0] + frames[fi]["boxes"][i])
+                (R_box @ box_meshes[i][0].T).T + frames[fi]["boxes"][i])
 
     ps.set_user_callback(callback)
     ps.show()

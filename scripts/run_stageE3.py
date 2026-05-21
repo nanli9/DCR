@@ -24,6 +24,7 @@ from dcr.modal import ModalAnalysis
 from dcr.modal.energy import modal_energy
 from dcr.rigid import make_dynamic_box, make_static_plane, ConstraintSolver
 from dcr.dcr import ModalDCRCoupler, PassiveDCRCoupler, DCRWorld
+from dcr.rigid.body import quat_to_rot
 
 OUT_DIR = os.path.join(os.path.dirname(__file__), "..", "docs", "stageE3")
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -114,7 +115,9 @@ def _run_sim(world, plate_indices, coupler=None):
     plate_vy = [[] for _ in plate_indices]
     plate_y = [[] for _ in plate_indices]
     plate_pos = [[] for _ in plate_indices]
+    plate_ori = [[] for _ in plate_indices]
     pot_pos = []
+    pot_ori = []
     # Track true cumulative energy (no clipping — dissipative kicks count
     # as negative injection, which is physically correct).
     cum_injected = []   # true sum of dE_modal per kick (can be negative)
@@ -133,8 +136,10 @@ def _run_sim(world, plate_indices, coupler=None):
             plate_vy[i].append(world.bodies[idx].velocity[1])
             plate_y[i].append(world.bodies[idx].position[1])
             plate_pos[i].append(world.bodies[idx].position.copy())
+            plate_ori[i].append(world.bodies[idx].orientation.copy())
 
         pot_pos.append(world.bodies[pot_idx].position.copy())
+        pot_ori.append(world.bodies[pot_idx].orientation.copy())
 
         if coupler is not None:
             # True dE: includes negative (dissipative) kicks.
@@ -151,7 +156,9 @@ def _run_sim(world, plate_indices, coupler=None):
         "plate_vy": [np.array(v) for v in plate_vy],
         "plate_y": [np.array(y) for y in plate_y],
         "plate_pos": [np.array(p) for p in plate_pos],
+        "plate_ori": [np.array(o) for o in plate_ori],
         "pot_pos": np.array(pot_pos),
+        "pot_ori": np.array(pot_ori),
         "cum_injected": np.array(cum_injected),
         "cum_loss": np.array(cum_loss),
         "E_modal": np.array(E_modal_hist) if E_modal_hist else np.array([]),
@@ -326,12 +333,15 @@ def run_polyscope(mesh, modal, results_03, results_10, plate_indices_03):
             frame_idx[0] = (frame_idx[0] + 1) % n_frames
 
         # Update pot position
-        pot_ps.update_vertex_positions(pot_mesh_vf[0] + res["pot_pos"][si])
+        R_pot = quat_to_rot(res["pot_ori"][si])
+        pot_ps.update_vertex_positions(
+            (R_pot @ pot_mesh_vf[0].T).T + res["pot_pos"][si])
 
         # Update plate positions
         for i in range(3):
+            R_pl = quat_to_rot(res["plate_ori"][i][si])
             plate_ps[i].update_vertex_positions(
-                plate_meshes[i][0] + res["plate_pos"][i][si])
+                (R_pl @ plate_meshes[i][0].T).T + res["plate_pos"][i][si])
 
     ps.set_user_callback(callback)
     ps.show()

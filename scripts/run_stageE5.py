@@ -32,6 +32,7 @@ from dcr.modal.energy import modal_energy
 from dcr.rigid import make_dynamic_box, make_static_plane, ConstraintSolver
 from dcr.rigid.energy import rigid_kinetic_energy
 from dcr.dcr import PassiveDCRCoupler, DCRWorld
+from dcr.rigid.body import quat_to_rot
 
 OUT_DIR = Path("docs/stageE5")
 H = 1e-3
@@ -113,6 +114,7 @@ def run_dinner_passive(eta: float) -> dict:
     # Simulate.
     times, pot_ys, plate_ys, plate_vys = [], [], [], []
     pot_pos_all, plate_pos_all = [], [[] for _ in plate_idxs]
+    pot_ori_all, plate_ori_all = [], [[] for _ in plate_idxs]
     cum_injected, cum_loss = [], []
     E_modal_hist = []
     c_inj, c_loss = 0.0, 0.0
@@ -124,8 +126,10 @@ def run_dinner_passive(eta: float) -> dict:
         plate_ys.append([float(world.bodies[i].position[1]) for i in plate_idxs])
         plate_vys.append([float(world.bodies[i].velocity[1]) for i in plate_idxs])
         pot_pos_all.append(world.bodies[pot_idx].position.copy().tolist())
+        pot_ori_all.append(world.bodies[pot_idx].orientation.copy().tolist())
         for pi, idx in enumerate(plate_idxs):
             plate_pos_all[pi].append(world.bodies[idx].position.copy().tolist())
+            plate_ori_all[pi].append(world.bodies[idx].orientation.copy().tolist())
 
         # Energy tracking (avoid stale dE when coupler not called).
         if len(contacts) > 0 and world.dcr_enabled:
@@ -150,7 +154,9 @@ def run_dinner_passive(eta: float) -> dict:
         "plate_ys": plate_ys,
         "plate_vys": plate_vys,
         "pot_pos": pot_pos_all,
+        "pot_ori": pot_ori_all,
         "plate_pos": plate_pos_all,
+        "plate_ori": plate_ori_all,
         "cum_injected": cum_injected,
         "cum_loss": cum_loss,
         "E_modal": E_modal_hist,
@@ -396,10 +402,13 @@ def run_polyscope(modal, data: dict) -> None:
             else:
                 is_playing[0] = False
 
-        pot_ps.update_vertex_positions(pot_mesh[0] + pot_pos[si])
+        R_pot = quat_to_rot(np.array(data["pot_ori"][si]))
+        pot_ps.update_vertex_positions(
+            (R_pot @ pot_mesh[0].T).T + pot_pos[si])
         for i in range(3):
+            R_pl = quat_to_rot(np.array(data["plate_ori"][i][si]))
             plate_ps[i].update_vertex_positions(
-                plate_meshes[i][0] + plate_pos[i][si])
+                (R_pl @ plate_meshes[i][0].T).T + plate_pos[i][si])
 
     ps.set_user_callback(callback)
     ps.show()
