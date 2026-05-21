@@ -23,7 +23,7 @@ from dcr.geom import make_slab_tet_mesh
 from dcr.fem import Material, FEMModel
 from dcr.modal import ModalAnalysis
 from dcr.rigid import make_dynamic_box, make_static_plane, ConstraintSolver
-from dcr.dcr import PassiveDCRCoupler, DCRWorld
+from dcr.dcr import PassiveDCRCoupler, TiltDCRCoupler, DCRWorld
 
 
 H = 1e-3
@@ -66,7 +66,23 @@ def _box_mesh(hx, hy, hz):
 # Scene 1: Truck on Road
 # ======================================================================
 
-def build_truck_scene():
+def _add_coupler(world, modal, elastic_body_idx, tilt=False):
+    """Create and register a passive (or tilt) DCR coupler."""
+    coupler = PassiveDCRCoupler(modal=modal, elastic_body_idx=elastic_body_idx)
+    if tilt:
+        tilt_coupler = TiltDCRCoupler(
+            passive=coupler,
+            theta_max=np.radians(10.0),
+            mu_dcr=0.5,
+            eta_t=0.5,
+        )
+        world.add_tilt_coupler(tilt_coupler)
+    else:
+        world.add_passive_coupler(coupler)
+    return coupler
+
+
+def build_truck_scene(tilt=False):
     """Heavy objects dropped sequentially on road. Cones and lumber respond.
 
     Three drops at different positions and heights so they hit the ground
@@ -95,8 +111,7 @@ def build_truck_scene():
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
                    alpha0=2.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=15)
-    coupler = PassiveDCRCoupler(modal=modal, elastic_body_idx=ground_idx)
-    world.add_passive_coupler(coupler)
+    coupler = _add_coupler(world, modal, ground_idx, tilt=tilt)
 
     body_info = {}  # name -> (idx, hx, hy, hz, color)
 
@@ -149,11 +164,11 @@ def build_truck_scene():
 # Scene 2: Bookshelf Drop
 # ======================================================================
 
-def build_shelf_scene():
+def build_shelf_scene(tilt=False):
     """Heavy box dropped on a shelf. Books standing upright topple.
 
     The shelf is a cantilever beam (fixed at one edge). Books are
-    squat rectangular prisms standing on end. A heavy box drops
+    thin tall dominoes standing on end. A heavy box drops
     onto the free end of the shelf.
     """
     world = DCRWorld(
@@ -165,7 +180,7 @@ def build_shelf_scene():
     # Shelf: narrow elastic slab, fixed on left edge (cantilever).
     mesh = make_slab_tet_mesh(length=0.8, width=0.3, height=0.03,
                               nx=12, ny=5, nz=2)
-    mat = Material(E=8.0e9, nu=0.3, rho=600.0)  # wood shelf
+    mat = Material(E=0.5e9 if tilt else 8.0e9, nu=0.3, rho=600.0)
     shelf_top = 0.015  # top of slab (height/2)
     shelf = make_static_plane(normal=(0, 1, 0),
                               point=(0, shelf_top, 0), friction=0.5)
@@ -175,8 +190,7 @@ def build_shelf_scene():
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
                    alpha0=3.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=12)
-    coupler = PassiveDCRCoupler(modal=modal, elastic_body_idx=shelf_idx)
-    world.add_passive_coupler(coupler)
+    coupler = _add_coupler(world, modal, shelf_idx, tilt=tilt)
 
     body_info = {}
 
@@ -200,7 +214,7 @@ def build_shelf_scene():
     drop_hx, drop_hy, drop_hz = 0.05, 0.05, 0.05
     drop = make_dynamic_box(
         mass=8.0, hx=drop_hx, hy=drop_hy, hz=drop_hz,
-        position=(0.15, shelf_top + drop_hy + 0.5, 0.0),
+        position=(0.15, shelf_top + drop_hy + 0.6, 0.0),
         restitution=0.1, friction=0.5,
     )
     idx = world.add_body(drop)
@@ -213,7 +227,7 @@ def build_shelf_scene():
 # Scene 3: Cliff Ledge / Rockfall
 # ======================================================================
 
-def build_ledge_scene():
+def build_ledge_scene(tilt=False):
     """Boulder hits a cliff ledge, balanced rocks fall off the edge.
 
     Inspired by the paper's 'Rockfall' scene. The ledge is an elastic
@@ -239,8 +253,7 @@ def build_ledge_scene():
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
                    alpha0=1.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=12)
-    coupler = PassiveDCRCoupler(modal=modal, elastic_body_idx=ledge_idx)
-    world.add_passive_coupler(coupler)
+    coupler = _add_coupler(world, modal, ledge_idx, tilt=tilt)
 
     body_info = {}
 
@@ -402,11 +415,15 @@ SCENES = {
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: uv run python scripts/run_scenes.py <scene>")
+        print("Usage: uv run python scripts/run_scenes.py <scene> [--tilt]")
         print(f"  Available scenes: {', '.join(SCENES.keys())}, all")
+        print(f"  --tilt: Enable deformation-aware contact frame extension")
         sys.exit(1)
 
-    scene_name = sys.argv[1]
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    tilt = "--tilt" in sys.argv
+
+    scene_name = args[0] if args else "all"
 
     if scene_name == "all":
         names = list(SCENES.keys())
@@ -417,15 +434,19 @@ def main():
         print(f"Available: {', '.join(SCENES.keys())}, all")
         sys.exit(1)
 
+    mode_str = " + TILT" if tilt else ""
+
     for name in names:
         print(f"\n{'='*60}")
-        print(f"Building scene: {name}")
+        print(f"Building scene: {name}{mode_str}")
         print(f"{'='*60}")
-        world, coupler, body_info, mesh, title = SCENES[name]()
+        world, coupler, body_info, mesh, title = SCENES[name](tilt=tilt)
+        if tilt:
+            title += " [TILT]"
         print(f"  Bodies: {len(world.bodies)}")
         print(f"  Dynamic: {[n for n in body_info]}")
 
-        n_steps = 1800 if name == "truck" else 1500
+        n_steps = 1800 if name == "truck" else 2000
         print(f"Simulating ({n_steps * H:.1f}s)...")
         times, positions, orientations = simulate(world, coupler, body_info, n_steps=n_steps)
         print(f"  Done. {len(times)} frames recorded.")

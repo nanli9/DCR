@@ -58,6 +58,7 @@ class PassiveDCRCoupler:
     last_E_modal_pre_kick: float = 0.0
     last_E_modal_post_kick: float = 0.0
     last_alpha: float = 0.0
+    last_q_history_transient: NDArray[np.float64] | None = None
 
     def __post_init__(self) -> None:
         self._stepper = HomogeneousStepper.from_modal_analysis(self.modal)
@@ -130,6 +131,7 @@ class PassiveDCRCoupler:
             # No new impulses — step the persistent state for free decay,
             # but produce no distant responses (no new impact → no DCR).
             self.last_alpha = 0.0
+            self.last_q_history_transient = None
             self.last_E_modal_pre_kick = modal_energy(
                 self._stepper.q, self._stepper.qdot, omega)
             self.last_E_modal_post_kick = self.last_E_modal_pre_kick
@@ -161,6 +163,7 @@ class PassiveDCRCoupler:
         # the full persistent state. This matches the original IIR behavior
         # (reset each step) while keeping the persistent state for energy.
         q_history_transient = self._stepper.transient_step_n(alpha_s, n_substeps)
+        self.last_q_history_transient = q_history_transient
 
         return self._compute_distant_response(
             resting_contacts, q_history_transient, h)

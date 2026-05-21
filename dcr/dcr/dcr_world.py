@@ -20,6 +20,7 @@ from ..rigid.solver import ConstraintSolver
 from .modal_dcr import ModalDCRCoupler
 from .passive_dcr import PassiveDCRCoupler
 from .spatial_dcr import SpatialDCRCoupler
+from .tilt_dcr import TiltDCRCoupler, TiltResult, apply_tilt_bounds
 
 
 @dataclass
@@ -51,6 +52,8 @@ class DCRWorld:
     dcr_couplers: list[ModalDCRCoupler] = field(default_factory=list)
     passive_couplers: list[PassiveDCRCoupler] = field(default_factory=list)
     spatial_couplers: list[SpatialDCRCoupler] = field(default_factory=list)
+    tilt_couplers: list[TiltDCRCoupler] = field(default_factory=list)
+    tilt_only: bool = False  # If True, skip normal fallback for tilt couplers
     dcr_enabled: bool = True
     eta: float = 0.3  # Transfer efficiency η ∈ [0, 1] (foundation §1)
 
@@ -77,6 +80,9 @@ class DCRWorld:
 
     def add_spatial_coupler(self, coupler: SpatialDCRCoupler) -> None:
         self.spatial_couplers.append(coupler)
+
+    def add_tilt_coupler(self, coupler: TiltDCRCoupler) -> None:
+        self.tilt_couplers.append(coupler)
 
     def step(self) -> list[Contact]:
         """Advance simulation by one time step h with DCR.
@@ -133,6 +139,27 @@ class DCRWorld:
                 self._apply_dcr_velocities(
                     dcr_velocities, contacts, coupler.elastic_body_idx)
 
+            # Tilt-DCR couplers (contact frame extension).
+            # The tilt coupler replaces the normal DCR kick: the full
+            # impulse goes along n' (tilted normal), not n + extra J_t.
+            # For contacts without tilt (theta ~ 0), apply the standard
+            # normal kick as fallback.
+            for coupler in self.tilt_couplers:
+                tilt_results = coupler.process_step(
+                    contacts, lam, self.h, self.last_E_max)
+                # Bodies that got tilt results — their kick is fully
+                # handled by _apply_tilt_dcr_velocities along n'.
+                tilted_bodies = {r.body_idx for r in tilt_results}
+                # For bodies with no tilt (theta ~ 0), fall back to
+                # the standard normal kick (unless tilt_only mode).
+                if not self.tilt_only:
+                    fallback = {k: v for k, v in coupler.last_dcr_velocities.items()
+                                if k not in tilted_bodies}
+                    if fallback:
+                        self._apply_dcr_velocities(
+                            fallback, contacts, coupler.elastic_body_idx)
+                self._apply_tilt_dcr_velocities(tilt_results, coupler)
+
         # 5. Integrate positions.
         for body in self.bodies:
             if body.is_static:
@@ -176,6 +203,50 @@ class DCRWorld:
                         body.velocity[:3], body.velocity[:3])
                     self.last_dcr_ke_injected += ke_after - ke_before
                     break
+
+    def _apply_tilt_dcr_velocities(
+        self,
+        tilt_results: list[TiltResult],
+        coupler: TiltDCRCoupler,
+    ) -> None:
+        """Apply the FULL DCR impulse along the tilted normal n'.
+
+        Replaces the standard normal kick for bodies with nonzero tilt.
+        The impulse J = m * dv * n' is decomposed:
+          - J_n = (J . push_dir) * push_dir  → normal component
+          - J_t = J - J_n                     → tangential (bounded)
+
+        Both are applied as linear velocity. Angular response emerges
+        from friction constraints in subsequent solver steps.
+        """
+        for r in tilt_results:
+            body = self.bodies[r.body_idx]
+            if body.is_static:
+                continue
+
+            # Full impulse along tilted normal
+            J_mag = body.mass * r.dv
+            J_full = J_mag * r.n_tilt
+
+            # Decompose
+            J_n_scalar = float(np.dot(J_full, r.push_dir))
+            J_n_vec = J_n_scalar * r.push_dir
+            J_t = J_full - J_n_vec
+
+            # Apply bounds to tangential component only
+            J_t = apply_tilt_bounds(
+                J_n_scalar, J_t, body.mass, r.dv,
+                coupler.mu_dcr, coupler.eta_t)
+
+            # Recombine: bounded J_t + J_n (skip J_n in tilt_only mode)
+            J_total = J_t if self.tilt_only else J_n_vec + J_t
+
+            ke_before = 0.5 * body.mass * np.dot(
+                body.velocity[:3], body.velocity[:3])
+            body.velocity[:3] += J_total / body.mass
+            ke_after = 0.5 * body.mass * np.dot(
+                body.velocity[:3], body.velocity[:3])
+            self.last_dcr_ke_injected += ke_after - ke_before
 
     def kinetic_energy(self) -> float:
         ke = 0.0
