@@ -20,7 +20,7 @@ from ..rigid.solver import ConstraintSolver
 from .modal_dcr import ModalDCRCoupler
 from .passive_dcr import PassiveDCRCoupler
 from .spatial_dcr import SpatialDCRCoupler
-from .tilt_dcr import TiltDCRCoupler, TiltResult, apply_tilt_bounds
+from .tilt_dcr import TiltDCRCoupler, TiltResult, apply_tilt_bounds, compute_tilt_lateral_velocity
 
 
 @dataclass
@@ -53,7 +53,7 @@ class DCRWorld:
     passive_couplers: list[PassiveDCRCoupler] = field(default_factory=list)
     spatial_couplers: list[SpatialDCRCoupler] = field(default_factory=list)
     tilt_couplers: list[TiltDCRCoupler] = field(default_factory=list)
-    tilt_only: bool = False  # If True, skip normal fallback for tilt couplers
+    tilt_mode: str = "tilt-coupled"  # "tilt" (lateral only) or "tilt-coupled" (capped vert + lat)
     dcr_enabled: bool = True
     eta: float = 0.3  # Transfer efficiency η ∈ [0, 1] (foundation §1)
 
@@ -64,6 +64,15 @@ class DCRWorld:
 
     def __post_init__(self) -> None:
         self.solver.h = self.h
+
+    @property
+    def tilt_only(self) -> bool:
+        """Backward-compat: tilt_only=True ↔ tilt_mode='tilt'."""
+        return self.tilt_mode == "tilt"
+
+    @tilt_only.setter
+    def tilt_only(self, value: bool) -> None:
+        self.tilt_mode = "tilt" if value else "tilt-coupled"
 
     def add_body(self, body: RigidBody) -> int:
         self.bodies.append(body)
@@ -152,7 +161,7 @@ class DCRWorld:
                 tilted_bodies = {r.body_idx for r in tilt_results}
                 # For bodies with no tilt (theta ~ 0), fall back to
                 # the standard normal kick (unless tilt_only mode).
-                if not self.tilt_only:
+                if self.tilt_mode == "tilt-coupled":
                     fallback = {k: v for k, v in coupler.last_dcr_velocities.items()
                                 if k not in tilted_bodies}
                     if fallback:
@@ -209,41 +218,48 @@ class DCRWorld:
         tilt_results: list[TiltResult],
         coupler: TiltDCRCoupler,
     ) -> None:
-        """Apply the FULL DCR impulse along the tilted normal n'.
+        """Apply amplified, bounded lateral velocity from tilt + optional capped normal.
 
-        Replaces the standard normal kick for bodies with nonzero tilt.
-        The impulse J = m * dv * n' is decomposed:
-          - J_n = (J . push_dir) * push_dir  → normal component
-          - J_t = J - J_n                     → tangential (bounded)
+        # DEVIATION: the paper applies DCR impulses along the original
+        # contact normal. This extension derives a lateral direction from
+        # the modal displacement gradient and applies an amplified tangential
+        # correction. The tilted normal is NOT used to replace the solver
+        # contact normal or to apply v += dv * n_tilt.
 
-        Both are applied as linear velocity. Angular response emerges
-        from friction constraints in subsequent solver steps.
+        In 'tilt' mode: only the lateral component is applied.
+        In 'tilt-coupled' mode: capped normal + lateral are both applied.
+
+        Angular response emerges from friction constraints in subsequent
+        solver steps — no direct angular velocity injection.
         """
         for r in tilt_results:
             body = self.bodies[r.body_idx]
             if body.is_static:
                 continue
 
-            # Full impulse along tilted normal
-            J_mag = body.mass * r.dv
-            J_full = J_mag * r.n_tilt
-
-            # Decompose
-            J_n_scalar = float(np.dot(J_full, r.push_dir))
-            J_n_vec = J_n_scalar * r.push_dir
-            J_t = J_full - J_n_vec
-
-            # Apply bounds to tangential component only
-            J_t = apply_tilt_bounds(
-                J_n_scalar, J_t, body.mass, r.dv,
-                coupler.mu_dcr, coupler.eta_t)
-
-            # Recombine: bounded J_t + J_n (skip J_n in tilt_only mode)
-            J_total = J_t if self.tilt_only else J_n_vec + J_t
+            dv_t, t_dir, _dbg = compute_tilt_lateral_velocity(
+                delta_v=r.dv,
+                mass=body.mass,
+                n=r.push_dir,
+                n_tilt=r.n_tilt,
+                lateral_fraction=coupler.lateral_fraction,
+                dv_t_max=coupler.dv_t_max,
+                eta_t=coupler.eta_t,
+                mu_dcr=coupler.mu_dcr,
+            )
 
             ke_before = 0.5 * body.mass * np.dot(
                 body.velocity[:3], body.velocity[:3])
-            body.velocity[:3] += J_total / body.mass
+
+            # Lateral component (both tilt modes)
+            if dv_t > 0.0 and t_dir is not None:
+                body.velocity[:3] += dv_t * t_dir
+
+            # Capped normal component (tilt-coupled only)
+            if self.tilt_mode == "tilt-coupled":
+                dv_n = min(abs(r.dv), coupler.dv_n_max)
+                body.velocity[:3] += dv_n * r.push_dir
+
             ke_after = 0.5 * body.mass * np.dot(
                 body.velocity[:3], body.velocity[:3])
             self.last_dcr_ke_injected += ke_after - ke_before

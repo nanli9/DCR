@@ -7,6 +7,7 @@ from dcr.dcr.tilt_dcr import (
     compute_patch_fit_slopes,
     compute_tilted_normal,
     apply_tilt_bounds,
+    compute_tilt_lateral_velocity,
 )
 
 
@@ -142,6 +143,210 @@ class TestTiltBounds:
         result = apply_tilt_bounds(1.0, np.zeros(3), mass=1.0, dv=1.0,
                                    mu_dcr=0.2, eta_t=0.3)
         np.testing.assert_allclose(result, np.zeros(3))
+
+
+# ======================================================================
+# Tests: compute_tilt_lateral_velocity
+# ======================================================================
+
+class TestComputeTiltLateralVelocity:
+    """Tests for the amplified, bounded lateral velocity helper."""
+
+    def _make_tilted_normal(self, theta_deg):
+        """Create n_tilt tilted by theta_deg from vertical in the x direction."""
+        theta = np.radians(theta_deg)
+        return np.array([np.sin(theta), np.cos(theta), 0.0])
+
+    def test_zero_tilt(self):
+        """n_tilt == n → no lateral response regardless of fraction."""
+        n = np.array([0.0, 1.0, 0.0])
+        dv_t, t_dir, dbg = compute_tilt_lateral_velocity(
+            delta_v=5.0, mass=1.0, n=n, n_tilt=n.copy(),
+            lateral_fraction=0.5, dv_t_max=10.0, eta_t=0.5, mu_dcr=0.5)
+        assert dv_t == 0.0
+        assert t_dir is None
+
+    def test_lateral_fraction(self):
+        """lateral_fraction=0.3 should give dv_t = 0.3 * |dv| (caps permitting)."""
+        n = np.array([0.0, 1.0, 0.0])
+        n_tilt = self._make_tilted_normal(2.0)
+        delta_v = 2.0
+        # Set caps very high so fraction is the only factor
+        dv_t, _, _ = compute_tilt_lateral_velocity(
+            delta_v, 1.0, n, n_tilt, lateral_fraction=0.3, dv_t_max=100.0,
+            eta_t=100.0, mu_dcr=100.0)
+        assert abs(dv_t - 0.3 * abs(delta_v)) < 1e-10
+
+    def test_fraction_independent_of_angle(self):
+        """Same fraction gives same dv_t for different tilt angles."""
+        n = np.array([0.0, 1.0, 0.0])
+        n_tilt_1 = self._make_tilted_normal(0.5)  # small angle
+        n_tilt_2 = self._make_tilted_normal(8.0)   # large angle
+        dv_t_1, _, _ = compute_tilt_lateral_velocity(
+            1.0, 1.0, n, n_tilt_1, lateral_fraction=0.3, dv_t_max=100.0,
+            eta_t=100.0, mu_dcr=100.0)
+        dv_t_2, _, _ = compute_tilt_lateral_velocity(
+            1.0, 1.0, n, n_tilt_2, lateral_fraction=0.3, dv_t_max=100.0,
+            eta_t=100.0, mu_dcr=100.0)
+        assert abs(dv_t_1 - dv_t_2) < 1e-10  # same magnitude
+
+    def test_velocity_cap(self):
+        """dv_t must never exceed dv_t_max."""
+        n = np.array([0.0, 1.0, 0.0])
+        n_tilt = self._make_tilted_normal(5.0)
+        dv_t, _, _ = compute_tilt_lateral_velocity(
+            delta_v=10.0, mass=1.0, n=n, n_tilt=n_tilt,
+            lateral_fraction=0.5, dv_t_max=0.5, eta_t=100.0, mu_dcr=100.0)
+        assert dv_t <= 0.5 + 1e-10
+
+    def test_energy_cap(self):
+        """0.5 * m * dv_t^2 must not exceed eta_t * E_dcr."""
+        n = np.array([0.0, 1.0, 0.0])
+        n_tilt = self._make_tilted_normal(5.0)
+        delta_v = 0.01
+        eta_t = 0.3
+        dv_t, _, _ = compute_tilt_lateral_velocity(
+            delta_v=delta_v, mass=1.0, n=n, n_tilt=n_tilt,
+            lateral_fraction=0.9, dv_t_max=100.0, eta_t=eta_t, mu_dcr=100.0)
+        E_dcr = 0.5 * 1.0 * delta_v**2
+        assert 0.5 * 1.0 * dv_t**2 <= eta_t * E_dcr + 1e-15
+
+    def test_coulomb_cap(self):
+        """dv_t must not exceed mu_dcr * |delta_v|."""
+        n = np.array([0.0, 1.0, 0.0])
+        n_tilt = self._make_tilted_normal(5.0)
+        mu_dcr = 0.05
+        dv_t, _, _ = compute_tilt_lateral_velocity(
+            delta_v=1.0, mass=1.0, n=n, n_tilt=n_tilt,
+            lateral_fraction=0.9, dv_t_max=100.0, eta_t=100.0, mu_dcr=mu_dcr)
+        assert dv_t <= mu_dcr * 1.0 + 1e-10
+
+    def test_t_dir_perpendicular_to_n(self):
+        """The returned tangent direction must be perpendicular to n."""
+        n = np.array([0.0, 1.0, 0.0])
+        n_tilt = self._make_tilted_normal(5.0)
+        _, t_dir, _ = compute_tilt_lateral_velocity(
+            1.0, 1.0, n, n_tilt, 0.3, 1.5, 0.5, 0.5)
+        assert t_dir is not None
+        assert abs(np.dot(t_dir, n)) < 1e-12
+        assert abs(np.linalg.norm(t_dir) - 1.0) < 1e-12
+
+
+# ======================================================================
+# Tests: tilt modes
+# ======================================================================
+
+class TestTiltModes:
+    """Tests for tilt vs tilt-coupled mode behavior."""
+
+    def test_mode_separation(self):
+        """'tilt' applies only lateral; 'tilt-coupled' adds vertical."""
+        from dcr.dcr.tilt_dcr import TiltResult
+        from dcr.dcr.dcr_world import DCRWorld
+        from dcr.rigid import make_dynamic_box, make_static_plane, ConstraintSolver
+
+        n = np.array([0.0, 1.0, 0.0])
+        theta = np.radians(2.0)
+        n_tilt = np.array([np.sin(theta), np.cos(theta), 0.0])
+
+        for mode in ("tilt", "tilt-coupled"):
+            world = DCRWorld(h=1e-3, solver=ConstraintSolver(h=1e-3))
+            world.tilt_mode = mode
+
+            body = make_dynamic_box(mass=1.0, hx=0.1, hy=0.1, hz=0.1)
+            body.velocity[:] = 0.0
+            idx = world.add_body(body)
+
+            # Construct a dummy TiltDCRCoupler (need passive for the attribute)
+            from dcr.dcr.tilt_dcr import TiltDCRCoupler
+            from dcr.dcr import PassiveDCRCoupler
+            from dcr.geom import make_slab_tet_mesh
+            from dcr.fem import Material, FEMModel
+            from dcr.modal import ModalAnalysis
+
+            mesh = make_slab_tet_mesh(0.5, 0.3, 0.03, 4, 3, 1)
+            mat = Material(E=1e9, nu=0.3, rho=600)
+            v = mesh.vertices
+            xmin = v[:, 0].min()
+            fixed = np.where(np.abs(v[:, 0] - xmin) < 1e-8)[0].astype(np.int32)
+            fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
+                           alpha0=3.0, alpha1=1e-5)
+            modal = ModalAnalysis(fem=fem, num_modes=4)
+            passive = PassiveDCRCoupler(modal=modal, elastic_body_idx=0)
+            coupler = TiltDCRCoupler(
+                passive=passive, lateral_fraction=0.3,
+                dv_t_max=1.5, dv_n_max=0.3, mu_dcr=0.5, eta_t=0.5)
+
+            tilt_results = [TiltResult(
+                body_idx=idx, dv=1.0,
+                n_tilt=n_tilt.copy(),
+                contact_point=np.zeros(3),
+                push_dir=n.copy(),
+                theta=theta)]
+
+            world._apply_tilt_dcr_velocities(tilt_results, coupler)
+
+            vy = body.velocity[1]  # vertical
+            vx = body.velocity[0]  # lateral
+
+            if mode == "tilt":
+                # Lateral only — no vertical contribution
+                assert abs(vy) < 1e-12, f"tilt mode should have no vertical: vy={vy}"
+                assert abs(vx) > 0.01, f"tilt mode should have lateral: vx={vx}"
+            else:
+                # Both vertical and lateral
+                assert vy > 0.01, f"tilt-coupled should have vertical: vy={vy}"
+                assert abs(vx) > 0.01, f"tilt-coupled should have lateral: vx={vx}"
+
+    def test_coupled_vertical_cap(self):
+        """In tilt-coupled, the vertical kick must be capped at dv_n_max."""
+        from dcr.dcr.tilt_dcr import TiltResult
+        from dcr.dcr.dcr_world import DCRWorld
+        from dcr.rigid import make_dynamic_box, ConstraintSolver
+
+        world = DCRWorld(h=1e-3, solver=ConstraintSolver(h=1e-3))
+        world.tilt_mode = "tilt-coupled"
+
+        body = make_dynamic_box(mass=1.0, hx=0.1, hy=0.1, hz=0.1)
+        body.velocity[:] = 0.0
+        idx = world.add_body(body)
+
+        n = np.array([0.0, 1.0, 0.0])
+        theta = np.radians(2.0)
+        n_tilt = np.array([np.sin(theta), np.cos(theta), 0.0])
+
+        # Construct coupler with dv_n_max=0.3
+        from dcr.dcr.tilt_dcr import TiltDCRCoupler
+        from dcr.dcr import PassiveDCRCoupler
+        from dcr.geom import make_slab_tet_mesh
+        from dcr.fem import Material, FEMModel
+        from dcr.modal import ModalAnalysis
+
+        mesh = make_slab_tet_mesh(0.5, 0.3, 0.03, 4, 3, 1)
+        mat = Material(E=1e9, nu=0.3, rho=600)
+        v = mesh.vertices
+        xmin = v[:, 0].min()
+        fixed = np.where(np.abs(v[:, 0] - xmin) < 1e-8)[0].astype(np.int32)
+        fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
+                       alpha0=3.0, alpha1=1e-5)
+        modal = ModalAnalysis(fem=fem, num_modes=4)
+        passive = PassiveDCRCoupler(modal=modal, elastic_body_idx=0)
+        coupler = TiltDCRCoupler(
+            passive=passive, lateral_fraction=0.3,
+            dv_t_max=1.5, dv_n_max=0.3, mu_dcr=0.5, eta_t=0.5)
+
+        # Large dv >> dv_n_max
+        tilt_results = [TiltResult(
+            body_idx=idx, dv=5.0,
+            n_tilt=n_tilt.copy(),
+            contact_point=np.zeros(3),
+            push_dir=n.copy(),
+            theta=theta)]
+
+        world._apply_tilt_dcr_velocities(tilt_results, coupler)
+
+        vy = body.velocity[1]
+        assert vy <= 0.3 + 1e-10, f"Vertical kick {vy} exceeds dv_n_max=0.3"
 
 
 # ======================================================================

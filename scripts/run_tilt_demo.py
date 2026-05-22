@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Bookshelf domino demo: plain rigid / DCR / DCR+tilt comparison.
+"""Bookshelf domino demo: plain / DCR / tilt / tilt-coupled comparison.
 
 Demonstrates the deformation-aware contact frame extension. A heavy
 block drops onto a cantilever shelf; thin upright books respond.
 
-  --plain : No DCR — books stay still (rigid-only baseline).
-  --dcr   : Passive DCR — books jump vertically but don't topple.
-  --tilt  : DCR + tilt extension — books get lateral kick, may topple.
-  --all   : Run all three and print comparison summary.
+  --plain        : No DCR — books stay still (rigid-only baseline).
+  --dcr          : Passive DCR — books jump vertically but don't topple.
+  --tilt         : Lateral-only tilt — amplified lateral kicks, no vertical.
+  --tilt-coupled : Capped vertical DCR + amplified lateral tilt (default).
+  --all          : Run all four and print comparison summary.
 
 Usage:
-    uv run python scripts/run_tilt_demo.py --tilt
+    uv run python scripts/run_tilt_demo.py --tilt-coupled
     uv run python scripts/run_tilt_demo.py --all
 """
 from __future__ import annotations
@@ -45,13 +46,13 @@ def build_scene(mode: str):
     """Build the bookshelf scene.
 
     Args:
-        mode: 'plain', 'dcr', 'tilt', or 'tilt-only'.
+        mode: 'plain', 'dcr', 'tilt', or 'tilt-coupled'.
 
     Returns:
         (world, coupler_or_None, tilt_coupler_or_None, body_info, mesh, title)
     """
-    dcr_on = mode in ("dcr", "tilt", "tilt-only")
-    tilt_on = mode in ("tilt", "tilt-only")
+    dcr_on = mode in ("dcr", "tilt", "tilt-coupled")
+    tilt_on = mode in ("tilt", "tilt-coupled")
 
     world = DCRWorld(
         h=H, eta=ETA,
@@ -91,10 +92,12 @@ def build_scene(mode: str):
                 theta_max=np.radians(10.0),
                 mu_dcr=0.5,
                 eta_t=0.5,
+                lateral_fraction=0.3,
+                dv_t_max=1.5,
+                dv_n_max=0.3,
             )
             world.add_tilt_coupler(tilt_coupler)
-            if mode == "tilt-only":
-                world.tilt_only = True
+            world.tilt_mode = mode  # "tilt" or "tilt-coupled"
         else:
             world.add_passive_coupler(coupler)
 
@@ -117,7 +120,7 @@ def build_scene(mode: str):
         body_info[f"book_{bi}"] = (idx, book_hx, book_hy, book_hz,
                                    book_colors[bi])
 
-    # Heavy drop on the free end (right side) of the shelf.
+    # Drop on the free end (right side) of the shelf.
     drop_hx, drop_hy, drop_hz = 0.05, 0.05, 0.05
     drop = make_dynamic_box(
         mass=20.0, hx=drop_hx, hy=drop_hy, hz=drop_hz,
@@ -128,7 +131,8 @@ def build_scene(mode: str):
     body_info["drop"] = (idx, drop_hx, drop_hy, drop_hz, (0.3, 0.3, 0.3))
 
     title = {"plain": "Plain Rigid", "dcr": "Passive DCR",
-             "tilt": "DCR + Tilt", "tilt-only": "Tilt Only (no normal fallback)"}[mode]
+             "tilt": "Tilt (lateral only)",
+             "tilt-coupled": "Tilt-Coupled (vert+lat)"}[mode]
 
     return world, coupler, tilt_coupler, body_info, mesh, title
 
@@ -297,19 +301,19 @@ def playback(mesh, body_info, result, title):
 def main():
     args = sys.argv[1:]
     if not args:
-        args = ["--tilt"]
+        args = ["--tilt-coupled"]
 
     modes = []
     if "--all" in args:
-        modes = ["plain", "dcr", "tilt"]
+        modes = ["plain", "dcr", "tilt", "tilt-coupled"]
     else:
         for a in args:
             if a.startswith("--"):
                 m = a[2:]
-                if m in ("plain", "dcr", "tilt", "tilt-only"):
+                if m in ("plain", "dcr", "tilt", "tilt-coupled"):
                     modes.append(m)
     if not modes:
-        modes = ["tilt"]
+        modes = ["tilt-coupled"]
 
     results = {}
     last_mesh = None
@@ -334,8 +338,8 @@ def main():
     if last_mesh is not None:
         last_mode = modes[-1]
         title = {"plain": "Plain Rigid", "dcr": "Passive DCR",
-                 "tilt": "DCR + Tilt",
-                 "tilt-only": "Tilt Only"}[last_mode]
+                 "tilt": "Tilt (lateral only)",
+                 "tilt-coupled": "Tilt-Coupled (vert+lat)"}[last_mode]
         print(f"\nLaunching polyscope ({title})...")
         playback(last_mesh, last_body_info, results[last_mode], title)
 

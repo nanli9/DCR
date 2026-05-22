@@ -92,25 +92,45 @@ n' = normalize(n - s_1 * t_1 - s_2 * t_2)
 
 **Note:** For a linear (constant-strain) triangle, this patch fit is mathematically identical to the analytic gradient of the barycentric interpolation of mode shapes. The two approaches give the same result.
 
-### 2.3 Impulse decomposition
+### 2.3 Lateral velocity from slope-derived tilt
 
-The standard DCR impulse magnitude is `J_{mag} = m * Delta_v`. Instead of applying it along `n`, redirect along `n'`:
+The tilted normal `n'` determines the **lateral direction** only. It is **not** used to apply the full impulse along `n'` (i.e., we do NOT compute `v += Delta_v * n'`).
+
+**Lateral direction:**
 
 ```
-J_{full} = J_{mag} * n'
-J_n = (J_{full} . n) * n          # normal component (along original n)
-J_t = J_{full} - J_n              # tangential component (NEW)
+t = n' - (n' . n) * n             # tangential projection
+t_dir = normalize(t)              # unit lateral direction
 ```
 
-The normal component `J_n` is already applied by the standard DCR pipeline. The tilt extension applies only the **additional tangential component** `J_t`.
+**Lateral magnitude:**
+
+```
+dv_t = lateral_fraction * |Delta_v|
+```
+
+The lateral velocity is a fixed fraction of the DCR separation velocity. The tilt angle determines only the *direction*, not the magnitude. This makes the response **scene-independent** — the same `lateral_fraction` works for soft shelves (E ~ 0.5 GPa, large tilt angles) and stiff ground (E ~ 10 GPa, tiny tilt angles) without per-scene parameter tuning.
+
+**Capping:**
+
+```
+dv_t = min(dv_t, dv_t_max)                  # velocity cap
+dv_t = min(dv_t, sqrt(eta_t) * |Delta_v|)   # energy cap
+dv_t = min(dv_t, mu_dcr * |Delta_v|)        # Coulomb cap
+```
+
+The three caps prevent instability and ensure the lateral response remains bounded.
 
 ### 2.4 Application strategy
 
-The tangential impulse is applied as a **linear velocity change only**:
+The lateral correction is applied as a **linear velocity change only**:
 
 ```
-v_{lin} += J_t / m
+v_{lin} += dv_t * t_dir           # lateral component (both modes)
+v_{lin} += dv_n * n               # normal component (tilt-coupled only)
 ```
+
+where `dv_n = min(|Delta_v|, dv_n_max)` is a capped version of the standard DCR kick.
 
 Angular velocity is NOT directly injected. Instead, the rocking/tipping response emerges naturally from the contact solver in subsequent steps:
 
@@ -119,13 +139,13 @@ Angular velocity is NOT directly injected. Instead, the rocking/tipping response
 3. The body's top continues by inertia.
 4. This produces natural tipping rotation via the contact constraints.
 
-**Rationale:** Directly injecting angular velocity via `omega += I^{-1} (r x J_t)` causes unrealistic spinning for thin objects. A book with moment of inertia `I ~ 10^{-4} kg.m^2` would spin wildly from even a small `J_t`. Letting the contact solver handle rotation is more physically consistent and visually natural.
+**Rationale:** Directly injecting angular velocity via `omega += I^{-1} (r x J_t)` causes unrealistic spinning for thin objects. A book with moment of inertia `I ~ 10^{-4} kg.m^2` would spin wildly from even a small lateral impulse. Letting the contact solver handle rotation is more physically consistent and visually natural.
 
 ---
 
 ## 3. Safety Bounds
 
-Three bounds are enforced to prevent instability:
+Four bounds are enforced to prevent instability:
 
 ### Bound 1: Maximum tilt angle
 
@@ -135,24 +155,33 @@ if theta > theta_max:
     n' = slerp(n, n', theta_max / theta)
 ```
 
-Default: `theta_max = 10 degrees`. Prevents unrealistic lateral kicks from numerical noise in the modal slopes.
+Default: `theta_max = 10 degrees`. Prevents unrealistic lateral directions from numerical noise in the modal slopes.
 
 ### Bound 2: Coulomb-like lateral cap
 
 ```
-||J_t|| <= mu_DCR * |J_n|
+dv_t <= mu_DCR * |Delta_v|
 ```
 
-Default: `mu_DCR = 0.5`. Ensures the tangential component remains a fraction of the normal component, similar to how friction limits tangential forces in contact mechanics.
+Default: `mu_DCR = 0.5`. Ensures the lateral velocity remains a fraction of the DCR separation velocity, analogous to friction limiting tangential forces.
 
 ### Bound 3: Energy budget
 
 ```
-||J_t|| <= sqrt(2 * m * eta_t * E_DCR)
-where E_DCR = 0.5 * m * Delta_v^2
+dv_t <= sqrt(eta_t) * |Delta_v|
 ```
 
-Default: `eta_t = 0.5`. The tangential impulse cannot inject more kinetic energy than a fraction of the DCR normal kick energy. This prevents energy creation.
+Equivalent to: `0.5 * m * dv_t^2 <= eta_t * E_DCR`, where `E_DCR = 0.5 * m * Delta_v^2`.
+
+Default: `eta_t = 0.5`. The lateral kinetic energy cannot exceed a fraction of the DCR kick energy.
+
+### Bound 4: Velocity cap
+
+```
+dv_t <= dv_t_max
+```
+
+Default: `dv_t_max = 1.5 m/s`. Absolute cap on the lateral velocity correction regardless of amplification or DCR magnitude.
 
 ---
 
@@ -160,9 +189,9 @@ Default: `eta_t = 0.5`. The tangential impulse cannot inject more kinetic energy
 
 | Aspect | Standard DCR | DCR + Tilt Extension |
 |--------|-------------|---------------------|
-| Contact normal | Fixed (original surface normal) | Tilted by modal displacement gradient |
-| Impulse direction | Always along `n` | Along `n'` (decomposed into `J_n + J_t`) |
-| Lateral response | None | Bounded lateral kick from surface slope |
+| Contact normal | Fixed (original surface normal) | Unchanged (tilted normal used for lateral direction only) |
+| Impulse direction | Always along `n` | `dv_n * n` (capped) + `dv_t * t_dir` (amplified, bounded) |
+| Lateral response | None | Amplified lateral kick from surface slope |
 | Angular response | None (vertical jumps only) | Emerges via contact solver from lateral kick |
 | Tall thin objects | Jump vertically, stay upright | Rock and topple |
 | Precomputation | Mode shapes at surface | Mode shapes + per-triangle tangent frames |
@@ -260,9 +289,11 @@ This is bounded by `eta_t * E_DCR` (Bound 3), which is itself a fraction of the 
       - Compute slopes (s1, s2) via 2x2 linear solve
       - Compute tilted normal n' = normalize(n - s1*t1 - s2*t2)
       - Clamp tilt angle to theta_max
-      - Decompose: J_n (along n), J_t (lateral)
-      - Apply Coulomb + energy bounds to J_t
-   b. Apply J_t as linear velocity kick (no direct angular injection)
+      - Compute lateral direction t_dir and raw magnitude dv_t_raw = |dv| * tan(theta)
+      - Amplify: dv_t = lateral_gain * dv_t_raw
+      - Apply velocity, energy, and Coulomb caps
+   b. Apply dv_t * t_dir as lateral velocity kick
+   c. In tilt-coupled mode: also apply min(|dv|, dv_n_max) * n as capped vertical kick
 5. Integrate positions (standard)
 ```
 
@@ -272,26 +303,31 @@ This is bounded by `eta_t * E_DCR` (Bound 3), which is itself a fraction of the 
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `theta_max` | 10 degrees | Maximum tilt angle for clamping |
-| `mu_dcr` | 0.5 | Coulomb-like cap: `||J_t|| <= mu_dcr * |J_n|` |
-| `eta_t` | 0.5 | Energy fraction: `||J_t|| <= sqrt(2*m*eta_t*E_DCR)` |
-| `tilt_only` | False | If True, apply only J_t (no normal component) |
+| `theta_max` | 10 degrees | Maximum tilt angle for direction clamping |
+| `mu_dcr` | 0.5 | Coulomb-like cap: `dv_t <= mu_dcr * |Delta_v|` |
+| `eta_t` | 0.5 | Energy cap: `dv_t <= sqrt(eta_t) * |Delta_v|` |
+| `lateral_fraction` | 0.3 | Fraction of `|Delta_v|` applied laterally (direction from tilt) |
+| `dv_t_max` | 1.5 m/s | Absolute velocity cap on lateral correction |
+| `dv_n_max` | 0.3 m/s | Cap on vertical DCR velocity in coupled mode |
 
 ### Operating modes
 
-The tilt coupler supports two modes controlled by `DCRWorld.tilt_only`:
+The tilt coupler supports two modes controlled by `DCRWorld.tilt_mode`:
 
-- **`tilt_only = False` (default):** The full impulse `J = J_n + J_t` is applied along the tilted normal `n'`. Bodies with zero tilt fall back to the standard normal kick. This mode adds lateral response on top of the standard DCR vertical jump.
+- **`tilt_mode = "tilt"` (lateral-only ablation):** Only the bounded lateral component `dv_t * t_dir` is applied. No vertical DCR kick. Objects receive purely lateral pushes derived from the deformation slope direction — producing domino-like toppling without any vertical bouncing. This mode isolates the tilt effect for evaluation.
 
-- **`tilt_only = True`:** Only the tangential component `J_t` is applied. No vertical DCR kick at all. Objects receive purely lateral pushes from the deformation slope — producing domino-like toppling without any vertical bouncing. This mode isolates the tilt effect for comparison.
+- **`tilt_mode = "tilt-coupled"` (default):** Applies a capped vertical DCR kick `min(|Delta_v|, dv_n_max) * n` plus the bounded lateral tilt response `dv_t * t_dir`. This is the main demonstration mode for combining visible vertical vibration response with deformation-gradient-driven rocking/toppling.
 
-### Scene-dependent tuning
+**Important:** No mode applies the full impulse along the tilted normal (`v += Delta_v * n'`). The tilted normal is used only to determine the lateral direction.
 
-For the tilt extension to produce visible effects, the elastic body must have **sufficient modal displacement** under impact. This depends on:
+### Scene-independent design
 
-- **Material stiffness (E):** Softer materials produce larger displacements and steeper slopes. A wooden shelf (E ~ 0.5 GPa) tilts more than a stone ledge (E ~ 10 GPa).
-- **Impact energy:** Heavier drops from greater heights produce stronger modal excitation.
-- **Object geometry:** Tall, thin objects (high aspect ratio) are more sensitive to lateral kicks. A book with height/width ratio of 8:1 tips from much smaller lateral forces than a squat plate.
+The `lateral_fraction` parameter makes the tilt response scene-independent. Because the lateral magnitude is a fixed proportion of `|Delta_v|` (not derived from the tilt angle), the same parameter value works across scenes with different material stiffness:
+
+- **Soft shelf (E ~ 0.5 GPa):** Large tilt angles (~2°), strong modal displacement. The tilt direction is well-defined; the lateral fraction scales with the (large) DCR kick.
+- **Stiff ground (E ~ 10 GPa):** Tiny tilt angles (~0.3°), weak modal displacement. The tilt direction is still meaningful; the lateral fraction scales with the (smaller) DCR kick.
+
+No per-scene tuning of `lateral_fraction` is needed. Object geometry still matters — tall, thin objects (high aspect ratio) are more sensitive to lateral kicks than squat ones.
 
 ---
 
@@ -325,3 +361,4 @@ For the tilt extension to produce visible effects, the elastic body must have **
 - Coevoet, Andrews, Relles, Kry. *Distant Collision Response in Rigid Body Simulations.* Computer Graphics Forum 39(8), 2020.
 - `passive_modal_energy_injection_foundation.md` (this repo) -- passive energy injection math foundation.
 - `dcr_implementation_prompt.md` (this repo) -- DCR core implementation stages.
+> > []()

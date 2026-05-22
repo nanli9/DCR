@@ -236,6 +236,85 @@ def apply_tilt_bounds(
     return J_t
 
 
+def compute_tilt_lateral_velocity(
+    delta_v: float,
+    mass: float,
+    n: NDArray[np.float64],
+    n_tilt: NDArray[np.float64],
+    lateral_fraction: float,
+    dv_t_max: float,
+    eta_t: float,
+    mu_dcr: float,
+    eps: float = 1e-8,
+) -> tuple[float, NDArray[np.float64] | None, dict]:
+    """Compute bounded lateral velocity from slope-derived tilt direction.
+
+    The tilted normal determines the lateral *direction*. The magnitude
+    is a fixed fraction of |delta_v|, independent of the tilt angle.
+    This makes the lateral response scene-independent — the same
+    lateral_fraction works for soft shelves and stiff ground alike.
+
+    # DEVIATION: the paper applies DCR impulses along the original
+    # normal. This extension derives a lateral direction from the modal
+    # displacement gradient and applies a proportional tangential correction.
+    # The tilted normal is NOT used to replace the solver contact normal.
+
+    Args:
+        delta_v: Scalar DCR separation velocity from passive coupler.
+        mass: Body mass.
+        n: (3,) original push direction (unit normal).
+        n_tilt: (3,) tilted normal direction (unit vector).
+        lateral_fraction: Fraction of |delta_v| applied laterally.
+        dv_t_max: Absolute velocity cap on lateral correction.
+        eta_t: Energy fraction cap: 0.5*m*dv_t² <= eta_t * E_dcr.
+        mu_dcr: Coulomb-like cap: dv_t <= mu_dcr * |delta_v|.
+        eps: Tolerance for near-zero tangent direction.
+
+    Returns:
+        (dv_t, t_dir, debug): Lateral velocity magnitude, unit tangent
+        direction (or None if no tilt), and debug dictionary.
+    """
+    debug: dict = {}
+
+    # Lateral direction: tangential projection of tilted normal
+    t = n_tilt - float(np.dot(n_tilt, n)) * n
+    t_mag = float(np.linalg.norm(t))
+
+    if t_mag < eps:
+        debug["reason"] = "no_tilt"
+        debug["theta_deg"] = 0.0
+        debug["dv_t_applied"] = 0.0
+        return 0.0, None, debug
+
+    t_dir = t / t_mag
+
+    # Tilt angle (diagnostic only — not used for magnitude)
+    cos_theta = float(np.clip(np.dot(n, n_tilt), -1.0, 1.0))
+    theta = float(np.arccos(cos_theta))
+
+    # Lateral magnitude: fixed fraction of DCR kick, direction from tilt
+    dv_t_uncapped = lateral_fraction * abs(delta_v)
+
+    # Three caps
+    dv_t_velocity_cap = dv_t_max
+    dv_t_energy_cap = np.sqrt(eta_t) * abs(delta_v)
+    dv_t_coulomb_cap = mu_dcr * abs(delta_v)
+
+    dv_t = min(dv_t_uncapped, dv_t_velocity_cap,
+               dv_t_energy_cap, dv_t_coulomb_cap)
+
+    # Build debug dict
+    debug["theta_deg"] = float(np.degrees(theta))
+    debug["lateral_fraction"] = lateral_fraction
+    debug["dv_t_uncapped"] = dv_t_uncapped
+    debug["dv_t_energy_cap"] = dv_t_energy_cap
+    debug["dv_t_coulomb_cap"] = dv_t_coulomb_cap
+    debug["dv_t_velocity_cap"] = dv_t_velocity_cap
+    debug["dv_t_applied"] = dv_t
+
+    return dv_t, t_dir, debug
+
+
 # ======================================================================
 # TiltDCRCoupler
 # ======================================================================
@@ -248,16 +327,25 @@ class TiltDCRCoupler:
     bookkeeping, but extends the distant response by computing a tilted
     normal from the local modal displacement gradient (patch-fit fallback).
 
+    The tilted normal determines the lateral *direction* and slope-based
+    raw magnitude. It is NOT used to apply the full impulse along n_tilt.
+
     Attributes:
         passive: The underlying PassiveDCRCoupler (handles modal state).
         theta_max: Maximum tilt angle in radians (default: 3 degrees).
-        mu_dcr: Coulomb-like friction bound for tangential DCR impulse.
-        eta_t: Fraction of DCR energy available for tangential impulse.
+        mu_dcr: Coulomb-like cap: dv_t <= mu_dcr * |delta_v|.
+        eta_t: Energy cap: 0.5*m*dv_t^2 <= eta_t * E_dcr.
+        lateral_fraction: Fraction of |delta_v| applied laterally (direction from tilt).
+        dv_t_max: Absolute velocity cap on lateral correction (m/s).
+        dv_n_max: Cap on vertical DCR velocity in coupled mode (m/s).
     """
     passive: PassiveDCRCoupler
     theta_max: float = np.radians(3.0)
     mu_dcr: float = 0.2
     eta_t: float = 0.3
+    lateral_fraction: float = 0.3
+    dv_t_max: float = 1.5
+    dv_n_max: float = 0.3
 
     # Precomputed per-triangle data.
     _tri_normals: NDArray[np.float64] = field(init=False, repr=False)
@@ -424,8 +512,8 @@ class TiltDCRCoupler:
                 push_dir, s1, s2, t1, t2, self.theta_max)
 
             if theta < 1e-8:
-                # No tilt — skip, normal-only already handled
-                # by _apply_dcr_velocities
+                # No tilt — skip (the normal kick is handled by the
+                # fallback path in dcr_world when tilt_only is False).
                 continue
 
             results.append(TiltResult(

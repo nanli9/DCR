@@ -66,23 +66,31 @@ def _box_mesh(hx, hy, hz):
 # Scene 1: Truck on Road
 # ======================================================================
 
-def _add_coupler(world, modal, elastic_body_idx, tilt=False):
-    """Create and register a passive (or tilt) DCR coupler."""
+def _add_coupler(world, modal, elastic_body_idx, tilt_mode=None):
+    """Create and register a passive (or tilt) DCR coupler.
+
+    Args:
+        tilt_mode: None for standard DCR, "tilt" or "tilt-coupled" for tilt extension.
+    """
     coupler = PassiveDCRCoupler(modal=modal, elastic_body_idx=elastic_body_idx)
-    if tilt:
+    if tilt_mode:
         tilt_coupler = TiltDCRCoupler(
             passive=coupler,
             theta_max=np.radians(10.0),
             mu_dcr=0.5,
             eta_t=0.5,
+            lateral_fraction=0.3,
+            dv_t_max=1.5,
+            dv_n_max=0.3,
         )
         world.add_tilt_coupler(tilt_coupler)
+        world.tilt_mode = tilt_mode
     else:
         world.add_passive_coupler(coupler)
     return coupler
 
 
-def build_truck_scene(tilt=False):
+def build_truck_scene(tilt_mode=None):
     """Heavy objects dropped sequentially on road. Cones and lumber respond.
 
     Three drops at different positions and heights so they hit the ground
@@ -111,7 +119,7 @@ def build_truck_scene(tilt=False):
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
                    alpha0=2.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=15)
-    coupler = _add_coupler(world, modal, ground_idx, tilt=tilt)
+    coupler = _add_coupler(world, modal, ground_idx, tilt_mode=tilt_mode)
 
     body_info = {}  # name -> (idx, hx, hy, hz, color)
 
@@ -119,9 +127,9 @@ def build_truck_scene(tilt=False):
     # Low drops with staggered timing via height:
     #   drop_0 hits at ~0.14s (0.1m), drop_1 at ~0.32s (0.5m), drop_2 at ~0.54s (1.4m)
     drops = [
-        ("drop_light", -0.2,  0.10,  20.0, (0.4, 0.6, 0.9)),   # light, low
+        ("drop_light", -0.5,  0.10,  20.0, (0.4, 0.6, 0.9)),   # light, low
         ("drop_mid",   -0.3,  0.50,  50.0, (0.3, 0.4, 0.8)),   # medium
-        ("drop_heavy", -0.4,  1.40, 120.0, (0.2, 0.25, 0.6)),  # heavy
+        ("drop_heavy", -0.05,  2.40, 220.0, (0.2, 0.25, 0.6)),  # heavy
     ]
     drop_hx, drop_hy, drop_hz = 0.10, 0.07, 0.08
     for name, dx, dy, mass, color in drops:
@@ -164,7 +172,7 @@ def build_truck_scene(tilt=False):
 # Scene 2: Bookshelf Drop
 # ======================================================================
 
-def build_shelf_scene(tilt=False):
+def build_shelf_scene(tilt_mode=None):
     """Heavy box dropped on a shelf. Books standing upright topple.
 
     The shelf is a cantilever beam (fixed at one edge). Books are
@@ -180,7 +188,7 @@ def build_shelf_scene(tilt=False):
     # Shelf: narrow elastic slab, fixed on left edge (cantilever).
     mesh = make_slab_tet_mesh(length=0.8, width=0.3, height=0.03,
                               nx=12, ny=5, nz=2)
-    mat = Material(E=0.5e9 if tilt else 8.0e9, nu=0.3, rho=600.0)
+    mat = Material(E=0.5e9 if tilt_mode else 8.0e9, nu=0.3, rho=600.0)
     shelf_top = 0.015  # top of slab (height/2)
     shelf = make_static_plane(normal=(0, 1, 0),
                               point=(0, shelf_top, 0), friction=0.5)
@@ -190,7 +198,7 @@ def build_shelf_scene(tilt=False):
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
                    alpha0=3.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=12)
-    coupler = _add_coupler(world, modal, shelf_idx, tilt=tilt)
+    coupler = _add_coupler(world, modal, shelf_idx, tilt_mode=tilt_mode)
 
     body_info = {}
 
@@ -227,7 +235,7 @@ def build_shelf_scene(tilt=False):
 # Scene 3: Cliff Ledge / Rockfall
 # ======================================================================
 
-def build_ledge_scene(tilt=False):
+def build_ledge_scene(tilt_mode=None):
     """Boulder hits a cliff ledge, balanced rocks fall off the edge.
 
     Inspired by the paper's 'Rockfall' scene. The ledge is an elastic
@@ -253,7 +261,7 @@ def build_ledge_scene(tilt=False):
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
                    alpha0=1.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=12)
-    coupler = _add_coupler(world, modal, ledge_idx, tilt=tilt)
+    coupler = _add_coupler(world, modal, ledge_idx, tilt_mode=tilt_mode)
 
     body_info = {}
 
@@ -429,13 +437,18 @@ SCENES = {
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: uv run python scripts/run_scenes.py <scene> [--tilt]")
+        print("Usage: uv run python scripts/run_scenes.py <scene> [--tilt|--tilt-coupled]")
         print(f"  Available scenes: {', '.join(SCENES.keys())}, all")
-        print(f"  --tilt: Enable deformation-aware contact frame extension")
+        print(f"  --tilt:          Lateral-only tilt extension")
+        print(f"  --tilt-coupled:  Capped vertical + lateral tilt extension")
         sys.exit(1)
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
-    tilt = "--tilt" in sys.argv
+    tilt_mode = None
+    if "--tilt-coupled" in sys.argv:
+        tilt_mode = "tilt-coupled"
+    elif "--tilt" in sys.argv:
+        tilt_mode = "tilt"
 
     scene_name = args[0] if args else "all"
 
@@ -448,15 +461,15 @@ def main():
         print(f"Available: {', '.join(SCENES.keys())}, all")
         sys.exit(1)
 
-    mode_str = " + TILT" if tilt else ""
+    mode_str = f" + {tilt_mode.upper()}" if tilt_mode else ""
 
     for name in names:
         print(f"\n{'='*60}")
         print(f"Building scene: {name}{mode_str}")
         print(f"{'='*60}")
-        world, coupler, body_info, mesh, title = SCENES[name](tilt=tilt)
-        if tilt:
-            title += " [TILT]"
+        world, coupler, body_info, mesh, title = SCENES[name](tilt_mode=tilt_mode)
+        if tilt_mode:
+            title += f" [{tilt_mode.upper()}]"
         print(f"  Bodies: {len(world.bodies)}")
         print(f"  Dynamic: {[n for n in body_info]}")
 
