@@ -359,6 +359,20 @@ def playback_polyscope(mesh, body_info, times, positions, orientations, title):
     ps.register_surface_mesh("elastic_surface", surface.vertices,
                              surface.faces, color=(0.6, 0.5, 0.35))
 
+    # Render the infinite collision plane as a large semi-transparent quad.
+    # Offset slightly below the slab surface to avoid Z-fighting.
+    plane_y = mesh.vertices[:, 1].max() - 0.001
+    plane_sz = 3.0
+    plane_verts = np.array([
+        [-plane_sz, plane_y, -plane_sz],
+        [+plane_sz, plane_y, -plane_sz],
+        [+plane_sz, plane_y, +plane_sz],
+        [-plane_sz, plane_y, +plane_sz],
+    ])
+    plane_faces = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
+    ps.register_surface_mesh("ground_plane", plane_verts, plane_faces,
+                             color=(0.85, 0.85, 0.80), transparency=0.5)
+
     # Register each body.
     ps_meshes = {}
     box_meshes = {}

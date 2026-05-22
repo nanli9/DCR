@@ -87,11 +87,17 @@ def _detect_box_plane(idx_box: int, box: RigidBody,
         [-hx, +hy, +hz],
     ])
 
+    bounds = plane.collision_bounds  # Optional (half_x, half_z)
+
     contacts = []
     for corner_b in corners_body:
         corner_w = box.position + R @ corner_b
         dist = np.dot(corner_w - plane_point, plane_normal)
         if dist < 0.0:
+            if bounds is not None:
+                rel = corner_w - plane_point
+                if abs(rel[0]) > bounds[0] or abs(rel[2]) > bounds[1]:
+                    continue
             contact_point = corner_w - plane_normal * (dist * 0.5)
             contacts.append(Contact(
                 body_a=idx_box,
@@ -317,6 +323,9 @@ def detect_contacts(bodies: list[RigidBody],
     for i in range(n):
         for j in range(i + 1, n):
             a, b = bodies[i], bodies[j]
+            # Skip static-static pairs — no useful contact response.
+            if a.is_static and b.is_static:
+                continue
             ka, kb = a.shape.kind, b.shape.kind
 
             new_contacts: list[Contact] = []

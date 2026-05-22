@@ -59,14 +59,20 @@ def build_scene(mode: str):
         dcr_enabled=dcr_on,
     )
 
-    # Shelf: cantilever slab, fixed at left edge.
+    # Ground plane at y=0 (catches objects that fall off the shelf).
+    ground = make_static_plane(normal=(0, 1, 0), point=(0, 0, 0), friction=0.5)
+    world.add_body(ground)
+
+    # Shelf: bounded plane elevated above ground, cantilever slab.
+    shelf_top = 0.3
     mesh = make_slab_tet_mesh(length=0.8, width=0.3, height=0.03,
                               nx=12, ny=5, nz=2)
+    mesh.vertices[:, 1] += shelf_top - 0.015  # shift mesh top to shelf_top
     mat = Material(E=0.5e9 if tilt_on else 8.0e9, nu=0.3, rho=600.0)
-    shelf_top = 0.015  # height/2
 
     shelf = make_static_plane(normal=(0, 1, 0),
-                              point=(0, shelf_top, 0), friction=0.5)
+                              point=(0, shelf_top, 0), friction=0.5,
+                              bounds=(0.4, 0.15))  # match slab half-extents
     shelf_idx = world.add_body(shelf)
 
     fixed = _fix_one_edge(mesh)
@@ -231,8 +237,20 @@ def playback(mesh, body_info, result, title):
     ps.set_ground_plane_mode("shadow_only")
 
     surface = mesh.extract_surface()
-    ps.register_surface_mesh("shelf", surface.vertices,
+    ps.register_surface_mesh("shelf_mesh", surface.vertices,
                              surface.faces, color=(0.6, 0.5, 0.35))
+
+    # Ground plane at y=0 (the shelf is elevated above this).
+    plane_sz = 2.0
+    plane_verts = np.array([
+        [-plane_sz, 0.0, -plane_sz],
+        [+plane_sz, 0.0, -plane_sz],
+        [+plane_sz, 0.0, +plane_sz],
+        [-plane_sz, 0.0, +plane_sz],
+    ])
+    plane_faces = np.array([[0, 1, 2], [0, 2, 3]], dtype=np.int32)
+    ps.register_surface_mesh("ground_plane", plane_verts, plane_faces,
+                             color=(0.85, 0.85, 0.80), transparency=0.3)
 
     ps_meshes = {}
     box_meshes = {}

@@ -122,6 +122,8 @@ class RigidBody:
     is_static: bool = False
     restitution: float = 0.15
     friction: float = 0.5
+    collision_bounds: tuple[float, float] | None = None
+    """Optional (half_x, half_z) for plane shapes. Contacts outside are rejected."""
 
     def rotation_matrix(self) -> NDArray[np.float64]:
         """Current 3x3 rotation matrix (body → world)."""
@@ -208,8 +210,13 @@ def make_dynamic_sphere(mass: float, radius: float,
 
 def make_static_plane(normal: tuple[float, float, float] = (0, 1, 0),
                       point: tuple[float, float, float] = (0, 0, 0),
-                      friction: float = 0.5) -> RigidBody:
-    """Convenience: create an infinite static plane."""
+                      friction: float = 0.5,
+                      bounds: tuple[float, float] | None = None) -> RigidBody:
+    """Convenience: create a static plane.
+
+    Args:
+        bounds: Optional (half_x, half_z) finite extent centered at *point*.
+    """
     return RigidBody(
         mass=1e30,  # effectively infinite
         inertia_body=np.array([1e30, 1e30, 1e30]),
@@ -221,4 +228,5 @@ def make_static_plane(normal: tuple[float, float, float] = (0, 1, 0),
         is_static=True,
         restitution=0.0,
         friction=friction,
+        collision_bounds=bounds,
     )
