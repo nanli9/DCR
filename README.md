@@ -6,6 +6,8 @@ A from-scratch Python reproduction of:
 
 Plus a follow-up: **passive energy-bounded modal injection** — rigid-body kinetic energy lost during contact funds a bounded velocity kick to the modal state, with artist-controllable transfer efficiency `eta` and a hard energy ceiling `dE_modal <= eta * dE_rigid_loss`.
 
+> See `CONTRIBUTIONS.md` for the full list of contributions beyond the paper and a condensed math foundation. The paper PDF lives in `reference/`; build prompts and the long-form math foundation live in `prompts/`.
+
 ## Setup
 
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
@@ -32,16 +34,42 @@ uv run python scripts/run_stageE3.py
 
 # eta sweep — same dinner scene at eta = 0.0, 0.1, 0.3, 0.5, 1.0
 uv run python scripts/run_stageE5.py
-
-# Truck on road — heavy truck bounces, cones shake, lumber stack topples
-uv run python scripts/run_scenes.py truck
-
-# Bookshelf drop — heavy box dropped on shelf, books topple
-uv run python scripts/run_scenes.py shelf
-
-# Cliff ledge rockfall — boulder hits ledge, balanced rocks fall off
-uv run python scripts/run_scenes.py ledge
 ```
+
+### `scripts/run_scenes.py` — three scenes, three distant-velocity modes
+
+```bash
+# Default mode (`dcr`): paper Eq. 12 Δv = d_max / h
+uv run python scripts/run_scenes.py truck       # heavy drops, cones shake, lumber topples
+uv run python scripts/run_scenes.py shelf       # heavy box on a cantilever shelf, books topple
+uv run python scripts/run_scenes.py ledge       # boulder onto a ledge, balanced rocks fall off
+uv run python scripts/run_scenes.py all         # run all three back-to-back
+```
+
+Distant-velocity mode (`--mode`):
+
+```bash
+# Paper baseline (Coevoet 2020 Eq. 12) — the default
+uv run python scripts/run_scenes.py shelf --mode dcr
+
+# Version A — energy-prescribed linear COM kick along the deformed normal
+uv run python scripts/run_scenes.py shelf --mode energy_prescribed --beta 0.25
+
+# Version B — true point impulse (linear + angular) along the deformed normal
+uv run python scripts/run_scenes.py shelf --mode energy_prescribed_point_impulse --beta 0.25
+```
+
+Other flags:
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--mode <name>` | `dcr` | `dcr` \| `energy_prescribed` \| `energy_prescribed_point_impulse` |
+| `--beta <0..1>` | `0.25` | Fraction of `E_available` consumed by the kick (energy_* modes only) |
+| `--budget-source <name>` | `min_rigid_loss_modal` | `rigid_loss` \| `modal_reservoir` \| `min_rigid_loss_modal` |
+| `--sim-duration <seconds>` | `2.0` (truck: `1.8`) | Simulated wallclock; `n_steps` derived as `round(duration / h)` so playback length is invariant to `h` |
+| `-h`, `--help` | — | Print usage |
+
+See `docs/distant_velocity_modes.md` for the math, the A-vs-B comparison, and h-sweep results.
 
 ## Original DCR Stages
 
