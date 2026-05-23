@@ -8,7 +8,7 @@ A **from-scratch Python reproduction** of the SCA 2020 paper:
 
 > Coevoet, Andrews, Relles, Kry. *Distant Collision Response in Rigid Body Simulations.* Computer Graphics Forum 39(8), 2020.
 
-The paper PDF is at `DCR_SCA2020_preprint.pdf` (project root). The detailed staged build plan is in `dcr_implementation_prompt.md`. **Read that file before you write a line of code.**
+The paper PDF is at `reference/DCR_SCA2020_preprint.pdf`. The detailed staged build plan is in `prompts/dcr_implementation_prompt.md`. **Read that file before you write a line of code.**
 
 The first end goal of this repo is to reproduce the **core DCR method**: modal-path response for small objects, spatial-attenuation path for large objects, and a qualitative ground-truth comparison.
 
@@ -24,7 +24,7 @@ If a user asks for any of the items in this list, the answer is "out of scope fo
 
 ## Follow-up: Passive Modal Energy Injection
 
-After the DCR core (Stages 1–7 of `dcr_implementation_prompt.md`) reaches acceptance, this project extends with a follow-up of our own design. The math foundation lives in `passive_modal_energy_injection_foundation.md` (project root). The staged build plan lives in `passive_energy_injection_implementation_prompt.md`.
+After the DCR core (Stages 1–7 of `prompts/dcr_implementation_prompt.md`) reaches acceptance, this project extends with a follow-up of our own design. The math foundation lives in `prompts/passive_modal_energy_injection_foundation.md`. The staged build plan lives in `prompts/passive_energy_injection_implementation_prompt.md`.
 
 The follow-up reframes the impulse → modal coupling as a *velocity-level kick* to `q̇` funded by the rigid-body kinetic energy lost during contact resolution, scaled by a transfer efficiency `η ∈ [0, 1]`, and capped by a quadratic passivity bound so that
 
@@ -54,8 +54,8 @@ Do **not** add a new dependency without justifying it in writing. No PyTorch, no
 ## Constraints on Claude's behavior in this repo
 
 1. **Follow the stage order.**
-   - DCR core: Stage 1 (rigid body) → Stage 2 (FEM) → Stage 3 (modal) → Stage 4 (IIR) → Stage 5 (modal DCR) → Stage 6 (spatial DCR) → Stage 7 (scenes), per `dcr_implementation_prompt.md`.
-   - Follow-up: Stage E0 (energy bookkeeping) → E1 (projection) → E2 (α cap) → E3 (wire injection) → E4 (aggregation + dissipation) → E5 (η sweep) → E6 (sound bound, optional), per `passive_energy_injection_implementation_prompt.md`.
+   - DCR core: Stage 1 (rigid body) → Stage 2 (FEM) → Stage 3 (modal) → Stage 4 (IIR) → Stage 5 (modal DCR) → Stage 6 (spatial DCR) → Stage 7 (scenes), per `prompts/dcr_implementation_prompt.md`.
+   - Follow-up: Stage E0 (energy bookkeeping) → E1 (projection) → E2 (α cap) → E3 (wire injection) → E4 (aggregation + dissipation) → E5 (η sweep) → E6 (sound bound, optional), per `prompts/passive_energy_injection_implementation_prompt.md`.
    - Do not start any E-stage before DCR Stages 1–6 are passing acceptance.
    - Do not jump ahead within either sequence.
 
@@ -100,10 +100,14 @@ Do **not** add a new dependency without justifying it in writing. No PyTorch, no
 ```
 .
 ├── CLAUDE.md                                       # this file
-├── dcr_implementation_prompt.md                    # DCR core build plan — READ FIRST
-├── passive_energy_injection_implementation_prompt.md  # follow-up build plan
-├── passive_modal_energy_injection_foundation.md    # follow-up math foundation
-├── DCR_SCA2020_preprint.pdf                        # the paper
+├── CONTRIBUTIONS.md                                # contributions beyond the paper + math summary
+├── prompts/                                        # build prompts and math foundation
+│   ├── dcr_implementation_prompt.md                #   DCR core build plan — READ FIRST
+│   ├── passive_energy_injection_implementation_prompt.md  # follow-up build plan
+│   ├── passive_modal_energy_injection_foundation.md       # follow-up math foundation
+│   └── deformation_aware_contact_frame.md          #   archived: tilt extension design (superseded by Version B)
+├── reference/                                      # external references
+│   └── DCR_SCA2020_preprint.pdf                    #   the paper
 ├── README.md                                       # human-readable summary, generated after Stage 1
 ├── pyproject.toml                                  # or requirements.txt
 ├── dcr/                                            # the library

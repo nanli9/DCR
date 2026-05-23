@@ -1,6 +1,6 @@
 # Reproducing "Distant Collision Response in Rigid Body Simulations" — Implementation Prompt
 
-**Paper.** Coevoet, Andrews, Relles, Kry. *Distant Collision Response in Rigid Body Simulations*. Computer Graphics Forum 39(8), 2020 (SCA 2020). PDF lives in the project root as `DCR_SCA2020_preprint.pdf`.
+**Paper.** Coevoet, Andrews, Relles, Kry. *Distant Collision Response in Rigid Body Simulations*. Computer Graphics Forum 39(8), 2020 (SCA 2020). PDF lives at `reference/DCR_SCA2020_preprint.pdf`.
 
 **Your job (Claude).** Reproduce the core method of the paper from scratch, in Python, CPU-only, with NVIDIA `warp` for any inner loops that benefit from kernel-style data parallelism. No C++. Build it in stages. Get each stage stable, tested, and visualized before moving to the next. Do **not** skip ahead.
 
