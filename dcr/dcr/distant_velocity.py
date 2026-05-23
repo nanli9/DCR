@@ -34,6 +34,33 @@ from ..rigid.body import RigidBody
 
 
 # ----------------------------------------------------------------------
+# LinearKick — return type for Version A (linear COM kick at deformed normal)
+# ----------------------------------------------------------------------
+
+@dataclass
+class LinearKick:
+    """One Version-A linear COM kick along the deformed contact normal n'.
+
+    Applied to body p by `_apply_linear_kick_dcr_velocities` (dcr_world.py):
+
+        body.velocity[0:3] += scale * speed * u
+
+    where scale ∈ [0, 1] is the passivity-cap factor from
+    `_bound_linear_kick_dcr_velocities`.
+
+    Attributes:
+        body_idx: Index of the body receiving the kick.
+        speed: Scalar speed magnitude `√(2 · E_target / m)`; non-negative.
+        u: (3,) unit-vector direction (deformed contact normal n').
+        theta: Tilt angle vs the un-deformed normal (diagnostic only).
+    """
+    body_idx: int
+    speed: float
+    u: NDArray[np.float64]
+    theta: float = 0.0
+
+
+# ----------------------------------------------------------------------
 # PointImpulseKick — return type for Version B
 # ----------------------------------------------------------------------
 

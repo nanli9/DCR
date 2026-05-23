@@ -17,11 +17,10 @@ from ..rigid.collision import Contact, detect_contacts
 from ..rigid.energy import rigid_kinetic_energy
 from ..rigid.joint import DistanceJoint
 from ..rigid.solver import ConstraintSolver
-from .distant_velocity import PointImpulseKick
+from .distant_velocity import LinearKick, PointImpulseKick
 from .modal_dcr import ModalDCRCoupler
 from .passive_dcr import PassiveDCRCoupler
 from .spatial_dcr import SpatialDCRCoupler
-from .tilt_dcr import TiltDCRCoupler, TiltResult, apply_tilt_bounds, compute_tilt_lateral_velocity
 
 
 @dataclass
@@ -53,8 +52,6 @@ class DCRWorld:
     dcr_couplers: list[ModalDCRCoupler] = field(default_factory=list)
     passive_couplers: list[PassiveDCRCoupler] = field(default_factory=list)
     spatial_couplers: list[SpatialDCRCoupler] = field(default_factory=list)
-    tilt_couplers: list[TiltDCRCoupler] = field(default_factory=list)
-    tilt_mode: str = "tilt-coupled"  # "tilt" (lateral only) or "tilt-coupled" (capped vert + lat)
     dcr_enabled: bool = True
     eta: float = 0.3  # Transfer efficiency η ∈ [0, 1] (foundation §1)
     # Hard rigid-energy bound on DCR distant kicks (this follow-up).
@@ -75,15 +72,6 @@ class DCRWorld:
     def __post_init__(self) -> None:
         self.solver.h = self.h
 
-    @property
-    def tilt_only(self) -> bool:
-        """Backward-compat: tilt_only=True ↔ tilt_mode='tilt'."""
-        return self.tilt_mode == "tilt"
-
-    @tilt_only.setter
-    def tilt_only(self, value: bool) -> None:
-        self.tilt_mode = "tilt" if value else "tilt-coupled"
-
     def add_body(self, body: RigidBody) -> int:
         self.bodies.append(body)
         return len(self.bodies) - 1
@@ -99,9 +87,6 @@ class DCRWorld:
 
     def add_spatial_coupler(self, coupler: SpatialDCRCoupler) -> None:
         self.spatial_couplers.append(coupler)
-
-    def add_tilt_coupler(self, coupler: TiltDCRCoupler) -> None:
-        self.tilt_couplers.append(coupler)
 
     def step(self) -> list[Contact]:
         """Advance simulation by one time step h with DCR.
@@ -160,14 +145,21 @@ class DCRWorld:
                     contacts, lam, self.h, self.last_E_max,
                     bodies=self.bodies)
                 if coupler.last_point_impulse_kicks is not None:
-                    # Version B: point-impulse path with its own cap.
-                    kicks, s = self._bound_point_impulse_dcr_velocities(
+                    # Version B: deformed normal + true point impulse.
+                    kicks_b, s = self._bound_point_impulse_dcr_velocities(
                         coupler.last_point_impulse_kicks)
                     if s < clip_eps:
                         self.last_dcr_clipped = True
-                    self._apply_point_impulse_dcr_velocities(kicks, scale=s)
+                    self._apply_point_impulse_dcr_velocities(kicks_b, scale=s)
+                elif coupler.last_linear_kicks is not None:
+                    # Version A: deformed normal + linear COM kick.
+                    kicks_a, s = self._bound_linear_kick_dcr_velocities(
+                        coupler.last_linear_kicks)
+                    if s < clip_eps:
+                        self.last_dcr_clipped = True
+                    self._apply_linear_kick_dcr_velocities(kicks_a, scale=s)
                 else:
-                    # Scalar-dv path (coevoet / bounded_coevoet / Version A).
+                    # Scalar-dv path (coevoet / bounded_coevoet).
                     dcr_velocities, s = self._bound_dcr_velocities(
                         dcr_velocities, contacts, coupler.elastic_body_idx)
                     if s < clip_eps:
@@ -184,27 +176,6 @@ class DCRWorld:
                     self.last_dcr_clipped = True
                 self._apply_dcr_velocities(
                     dcr_velocities, contacts, coupler.elastic_body_idx)
-
-            # Tilt-DCR couplers (contact frame extension).
-            # The tilt coupler replaces the normal DCR kick: the full
-            # impulse goes along n' (tilted normal), not n + extra J_t.
-            # For contacts without tilt (theta ~ 0), apply the standard
-            # normal kick as fallback.
-            for coupler in self.tilt_couplers:
-                tilt_results = coupler.process_step(
-                    contacts, lam, self.h, self.last_E_max)
-                # Bodies that got tilt results — their kick is fully
-                # handled by _apply_tilt_dcr_velocities along n'.
-                tilted_bodies = {r.body_idx for r in tilt_results}
-                # For bodies with no tilt (theta ~ 0), fall back to
-                # the standard normal kick (unless tilt_only mode).
-                if self.tilt_mode == "tilt-coupled":
-                    fallback = {k: v for k, v in coupler.last_dcr_velocities.items()
-                                if k not in tilted_bodies}
-                    if fallback:
-                        self._apply_dcr_velocities(
-                            fallback, contacts, coupler.elastic_body_idx)
-                self._apply_tilt_dcr_velocities(tilt_results, coupler)
 
         # 5. Integrate positions.
         for body in self.bodies:
@@ -350,6 +321,75 @@ class DCRWorld:
         self.last_E_rigid_out_after_cap += float(s * A_lin + s * s * B_quad)
         return kicks, s
 
+    def _bound_linear_kick_dcr_velocities(
+        self,
+        kicks: list[LinearKick],
+    ) -> tuple[list[LinearKick], float]:
+        """Hard rigid-energy bound for Version-A linear-only kicks at the
+        deformed contact normal.
+
+        Same scaling idea as _bound_dcr_velocities, but Δv is a true 3D
+        vector `speed · u` (u = deformed normal, not necessarily the
+        un-deformed contact normal). Per-body ΔE per kick on body p:
+            Δv_p = scale · speed · u
+            ΔE_p = m_p (v_p⁻ · Δv_p) + ½ m_p ‖Δv_p‖²
+                 = scale · m_p · speed · (v_p⁻ · u)
+                   + scale² · ½ m_p · speed²
+        Sum over kicks and scale-search for s ∈ [0, 1].
+
+        No-op when self.enforce_rigid_energy_bound is False.
+        """
+        if not kicks:
+            return kicks, 1.0
+        budget = 0.999 * self.last_E_loss
+        A_lin = 0.0
+        B_quad = 0.0
+        for kk in kicks:
+            body = self.bodies[kk.body_idx]
+            if body.is_static or body.mass <= 0.0:
+                continue
+            v_minus = body.velocity[0:3]
+            v_dot_u = float(v_minus @ kk.u)
+            A_lin += body.mass * kk.speed * v_dot_u
+            B_quad += 0.5 * body.mass * kk.speed * kk.speed
+        E_full = A_lin + B_quad
+        self.last_E_rigid_out_before_cap += float(E_full)
+        if not self.enforce_rigid_energy_bound:
+            self.last_E_rigid_out_after_cap += float(E_full)
+            return kicks, 1.0
+        if B_quad <= 0.0 or E_full <= budget:
+            self.last_E_rigid_out_after_cap += float(E_full)
+            return kicks, 1.0
+        disc = A_lin * A_lin + 4.0 * B_quad * budget
+        s = (-A_lin + np.sqrt(max(0.0, disc))) / (2.0 * B_quad)
+        s = float(np.clip(s, 0.0, 1.0))
+        self.last_E_rigid_out_after_cap += float(s * A_lin + s * s * B_quad)
+        return kicks, s
+
+    def _apply_linear_kick_dcr_velocities(
+        self,
+        kicks: list[LinearKick],
+        scale: float = 1.0,
+    ) -> None:
+        """Apply linear COM kicks along the deformed contact normal.
+        Version A kick path.
+
+        For each kick on body p with speed magnitude `speed` along u:
+            body.velocity[0:3] += scale · speed · u
+        Realized ΔKE = ½ m (scale·speed)² = scale² · E_target.
+        """
+        for kk in kicks:
+            body = self.bodies[kk.body_idx]
+            if body.is_static or body.mass <= 0.0:
+                continue
+            dv = scale * kk.speed
+            ke_before = 0.5 * body.mass * float(
+                body.velocity[:3] @ body.velocity[:3])
+            body.velocity[0:3] += dv * kk.u
+            ke_after = 0.5 * body.mass * float(
+                body.velocity[:3] @ body.velocity[:3])
+            self.last_dcr_ke_injected += ke_after - ke_before
+
     def _apply_point_impulse_dcr_velocities(
         self,
         kicks: list[PointImpulseKick],
@@ -416,56 +456,6 @@ class DCRWorld:
                     self.last_dcr_ke_injected += ke_after - ke_before
                     break
 
-    def _apply_tilt_dcr_velocities(
-        self,
-        tilt_results: list[TiltResult],
-        coupler: TiltDCRCoupler,
-    ) -> None:
-        """Apply amplified, bounded lateral velocity from tilt + optional capped normal.
-
-        # DEVIATION: the paper applies DCR impulses along the original
-        # contact normal. This extension derives a lateral direction from
-        # the modal displacement gradient and applies an amplified tangential
-        # correction. The tilted normal is NOT used to replace the solver
-        # contact normal or to apply v += dv * n_tilt.
-
-        In 'tilt' mode: only the lateral component is applied.
-        In 'tilt-coupled' mode: capped normal + lateral are both applied.
-
-        Angular response emerges from friction constraints in subsequent
-        solver steps — no direct angular velocity injection.
-        """
-        for r in tilt_results:
-            body = self.bodies[r.body_idx]
-            if body.is_static:
-                continue
-
-            dv_t, t_dir, _dbg = compute_tilt_lateral_velocity(
-                delta_v=r.dv,
-                mass=body.mass,
-                n=r.push_dir,
-                n_tilt=r.n_tilt,
-                lateral_fraction=coupler.lateral_fraction,
-                dv_t_max=coupler.dv_t_max,
-                eta_t=coupler.eta_t,
-                mu_dcr=coupler.mu_dcr,
-            )
-
-            ke_before = 0.5 * body.mass * np.dot(
-                body.velocity[:3], body.velocity[:3])
-
-            # Lateral component (both tilt modes)
-            if dv_t > 0.0 and t_dir is not None:
-                body.velocity[:3] += dv_t * t_dir
-
-            # Capped normal component (tilt-coupled only)
-            if self.tilt_mode == "tilt-coupled":
-                dv_n = min(abs(r.dv), coupler.dv_n_max)
-                body.velocity[:3] += dv_n * r.push_dir
-
-            ke_after = 0.5 * body.mass * np.dot(
-                body.velocity[:3], body.velocity[:3])
-            self.last_dcr_ke_injected += ke_after - ke_before
 
     def kinetic_energy(self) -> float:
         ke = 0.0

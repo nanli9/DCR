@@ -41,6 +41,7 @@ from ..rigid.collision import Contact
 from ..rigid.solver import _pick_friction_dirs
 from .deformed_normal import SurfaceTangentFrames, compute_deformed_normal
 from .distant_velocity import (
+    LinearKick,
     PointImpulseKick,
     impulse_from_energy_point,
     speed_from_energy_linear,
@@ -110,7 +111,11 @@ class PassiveDCRCoupler:
     last_E_available: float = 0.0
     last_E_target: float = 0.0
     last_dcr_velocities_coevoet: dict[int, float] = field(default_factory=dict)
+    # Diagnostic speeds for Version A (the scalar magnitudes per kicked
+    # body, before direction is applied). Populated alongside last_linear_kicks.
     last_dcr_velocities_energy_A: dict[int, float] = field(default_factory=dict)
+    # Set when mode == "energy_prescribed":
+    last_linear_kicks: list[LinearKick] | None = None
     # Set when mode == "energy_prescribed_point_impulse":
     last_point_impulse_kicks: list[PointImpulseKick] | None = None
 
@@ -295,17 +300,22 @@ class PassiveDCRCoupler:
         self.last_E_available = E_available
         self.last_E_target = E_target
 
-        # --- 3. Version A (diagnostic when not active) -----------------
+        # --- 3. Version A (deformed-normal, linear-only) ---------------
+        # Computed in parallel even when not the active mode, so the
+        # dv_ratio diagnostic / CSV columns are always populated.
         if bodies is not None:
-            dv_A = self._compute_distant_response_energy_A(
-                resting_contacts, dv_coevoet, bodies, E_target)
+            linear_kicks = self._compute_distant_response_energy_A(
+                resting_contacts, q_history, bodies, E_target)
         else:
-            dv_A = {}
-        self.last_dcr_velocities_energy_A = dict(dv_A)
+            linear_kicks = []
+        # Backward-compatible diagnostic dict: speed-magnitudes by body.
+        self.last_dcr_velocities_energy_A = {
+            kk.body_idx: kk.speed for kk in linear_kicks}
 
         # --- 4. Dispatch on active mode --------------------------------
         mode = self.dcr_velocity_mode
         if mode == "coevoet":
+            self.last_linear_kicks = None
             self.last_point_impulse_kicks = None
             return dv_coevoet
         if mode == "energy_prescribed":
@@ -314,8 +324,12 @@ class PassiveDCRCoupler:
                     "dcr_velocity_mode='energy_prescribed' requires `bodies` "
                     "to be passed to PassiveDCRCoupler.process_step(). "
                     "DCRWorld.step() supplies this automatically.")
+            self.last_linear_kicks = linear_kicks
             self.last_point_impulse_kicks = None
-            return dv_A
+            # The world inspects last_linear_kicks and dispatches to
+            # _apply_linear_kick_dcr_velocities. Returning {} makes the
+            # standard scalar-dv path a no-op for this coupler.
+            return {}
         if mode == "energy_prescribed_point_impulse":
             if bodies is None:
                 raise ValueError(
@@ -325,10 +339,8 @@ class PassiveDCRCoupler:
                     "DCRWorld.step() supplies this automatically.")
             kicks = self._compute_distant_response_energy_B(
                 resting_contacts, q_history, bodies, E_target)
+            self.last_linear_kicks = None
             self.last_point_impulse_kicks = kicks
-            # The world inspects last_point_impulse_kicks and dispatches to
-            # _apply_point_impulse_dcr_velocities. Returning {} makes the
-            # standard scalar-dv path a no-op for this coupler.
             return {}
         raise ValueError(f"unknown dcr_velocity_mode: {mode!r}")
 
@@ -385,45 +397,66 @@ class PassiveDCRCoupler:
     def _compute_distant_response_energy_A(
         self,
         resting_contacts: list[Contact],
-        dv_coevoet: dict[int, float],
+        q_history: NDArray[np.float64],
         bodies: list[RigidBody],
         E_target: float,
-    ) -> dict[int, float]:
+    ) -> list[LinearKick]:
         """Energy-prescribed distant velocity (Version A, linear-only).
 
-        Direction = contact normal (Coevoet style, encoded by sign of
-        push_dir at apply time). Magnitude from energy budget:
+        Direction = **deformed** contact normal n' (same primitive Version B
+        uses — `compute_deformed_normal`). Magnitude from energy budget:
 
-            dv = sqrt(2 * (1/m) * E_target)
+            speed = sqrt(2 * (1/m) * E_target)
 
-        Applied via the existing _apply_dcr_velocities (COM-linear kick),
-        so the realized ΔKE = ½ m dv² = E_target exactly.
+        Applied via `_apply_linear_kick_dcr_velocities` (pure COM-linear
+        kick, no angular component). Realized ΔKE = ½ m · speed² = E_target
+        exactly.
 
         # DEVIATION (foundation §15, paper §5.4): the task spec proposed
-        # k = 1/m + (r x u) . I_world_inv . (r x u). We drop the angular
-        # term because _apply_dcr_velocities updates only body.velocity[:3]
-        # — the angular term would represent energy not actually injected,
-        # causing realized ΔKE to exceed E_target. The point_impulse mode
-        # below uses the full formula AND the angular kick, restoring
-        # physical consistency.
+        # k = 1/m + (r × u) · I_inv · (r × u). We drop the angular term in
+        # Version A because the kick is COM-linear-only — including the
+        # angular term would represent energy not actually injected,
+        # causing realized ΔKE to exceed E_target. Version B uses the full
+        # formula AND applies the angular kick, restoring physical
+        # consistency.
+
+        Multi-contact aggregation: largest-speed kick per body wins. (Same
+        rule as Coevoet's `max` over contacts.)
         """
-        eps = _EPS_TINY
-        out: dict[int, float] = {}
+        frames = self._get_tangent_frames()
+        kicks_by_body: dict[int, LinearKick] = {}
         for contact in resting_contacts:
-            other_body = (contact.body_a
-                          if contact.body_b == self.elastic_body_idx
-                          else contact.body_b)
+            # Push direction from elastic to body (matches _resting_push_dir
+            # convention used by the cap and the coevoet apply path).
+            if contact.body_b == self.elastic_body_idx:
+                other_body = contact.body_a
+                push_dir = -contact.normal
+            else:
+                other_body = contact.body_b
+                push_dir = contact.normal
             body = bodies[other_body]
-            sc = dv_coevoet.get(other_body, 0.0)
-            if sc <= eps:
-                speed_energy = 0.0
-            else:
-                speed_energy = speed_from_energy_linear(body, E_target)
-            if other_body in out:
-                out[other_body] = max(out[other_body], speed_energy)
-            else:
-                out[other_body] = speed_energy
-        return out
+            if body.is_static or body.mass <= 0.0:
+                continue
+            speed = speed_from_energy_linear(body, E_target)
+            if speed <= 0.0:
+                continue
+            u, theta, _ = compute_deformed_normal(
+                contact_point=contact.point,
+                push_dir=push_dir,
+                q_history=q_history,
+                modal_U_surf=self.modal.U_surf,
+                surface_vertex_indices=self.modal.surface_vertex_indices,
+                surface=self._surface,
+                vert_to_surf_idx=self._vert_to_surf_idx,
+                tangent_frames=frames,
+                theta_max=self.theta_max_deformed,
+            )
+            kk = LinearKick(body_idx=other_body, speed=speed, u=u.copy(),
+                            theta=theta)
+            prev = kicks_by_body.get(other_body)
+            if prev is None or kk.speed > prev.speed:
+                kicks_by_body[other_body] = kk
+        return list(kicks_by_body.values())
 
     # ------------------------------------------------------------------
     # Version B: energy-prescribed, full k, deformed normal, point impulse
@@ -502,4 +535,5 @@ class PassiveDCRCoupler:
         self.last_E_target = 0.0
         self.last_dcr_velocities_coevoet = {}
         self.last_dcr_velocities_energy_A = {}
+        self.last_linear_kicks = None
         self.last_point_impulse_kicks = None

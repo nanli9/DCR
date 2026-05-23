@@ -37,8 +37,11 @@ toggled by `DCRWorld.enforce_rigid_energy_bound`.
 |-------------------------------------|------------|----------------------|------------------------------------------|
 | `coevoet`                           | (any)      | contact normal       | linear COM (existing `_apply_dcr_velocities`) |
 | `coevoet` + `enforce_rigid_energy_bound=True` (≡ `bounded_coevoet`) | on | contact normal | linear COM, scaled to satisfy rigid-loss bound |
-| `energy_prescribed` (Version A)     | recommended on | contact normal | linear COM                            |
+| `energy_prescribed` (Version A)     | recommended on | **deformed contact normal n′** | linear COM                       |
 | `energy_prescribed_point_impulse` (Version B) | recommended on | deformed contact normal n′ | TRUE point impulse (linear + angular)  |
+
+A vs B is a controlled comparison: same direction `n′`, only the kick
+mechanism (linear-only vs point-impulse with angular) varies.
 
 ## Math
 
@@ -50,15 +53,16 @@ artist control is
 E_target = β · max(E_available, 0)
 ```
 
-### Version A — linear-only
+### Version A — linear-only, deformed normal
 
 ```
+u = compute_deformed_normal(contact, q_history, modal)   # same primitive as B
 k = 1 / m                              # ignores angular response
-dv = √(2 k · E_target) = √(2 E_target / m)
-body.velocity[0:3] += dv · push_dir
+speed = √(2 k · E_target) = √(2 E_target / m)
+body.velocity[0:3] += speed · u
 ```
 
-Realized ΔKE = ½ m dv² = `E_target` exactly.
+Realized ΔKE = ½ m speed² = `E_target` exactly.
 
 **`# DEVIATION` (foundation §15, paper §5.4):** the task spec proposed
 `k = 1/m + (r×u)·I_inv·(r×u)`. We drop the angular term for Version A
@@ -154,13 +158,13 @@ CoV = std/mean across h ∈ {1e-3, 2.5e-3, 5e-3, 1e-2}.
 |---------------------------------------|--------|----------------------|
 | `coevoet`                             | 0.88   | —                    |
 | `bounded_coevoet`                     | 0.88   | 0% (cap doesn't bind in this scene) |
-| `energy_prescribed` (A)               | 0.30   | **−66%**             |
+| `energy_prescribed` (A)               | 0.24   | **−73%**             |
 | `energy_prescribed_point_impulse` (B) | 0.49   | **−44%**             |
 
 Per-cell mean ΔKE (Joules):
-- `coevoet`        : [0.00325, 0.01161, 0.00250, 0.00121]
-- `energy_prescribed`        (A) : [0.2674, 0.4417, 0.2574, 0.2118]
-- `energy_prescribed_point_impulse` (B) : [0.0200, 0.0210, 0.0420, 0.0639]
+- `coevoet`                             : [0.00325, 0.01161, 0.00250, 0.00121]
+- `energy_prescribed`               (A) : [0.1348,  0.1037,  0.1339,  0.1972]
+- `energy_prescribed_point_impulse` (B) : [0.0200,  0.0210,  0.0420,  0.0639]
 
 Version A's only h-sensitivity is through `E_available(h)`, which is mild
 for this scene. Version B adds two further sources of h-dependence on top
@@ -183,11 +187,21 @@ uv run pytest tests/stageDV -v
 
 - **Not invariance** — `Δv` is NOT independent of `h`. Residual
   h-dependence through `E_available(h)` is expected and acceptable.
-- **Version B does NOT subsume the existing tilt coupler.** Version B is
-  a parallel, cleaner point-impulse alternative for the energy-prescribed
-  mode only. `TiltDCRCoupler`'s observable behavior is unchanged.
-- **Version A and Version B have different h-stability characteristics.**
-  Version A is more h-stable; Version B is more physically faithful
-  (linear AND angular response correctly accounted). Pick by use case.
+- **Version A and Version B have different kick mechanisms.** Both use the
+  same deformed contact normal `n′` as direction. A applies a pure linear
+  COM kick along `n′`; B applies a true point impulse (linear + angular)
+  along `n′`. Pick by use case: A is simpler and h-stabler; B is
+  physically faithful (rotation directly injected).
 - **No claim of audio synthesis or sound bound** — see CLAUDE.md and
   `passive_modal_energy_injection_foundation.md` §14.
+
+## What was removed in this follow-up
+
+`TiltDCRCoupler` and its `--tilt` / `--tilt-coupled` CLI flags have been
+deleted. Its goal — making distant bodies pick up rotation from a
+deformed contact surface — is now achieved more cleanly by Version B,
+which (1) uses the same deformed-normal primitive (extracted into
+`dcr/dcr/deformed_normal.py`), (2) applies a single true point impulse
+instead of a normal-kick + tangential-correction decomposition, and (3)
+needs no hand-tuned caps (`lateral_fraction`, `dv_t_max`, `eta_t`,
+`mu_dcr`).

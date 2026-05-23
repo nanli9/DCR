@@ -15,3 +15,9 @@ imgui.ini
 
 # OS
 .DS_Store
+
+# Local Claude Code session state
+.claude/
+
+# Benchmark CSV outputs
+benchmarks/output/

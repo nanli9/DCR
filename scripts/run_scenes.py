@@ -23,11 +23,17 @@ from dcr.geom import make_slab_tet_mesh
 from dcr.fem import Material, FEMModel
 from dcr.modal import ModalAnalysis
 from dcr.rigid import make_dynamic_box, make_static_plane, ConstraintSolver
-from dcr.dcr import PassiveDCRCoupler, TiltDCRCoupler, DCRWorld
+from dcr.dcr import PassiveDCRCoupler, DCRWorld
 
 
 H = 1e-3
 ETA = 0.5
+
+# Fixed simulated duration for the playback (seconds). n_steps is derived
+# from this and the active timestep h, so changing h does not change the
+# wallclock playback length — only the simulation resolution within it.
+SIM_DURATION_DEFAULT = 2.0      # seconds, for shelf and ledge
+SIM_DURATION_TRUCK = 1.8        # seconds, for truck (matches old 1800 steps @ h=1e-3)
 
 
 def _fix_corners(mesh):
@@ -70,16 +76,14 @@ def _add_coupler(
     world,
     modal,
     elastic_body_idx,
-    tilt_mode=None,
     velocity_mode: str = "coevoet",
     beta: float = 0.25,
     budget_source: str = "min_rigid_loss_modal",
     enforce_bound: bool = False,
 ):
-    """Create and register a passive (or tilt) DCR coupler.
+    """Create and register a passive DCR coupler.
 
     Args:
-        tilt_mode: None for standard DCR, "tilt" or "tilt-coupled" for tilt extension.
         velocity_mode: PassiveDCRCoupler.dcr_velocity_mode. See
             docs/distant_velocity_modes.md.
         beta: PassiveDCRCoupler.energy_response_beta (for energy_* modes).
@@ -95,27 +99,11 @@ def _add_coupler(
         energy_budget_source=budget_source,
     )
     world.enforce_rigid_energy_bound = enforce_bound
-    if tilt_mode:
-        # NOTE: TiltDCRCoupler.process_step calls passive.process_step
-        # WITHOUT `bodies`, which the energy_* modes require. The main()
-        # CLI rejects this combination before reaching here.
-        tilt_coupler = TiltDCRCoupler(
-            passive=coupler,
-            theta_max=np.radians(10.0),
-            mu_dcr=0.5,
-            eta_t=0.5,
-            lateral_fraction=0.3,
-            dv_t_max=1.5,
-            dv_n_max=0.3,
-        )
-        world.add_tilt_coupler(tilt_coupler)
-        world.tilt_mode = tilt_mode
-    else:
-        world.add_passive_coupler(coupler)
+    world.add_passive_coupler(coupler)
     return coupler
 
 
-def build_truck_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
+def build_truck_scene(velocity_mode="coevoet", beta=0.25,
                       budget_source="min_rigid_loss_modal", enforce_bound=False):
     """Heavy objects dropped sequentially on road. Cones and lumber respond.
 
@@ -146,7 +134,7 @@ def build_truck_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
                    alpha0=2.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=15)
     coupler = _add_coupler(
-        world, modal, ground_idx, tilt_mode=tilt_mode,
+        world, modal, ground_idx,
         velocity_mode=velocity_mode, beta=beta,
         budget_source=budget_source, enforce_bound=enforce_bound,
     )
@@ -159,7 +147,7 @@ def build_truck_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
     drops = [
         ("drop_light", -0.5,  0.10,  20.0, (0.4, 0.6, 0.9)),   # light, low
         ("drop_mid",   -0.3,  0.50,  50.0, (0.3, 0.4, 0.8)),   # medium
-        ("drop_heavy", -0.05,  2.40, 220.0, (0.2, 0.25, 0.6)),  # heavy
+        ("drop_heavy", -0.05,  2.40, 100.0, (0.2, 0.25, 0.6)),  # heavy
     ]
     drop_hx, drop_hy, drop_hz = 0.10, 0.07, 0.08
     for name, dx, dy, mass, color in drops:
@@ -202,7 +190,7 @@ def build_truck_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
 # Scene 2: Bookshelf Drop
 # ======================================================================
 
-def build_shelf_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
+def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
                       budget_source="min_rigid_loss_modal", enforce_bound=False):
     """Heavy box dropped on a shelf. Books standing upright topple.
 
@@ -219,7 +207,10 @@ def build_shelf_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
     # Shelf: narrow elastic slab, fixed on left edge (cantilever).
     mesh = make_slab_tet_mesh(length=0.8, width=0.3, height=0.03,
                               nx=12, ny=5, nz=2)
-    mat = Material(E=0.5e9 if tilt_mode else 8.0e9, nu=0.3, rho=600.0)
+    # Soft slab so the deformed normal (used by Version B) has visible
+    # tilt during impact — previously controlled by the now-removed
+    # `tilt_mode` flag.
+    mat = Material(E=0.5e9, nu=0.3, rho=600.0)
     shelf_top = 0.015  # top of slab (height/2)
     shelf = make_static_plane(normal=(0, 1, 0),
                               point=(0, shelf_top, 0), friction=0.5)
@@ -230,7 +221,7 @@ def build_shelf_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
                    alpha0=3.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=12)
     coupler = _add_coupler(
-        world, modal, shelf_idx, tilt_mode=tilt_mode,
+        world, modal, shelf_idx,
         velocity_mode=velocity_mode, beta=beta,
         budget_source=budget_source, enforce_bound=enforce_bound,
     )
@@ -270,7 +261,7 @@ def build_shelf_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
 # Scene 3: Cliff Ledge / Rockfall
 # ======================================================================
 
-def build_ledge_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
+def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
                       budget_source="min_rigid_loss_modal", enforce_bound=False):
     """Boulder hits a cliff ledge, balanced rocks fall off the edge.
 
@@ -298,7 +289,7 @@ def build_ledge_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
                    alpha0=1.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=12)
     coupler = _add_coupler(
-        world, modal, ledge_idx, tilt_mode=tilt_mode,
+        world, modal, ledge_idx,
         velocity_mode=velocity_mode, beta=beta,
         budget_source=budget_source, enforce_bound=enforce_bound,
     )
@@ -476,16 +467,22 @@ SCENES = {
 
 
 _VALID_VELOCITY_MODES = {
-    "coevoet",
-    "bounded_coevoet",
+    "dcr",
     "energy_prescribed",
     "energy_prescribed_point_impulse",
 }
 
+# CLI mode name -> PassiveDCRCoupler.dcr_velocity_mode string.
+# "dcr" is the short CLI alias for the paper's baseline (internally "coevoet").
+_CLI_TO_COUPLER_MODE = {
+    "dcr": "coevoet",
+    "energy_prescribed": "energy_prescribed",
+    "energy_prescribed_point_impulse": "energy_prescribed_point_impulse",
+}
+
 
 def _parse_kv_flag(name: str, default):
-    """Tiny --name value / --name=value parser (avoids argparse to keep the
-    positional `<scene>` argument and the existing --tilt flags intact)."""
+    """Tiny --name value / --name=value parser."""
     for i, a in enumerate(sys.argv):
         if a == name and i + 1 < len(sys.argv):
             return sys.argv[i + 1]
@@ -497,40 +494,33 @@ def _parse_kv_flag(name: str, default):
 def main():
     if len(sys.argv) < 2 or any(a in ("-h", "--help") for a in sys.argv):
         print("Usage: uv run python scripts/run_scenes.py <scene> "
-              "[--tilt|--tilt-coupled] [--mode <name>] [--beta <0..1>] "
-              "[--budget-source <name>]")
+              "[--mode <name>] [--beta <0..1>] [--budget-source <name>] "
+              "[--sim-duration <seconds>]")
         print(f"  Available scenes: {', '.join(SCENES.keys())}, all")
-        print(f"  --tilt:           Lateral-only tilt extension")
-        print(f"  --tilt-coupled:   Capped vertical + lateral tilt extension")
         print(f"  --mode <name>:    DCR distant velocity mode "
-              f"(default: coevoet). One of:")
-        print(f"                      coevoet                          (paper Eq. 12)")
-        print(f"                      bounded_coevoet                  (Eq. 12 + rigid-energy cap)")
-        print(f"                      energy_prescribed                (Version A, linear)")
-        print(f"                      energy_prescribed_point_impulse  (Version B, point impulse)")
+              f"(default: dcr). One of:")
+        print(f"                      dcr                              (paper Eq. 12, Coevoet 2020 baseline)")
+        print(f"                      energy_prescribed                (Version A: linear COM kick, deformed normal)")
+        print(f"                      energy_prescribed_point_impulse  (Version B: true point impulse, deformed normal)")
         print(f"  --beta <0..1>:    energy_response_beta (default: 0.25). "
               f"Used by energy_* modes.")
         print(f"  --budget-source:  rigid_loss | modal_reservoir | "
               f"min_rigid_loss_modal (default).")
-        print(f"  NOTE: --tilt / --tilt-coupled is mutually exclusive "
-              f"with the energy_* modes.")
+        print(f"  --sim-duration:   Simulated duration in seconds; n_steps is "
+              f"derived as round(duration / h) so playback length stays "
+              f"constant when you change h (default: 2.0s, truck: 1.8s).")
         sys.exit(1)
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     # Skip positional args that come after a known --flag (its value).
     flag_value_args = set()
     for i, a in enumerate(sys.argv):
-        if a in ("--mode", "--beta", "--budget-source") and i + 1 < len(sys.argv):
+        if a in ("--mode", "--beta", "--budget-source",
+                 "--sim-duration") and i + 1 < len(sys.argv):
             flag_value_args.add(sys.argv[i + 1])
     args = [a for a in args if a not in flag_value_args]
 
-    tilt_mode = None
-    if "--tilt-coupled" in sys.argv:
-        tilt_mode = "tilt-coupled"
-    elif "--tilt" in sys.argv:
-        tilt_mode = "tilt"
-
-    velocity_mode = _parse_kv_flag("--mode", "coevoet")
+    velocity_mode = _parse_kv_flag("--mode", "dcr")
     if velocity_mode not in _VALID_VELOCITY_MODES:
         print(f"Unknown --mode: {velocity_mode!r}")
         print(f"Valid: {sorted(_VALID_VELOCITY_MODES)}")
@@ -541,30 +531,13 @@ def main():
         print(f"--beta must be a float; got {_parse_kv_flag('--beta', None)!r}")
         sys.exit(1)
     budget_source = _parse_kv_flag("--budget-source", "min_rigid_loss_modal")
+    sim_duration_arg = _parse_kv_flag("--sim-duration", None)
 
     # Map --mode → (coupler.dcr_velocity_mode, enforce_rigid_energy_bound).
-    # "bounded_coevoet" is "coevoet" with the rigid-energy cap on.
     is_energy_mode = velocity_mode in (
         "energy_prescribed", "energy_prescribed_point_impulse")
-    if velocity_mode == "bounded_coevoet":
-        coupler_mode = "coevoet"
-        enforce_bound = True
-    else:
-        coupler_mode = velocity_mode
-        enforce_bound = is_energy_mode  # cap recommended on for energy_* modes
-
-    # Tilt + energy_* is a semantic conflict — see docs/distant_velocity_modes.md.
-    if tilt_mode and is_energy_mode:
-        print(f"Error: --tilt / --tilt-coupled is incompatible with "
-              f"--mode {velocity_mode}.")
-        print(f"  Version B is the unified cleaner alternative to the tilt "
-              f"coupler's decomposition; using both together is a semantic "
-              f"conflict.")
-        print(f"  Pick one:")
-        print(f"    drop {('--tilt-coupled' if tilt_mode == 'tilt-coupled' else '--tilt')}, "
-              f"or")
-        print(f"    use --mode coevoet (or bounded_coevoet) with the tilt flag.")
-        sys.exit(1)
+    coupler_mode = _CLI_TO_COUPLER_MODE[velocity_mode]
+    enforce_bound = is_energy_mode  # cap recommended on for energy_* modes
 
     scene_name = args[0] if args else "all"
 
@@ -578,10 +551,8 @@ def main():
         sys.exit(1)
 
     mode_str = ""
-    if tilt_mode:
-        mode_str += f" + {tilt_mode.upper()}"
-    if velocity_mode != "coevoet":
-        mode_str += f" + {velocity_mode}"
+    if velocity_mode != "dcr":
+        mode_str = f" + {velocity_mode}"
         if is_energy_mode:
             mode_str += f"(β={beta})"
 
@@ -590,20 +561,25 @@ def main():
         print(f"Building scene: {name}{mode_str}")
         print(f"{'='*60}")
         world, coupler, body_info, mesh, title = SCENES[name](
-            tilt_mode=tilt_mode,
             velocity_mode=coupler_mode,
             beta=beta,
             budget_source=budget_source,
             enforce_bound=enforce_bound,
         )
-        if tilt_mode:
-            title += f" [{tilt_mode.upper()}]"
         print(f"  Bodies: {len(world.bodies)}")
         print(f"  Dynamic: {[n for n in body_info]}")
 
-        n_steps = 1800 if name == "truck" else 2000
-        print(f"Simulating ({n_steps * H:.1f}s)...")
-        times, positions, orientations = simulate(world, coupler, body_info, n_steps=n_steps)
+        # Derive n_steps from a fixed simulated duration so playback length
+        # is independent of the active timestep h.
+        if sim_duration_arg is not None:
+            sim_duration = float(sim_duration_arg)
+        else:
+            sim_duration = SIM_DURATION_TRUCK if name == "truck" else SIM_DURATION_DEFAULT
+        n_steps = max(1, int(round(sim_duration / world.h)))
+        print(f"Simulating ({sim_duration:.2f}s @ h={world.h:.4g} → "
+              f"{n_steps} steps)...")
+        times, positions, orientations = simulate(
+            world, coupler, body_info, n_steps=n_steps)
         print(f"  Done. {len(times)} frames recorded.")
 
         print("Launching polyscope...")
