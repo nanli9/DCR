@@ -66,14 +66,39 @@ def _box_mesh(hx, hy, hz):
 # Scene 1: Truck on Road
 # ======================================================================
 
-def _add_coupler(world, modal, elastic_body_idx, tilt_mode=None):
+def _add_coupler(
+    world,
+    modal,
+    elastic_body_idx,
+    tilt_mode=None,
+    velocity_mode: str = "coevoet",
+    beta: float = 0.25,
+    budget_source: str = "min_rigid_loss_modal",
+    enforce_bound: bool = False,
+):
     """Create and register a passive (or tilt) DCR coupler.
 
     Args:
         tilt_mode: None for standard DCR, "tilt" or "tilt-coupled" for tilt extension.
+        velocity_mode: PassiveDCRCoupler.dcr_velocity_mode. See
+            docs/distant_velocity_modes.md.
+        beta: PassiveDCRCoupler.energy_response_beta (for energy_* modes).
+        budget_source: PassiveDCRCoupler.energy_budget_source.
+        enforce_bound: DCRWorld.enforce_rigid_energy_bound. Recommended True
+            when velocity_mode is one of the energy_* modes.
     """
-    coupler = PassiveDCRCoupler(modal=modal, elastic_body_idx=elastic_body_idx)
+    coupler = PassiveDCRCoupler(
+        modal=modal,
+        elastic_body_idx=elastic_body_idx,
+        dcr_velocity_mode=velocity_mode,
+        energy_response_beta=beta,
+        energy_budget_source=budget_source,
+    )
+    world.enforce_rigid_energy_bound = enforce_bound
     if tilt_mode:
+        # NOTE: TiltDCRCoupler.process_step calls passive.process_step
+        # WITHOUT `bodies`, which the energy_* modes require. The main()
+        # CLI rejects this combination before reaching here.
         tilt_coupler = TiltDCRCoupler(
             passive=coupler,
             theta_max=np.radians(10.0),
@@ -90,7 +115,8 @@ def _add_coupler(world, modal, elastic_body_idx, tilt_mode=None):
     return coupler
 
 
-def build_truck_scene(tilt_mode=None):
+def build_truck_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
+                      budget_source="min_rigid_loss_modal", enforce_bound=False):
     """Heavy objects dropped sequentially on road. Cones and lumber respond.
 
     Three drops at different positions and heights so they hit the ground
@@ -119,7 +145,11 @@ def build_truck_scene(tilt_mode=None):
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
                    alpha0=2.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=15)
-    coupler = _add_coupler(world, modal, ground_idx, tilt_mode=tilt_mode)
+    coupler = _add_coupler(
+        world, modal, ground_idx, tilt_mode=tilt_mode,
+        velocity_mode=velocity_mode, beta=beta,
+        budget_source=budget_source, enforce_bound=enforce_bound,
+    )
 
     body_info = {}  # name -> (idx, hx, hy, hz, color)
 
@@ -172,7 +202,8 @@ def build_truck_scene(tilt_mode=None):
 # Scene 2: Bookshelf Drop
 # ======================================================================
 
-def build_shelf_scene(tilt_mode=None):
+def build_shelf_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
+                      budget_source="min_rigid_loss_modal", enforce_bound=False):
     """Heavy box dropped on a shelf. Books standing upright topple.
 
     The shelf is a cantilever beam (fixed at one edge). Books are
@@ -198,7 +229,11 @@ def build_shelf_scene(tilt_mode=None):
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
                    alpha0=3.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=12)
-    coupler = _add_coupler(world, modal, shelf_idx, tilt_mode=tilt_mode)
+    coupler = _add_coupler(
+        world, modal, shelf_idx, tilt_mode=tilt_mode,
+        velocity_mode=velocity_mode, beta=beta,
+        budget_source=budget_source, enforce_bound=enforce_bound,
+    )
 
     body_info = {}
 
@@ -235,7 +270,8 @@ def build_shelf_scene(tilt_mode=None):
 # Scene 3: Cliff Ledge / Rockfall
 # ======================================================================
 
-def build_ledge_scene(tilt_mode=None):
+def build_ledge_scene(tilt_mode=None, velocity_mode="coevoet", beta=0.25,
+                      budget_source="min_rigid_loss_modal", enforce_bound=False):
     """Boulder hits a cliff ledge, balanced rocks fall off the edge.
 
     Inspired by the paper's 'Rockfall' scene. The ledge is an elastic
@@ -261,7 +297,11 @@ def build_ledge_scene(tilt_mode=None):
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
                    alpha0=1.0, alpha1=1e-5)
     modal = ModalAnalysis(fem=fem, num_modes=12)
-    coupler = _add_coupler(world, modal, ledge_idx, tilt_mode=tilt_mode)
+    coupler = _add_coupler(
+        world, modal, ledge_idx, tilt_mode=tilt_mode,
+        velocity_mode=velocity_mode, beta=beta,
+        budget_source=budget_source, enforce_bound=enforce_bound,
+    )
 
     body_info = {}
 
@@ -435,20 +475,96 @@ SCENES = {
 }
 
 
+_VALID_VELOCITY_MODES = {
+    "coevoet",
+    "bounded_coevoet",
+    "energy_prescribed",
+    "energy_prescribed_point_impulse",
+}
+
+
+def _parse_kv_flag(name: str, default):
+    """Tiny --name value / --name=value parser (avoids argparse to keep the
+    positional `<scene>` argument and the existing --tilt flags intact)."""
+    for i, a in enumerate(sys.argv):
+        if a == name and i + 1 < len(sys.argv):
+            return sys.argv[i + 1]
+        if a.startswith(name + "="):
+            return a.split("=", 1)[1]
+    return default
+
+
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: uv run python scripts/run_scenes.py <scene> [--tilt|--tilt-coupled]")
+    if len(sys.argv) < 2 or any(a in ("-h", "--help") for a in sys.argv):
+        print("Usage: uv run python scripts/run_scenes.py <scene> "
+              "[--tilt|--tilt-coupled] [--mode <name>] [--beta <0..1>] "
+              "[--budget-source <name>]")
         print(f"  Available scenes: {', '.join(SCENES.keys())}, all")
-        print(f"  --tilt:          Lateral-only tilt extension")
-        print(f"  --tilt-coupled:  Capped vertical + lateral tilt extension")
+        print(f"  --tilt:           Lateral-only tilt extension")
+        print(f"  --tilt-coupled:   Capped vertical + lateral tilt extension")
+        print(f"  --mode <name>:    DCR distant velocity mode "
+              f"(default: coevoet). One of:")
+        print(f"                      coevoet                          (paper Eq. 12)")
+        print(f"                      bounded_coevoet                  (Eq. 12 + rigid-energy cap)")
+        print(f"                      energy_prescribed                (Version A, linear)")
+        print(f"                      energy_prescribed_point_impulse  (Version B, point impulse)")
+        print(f"  --beta <0..1>:    energy_response_beta (default: 0.25). "
+              f"Used by energy_* modes.")
+        print(f"  --budget-source:  rigid_loss | modal_reservoir | "
+              f"min_rigid_loss_modal (default).")
+        print(f"  NOTE: --tilt / --tilt-coupled is mutually exclusive "
+              f"with the energy_* modes.")
         sys.exit(1)
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    # Skip positional args that come after a known --flag (its value).
+    flag_value_args = set()
+    for i, a in enumerate(sys.argv):
+        if a in ("--mode", "--beta", "--budget-source") and i + 1 < len(sys.argv):
+            flag_value_args.add(sys.argv[i + 1])
+    args = [a for a in args if a not in flag_value_args]
+
     tilt_mode = None
     if "--tilt-coupled" in sys.argv:
         tilt_mode = "tilt-coupled"
     elif "--tilt" in sys.argv:
         tilt_mode = "tilt"
+
+    velocity_mode = _parse_kv_flag("--mode", "coevoet")
+    if velocity_mode not in _VALID_VELOCITY_MODES:
+        print(f"Unknown --mode: {velocity_mode!r}")
+        print(f"Valid: {sorted(_VALID_VELOCITY_MODES)}")
+        sys.exit(1)
+    try:
+        beta = float(_parse_kv_flag("--beta", 0.25))
+    except ValueError:
+        print(f"--beta must be a float; got {_parse_kv_flag('--beta', None)!r}")
+        sys.exit(1)
+    budget_source = _parse_kv_flag("--budget-source", "min_rigid_loss_modal")
+
+    # Map --mode → (coupler.dcr_velocity_mode, enforce_rigid_energy_bound).
+    # "bounded_coevoet" is "coevoet" with the rigid-energy cap on.
+    is_energy_mode = velocity_mode in (
+        "energy_prescribed", "energy_prescribed_point_impulse")
+    if velocity_mode == "bounded_coevoet":
+        coupler_mode = "coevoet"
+        enforce_bound = True
+    else:
+        coupler_mode = velocity_mode
+        enforce_bound = is_energy_mode  # cap recommended on for energy_* modes
+
+    # Tilt + energy_* is a semantic conflict — see docs/distant_velocity_modes.md.
+    if tilt_mode and is_energy_mode:
+        print(f"Error: --tilt / --tilt-coupled is incompatible with "
+              f"--mode {velocity_mode}.")
+        print(f"  Version B is the unified cleaner alternative to the tilt "
+              f"coupler's decomposition; using both together is a semantic "
+              f"conflict.")
+        print(f"  Pick one:")
+        print(f"    drop {('--tilt-coupled' if tilt_mode == 'tilt-coupled' else '--tilt')}, "
+              f"or")
+        print(f"    use --mode coevoet (or bounded_coevoet) with the tilt flag.")
+        sys.exit(1)
 
     scene_name = args[0] if args else "all"
 
@@ -461,13 +577,25 @@ def main():
         print(f"Available: {', '.join(SCENES.keys())}, all")
         sys.exit(1)
 
-    mode_str = f" + {tilt_mode.upper()}" if tilt_mode else ""
+    mode_str = ""
+    if tilt_mode:
+        mode_str += f" + {tilt_mode.upper()}"
+    if velocity_mode != "coevoet":
+        mode_str += f" + {velocity_mode}"
+        if is_energy_mode:
+            mode_str += f"(β={beta})"
 
     for name in names:
         print(f"\n{'='*60}")
         print(f"Building scene: {name}{mode_str}")
         print(f"{'='*60}")
-        world, coupler, body_info, mesh, title = SCENES[name](tilt_mode=tilt_mode)
+        world, coupler, body_info, mesh, title = SCENES[name](
+            tilt_mode=tilt_mode,
+            velocity_mode=coupler_mode,
+            beta=beta,
+            budget_source=budget_source,
+            enforce_bound=enforce_bound,
+        )
         if tilt_mode:
             title += f" [{tilt_mode.upper()}]"
         print(f"  Bodies: {len(world.bodies)}")

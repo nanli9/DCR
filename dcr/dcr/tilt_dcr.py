@@ -23,7 +23,24 @@ from numpy.typing import NDArray
 
 from ..modal.passive_inject import _closest_point_on_triangle, eval_basis_at_point
 from ..rigid.collision import Contact
+from .deformed_normal import (
+    compute_patch_fit_slopes,
+    compute_tilted_normal,
+    compute_triangle_tangent_frame,
+)
 from .passive_dcr import PassiveDCRCoupler
+
+# Re-export the deformed-normal pure helpers for backwards compatibility
+# with tests/test_tilt_dcr.py (which imports them from this module).
+__all__ = [
+    "compute_triangle_tangent_frame",
+    "compute_patch_fit_slopes",
+    "compute_tilted_normal",
+    "apply_tilt_bounds",
+    "compute_tilt_lateral_velocity",
+    "TiltResult",
+    "TiltDCRCoupler",
+]
 
 
 # ======================================================================
@@ -56,137 +73,11 @@ class TiltResult:
 # ======================================================================
 # Tilt math — pure functions
 # ======================================================================
-
-def compute_triangle_tangent_frame(
-    v0: NDArray[np.float64],
-    v1: NDArray[np.float64],
-    v2: NDArray[np.float64],
-    n: NDArray[np.float64],
-) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-    """Compute orthonormal tangent frame (t1, t2) for a triangle.
-
-    t1 is along the projection of edge v0→v1 onto the tangent plane,
-    t2 = n x t1 to complete the right-handed frame.
-
-    Args:
-        v0, v1, v2: (3,) triangle vertices.
-        n: (3,) unit surface normal.
-
-    Returns:
-        (t1, t2): Orthonormal tangent vectors. Falls back to identity
-                  axes if the triangle is degenerate.
-    """
-    e1 = v1 - v0
-    # Project e1 onto tangent plane: e1_t = e1 - (e1·n)*n
-    e1_t = e1 - np.dot(e1, n) * n
-    len_e1 = np.linalg.norm(e1_t)
-    if len_e1 < 1e-12:
-        # Degenerate — pick arbitrary tangent
-        if abs(n[0]) < 0.9:
-            t1 = np.cross(n, np.array([1.0, 0.0, 0.0]))
-        else:
-            t1 = np.cross(n, np.array([0.0, 1.0, 0.0]))
-        t1 /= np.linalg.norm(t1)
-    else:
-        t1 = e1_t / len_e1
-
-    t2 = np.cross(n, t1)
-    len_t2 = np.linalg.norm(t2)
-    if len_t2 < 1e-12:
-        return t1, np.zeros(3)
-    t2 /= len_t2
-
-    return t1, t2
-
-
-def compute_patch_fit_slopes(
-    w0: float,
-    w1: float,
-    w2: float,
-    v0: NDArray[np.float64],
-    v1: NDArray[np.float64],
-    v2: NDArray[np.float64],
-    t1: NDArray[np.float64],
-    t2: NDArray[np.float64],
-) -> tuple[float, float]:
-    """Compute surface slopes from normal-displacement samples at triangle vertices.
-
-    Fits a plane w(p) = s1*p1 + s2*p2 + c through the three samples,
-    where (p1, p2) are tangent-frame coordinates relative to v0.
-
-    For a triangle (3 points), this is an exact plane fit:
-        [p1x p1y] [s1]   [w1 - w0]
-        [p2x p2y] [s2] = [w2 - w0]
-
-    Args:
-        w0, w1, w2: Normal displacement at vertices v0, v1, v2.
-        v0, v1, v2: (3,) triangle vertices.
-        t1, t2: (3,) orthonormal tangent vectors.
-
-    Returns:
-        (s1, s2): Slopes along t1 and t2 directions.
-    """
-    # Vertex positions in tangent-frame coords relative to v0
-    d1 = v1 - v0
-    d2 = v2 - v0
-    A = np.array([
-        [np.dot(d1, t1), np.dot(d1, t2)],
-        [np.dot(d2, t1), np.dot(d2, t2)],
-    ])
-    b = np.array([w1 - w0, w2 - w0])
-
-    det = A[0, 0] * A[1, 1] - A[0, 1] * A[1, 0]
-    if abs(det) < 1e-18:
-        return 0.0, 0.0
-
-    s1 = (A[1, 1] * b[0] - A[0, 1] * b[1]) / det
-    s2 = (A[0, 0] * b[1] - A[1, 0] * b[0]) / det
-    return float(s1), float(s2)
-
-
-def compute_tilted_normal(
-    n: NDArray[np.float64],
-    s1: float,
-    s2: float,
-    t1: NDArray[np.float64],
-    t2: NDArray[np.float64],
-    theta_max: float,
-) -> tuple[NDArray[np.float64], float]:
-    """Compute tilted normal from slopes and clamp to max angle.
-
-    n' = normalize(n - s1*t1 - s2*t2)
-
-    If the tilt angle exceeds theta_max, interpolate back toward n.
-
-    Args:
-        n: (3,) original unit normal.
-        s1, s2: Tangential slopes.
-        t1, t2: (3,) tangent vectors.
-        theta_max: Maximum tilt angle in radians.
-
-    Returns:
-        (n_tilt, theta): Tilted normal and actual tilt angle.
-    """
-    n_raw = n - s1 * t1 - s2 * t2
-    length = np.linalg.norm(n_raw)
-    if length < 1e-12:
-        return n.copy(), 0.0
-
-    n_tilt = n_raw / length
-
-    # Compute tilt angle
-    cos_theta = float(np.clip(np.dot(n, n_tilt), -1.0, 1.0))
-    theta = float(np.arccos(cos_theta))
-
-    if theta > theta_max and theta > 1e-12:
-        # Clamp: slerp toward n by factor theta_max / theta
-        # For small angles, linear interpolation is fine
-        frac = theta_max / theta
-        n_clamped = n + frac * (n_tilt - n)
-        n_clamped /= np.linalg.norm(n_clamped)
-        return n_clamped, theta_max
-
-    return n_tilt, theta
+#
+# The three triangle-frame / slope-fit / tilt primitives
+# (compute_triangle_tangent_frame, compute_patch_fit_slopes,
+# compute_tilted_normal) live in .deformed_normal and are re-exported above
+# for backwards compatibility with tests/test_tilt_dcr.py.
 
 
 def apply_tilt_bounds(

@@ -17,6 +17,7 @@ from ..rigid.collision import Contact, detect_contacts
 from ..rigid.energy import rigid_kinetic_energy
 from ..rigid.joint import DistanceJoint
 from ..rigid.solver import ConstraintSolver
+from .distant_velocity import PointImpulseKick
 from .modal_dcr import ModalDCRCoupler
 from .passive_dcr import PassiveDCRCoupler
 from .spatial_dcr import SpatialDCRCoupler
@@ -56,11 +57,20 @@ class DCRWorld:
     tilt_mode: str = "tilt-coupled"  # "tilt" (lateral only) or "tilt-coupled" (capped vert + lat)
     dcr_enabled: bool = True
     eta: float = 0.3  # Transfer efficiency η ∈ [0, 1] (foundation §1)
+    # Hard rigid-energy bound on DCR distant kicks (this follow-up).
+    # When True, _bound_dcr_velocities scales the proposed Δv so the
+    # injected rigid KE stays ≤ this step's rigid-loss budget. Default
+    # OFF preserves bit-for-bit the pre-follow-up "coevoet" behavior.
+    enforce_rigid_energy_bound: bool = False
 
     # Diagnostics.
     last_dcr_ke_injected: float = 0.0
     last_E_loss: float = 0.0
     last_E_max: float = 0.0
+    # New diagnostics for the energy-prescribed velocity modes:
+    last_E_rigid_out_before_cap: float = 0.0
+    last_E_rigid_out_after_cap: float = 0.0
+    last_dcr_clipped: bool = False
 
     def __post_init__(self) -> None:
         self.solver.h = self.h
@@ -128,23 +138,50 @@ class DCRWorld:
 
         # 4. DCR pipeline (Path B: apply velocity corrections post-solve).
         self.last_dcr_ke_injected = 0.0
+        self.last_E_rigid_out_before_cap = 0.0
+        self.last_E_rigid_out_after_cap = 0.0
+        self.last_dcr_clipped = False
+        clip_eps = 1.0 - 1e-9  # treat s < this as "scaling fired"
         if self.dcr_enabled and len(lam) > 0:
             # Original modal-path couplers (Stage 5, forced IIR).
             for coupler in self.dcr_couplers:
                 dcr_velocities = coupler.process_step(contacts, lam, self.h)
+                dcr_velocities, s = self._bound_dcr_velocities(
+                    dcr_velocities, contacts, coupler.elastic_body_idx)
+                if s < clip_eps:
+                    self.last_dcr_clipped = True
                 self._apply_dcr_velocities(
                     dcr_velocities, contacts, coupler.elastic_body_idx)
 
-            # Passive energy-bounded couplers (Stage E3).
+            # Passive energy-bounded couplers (Stage E3) +
+            # this follow-up's energy_prescribed* modes.
             for coupler in self.passive_couplers:
                 dcr_velocities = coupler.process_step(
-                    contacts, lam, self.h, self.last_E_max)
-                self._apply_dcr_velocities(
-                    dcr_velocities, contacts, coupler.elastic_body_idx)
+                    contacts, lam, self.h, self.last_E_max,
+                    bodies=self.bodies)
+                if coupler.last_point_impulse_kicks is not None:
+                    # Version B: point-impulse path with its own cap.
+                    kicks, s = self._bound_point_impulse_dcr_velocities(
+                        coupler.last_point_impulse_kicks)
+                    if s < clip_eps:
+                        self.last_dcr_clipped = True
+                    self._apply_point_impulse_dcr_velocities(kicks, scale=s)
+                else:
+                    # Scalar-dv path (coevoet / bounded_coevoet / Version A).
+                    dcr_velocities, s = self._bound_dcr_velocities(
+                        dcr_velocities, contacts, coupler.elastic_body_idx)
+                    if s < clip_eps:
+                        self.last_dcr_clipped = True
+                    self._apply_dcr_velocities(
+                        dcr_velocities, contacts, coupler.elastic_body_idx)
 
             # Spatial-attenuation couplers (Stage 6).
             for coupler in self.spatial_couplers:
                 dcr_velocities = coupler.process_step(contacts, lam, self.h)
+                dcr_velocities, s = self._bound_dcr_velocities(
+                    dcr_velocities, contacts, coupler.elastic_body_idx)
+                if s < clip_eps:
+                    self.last_dcr_clipped = True
                 self._apply_dcr_velocities(
                     dcr_velocities, contacts, coupler.elastic_body_idx)
 
@@ -180,6 +217,172 @@ class DCRWorld:
         self.time += self.h
         self.prev_contacts = contacts
         return contacts
+
+    def _resting_push_dir(
+        self, body_idx: int, contacts: list[Contact], elastic_idx: int,
+    ) -> NDArray[np.float64] | None:
+        """Unit push direction for body_idx's distant contact, or None.
+
+        Mirrors the per-body normal-orientation logic in
+        _apply_dcr_velocities: a contact (elastic A, body B) pushes B along
+        +c.normal; (elastic B, body A) pushes A along -c.normal.
+        """
+        for c in contacts:
+            if c.is_new:
+                continue
+            if (c.body_a == elastic_idx and c.body_b == body_idx):
+                return -c.normal
+            if (c.body_b == elastic_idx and c.body_a == body_idx):
+                return c.normal
+        return None
+
+    def _bound_dcr_velocities(
+        self,
+        dcr_velocities: dict[int, float],
+        contacts: list[Contact],
+        elastic_idx: int,
+    ) -> tuple[dict[int, float], float]:
+        """Hard rigid-energy bound for SCALAR-Δv DCR kicks (this follow-up).
+
+        Returns (scaled_dcr_velocities, scale_s). scale_s ∈ [0, 1] is 1.0
+        when no scaling was needed; <1.0 means the proposed injection was
+        clipped.
+
+        Vector form of the scaling rule (foundation §15, this follow-up):
+            ΔE_p = m_p (v_p⁻ · Δv_p) + ½ m_p ‖Δv_p‖²
+        Scaling all Δv_p by a common s ∈ [0, 1] gives
+            E_inj(s) = s·A + s²·B
+        with
+            A = Σ m_p (v_p⁻ · Δv_p)              (linear / cross term)
+            B = Σ ½ m_p ‖Δv_p‖²                  (quadratic term)
+        and the largest s ∈ [0, 1] solving s²B + sA ≤ ΔE_loss is
+            s = (−A + √(A² + 4 B · ΔE_loss)) / (2B)             (B > 0)
+
+        Scalar reduction: each Δv_p = dv * push_dir_p (unit), so
+        ‖Δv_p‖² = dv², (v_p⁻ · Δv_p) = dv · (v_body · push_dir_p).
+
+        No-op (s = 1.0) when self.enforce_rigid_energy_bound is False.
+        Pre/post-cap injected energies are stored in
+        last_E_rigid_out_before_cap / last_E_rigid_out_after_cap.
+        """
+        if not dcr_velocities:
+            return dcr_velocities, 1.0
+        # 0.1% safety margin so the realized injection stays strictly
+        # below the rigid loss (avoids numerical equality).
+        budget = 0.999 * self.last_E_loss
+
+        A_lin = 0.0
+        B_quad = 0.0
+        for body_idx, dv in dcr_velocities.items():
+            body = self.bodies[body_idx]
+            if body.is_static:
+                continue
+            push_dir = self._resting_push_dir(body_idx, contacts, elastic_idx)
+            if push_dir is None:
+                continue
+            v_minus_n = float(np.dot(body.velocity[:3], push_dir))
+            A_lin += body.mass * dv * v_minus_n
+            B_quad += 0.5 * body.mass * dv * dv
+
+        E_full = A_lin + B_quad  # injected at s = 1
+        self.last_E_rigid_out_before_cap += float(E_full)
+        if not self.enforce_rigid_energy_bound:
+            self.last_E_rigid_out_after_cap += float(E_full)
+            return dcr_velocities, 1.0
+        if B_quad <= 0.0 or E_full <= budget:
+            self.last_E_rigid_out_after_cap += float(E_full)
+            return dcr_velocities, 1.0
+        disc = A_lin * A_lin + 4.0 * B_quad * budget
+        s = (-A_lin + np.sqrt(max(0.0, disc))) / (2.0 * B_quad)
+        s = float(np.clip(s, 0.0, 1.0))
+        self.last_E_rigid_out_after_cap += float(s * A_lin + s * s * B_quad)
+        return {k: v * s for k, v in dcr_velocities.items()}, s
+
+    def _bound_point_impulse_dcr_velocities(
+        self,
+        kicks: list[PointImpulseKick],
+    ) -> tuple[list[PointImpulseKick], float]:
+        """Hard rigid-energy bound for point-impulse kicks (Version B).
+
+        Same scaling idea as _bound_dcr_velocities, but the per-body ΔE has
+        both linear and rotational parts. Scaling all impulses by s gives
+            E_inj(s) = s · A + s² · B
+        with
+            A = Σ (m_p (v_lin⁻ · Δv_lin) + ω⁻ · I · Δω)
+            B = Σ (½ m_p ‖Δv_lin‖² + ½ Δω · I · Δω)
+        where for each kick on body p:
+            Δv_lin = (J/m_p) · u
+            Δω     = J · I_inv_p @ (r × u)
+
+        No-op (s = 1.0) when self.enforce_rigid_energy_bound is False.
+        """
+        if not kicks:
+            return kicks, 1.0
+        budget = 0.999 * self.last_E_loss
+        A_lin = 0.0
+        B_quad = 0.0
+        for kk in kicks:
+            body = self.bodies[kk.body_idx]
+            if body.is_static or body.mass <= 0.0:
+                continue
+            J = kk.J_mag
+            dv = (J / body.mass) * kk.u
+            I_inv = body.inertia_world_inv()
+            I_world = body.inertia_world()
+            dom = J * (I_inv @ np.cross(kk.r, kk.u))
+            v_minus = body.velocity[0:3]
+            w_minus = body.velocity[3:6]
+            A_lin += body.mass * float(v_minus @ dv) + float(
+                w_minus @ (I_world @ dom))
+            B_quad += 0.5 * body.mass * float(dv @ dv) + 0.5 * float(
+                dom @ (I_world @ dom))
+        E_full = A_lin + B_quad
+        self.last_E_rigid_out_before_cap += float(E_full)
+        if not self.enforce_rigid_energy_bound:
+            self.last_E_rigid_out_after_cap += float(E_full)
+            return kicks, 1.0
+        if B_quad <= 0.0 or E_full <= budget:
+            self.last_E_rigid_out_after_cap += float(E_full)
+            return kicks, 1.0
+        disc = A_lin * A_lin + 4.0 * B_quad * budget
+        s = (-A_lin + np.sqrt(max(0.0, disc))) / (2.0 * B_quad)
+        s = float(np.clip(s, 0.0, 1.0))
+        self.last_E_rigid_out_after_cap += float(s * A_lin + s * s * B_quad)
+        return kicks, s
+
+    def _apply_point_impulse_dcr_velocities(
+        self,
+        kicks: list[PointImpulseKick],
+        scale: float = 1.0,
+    ) -> None:
+        """Apply true point impulses (linear + angular). Version B kick path.
+
+        For each kick on body p with impulse magnitude J along u at lever
+        arm r = contact_point - body.position:
+
+            v_lin_p += scale · (J/m_p) · u
+            ω_p     += scale · J · I_world_inv_p @ cross(r, u)
+
+        Realized ΔKE = ½ (scale·J)² · k where k = 1/m + (r×u)·I_inv·(r×u),
+        which equals scale² · E_target by construction of J in the coupler.
+        """
+        for kk in kicks:
+            body = self.bodies[kk.body_idx]
+            if body.is_static or body.mass <= 0.0:
+                continue
+            J = scale * kk.J_mag
+            ke_before = 0.5 * body.mass * float(
+                body.velocity[:3] @ body.velocity[:3])
+            ke_before += 0.5 * float(
+                body.velocity[3:6] @ (body.inertia_world() @ body.velocity[3:6]))
+            body.velocity[0:3] += (J / body.mass) * kk.u
+            body.velocity[3:6] += J * (
+                body.inertia_world_inv() @ np.cross(kk.r, kk.u))
+            ke_after = 0.5 * body.mass * float(
+                body.velocity[:3] @ body.velocity[:3])
+            ke_after += 0.5 * float(
+                body.velocity[3:6] @ (body.inertia_world() @ body.velocity[3:6]))
+            self.last_dcr_ke_injected += ke_after - ke_before
 
     def _apply_dcr_velocities(
         self,
