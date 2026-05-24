@@ -125,6 +125,30 @@ def compute_patch_fit_slopes(
     return float(s1), float(s2)
 
 
+def clamp_normal_angle(
+    n_rest: NDArray[np.float64],
+    n_target: NDArray[np.float64],
+    theta_max: float,
+) -> tuple[NDArray[np.float64], float]:
+    """Clamp `n_target` to be within `theta_max` radians of `n_rest`.
+
+    If the angle θ = arccos(n_rest · n_target) exceeds `theta_max`, slerp
+    (linearly here — small-angle approx) toward `n_target` by the fraction
+    `theta_max / θ` and renormalize. Otherwise return `n_target` unchanged.
+
+    Both inputs should be unit vectors; the output is unit by construction.
+    Shared between the patch-fit and Barbič-James deformed-normal methods.
+    """
+    cos_theta = float(np.clip(np.dot(n_rest, n_target), -1.0, 1.0))
+    theta = float(np.arccos(cos_theta))
+    if theta > theta_max and theta > 1e-12:
+        frac = theta_max / theta
+        n_clamped = n_rest + frac * (n_target - n_rest)
+        n_clamped /= np.linalg.norm(n_clamped)
+        return n_clamped, theta_max
+    return n_target, theta
+
+
 def compute_tilted_normal(
     n: NDArray[np.float64],
     s1: float, s2: float,
@@ -137,14 +161,7 @@ def compute_tilted_normal(
     if length < 1e-12:
         return n.copy(), 0.0
     n_tilt = n_raw / length
-    cos_theta = float(np.clip(np.dot(n, n_tilt), -1.0, 1.0))
-    theta = float(np.arccos(cos_theta))
-    if theta > theta_max and theta > 1e-12:
-        frac = theta_max / theta
-        n_clamped = n + frac * (n_tilt - n)
-        n_clamped /= np.linalg.norm(n_clamped)
-        return n_clamped, theta_max
-    return n_tilt, theta
+    return clamp_normal_angle(n, n_tilt, theta_max)
 
 
 # ----------------------------------------------------------------------

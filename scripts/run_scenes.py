@@ -26,7 +26,7 @@ from dcr.rigid import make_dynamic_box, make_static_plane, ConstraintSolver
 from dcr.dcr import PassiveDCRCoupler, DCRWorld
 
 
-H = 1e-3
+H = 5e-3
 ETA = 0.5
 
 # Fixed simulated duration for the playback (seconds). n_steps is derived
@@ -80,6 +80,9 @@ def _add_coupler(
     beta: float = 0.25,
     budget_source: str = "min_rigid_loss_modal",
     enforce_bound: bool = False,
+    deformed_normal_method: str = "patch_fit",
+    friction_cone_clip: bool = False,
+    kinematic_cap: str = "none",
 ):
     """Create and register a passive DCR coupler.
 
@@ -90,6 +93,15 @@ def _add_coupler(
         budget_source: PassiveDCRCoupler.energy_budget_source.
         enforce_bound: DCRWorld.enforce_rigid_energy_bound. Recommended True
             when velocity_mode is one of the energy_* modes.
+        deformed_normal_method: "patch_fit" (default) or "barbic_james".
+            See PassiveDCRCoupler docstring + foundation §17.
+        friction_cone_clip: Mitigate the post-solver tangential-leak
+            sliding by projecting the deformed-normal kick onto the
+            Coulomb cone around the REST normal. See
+            PassiveDCRCoupler.friction_cone_clip_enabled docstring.
+        kinematic_cap: "none" (default) or "coevoet" — cap the per-step
+            energy-mode kick magnitude by d_max/h to recover Coevoet's
+            h-invariance. See PassiveDCRCoupler.kinematic_cap docstring.
     """
     coupler = PassiveDCRCoupler(
         modal=modal,
@@ -97,6 +109,9 @@ def _add_coupler(
         dcr_velocity_mode=velocity_mode,
         energy_response_beta=beta,
         energy_budget_source=budget_source,
+        deformed_normal_method=deformed_normal_method,
+        friction_cone_clip_enabled=friction_cone_clip,
+        kinematic_cap=kinematic_cap,
     )
     world.enforce_rigid_energy_bound = enforce_bound
     world.add_passive_coupler(coupler)
@@ -104,7 +119,9 @@ def _add_coupler(
 
 
 def build_truck_scene(velocity_mode="coevoet", beta=0.25,
-                      budget_source="min_rigid_loss_modal", enforce_bound=False):
+                      budget_source="min_rigid_loss_modal", enforce_bound=False,
+                      deformed_normal_method="patch_fit",
+                      friction_cone_clip=False, kinematic_cap="none"):
     """Heavy objects dropped sequentially on road. Cones and lumber respond.
 
     Three drops at different positions and heights so they hit the ground
@@ -137,6 +154,8 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
         world, modal, ground_idx,
         velocity_mode=velocity_mode, beta=beta,
         budget_source=budget_source, enforce_bound=enforce_bound,
+        deformed_normal_method=deformed_normal_method,
+        friction_cone_clip=friction_cone_clip, kinematic_cap=kinematic_cap,
     )
 
     body_info = {}  # name -> (idx, hx, hy, hz, color)
@@ -191,7 +210,9 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
 # ======================================================================
 
 def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
-                      budget_source="min_rigid_loss_modal", enforce_bound=False):
+                      budget_source="min_rigid_loss_modal", enforce_bound=False,
+                      deformed_normal_method="patch_fit",
+                      friction_cone_clip=False, kinematic_cap="none"):
     """Heavy box dropped on a shelf. Books standing upright topple.
 
     The shelf is a cantilever beam (fixed at one edge). Books are
@@ -224,6 +245,8 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
         world, modal, shelf_idx,
         velocity_mode=velocity_mode, beta=beta,
         budget_source=budget_source, enforce_bound=enforce_bound,
+        deformed_normal_method=deformed_normal_method,
+        friction_cone_clip=friction_cone_clip, kinematic_cap=kinematic_cap,
     )
 
     body_info = {}
@@ -237,7 +260,7 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
         book_hx, book_hy, book_hz = 0.005, 0.04, 0.03  # thin x, tall y
         bx = -0.15 + bi * 0.04  # spaced ~1.5x height apart for domino chain
         book = make_dynamic_box(
-            mass=0.3, hx=book_hx, hy=book_hy, hz=book_hz,
+            mass=1.3, hx=book_hx, hy=book_hy, hz=book_hz,
             position=(bx, shelf_top + book_hy + 0.001, 0.0),
             restitution=0.0, friction=0.3,
         )
@@ -262,7 +285,9 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
 # ======================================================================
 
 def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
-                      budget_source="min_rigid_loss_modal", enforce_bound=False):
+                      budget_source="min_rigid_loss_modal", enforce_bound=False,
+                      deformed_normal_method="patch_fit",
+                      friction_cone_clip=False, kinematic_cap="none"):
     """Boulder hits a cliff ledge, balanced rocks fall off the edge.
 
     Inspired by the paper's 'Rockfall' scene. The ledge is an elastic
@@ -292,6 +317,8 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
         world, modal, ledge_idx,
         velocity_mode=velocity_mode, beta=beta,
         budget_source=budget_source, enforce_bound=enforce_bound,
+        deformed_normal_method=deformed_normal_method,
+        friction_cone_clip=friction_cone_clip, kinematic_cap=kinematic_cap,
     )
 
     body_info = {}
@@ -385,7 +412,17 @@ def simulate(world, coupler, body_info, n_steps=1500):
 
 
 def playback_polyscope(mesh, body_info, times, positions, orientations, title):
-    """Interactive polyscope playback with rotation."""
+    """Interactive polyscope playback driven by wall-clock time.
+
+    Previously the playback advanced by ONE stored frame per polyscope
+    render tick, which meant the wall-clock speed depended on the sim
+    timestep h: at h=1e-3 the animation ran ~0.18× real-time, at h=1e-2
+    it ran ~1.8× real-time. Now we advance by the actual wall-clock dt
+    multiplied by a user-controlled `speed` slider (default 1.0 =
+    real-time), and pick the nearest stored frame. Playback speed is
+    therefore independent of h.
+    """
+    import time
     import polyscope as ps
     from dcr.rigid.body import quat_to_rot
 
@@ -423,28 +460,51 @@ def playback_polyscope(mesh, body_info, times, positions, orientations, title):
         sm = ps.register_surface_mesh(name, (R0 @ bm[0].T).T + pos0, bm[1], color=color)
         ps_meshes[name] = sm
 
-    frame_idx = [0]
-    is_playing = [True]
-    skip = 3
     n_total = len(times)
-    n_frames = n_total // skip
+    t_first = float(times[0])
+    t_last = float(times[-1])
+    # Recorded timestep (= world.h). Assumes uniform spacing — matches
+    # how `simulate()` records exactly one snapshot per step.
+    if n_total > 1:
+        dt_record = float(times[1] - times[0])
+    else:
+        dt_record = 1.0  # degenerate, but avoid div-zero
+
+    sim_t = [t_first]              # current displayed simulated time (s)
+    is_playing = [True]
+    speed = [1.0]                  # wall-clock × speed = simulated-time / s
+    last_wall = [None]             # last callback's perf_counter()
+
+    def _frame_for_sim_t(t: float) -> int:
+        si = int(round((t - t_first) / dt_record))
+        return max(0, min(si, n_total - 1))
 
     def callback():
         import polyscope.imgui as imgui
-        changed, new_val = imgui.SliderInt("Frame", frame_idx[0], 0, n_frames - 1)
-        if changed:
-            frame_idx[0] = new_val
-        _, is_playing[0] = imgui.Checkbox("Play", is_playing[0])
-
-        si = min(frame_idx[0] * skip, n_total - 1)
-        imgui.Text(f"{title}  (eta={ETA})")
-        imgui.Text(f"t = {times[si]*1000:.0f} ms")
+        now = time.perf_counter()
+        if last_wall[0] is None:
+            last_wall[0] = now
+        dt_wall = now - last_wall[0]
+        last_wall[0] = now
 
         if is_playing[0]:
-            if frame_idx[0] < n_frames - 1:
-                frame_idx[0] += 1
-            else:
+            sim_t[0] += dt_wall * speed[0]
+            if sim_t[0] >= t_last:
+                sim_t[0] = t_last
                 is_playing[0] = False
+
+        # UI: scrubber over simulated time (seconds), independent of h.
+        changed, new_val = imgui.SliderFloat(
+            "Time (s)", float(sim_t[0]), t_first, t_last)
+        if changed:
+            sim_t[0] = float(new_val)
+        _, is_playing[0] = imgui.Checkbox("Play", is_playing[0])
+        _, speed[0] = imgui.SliderFloat("Speed", speed[0], 0.05, 4.0)
+
+        si = _frame_for_sim_t(sim_t[0])
+        imgui.Text(f"{title}  (eta={ETA})")
+        imgui.Text(f"t = {times[si]*1000:.0f} ms   "
+                   f"(h = {dt_record*1000:.2f} ms, speed = {speed[0]:.2f}×)")
 
         for name in body_info:
             R = quat_to_rot(orientations[name][si])
@@ -506,6 +566,24 @@ def main():
               f"Used by energy_* modes.")
         print(f"  --budget-source:  rigid_loss | modal_reservoir | "
               f"min_rigid_loss_modal (default).")
+        print(f"  --deformed-normal-method: patch_fit (default) | barbic_james.")
+        print(f"                            patch_fit = surface plane-fit "
+              f"heuristic (existing).")
+        print(f"                            barbic_james = F^-T push-forward "
+              f"using FEM shape-function gradients")
+        print(f"                            (foundation §17; Barbič & James "
+              f"2008 IEEE ToH §4.1).")
+        print(f"  --friction-cone-clip:     Project the post-solver kick onto "
+              f"the Coulomb cone around the REST contact normal,")
+        print(f"                            preventing the tangential 'sliding' "
+              f"leak from a deformed-normal kick (energy_* modes).")
+        print(f"                            Default off. Recommended on for "
+              f"the energy_* modes with deformed normal.")
+        print(f"  --kinematic-cap:  none (default) | coevoet.")
+        print(f"                            coevoet caps per-step γ ≤ d_max/h, "
+              f"recovering Coevoet's h-invariance as an upper bound")
+        print(f"                            (energy_* modes). Useful at "
+              f"large h to prevent oversized kicks.")
         print(f"  --sim-duration:   Simulated duration in seconds; n_steps is "
               f"derived as round(duration / h) so playback length stays "
               f"constant when you change h (default: 2.0s, truck: 1.8s).")
@@ -513,9 +591,12 @@ def main():
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     # Skip positional args that come after a known --flag (its value).
+    # --friction-cone-clip is a boolean (no value) and is NOT in this list.
     flag_value_args = set()
     for i, a in enumerate(sys.argv):
         if a in ("--mode", "--beta", "--budget-source",
+                 "--deformed-normal-method",
+                 "--kinematic-cap",
                  "--sim-duration") and i + 1 < len(sys.argv):
             flag_value_args.add(sys.argv[i + 1])
     args = [a for a in args if a not in flag_value_args]
@@ -531,6 +612,18 @@ def main():
         print(f"--beta must be a float; got {_parse_kv_flag('--beta', None)!r}")
         sys.exit(1)
     budget_source = _parse_kv_flag("--budget-source", "min_rigid_loss_modal")
+    deformed_normal_method = _parse_kv_flag(
+        "--deformed-normal-method", "patch_fit")
+    if deformed_normal_method not in ("patch_fit", "barbic_james"):
+        print(f"Unknown --deformed-normal-method: {deformed_normal_method!r}")
+        print(f"Valid: patch_fit, barbic_james")
+        sys.exit(1)
+    friction_cone_clip = "--friction-cone-clip" in sys.argv
+    kinematic_cap = _parse_kv_flag("--kinematic-cap", "none")
+    if kinematic_cap not in ("none", "coevoet"):
+        print(f"Unknown --kinematic-cap: {kinematic_cap!r}")
+        print(f"Valid: none, coevoet")
+        sys.exit(1)
     sim_duration_arg = _parse_kv_flag("--sim-duration", None)
 
     # Map --mode → (coupler.dcr_velocity_mode, enforce_rigid_energy_bound).
@@ -555,6 +648,10 @@ def main():
         mode_str = f" + {velocity_mode}"
         if is_energy_mode:
             mode_str += f"(β={beta})"
+            if friction_cone_clip:
+                mode_str += " +clip"
+            if kinematic_cap != "none":
+                mode_str += f" +cap={kinematic_cap}"
 
     for name in names:
         print(f"\n{'='*60}")
@@ -565,6 +662,9 @@ def main():
             beta=beta,
             budget_source=budget_source,
             enforce_bound=enforce_bound,
+            deformed_normal_method=deformed_normal_method,
+            friction_cone_clip=friction_cone_clip,
+            kinematic_cap=kinematic_cap,
         )
         print(f"  Bodies: {len(world.bodies)}")
         print(f"  Dynamic: {[n for n in body_info]}")

@@ -1,20 +1,20 @@
 """Analytical unit tests for the energy-prescribed kick math (this follow-up).
 
-These tests verify, on hand-constructed rigid bodies, that:
+These tests verify, on hand-constructed rigid bodies starting from rest,
+that the γ*_A / γ*_B quadratic formulas degenerate correctly to the
+zero-velocity limits:
 
-  Version A (linear-only, k = 1/m):
-    speed = sqrt(2 * E_target / m)
-    realized ΔKE = ½ m · speed² = E_target  (to 1e-12)
+  Version A (linear-only, k = 1/m), v = 0:
+    γ*_A = -(0) + √(0² + 2 E_target / m) = √(2 E_target / m)
+    realized ΔKE = ½ m · γ² = E_target  (to 1e-12)
 
-  Version B (full k, true point impulse):
-    J = sqrt(2 * E_target / k),  k = 1/m + (r×u)·I_inv·(r×u)
+  Version B (full k, true point impulse), v = ω = 0:
+    γ*_B = √(2 E_target / (m² k)) ⇒ J = m γ*_B = √(2 E_target / k)
     Apply at contact: v += (J/m)·u,  ω += J · I_inv · (r × u)
-    realized ΔKE_linear  = ½ m ‖Δv‖² = ½ J²/m
-    realized ΔKE_angular = ½ Δω · I_world · Δω
-    realized ΔKE_total   = ½ J² k = E_target  (to 1e-12)
+    realized ΔKE_total = ½ J² k = E_target  (to 1e-12)
 
-These checks are independent of the modal pipeline — they pin the algebra
-itself.
+Non-zero-velocity cases live in test_energy_bookkeeping.py, which
+exercises the cross-term explicitly. These checks pin the algebra itself.
 """
 from __future__ import annotations
 
@@ -22,10 +22,10 @@ import numpy as np
 
 from dcr.dcr.distant_velocity import (
     PointImpulseKick,
+    gamma_from_energy_linear,
     impulse_from_energy_point,
     inv_eff_mass_linear,
     inv_eff_mass_point_impulse,
-    speed_from_energy_linear,
 )
 from dcr.rigid.body import RigidBody, compute_box_inertia
 
@@ -98,22 +98,24 @@ class TestInvEffMassPointImpulse:
 
 
 # ----------------------------------------------------------------------
-# Version A: speed_from_energy_linear → realized ΔKE
+# Version A: gamma_from_energy_linear → realized ΔKE (v = 0 limit)
 # ----------------------------------------------------------------------
 
 class TestVersionARealizedDKE:
-    def test_realized_dKE_matches_E_target(self) -> None:
-        """½ m · speed² = E_target exactly."""
+    def test_realized_dKE_matches_E_target_from_rest(self) -> None:
+        """With v = 0, γ*_A = √(2 E_target / m) and ½ m γ² = E_target."""
         body = _box_body(mass=2.5)
+        u = np.array([0.0, 1.0, 0.0])
         for E_target in [0.0, 1e-6, 1.0, 12.345]:
-            speed = speed_from_energy_linear(body, E_target)
+            speed = gamma_from_energy_linear(body, u, E_target)
             dKE_realized = 0.5 * body.mass * speed * speed
             assert abs(dKE_realized - E_target) < _TOL, (
                 f"E_target={E_target} → realized {dKE_realized}")
 
     def test_negative_E_target_clamped_to_zero(self) -> None:
         body = _box_body(mass=2.5)
-        assert speed_from_energy_linear(body, -1.0) == 0.0
+        u = np.array([0.0, 1.0, 0.0])
+        assert gamma_from_energy_linear(body, u, -1.0) == 0.0
 
 
 # ----------------------------------------------------------------------

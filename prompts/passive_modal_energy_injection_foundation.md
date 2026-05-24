@@ -877,3 +877,254 @@ or, for multiple contacts,
 \]
 
 This is the mathematical foundation of the passive modal energy injection framework.
+
+## 16. Distant-Velocity Energy-Prescribed Modes
+
+The DCR paper (Coevoet et al. 2020, Eq. 12) prescribes a *distant-body* response of the form `Δv = d_max / h` — a kinematic-length recipe that, while convenient, makes the realized kinetic-energy injection vary inversely with the timestep squared. This follow-up replaces that recipe with two **energy-prescribed** modes for distant bodies, structurally identical to the §6 derivation but applied to *rigid* kinetic energy rather than modal energy.
+
+Both modes share the same quadratic-budget principle as §6: pick the kick magnitude `γ ≥ 0` such that the realized kinetic-energy change
+
+\[
+\Delta KE(\gamma)
+=
+b\,\gamma
++
+\tfrac12\,a\,\gamma^2
+\]
+
+equals a target energy `E_target = β · E_available`, β ∈ [0, 1]. The non-negative root is
+
+\[
+\boxed{
+\gamma^*
+=
+\frac{-b + \sqrt{b^2 + 2 a E_{\mathrm{target}}}}{a}
+}
+\]
+
+structurally identical to the §6 α\* formula but with the modal `(a = s^T s, b = q̇^T s)` replaced by rigid `(a, b)` derived below per mode. As in §6, the discriminant is always non-negative when `E_target ≥ 0`, and `γ* ≥ 0` because `√(b² + 2aE) ≥ |b|`. If `E_target ≤ 0` we set `γ* = 0` (no kick).
+
+### 16.1. Version A — Linear COM kick along the deformed normal
+
+Apply `v ← v + γ · n′` where `n′` is the deformed contact normal (extracted by `compute_deformed_normal`; same primitive Version B uses). The kinetic-energy change is purely linear:
+
+\[
+\Delta KE_A(\gamma)
+=
+\tfrac12\,m\,\lVert\mathbf v + \gamma\,\mathbf n'\rVert^2
+-
+\tfrac12\,m\,\lVert\mathbf v\rVert^2
+=
+m\,(\mathbf v\cdot\mathbf n')\,\gamma
++
+\tfrac12\,m\,\gamma^2.
+\]
+
+So
+
+\[
+a_A = m,
+\qquad
+b_A = m\,(\mathbf v\cdot\mathbf n'),
+\]
+
+and the closed-form solution is
+
+\[
+\boxed{
+\gamma^*_A
+=
+-(\mathbf v\cdot\mathbf n')
++
+\sqrt{(\mathbf v\cdot\mathbf n')^2 + 2 E_{\mathrm{target}} / m}
+}
+\]
+
+Realized `ΔKE_A(γ*_A) = E_target` exactly (to float tolerance). The previous-release formula `γ = √(2 E_target / m)` is the correct value only in the special case `v · n′ = 0`; for any other relative motion along the deformed normal it under- or over-shoots by the cross-term `m·(v·n′)·γ`.
+
+### 16.2. Version B — True point impulse `J = m·γ·n′` at offset r
+
+The impulse acts at lever arm `r = x_contact − x_body`, imparting
+
+\[
+\Delta\mathbf v
+=
+\tfrac{J}{m}\,\mathbf n',
+\qquad
+\Delta\boldsymbol\omega
+=
+J\,\mathbf I^{-1}\,(\mathbf r\times\mathbf n').
+\]
+
+Let `v_c = v + ω × r` be the contact-point velocity before the kick. The total (linear + angular) kinetic-energy change is
+
+\[
+\Delta KE_B(\gamma)
+=
+m\,(\mathbf n'\cdot\mathbf v_c)\,\gamma
++
+\tfrac12\,
+\left[
+m + m^2\,(\mathbf r\times\mathbf n')^T\,\mathbf I^{-1}\,(\mathbf r\times\mathbf n')
+\right]
+\gamma^2,
+\]
+
+so
+
+\[
+a_B
+=
+m + m^2\,(\mathbf r\times\mathbf n')^T\,\mathbf I^{-1}\,(\mathbf r\times\mathbf n')
+=
+m^2 \cdot k,
+\qquad
+b_B
+=
+m\,(\mathbf n'\cdot\mathbf v_c),
+\]
+
+with `k = 1/m + (r × n′)ᵀ I⁻¹ (r × n′)`. The closed form is
+
+\[
+\boxed{
+\gamma^*_B
+=
+\frac{-b_B + \sqrt{b_B^2 + 2 a_B E_{\mathrm{target}}}}{a_B},
+\qquad
+J^* = m\,\gamma^*_B.
+}
+\]
+
+Realized `ΔKE_B(γ*_B) = E_target` exactly. The previous-release formula `J = √(2 E_target / k)` matches `J*` only when `v_c · n′ = 0`; with non-zero contact-point velocity along the deformed normal it drifts by the cross-term `m·(n′·v_c)·γ`.
+
+### 16.3. Connection to `m_eff` (paper Eq. 17)
+
+The bracketed quantity inside `a_B` is exactly `m² · k`, where
+
+\[
+k
+=
+\frac{1}{m} + (\mathbf r\times\mathbf n')^T\,\mathbf I^{-1}\,(\mathbf r\times\mathbf n')
+=
+\frac{1}{m_{\mathrm{eff}}}
+\]
+
+is the **inverse effective mass at the contact point along the direction n′** — precisely the quantity in the paper's Eq. 17 (Schur diagonal / contact-frame inverse mass) specialized to a single normal direction. The Version B formula therefore reads:
+
+> *"Spend `E_target` joules of kinetic energy through the inverse effective mass at the contact along the deformed normal, correcting for the velocity the contact point already has in that direction."*
+
+This makes the connection between the §6 modal derivation and the rigid-body recipe transparent: in §6 the relevant *inverse effective mass* is `s^T s` (the projection of the impulse-direction onto modal coordinates); in §16 it is `m_eff(r, n′)` (the projection onto a rigid-body contact frame). The same quadratic principle gives the energy-exact magnitude in both cases.
+
+### 16.4. Passivity tie-in (§15)
+
+Both `γ*_A` and `γ*_B` are local per-body energy-exact kicks. The §15 core inequality
+
+\[
+\Delta E_{\mathrm{modal}}(\alpha)
+\le
+\eta\,\max(0, E_{\mathrm{rigid}}^{pre} - E_{\mathrm{rigid}}^{post})
+\]
+
+still governs the **global** passivity bound — `E_target = β · E_available` is sourced from a passive budget upstream (see §8), and the world-level cap (`_bound_linear_kick_dcr_velocities` / `_bound_point_impulse_dcr_velocities`) remains in place as a safety net. With the corrected `γ*` formulas the per-body realized energy hits `E_target` exactly, so the cap binds only for genuine multi-body / passivity reasons rather than to mask a per-body bookkeeping error.
+
+## 17. Deformed Contact Normal via F⁻ᵀ Push-Forward
+
+The energy-prescribed distant-velocity modes (§16) take a direction `n′` — the deformed contact normal — as input. This section derives `n′` from the modal state `q` using the deformation-gradient push-forward, following **Barbič & James (2008), IEEE Transactions on Haptics 1(1):39–52, §4.1** (PDF: `reference/BarbicJames-2008-IEEE-TOH.pdf`).
+
+### 17.1. Setup
+
+Let `x_c` be the contact point on the elastic body's surface, and let `T` be the unique tet that owns the closest surface triangle to `x_c`. Denote the tet's four vertices by `{X_0, X_1, X_2, X_3}` (three on the surface, one in the interior). For a linear simplex element each shape function `N_i(x)` is linear inside `T` and its gradient `∇N_i ∈ R^3` is constant within `T`. The modal displacement at any point inside `T` is
+
+\[
+\mathbf u(\mathbf x, \mathbf q) = \sum_{i=0}^{3} N_i(\mathbf x)\,\mathbf u_i(\mathbf q),
+\qquad
+\mathbf u_i(\mathbf q) = \boldsymbol\Phi_{\text{full}}(\mathbf X_i)\,\mathbf q,
+\]
+
+where `Φ_full(X_i) ∈ R^{3×r}` is the full-volume modal basis evaluated at tet vertex `i`. Its Jacobian is also constant within `T`:
+
+\[
+\nabla \mathbf u(\mathbf x_c, \mathbf q) = \sum_{i=0}^{3} \mathbf u_i(\mathbf q)\otimes\nabla N_i .
+\]
+
+### 17.2. Deformation gradient and the normal push-forward
+
+The deformation gradient at `x_c` is
+
+\[
+\boxed{
+F(\mathbf x_c, \mathbf q) = I + \nabla \mathbf u(\mathbf x_c, \mathbf q) = I + \sum_{i=0}^{3} \mathbf u_i(\mathbf q)\otimes \nabla N_i .
+}
+\]
+
+Normals transform contravariantly under deformation (Nanson's relation in the limit of zero area change), so the deformed unit normal is
+
+\[
+\boxed{
+\mathbf n' = \frac{F^{-T}\,\mathbf n_{\text{rest}}}{\lVert F^{-T}\,\mathbf n_{\text{rest}}\rVert}.
+}
+\]
+
+This is exact for arbitrary `q` within the linear-elastic small-strain regime that modal reduction targets.
+
+### 17.3. Relationship to the patch-fit heuristic
+
+The patch-fit method (`dcr/dcr/deformed_normal.py`) computes `n′ ≈ normalize(n_rest − s_1 t_1 − s_2 t_2)` where `(s_1, s_2)` are the in-plane gradient components of the scalar field `w(x) = n_rest · u(x)` finite-differenced across the three surface vertices.
+
+To first order in `‖q‖`:
+
+\[
+F^{-T} \approx I - (\nabla \mathbf u)^T,
+\qquad
+F^{-T}\,\mathbf n_{\text{rest}} \approx \mathbf n_{\text{rest}} - \nabla^{3D}(\mathbf u\!\cdot\!\mathbf n_{\text{rest}}).
+\]
+
+Decompose `∇^{3D}(u·n_rest) = ∇_{\tan} + (∂(u·n_rest)/∂n)\,n_{\text{rest}}`. After normalization the second term is absorbed by the magnitude correction. The patch-fit returns exactly `n_{\text{rest}} − ∇_{\tan}^{\text{(surface)}}(u·n_{\text{rest}})`, with the tangential gradient computed by linear interpolation on the contact triangle. So the question becomes whether
+
+\[
+\nabla_{\tan}^{\text{(3D, via FEM)}}(\mathbf u\!\cdot\!\mathbf n_{\text{rest}})
+\;\stackrel{?}{=}\;
+\nabla_{\tan}^{\text{(surface, via FD)}}(\mathbf u\!\cdot\!\mathbf n_{\text{rest}}).
+\]
+
+**They are not equal.** The 3D FEM gradient picks up `u_D ⊗ ∇N_D` from the interior tet vertex `D` (whose shape function `N_D` vanishes on the contact triangle but whose gradient `∇N_D` does not). The patch fit cannot see this contribution because it only samples `u·n_rest` at the three surface vertices. Therefore:
+
+\[
+\boxed{
+\bigl\lvert\angle(\mathbf n'_{\text{BJ}},\, \mathbf n'_{\text{patch}})\bigr\rvert
+= C \cdot \lVert\mathbf q\rVert + \mathcal{O}(\lVert\mathbf q\rVert^2),
+}
+\]
+
+where `C` is set by the tangent-plane projection of `(u_D · n_rest) ∇N_D` divided by `‖q‖`. The two methods agree exactly at `q = 0` and differ linearly in `‖q‖` for any `q ≠ 0`.
+
+This linear-scaling regression is pinned in `tests/stageDV/test_deformed_normal_methods.py::TestSmallQDiscrepancyScalesLinearly` (typical coefficient on a fixed-corner slab: `C ≈ 3.85 rad / ‖q‖`).
+
+### 17.4. Connection to paper Eq. 17 and to §16
+
+The deformation gradient `F` here is the *kinematic* push-forward for normals — distinct from the *kinetic* inverse effective mass `k = 1/m + (r×n′)^T I^{-1} (r×n′)` from §16 (which is the inverse Schur diagonal at the contact point, paper Eq. 17). §16 takes `n′` as input; §17 specifies how `n′` is computed from `q`. The two derivations compose:
+
+```
+q (modal state)        ──[§17, F^{-T}]──→  n'  (deformed contact normal)
+n', r, v_c, m, I       ──[§16, γ*_B]───→  J*  (point-impulse magnitude)
+```
+
+### 17.5. Cost
+
+Per contact:
+- One brute-force closest-triangle scan — `O(n_faces)` (same as the patch fit; could be replaced by a BVH for both methods).
+- One tri→tet lookup — `O(1)` (precomputed).
+- Four modal evaluations `u_i = Φ_full(X_i)·q` — `O(4r)` flops.
+- One `3 × 3` solve for `F^{-T} n_rest` — fixed.
+
+Barbič & James (2008) achieved 1 kHz haptic rates with this exact construction on million-point pointshells; for DCR's ≲10² contacts per step, the cost is negligible compared to the rigid-body solver.
+
+### 17.6. Implementation toggle
+
+In this repo, `n′` computation is selected by `PassiveDCRCoupler.deformed_normal_method`:
+- `"patch_fit"` (default during the transition): the heuristic from `dcr/dcr/deformed_normal.py`.
+- `"barbic_james"`: the F⁻ᵀ method derived above, implemented in `dcr/dcr/deformed_normal_bj.py`.
+
+Both are unit-vector–valued; both go through the same downstream §16 γ\* quadratic. The toggle exists so we can A/B compare empirically before flipping the default.
+

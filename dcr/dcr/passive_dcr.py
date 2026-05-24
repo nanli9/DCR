@@ -40,11 +40,17 @@ from ..rigid.body import RigidBody
 from ..rigid.collision import Contact
 from ..rigid.solver import _pick_friction_dirs
 from .deformed_normal import SurfaceTangentFrames, compute_deformed_normal
+from .deformed_normal_bj import (
+    BarbicJamesCache,
+    build_barbic_james_cache,
+    compute_deformed_normal_barbic_james,
+)
 from .distant_velocity import (
     LinearKick,
     PointImpulseKick,
+    friction_cone_clip,
+    gamma_from_energy_linear,
     impulse_from_energy_point,
-    speed_from_energy_linear,
 )
 
 
@@ -79,6 +85,63 @@ class PassiveDCRCoupler:
             "min_rigid_loss_modal"  - min of the two (conservative; default)
         theta_max_deformed: Clamp on the deformed-normal tilt angle (radians)
             for Version B. Mirrors TiltDCRCoupler.theta_max default.
+        deformed_normal_method: How to compute the deformed contact normal n'
+            for the energy_* distant-velocity modes.
+            "patch_fit" (default) - heuristic: finite-difference (n·u) over the
+                contact triangle's 3 surface vertices, tilt n_rest by the
+                in-plane gradient, clamp to theta_max_deformed. Uses the peak
+                q from q_history (paper Eq. 11 d_max heuristic).
+            "barbic_james"        - F^{-T} push-forward (foundation §17;
+                Barbič & James 2008 IEEE ToH §4.1, see
+                reference/BarbicJames-2008-IEEE-TOH.pdf). Computes the FEM
+                deformation gradient F = I + Σ_i u_i ⊗ ∇N_i at the contact
+                point using analytical shape-function gradients of the owning
+                tet (including the 4th interior vertex's modal contribution
+                the surface patch fit cannot see), and returns
+                normalize(F^{-T} · n_rest). Uses the *current* q (last
+                substep), not a peak from q_history.
+            Both methods return n_rest exactly at q = 0; for q ≠ 0
+            their angular outputs differ at O(‖q‖) — the patch fit
+            cannot see the modal displacement at the 4th (interior)
+            tet vertex, while barbic_james includes its ∇N_D ⊗ u_D
+            contribution to F. See tests/stageDV/
+            test_deformed_normal_methods.py for the linear-scaling
+            regression and foundation §17 for the derivation.
+        friction_cone_clip_enabled: When True, the post-solver kick
+            gets a Coulomb friction correction applied at the contact
+            point after the main kick fires. Two paths, different
+            algebra (both with mu = min(body_a.friction, body_b.friction),
+            matching rigid/solver.py:206-207):
+            * Version A (linear kick at COM): the kick speed*u itself
+              is decomposed against n_rest and the tangential component
+              is clipped to mu·max(0, normal) — see
+              distant_velocity.friction_cone_clip. For Version A,
+              Δv_c = Δv_lin, so this is mathematically equivalent to
+              the contact-point clip with the correction applied at
+              the COM.
+            * Version B (point impulse at r): the kick generates both
+              a linear AND an angular contact-point velocity change
+              (Δv_c = (J/m)·u + (J·I_inv·(r×u))×r), and the angular
+              part has a tangential contribution even when u = n_rest
+              exactly. The clip therefore operates on Δv_c (not on u)
+              and the corrective friction impulse is applied at the
+              contact point r — see
+              distant_velocity.contact_point_friction_correction. The
+              correction generates an automatic counter-torque
+              (because it acts at r, not the COM), damping the spin
+              that was driving the visible sliding in scenes like
+              shelf at h=1e-2.
+            Default False (no behavior change).
+        kinematic_cap: Upper-bound the per-step energy-mode kick
+            magnitude by a kinematic ceiling, to recover the
+            h-invariance Coevoet's recipe enjoys "for free" via
+            its automatic /h cancellation.
+            "none"    - no extra cap (default; energy formulation only).
+            "coevoet" - per-contact cap γ ≤ d_max / h, equivalent to
+                applying min(γ*_energy, Coevoet kinematic velocity).
+                Useful when the rigid step h is too large for the
+                energy-quadratic γ ∝ h scaling (gravity-loaded E_loss
+                ∝ h² → γ* ∝ h per step) to remain visually stable.
     """
 
     modal: ModalAnalysis
@@ -91,6 +154,10 @@ class PassiveDCRCoupler:
     energy_response_beta: float = 0.25
     energy_budget_source: str = "min_rigid_loss_modal"
     theta_max_deformed: float = float(np.radians(3.0))
+    deformed_normal_method: str = "patch_fit"
+    # See class docstring for the rationale on these two.
+    friction_cone_clip_enabled: bool = False
+    kinematic_cap: str = "none"
 
     # Internals.
     _stepper: HomogeneousStepper = field(init=False, repr=False)
@@ -98,6 +165,9 @@ class PassiveDCRCoupler:
     _vert_to_surf_idx: NDArray[np.int32] = field(init=False, repr=False)
     # Lazy: created on first Version-B step.
     _tangent_frames: SurfaceTangentFrames | None = field(
+        default=None, init=False, repr=False)
+    # Populated in __post_init__ when deformed_normal_method == "barbic_james".
+    _bj_cache: BarbicJamesCache | None = field(
         default=None, init=False, repr=False)
 
     # Energy diagnostics per step.
@@ -118,6 +188,12 @@ class PassiveDCRCoupler:
     last_linear_kicks: list[LinearKick] | None = None
     # Set when mode == "energy_prescribed_point_impulse":
     last_point_impulse_kicks: list[PointImpulseKick] | None = None
+    # Per-step counters for the post-solver clip / kinematic cap. Reset on
+    # every process_step() call; useful for the A/B reports in run_scenes.
+    last_friction_clip_fired: int = 0
+    last_friction_clip_attempted: int = 0
+    last_kinematic_cap_fired: int = 0
+    last_kinematic_cap_attempted: int = 0
 
     def __post_init__(self) -> None:
         self._stepper = HomogeneousStepper.from_modal_analysis(self.modal)
@@ -126,6 +202,22 @@ class PassiveDCRCoupler:
         self._vert_to_surf_idx = np.full(max_vert, -1, dtype=np.int32)
         for si, vi in enumerate(self.modal.surface_vertex_indices):
             self._vert_to_surf_idx[vi] = si
+
+        # Build the Barbič-James cache up-front if that method is selected.
+        # Lazy validation matches dcr_velocity_mode / energy_budget_source.
+        if self.deformed_normal_method == "barbic_james":
+            self._bj_cache = build_barbic_james_cache(
+                self.modal, self._surface)
+        elif self.deformed_normal_method != "patch_fit":
+            raise ValueError(
+                "unknown deformed_normal_method: "
+                f"{self.deformed_normal_method!r} "
+                "(expected 'patch_fit' or 'barbic_james')")
+
+        if self.kinematic_cap not in ("none", "coevoet"):
+            raise ValueError(
+                "unknown kinematic_cap: "
+                f"{self.kinematic_cap!r} (expected 'none' or 'coevoet')")
 
     # ------------------------------------------------------------------
     # Energy budget source dispatch (foundation §1 / §2)
@@ -160,6 +252,52 @@ class PassiveDCRCoupler:
         return self._tangent_frames
 
     # ------------------------------------------------------------------
+    # Deformed-normal dispatch (patch_fit vs barbic_james)
+    # ------------------------------------------------------------------
+
+    def _deformed_normal(
+        self,
+        contact_point: NDArray[np.float64],
+        push_dir: NDArray[np.float64],
+        q_history: NDArray[np.float64],
+        frames: SurfaceTangentFrames,
+    ) -> tuple[NDArray[np.float64], float, int]:
+        """Dispatch on `deformed_normal_method`. Returns (n', theta, best_tri).
+
+        Both backends compute the deformed contact normal n' along which
+        the Version-A / Version-B energy-prescribed kicks are applied.
+        See the class docstring for semantic differences. The
+        patch_fit backend uses q_history (peak-snapshot rule); the
+        barbic_james backend uses only the current substep q
+        (q_history[-1]) consistent with Barbič & James 2008 §4.1.
+        """
+        if self.deformed_normal_method == "patch_fit":
+            return compute_deformed_normal(
+                contact_point=contact_point,
+                push_dir=push_dir,
+                q_history=q_history,
+                modal_U_surf=self.modal.U_surf,
+                surface_vertex_indices=self.modal.surface_vertex_indices,
+                surface=self._surface,
+                vert_to_surf_idx=self._vert_to_surf_idx,
+                tangent_frames=frames,
+                theta_max=self.theta_max_deformed,
+            )
+        # barbic_james: current configuration only.
+        assert self._bj_cache is not None, (
+            "BarbicJamesCache was not built; check __post_init__")
+        q_current = q_history[-1] if q_history.size else np.zeros(
+            self.modal.U.shape[1])
+        return compute_deformed_normal_barbic_james(
+            contact_point=contact_point,
+            push_dir=push_dir,
+            q=q_current,
+            surface=self._surface,
+            cache=self._bj_cache,
+            theta_max=self.theta_max_deformed,
+        )
+
+    # ------------------------------------------------------------------
     # Main entry point — process one rigid-body step
     # ------------------------------------------------------------------
 
@@ -191,6 +329,12 @@ class PassiveDCRCoupler:
             `self.last_point_impulse_kicks` for the world to apply.
         """
         omega = self.modal.frequencies
+
+        # --- Reset per-step clip/cap diagnostic counters --------------------
+        self.last_friction_clip_fired = 0
+        self.last_friction_clip_attempted = 0
+        self.last_kinematic_cap_fired = 0
+        self.last_kinematic_cap_attempted = 0
 
         # --- Identify new and resting contacts on the elastic body ---
         new_contacts_data: list[tuple[Contact, int]] = []  # (contact, ci)
@@ -305,7 +449,7 @@ class PassiveDCRCoupler:
         # dv_ratio diagnostic / CSV columns are always populated.
         if bodies is not None:
             linear_kicks = self._compute_distant_response_energy_A(
-                resting_contacts, q_history, bodies, E_target)
+                resting_contacts, q_history, bodies, E_target, h)
         else:
             linear_kicks = []
         # Backward-compatible diagnostic dict: speed-magnitudes by body.
@@ -338,7 +482,7 @@ class PassiveDCRCoupler:
                     "PassiveDCRCoupler.process_step(). "
                     "DCRWorld.step() supplies this automatically.")
             kicks = self._compute_distant_response_energy_B(
-                resting_contacts, q_history, bodies, E_target)
+                resting_contacts, q_history, bodies, E_target, h)
             self.last_linear_kicks = None
             self.last_point_impulse_kicks = kicks
             return {}
@@ -400,28 +544,39 @@ class PassiveDCRCoupler:
         q_history: NDArray[np.float64],
         bodies: list[RigidBody],
         E_target: float,
+        h: float,
     ) -> list[LinearKick]:
         """Energy-prescribed distant velocity (Version A, linear-only).
 
         Direction = **deformed** contact normal n' (same primitive Version B
-        uses — `compute_deformed_normal`). Magnitude from energy budget:
+        uses — `compute_deformed_normal`). Magnitude from energy budget,
+        solved as a quadratic in γ (foundation §16):
 
-            speed = sqrt(2 * (1/m) * E_target)
+            ΔKE(γ) = m·(v·u)·γ + ½·m·γ² = E_target,
+            γ*_A   = -(v·u) + √((v·u)² + 2·E_target / m).
 
         Applied via `_apply_linear_kick_dcr_velocities` (pure COM-linear
-        kick, no angular component). Realized ΔKE = ½ m · speed² = E_target
-        exactly.
+        kick, no angular component). Realized ΔKE = E_target exactly
+        (within float tolerance) for every body, regardless of incoming v.
+
+        # CORRECTION (2026-05, foundation §16): previous version used
+        # γ = √(2·E_target / m), which ignored the cross-term m·(v·u)·γ.
+        # The post-hoc cap in `_bound_linear_kick_dcr_velocities` masked
+        # the discrepancy by clipping. The new γ*_A hits E_target exactly
+        # so the cap binds only for genuine multi-body / passivity reasons.
 
         # DEVIATION (foundation §15, paper §5.4): the task spec proposed
         # k = 1/m + (r × u) · I_inv · (r × u). We drop the angular term in
         # Version A because the kick is COM-linear-only — including the
-        # angular term would represent energy not actually injected,
-        # causing realized ΔKE to exceed E_target. Version B uses the full
-        # formula AND applies the angular kick, restoring physical
-        # consistency.
+        # angular term would model energy not actually injected. Version B
+        # keeps the full formula AND applies the angular kick.
 
         Multi-contact aggregation: largest-speed kick per body wins. (Same
-        rule as Coevoet's `max` over contacts.)
+        rule as Coevoet's `max` over contacts.) NOTE: the per-body max is
+        taken over γ*_A values that each depend on the body's *current* v,
+        not on a contact-independent magnitude — this is still a valid
+        "largest energy contribution" rule because every kick along its own
+        u realizes E_target by construction.
         """
         frames = self._get_tangent_frames()
         kicks_by_body: dict[int, LinearKick] = {}
@@ -437,20 +592,52 @@ class PassiveDCRCoupler:
             body = bodies[other_body]
             if body.is_static or body.mass <= 0.0:
                 continue
-            speed = speed_from_energy_linear(body, E_target)
-            if speed <= 0.0:
-                continue
-            u, theta, _ = compute_deformed_normal(
+            # Rest normal — same axis the PGS friction cone was closed on.
+            n_rest = push_dir
+            # Deformed contact normal must be computed BEFORE the energy
+            # helper, because γ*_A depends on the cross-term v·u.
+            u, theta, _ = self._deformed_normal(
                 contact_point=contact.point,
                 push_dir=push_dir,
                 q_history=q_history,
-                modal_U_surf=self.modal.U_surf,
-                surface_vertex_indices=self.modal.surface_vertex_indices,
-                surface=self._surface,
-                vert_to_surf_idx=self._vert_to_surf_idx,
-                tangent_frames=frames,
-                theta_max=self.theta_max_deformed,
+                frames=frames,
             )
+            speed = gamma_from_energy_linear(body, u, E_target)
+            if speed <= 0.0:
+                continue
+
+            # --- Optional kinematic cap (Coevoet's h-invariance) ---
+            if self.kinematic_cap == "coevoet" and h > 0.0:
+                self.last_kinematic_cap_attempted += 1
+                d_max = self._compute_max_displacement(
+                    contact.point, contact.normal, q_history)
+                speed_cap = d_max / h
+                if speed > speed_cap:
+                    self.last_kinematic_cap_fired += 1
+                    speed = speed_cap
+                if speed <= 0.0:
+                    continue
+
+            # --- Optional friction-cone clip around the REST normal ---
+            # For Version A the impulse and the COM velocity-change are
+            # parallel (Δv = ΔJ / m), so the cone clip in velocity space
+            # is algebraically identical to the impulse-space clip.
+            if self.friction_cone_clip_enabled:
+                self.last_friction_clip_attempted += 1
+                mu = min(
+                    bodies[contact.body_a].friction,
+                    bodies[contact.body_b].friction,
+                )
+                dv_vec = speed * u
+                dv_vec_clipped, s_t = friction_cone_clip(dv_vec, n_rest, mu)
+                if s_t < 1.0:
+                    self.last_friction_clip_fired += 1
+                speed_eff = float(np.linalg.norm(dv_vec_clipped))
+                if speed_eff < _EPS_TINY:
+                    continue
+                u = dv_vec_clipped / speed_eff
+                speed = speed_eff
+
             kk = LinearKick(body_idx=other_body, speed=speed, u=u.copy(),
                             theta=theta)
             prev = kicks_by_body.get(other_body)
@@ -468,18 +655,39 @@ class PassiveDCRCoupler:
         q_history: NDArray[np.float64],
         bodies: list[RigidBody],
         E_target: float,
+        h: float,
     ) -> list[PointImpulseKick]:
         """Energy-prescribed distant kicks as TRUE point impulses (Version B).
 
         For each resting contact:
-            u   = compute_deformed_normal(...)                  (this follow-up)
-            r   = contact.point - body.position
-            k   = 1/m + (r × u) · I_world_inv · (r × u)
-            J   = sqrt(2 · E_target / k)
+            u    = compute_deformed_normal(...)                 (this follow-up)
+            r    = contact.point - body.position
+            v_c  = v + ω × r                                    (contact-pt vel)
+            k    = 1/m + (r × u) · I_world_inv · (r × u)         (paper Eq. 17)
+            a    = m² · k
+            b    = m · (u · v_c)
+            γ*_B = (-b + √(b² + 2·a·E_target)) / a              (foundation §16)
+            J    = m · γ*_B
         Applied by the world's `_apply_point_impulse_dcr_velocities`:
             v_lin += (J/m) · u
             ω     += J · I_world_inv · (r × u)
-        Realized ΔKE = ½ J² k = E_target exactly (foundation §15).
+        Realized linear+angular ΔKE = E_target exactly (within float
+        tolerance) for every body, regardless of incoming v and ω.
+
+        Two optional post-processing steps (see class docstring):
+            * kinematic_cap="coevoet" caps J ≤ m·(d_max/h) per contact so
+              the per-step kick speed inherits Coevoet's h-invariance.
+            * friction_cone_clip_enabled=True projects the resulting J·u
+              onto the Coulomb friction cone around the REST normal
+              n_rest (= push_dir before deformation), preventing the
+              tangential leak that the post-solver kick along n' would
+              otherwise produce.
+
+        # CORRECTION (2026-05, foundation §16): previous version used
+        # J = √(2·E_target / k), which assumed v_c · u = 0 (dropped the
+        # cross-term m·(u·v_c)·γ). The post-hoc cap masked the drift; the
+        # new γ*_B hits E_target exactly so the cap binds only for genuine
+        # multi-body / passivity reasons.
 
         Multi-contact aggregation: if the same body has multiple resting
         contacts, the largest-J kick is kept. (Summing kicks pre-cap could
@@ -499,25 +707,54 @@ class PassiveDCRCoupler:
             body = bodies[other_body]
             if body.is_static or body.mass <= 0.0:
                 continue
-            # Deformed contact normal (extracted from the tilt pipeline).
-            u, theta, _ = compute_deformed_normal(
+            # Rest normal — same axis the PGS friction cone was closed on.
+            n_rest = push_dir
+            # Deformed contact normal (patch_fit or barbic_james; see
+            # deformed_normal_method docstring).
+            u, theta, _ = self._deformed_normal(
                 contact_point=contact.point,
                 push_dir=push_dir,
                 q_history=q_history,
-                modal_U_surf=self.modal.U_surf,
-                surface_vertex_indices=self.modal.surface_vertex_indices,
-                surface=self._surface,
-                vert_to_surf_idx=self._vert_to_surf_idx,
-                tangent_frames=frames,
-                theta_max=self.theta_max_deformed,
+                frames=frames,
             )
             r = contact.point - body.position
             J = impulse_from_energy_point(body, r, u, E_target)
             if J <= 0.0:
                 continue
+
+            # --- Optional kinematic cap (Coevoet's h-invariance) ---
+            if self.kinematic_cap == "coevoet" and h > 0.0:
+                self.last_kinematic_cap_attempted += 1
+                d_max = self._compute_max_displacement(
+                    contact.point, contact.normal, q_history)
+                J_max = body.mass * (d_max / h)
+                if J > J_max:
+                    self.last_kinematic_cap_fired += 1
+                    J = J_max
+                if J <= 0.0:
+                    continue
+
+            # --- Optional contact-point Coulomb friction correction ----
+            # Replaces the earlier on-u friction_cone_clip (which ignored
+            # the angular contribution to Δv_c). The actual correction is
+            # applied at the contact point by the world after the main
+            # kick — see contact_point_friction_correction and
+            # dcr_world's _apply_point_impulse_dcr_velocities. The kick
+            # simply carries the cone parameters n_rest/mu through.
+            kick_n_rest = None
+            kick_mu = None
+            if self.friction_cone_clip_enabled:
+                self.last_friction_clip_attempted += 1
+                kick_n_rest = n_rest.copy()
+                kick_mu = float(min(
+                    bodies[contact.body_a].friction,
+                    bodies[contact.body_b].friction,
+                ))
+
             kk = PointImpulseKick(
                 body_idx=other_body, J_mag=J, u=u.copy(), r=r.copy(),
                 theta=theta,
+                n_rest=kick_n_rest, mu=kick_mu,
             )
             # Keep largest-J per body across multiple contacts.
             prev = kicks_by_body.get(other_body)

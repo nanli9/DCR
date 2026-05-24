@@ -56,34 +56,40 @@ E_target = β · max(E_available, 0)
 ### Version A — linear-only, deformed normal
 
 ```
-u = compute_deformed_normal(contact, q_history, modal)   # same primitive as B
-k = 1 / m                              # ignores angular response
-speed = √(2 k · E_target) = √(2 E_target / m)
-body.velocity[0:3] += speed · u
+u    = compute_deformed_normal(contact, q_history, modal)   # same primitive as B
+v    = body.velocity[0:3]
+γ*_A = -(v·u) + √((v·u)² + 2 E_target / m)                  # quadratic-budget root
+body.velocity[0:3] += γ*_A · u
 ```
 
-Realized ΔKE = ½ m speed² = `E_target` exactly.
+Realized ΔKE = `E_target` *exactly* — for any incoming `v` along or against `u`.
 
 **`# DEVIATION` (foundation §15, paper §5.4):** the task spec proposed
 `k = 1/m + (r×u)·I_inv·(r×u)`. We drop the angular term for Version A
-because `_apply_dcr_velocities` only updates `body.velocity[:3]` — the
-angular term would represent energy not actually injected, causing
-realized ΔKE to *exceed* E_target. Version B uses the full formula AND
-the angular kick, restoring physical consistency.
+because `_apply_linear_kick_dcr_velocities` only updates
+`body.velocity[:3]` — the angular term would represent energy not
+actually injected. Version B uses the full formula AND the angular kick,
+restoring physical consistency.
 
 ### Version B — true point impulse, deformed contact normal
 
 ```
-u = compute_deformed_normal(contact, q_history, modal)     # n′ from modal disp
-r = contact_point - body.position                           # lever arm
-k = 1/m + (r × u) · I_world_inv · (r × u)                   # inverse eff. mass at contact
-J = √(2 E_target / k)                                       # impulse magnitude
+u    = compute_deformed_normal(contact, q_history, modal)   # n′ from modal disp
+r    = contact_point - body.position                         # lever arm
+v_c  = v + ω × r                                             # contact-point velocity
+k    = 1/m + (r × u) · I_world_inv · (r × u)                 # inverse eff. mass (paper Eq. 17)
+a    = m² · k
+b    = m · (u · v_c)
+γ*_B = (-b + √(b² + 2·a·E_target)) / a                       # quadratic-budget root
+J    = m · γ*_B                                              # impulse magnitude
 body.velocity[0:3] += (J / m) · u
 body.velocity[3:6] += J · I_world_inv @ cross(r, u)
 ```
 
-Realized ΔKE = ½ m ‖Δv_lin‖² + ½ Δω · I · Δω = ½ J² k = `E_target` exactly
-(see `tests/stageDV/test_point_impulse_math.py:test_realized_dKE_matches_E_target_from_rest`).
+Realized linear + angular ΔKE = `E_target` *exactly* — for any incoming
+`v` and `ω` (see `tests/stageDV/test_energy_bookkeeping.py`).
+
+Both γ\*_A and γ\*_B are derived in `passive_modal_energy_injection_foundation.md` §16 from the same quadratic-budget principle as §6's passive α\*. The bracketed `k` is the inverse effective mass at the contact point along `n′` — the paper's Eq. 17 specialized to a normal direction.
 
 The deformed normal `n′` is the same primitive the tilt coupler uses
 (extracted into `dcr/dcr/deformed_normal.py` so both Version B and
@@ -106,6 +112,34 @@ The cap is OFF by default (`enforce_rigid_energy_bound=False`) to preserve
 bit-for-bit the pre-follow-up "coevoet" behavior. For the two new modes,
 the cap is **recommended** on.
 
+### Deformed-normal method
+
+The deformed contact normal `n′` (the direction Versions A and B inject
+energy along) can be computed two ways, selected by
+`PassiveDCRCoupler.deformed_normal_method`:
+
+| method | mechanism | implementation | reference |
+|---|---|---|---|
+| `patch_fit` (default during transition) | finite-difference `n · u` across the 3 surface vertices of the contact triangle; tilt `n_rest` by the in-plane gradient; clamp to `θ_max`. Uses the peak `q` from `q_history` (paper Eq. 11 `d_max` heuristic). | `dcr/dcr/deformed_normal.py` | heuristic (this codebase) |
+| `barbic_james` | analytical FEM gradient: `F = I + Σᵢ uᵢ ⊗ ∇Nᵢ` summed over the 4 vertices of the owning tet (including the interior vertex), then `n′ = normalize(F⁻ᵀ · n_rest)`. Uses the current `q` (last substep), not a peak. | `dcr/dcr/deformed_normal_bj.py` | foundation §17; **Barbič & James 2008** IEEE ToH §4.1 — `reference/BarbicJames-2008-IEEE-TOH.pdf` |
+
+**Relationship between the two methods** — they are *not* equivalent
+even at first order in `‖q‖`:
+
+- At `q = 0`: both return `n_rest` exactly.
+- For `q ≠ 0`: angular discrepancy is **linear** in `‖q‖`, set by the
+  interior tet vertex's modal weight times the tangent-plane projection
+  of `∇N_D`. The patch fit cannot see this contribution (the interior
+  vertex's surface-triangle shape function is identically zero). On a
+  fixed-corner slab the empirical coefficient is `dθ/d‖q‖ ≈ 3.85 rad/unit`
+  — see `tests/stageDV/test_deformed_normal_methods.py::TestSmallQDiscrepancyScalesLinearly`.
+
+`barbic_james` is the principled method; `patch_fit` is kept as the
+default during the transition so existing scenes / tests are
+bit-for-bit unchanged. Switch via the dataclass field or the
+`--deformed-normal-method barbic_james` CLI flag in
+`scripts/run_scenes.py`.
+
 ## Config field reference
 
 ```python
@@ -116,6 +150,7 @@ class PassiveDCRCoupler:
     energy_response_beta: float = 0.25
     energy_budget_source: str = "min_rigid_loss_modal"
     theta_max_deformed: float = float(np.radians(3.0))
+    deformed_normal_method: str = "patch_fit"   # or "barbic_james"
 
 @dataclass
 class DCRWorld:
@@ -151,6 +186,15 @@ footer with the CoV summary table.
 
 ## Latest CoV results (1.5 s sim, β=0.25, two-ball staggered scene)
 
+> **⚠ Pre-bugfix numbers** — recorded with the older `γ = √(2 E_target / m)` /
+> `J = √(2 E_target / k)` formulas that dropped the cross-term (see the
+> *Corrections (2026-05)* section below). Pending regeneration when the
+> `benchmarks/` directory is rebuilt on its own branch (it was removed in
+> `3b7e2ee`). The relative ordering of modes is expected to be preserved
+> (A still less h-sensitive than B), but the absolute mean-ΔKE values will
+> shift modestly because the per-body realized energy now hits `β·E_available`
+> exactly rather than being clipped post-hoc by the cap.
+
 Metric: mean realized ΔKE per kicked body (Joules), per (mode, h) cell.
 CoV = std/mean across h ∈ {1e-3, 2.5e-3, 5e-3, 1e-2}.
 
@@ -171,6 +215,40 @@ for this scene. Version B adds two further sources of h-dependence on top
 of `E_available(h)`: (1) the deformed normal `u(q_history)` varies with
 the modal-substep count (= `ceil(h/T)`), and (2) angular kicks make
 trajectories diverge between modes. Both are real algorithmic properties.
+
+## Corrections (2026-05)
+
+The Version A and Version B magnitude formulas above were **fixed** in
+this revision. The previous implementations used
+
+```
+A: γ = √(2 E_target / m)
+B: J = √(2 E_target / k)
+```
+
+which treat the kick as if the body started at rest, dropping the
+linear cross-term `m·(v·n′)·γ` (A) and `m·(n′·v_c)·γ` (B) that appear
+whenever the receiving body already has velocity along the deformed
+normal. Concretely:
+
+- **Symptom (before fix):** per-body realized ΔKE deviated from
+  `E_target` by the cross-term. The global passivity cap in
+  `dcr_world.py:_bound_linear_kick_dcr_velocities` and
+  `_bound_point_impulse_dcr_velocities` silently corrected by clipping —
+  so the passivity bound was never violated, but `E_target` was not hit
+  exactly and the cap bound more often than it should.
+- **Fix:** solve the full quadratic
+  `ΔKE(γ) = b·γ + ½·a·γ² = E_target` for the non-negative root
+  `γ* = (-b + √(b² + 2aE)) / a`, structurally identical to `passive_alpha`
+  (foundation §6). Derivation lives in foundation §16.
+- **Tests:** `tests/stageDV/test_energy_bookkeeping.py` (91 cases) pins
+  realized ΔKE == E_target to 1e-10 across `v·n′ ∈ {<, =, >} 0`,
+  non-zero ω, non-diagonal world inertia, and various lever arms r.
+  Includes regression checks that γ\*_A ≠ √(2 E_target / m) when v·n′ ≠ 0.
+- **Net effect:** the cap should now bind only for genuine multi-body /
+  passivity reasons, not to mask a per-body bookkeeping error. The CoV
+  table above is recorded against the pre-fix formulas and will be
+  re-run when `benchmarks/` is rebuilt.
 
 ## Test summary
 

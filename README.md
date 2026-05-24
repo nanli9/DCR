@@ -59,6 +59,26 @@ uv run python scripts/run_scenes.py shelf --mode energy_prescribed --beta 0.25
 uv run python scripts/run_scenes.py shelf --mode energy_prescribed_point_impulse --beta 0.25
 ```
 
+Deformed-normal method (`--deformed-normal-method`) — applies only to the `energy_*` modes:
+
+```bash
+# Default: the patch-fit heuristic (surface plane-fit on n·u).
+uv run python scripts/run_scenes.py truck \
+    --mode energy_prescribed_point_impulse \
+    --deformed-normal-method patch_fit
+
+# F^{-T} push-forward using FEM shape-function gradients
+# (foundation §17; Barbič & James 2008 IEEE ToH §4.1).
+uv run python scripts/run_scenes.py truck \
+    --mode energy_prescribed_point_impulse \
+    --deformed-normal-method barbic_james
+
+# A/B run all three scenes back-to-back with the new method:
+uv run python scripts/run_scenes.py all \
+    --mode energy_prescribed_point_impulse \
+    --deformed-normal-method barbic_james
+```
+
 Other flags:
 
 | Flag | Default | What it does |
@@ -66,6 +86,7 @@ Other flags:
 | `--mode <name>` | `dcr` | `dcr` \| `energy_prescribed` \| `energy_prescribed_point_impulse` |
 | `--beta <0..1>` | `0.25` | Fraction of `E_available` consumed by the kick (energy_* modes only) |
 | `--budget-source <name>` | `min_rigid_loss_modal` | `rigid_loss` \| `modal_reservoir` \| `min_rigid_loss_modal` |
+| `--deformed-normal-method <name>` | `patch_fit` | `patch_fit` (heuristic) \| `barbic_james` (F⁻ᵀ; foundation §17). No effect when `--mode dcr`. |
 | `--sim-duration <seconds>` | `2.0` (truck: `1.8`) | Simulated wallclock; `n_steps` derived as `round(duration / h)` so playback length is invariant to `h` |
 | `-h`, `--help` | — | Print usage |
 

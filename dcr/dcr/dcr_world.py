@@ -17,7 +17,11 @@ from ..rigid.collision import Contact, detect_contacts
 from ..rigid.energy import rigid_kinetic_energy
 from ..rigid.joint import DistanceJoint
 from ..rigid.solver import ConstraintSolver
-from .distant_velocity import LinearKick, PointImpulseKick
+from .distant_velocity import (
+    LinearKick,
+    PointImpulseKick,
+    contact_point_friction_correction,
+)
 from .modal_dcr import ModalDCRCoupler
 from .passive_dcr import PassiveDCRCoupler
 from .spatial_dcr import SpatialDCRCoupler
@@ -150,7 +154,14 @@ class DCRWorld:
                         coupler.last_point_impulse_kicks)
                     if s < clip_eps:
                         self.last_dcr_clipped = True
-                    self._apply_point_impulse_dcr_velocities(kicks_b, scale=s)
+                    # The world's apply pass returns the number of
+                    # contact-point friction corrections that actually
+                    # fired this step (only when the coupler tagged the
+                    # kicks with n_rest/mu; zero otherwise).
+                    n_friction_fired = (
+                        self._apply_point_impulse_dcr_velocities(
+                            kicks_b, scale=s))
+                    coupler.last_friction_clip_fired = n_friction_fired
                 elif coupler.last_linear_kicks is not None:
                     # Version A: deformed normal + linear COM kick.
                     kicks_a, s = self._bound_linear_kick_dcr_velocities(
@@ -286,6 +297,12 @@ class DCRWorld:
             Δω     = J · I_inv_p @ (r × u)
 
         No-op (s = 1.0) when self.enforce_rigid_energy_bound is False.
+
+        # NOTE (2026-05): after the distant-velocity γ*_B fix
+        # (foundation §16) every kick's realized per-body ΔKE equals
+        # E_target exactly, so this cap binds only for genuine multi-body
+        # / passivity reasons (sum of per-body E_targets > budget), not
+        # to mask a per-body bookkeeping drift.
         """
         if not kicks:
             return kicks, 1.0
@@ -338,6 +355,14 @@ class DCRWorld:
         Sum over kicks and scale-search for s ∈ [0, 1].
 
         No-op when self.enforce_rigid_energy_bound is False.
+
+        # NOTE (2026-05): after the distant-velocity γ*_A fix
+        # (foundation §16) every kick's realized per-body ΔKE equals
+        # E_target exactly (the cross-term m·(v·u)·γ that this cap
+        # accounts for is now consumed by γ*_A itself). This cap
+        # therefore binds only for genuine multi-body / passivity reasons
+        # (sum of per-body E_targets > budget), not to mask a per-body
+        # bookkeeping drift.
         """
         if not kicks:
             return kicks, 1.0
@@ -394,7 +419,7 @@ class DCRWorld:
         self,
         kicks: list[PointImpulseKick],
         scale: float = 1.0,
-    ) -> None:
+    ) -> int:
         """Apply true point impulses (linear + angular). Version B kick path.
 
         For each kick on body p with impulse magnitude J along u at lever
@@ -405,7 +430,24 @@ class DCRWorld:
 
         Realized ΔKE = ½ (scale·J)² · k where k = 1/m + (r×u)·I_inv·(r×u),
         which equals scale² · E_target by construction of J in the coupler.
+
+        If `kk.n_rest` and `kk.mu` are populated (coupler set
+        friction_cone_clip_enabled=True), apply a closed-form Coulomb
+        friction correction at the contact point r AFTER the main kick:
+            J_f, t̂ = contact_point_friction_correction(...)
+            body.v_lin -= (J_f / m) · t̂
+            body.ω     -= J_f · I_inv · (r × t̂)
+        This dissipates the tangential contact-point velocity (which
+        otherwise leaks past the PGS friction cone — the cone was closed
+        pre-kick and cannot oppose the post-kick Δω × r contribution).
+
+        Returns the number of friction corrections that actually fired
+        across the kick list (for the coupler's diagnostic counter).
+        Energy bookkeeping (`last_dcr_ke_injected`) is measured around
+        the full sequence (main kick + correction), so dissipation from
+        the correction shows up as a negative addend automatically.
         """
+        n_friction_fired = 0
         for kk in kicks:
             body = self.bodies[kk.body_idx]
             if body.is_static or body.mass <= 0.0:
@@ -415,14 +457,30 @@ class DCRWorld:
                 body.velocity[:3] @ body.velocity[:3])
             ke_before += 0.5 * float(
                 body.velocity[3:6] @ (body.inertia_world() @ body.velocity[3:6]))
+            I_inv = body.inertia_world_inv()
             body.velocity[0:3] += (J / body.mass) * kk.u
-            body.velocity[3:6] += J * (
-                body.inertia_world_inv() @ np.cross(kk.r, kk.u))
+            body.velocity[3:6] += J * (I_inv @ np.cross(kk.r, kk.u))
+
+            # Contact-point Coulomb friction correction (replaces the
+            # earlier on-u clip). See distant_velocity.py for the algebra.
+            if kk.n_rest is not None and kk.mu is not None and J != 0.0:
+                J_f, t_hat = contact_point_friction_correction(
+                    J=J, u=kk.u, r=kk.r,
+                    n_rest=kk.n_rest, mu=kk.mu,
+                    mass=body.mass, I_world_inv=I_inv,
+                )
+                if J_f > 0.0:
+                    n_friction_fired += 1
+                    body.velocity[0:3] -= (J_f / body.mass) * t_hat
+                    body.velocity[3:6] -= J_f * (
+                        I_inv @ np.cross(kk.r, t_hat))
+
             ke_after = 0.5 * body.mass * float(
                 body.velocity[:3] @ body.velocity[:3])
             ke_after += 0.5 * float(
                 body.velocity[3:6] @ (body.inertia_world() @ body.velocity[3:6]))
             self.last_dcr_ke_injected += ke_after - ke_before
+        return n_friction_fired
 
     def _apply_dcr_velocities(
         self,
