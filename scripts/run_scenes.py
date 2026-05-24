@@ -121,7 +121,8 @@ def _add_coupler(
 def build_truck_scene(velocity_mode="coevoet", beta=0.25,
                       budget_source="min_rigid_loss_modal", enforce_bound=False,
                       deformed_normal_method="patch_fit",
-                      friction_cone_clip=False, kinematic_cap="none"):
+                      friction_cone_clip=False, kinematic_cap="none",
+                      damping_scale=1.0):
     """Heavy objects dropped sequentially on road. Cones and lumber respond.
 
     Three drops at different positions and heights so they hit the ground
@@ -148,7 +149,7 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
 
     fixed = _fix_corners(mesh)
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
-                   alpha0=2.0, alpha1=1e-5)
+                   alpha0=2.0 * damping_scale, alpha1=1e-5 * damping_scale)
     modal = ModalAnalysis(fem=fem, num_modes=15)
     coupler = _add_coupler(
         world, modal, ground_idx,
@@ -212,7 +213,8 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
 def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
                       budget_source="min_rigid_loss_modal", enforce_bound=False,
                       deformed_normal_method="patch_fit",
-                      friction_cone_clip=False, kinematic_cap="none"):
+                      friction_cone_clip=False, kinematic_cap="none",
+                      damping_scale=1.0):
     """Heavy box dropped on a shelf. Books standing upright topple.
 
     The shelf is a cantilever beam (fixed at one edge). Books are
@@ -239,7 +241,7 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
 
     fixed = _fix_one_edge(mesh)
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
-                   alpha0=3.0, alpha1=1e-5)
+                   alpha0=3.0 * damping_scale, alpha1=1e-5 * damping_scale)
     modal = ModalAnalysis(fem=fem, num_modes=12)
     coupler = _add_coupler(
         world, modal, shelf_idx,
@@ -285,6 +287,7 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
 # ======================================================================
 
 def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
+                      damping_scale=1.0,
                       budget_source="min_rigid_loss_modal", enforce_bound=False,
                       deformed_normal_method="patch_fit",
                       friction_cone_clip=False, kinematic_cap="none"):
@@ -311,7 +314,7 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
 
     fixed = _fix_one_edge(mesh)
     fem = FEMModel(mesh=mesh, material=mat, fixed_nodes=fixed,
-                   alpha0=1.0, alpha1=1e-5)
+                   alpha0=1.0 * damping_scale, alpha1=1e-5 * damping_scale)
     modal = ModalAnalysis(fem=fem, num_modes=12)
     coupler = _add_coupler(
         world, modal, ledge_idx,
@@ -530,6 +533,7 @@ _VALID_VELOCITY_MODES = {
     "dcr",
     "energy_prescribed",
     "energy_prescribed_point_impulse",
+    "energy_prescribed_patch",
 }
 
 # CLI mode name -> PassiveDCRCoupler.dcr_velocity_mode string.
@@ -538,6 +542,10 @@ _CLI_TO_COUPLER_MODE = {
     "dcr": "coevoet",
     "energy_prescribed": "energy_prescribed",
     "energy_prescribed_point_impulse": "energy_prescribed_point_impulse",
+    # Step 1 of the patch-based reformulation (prompt §9.1). Currently
+    # response-silent — clusters contacts and builds patches but emits no
+    # kicks. Observable via coupler.last_patches.
+    "energy_prescribed_patch": "energy_prescribed_patch",
 }
 
 
@@ -562,6 +570,10 @@ def main():
         print(f"                      dcr                              (paper Eq. 12, Coevoet 2020 baseline)")
         print(f"                      energy_prescribed                (Version A: linear COM kick, deformed normal)")
         print(f"                      energy_prescribed_point_impulse  (Version B: true point impulse, deformed normal)")
+        print(f"                      energy_prescribed_patch          (Patch reformulation step 1: clusters")
+        print(f"                                                       contacts by body pair, builds geometric")
+        print(f"                                                       patches; response-silent — no kicks yet.")
+        print(f"                                                       Observable via coupler.last_patches.)")
         print(f"  --beta <0..1>:    energy_response_beta (default: 0.25). "
               f"Used by energy_* modes.")
         print(f"  --budget-source:  rigid_loss | modal_reservoir | "
@@ -584,6 +596,12 @@ def main():
               f"recovering Coevoet's h-invariance as an upper bound")
         print(f"                            (energy_* modes). Useful at "
               f"large h to prevent oversized kicks.")
+        print(f"  --damping-scale:  Multiply the FEM Rayleigh damping (α₀, α₁) "
+              f"by this factor (default: 1.0). Use larger values (e.g.,")
+        print(f"                    5-20) to make the elastic slab settle "
+              f"faster — useful for `energy_prescribed_patch` which keeps")
+        print(f"                    delivering kicks to bodies on the slab "
+              f"as long as the modal reservoir has energy.")
         print(f"  --sim-duration:   Simulated duration in seconds; n_steps is "
               f"derived as round(duration / h) so playback length stays "
               f"constant when you change h (default: 2.0s, truck: 1.8s).")
@@ -597,6 +615,7 @@ def main():
         if a in ("--mode", "--beta", "--budget-source",
                  "--deformed-normal-method",
                  "--kinematic-cap",
+                 "--damping-scale",
                  "--sim-duration") and i + 1 < len(sys.argv):
             flag_value_args.add(sys.argv[i + 1])
     args = [a for a in args if a not in flag_value_args]
@@ -624,11 +643,26 @@ def main():
         print(f"Unknown --kinematic-cap: {kinematic_cap!r}")
         print(f"Valid: none, coevoet")
         sys.exit(1)
+    try:
+        damping_scale = float(_parse_kv_flag("--damping-scale", 1.0))
+    except ValueError:
+        print(f"--damping-scale must be a float; got "
+              f"{_parse_kv_flag('--damping-scale', None)!r}")
+        sys.exit(1)
+    if damping_scale <= 0.0:
+        print(f"--damping-scale must be > 0; got {damping_scale}")
+        sys.exit(1)
     sim_duration_arg = _parse_kv_flag("--sim-duration", None)
 
     # Map --mode → (coupler.dcr_velocity_mode, enforce_rigid_energy_bound).
+    # The patch mode is included here so the world enforces the rigid-energy
+    # bound consistently with the other energy_* modes — it's a no-op for
+    # step 1 (no kicks emitted) but keeps semantics aligned for §9.2-9.6.
     is_energy_mode = velocity_mode in (
-        "energy_prescribed", "energy_prescribed_point_impulse")
+        "energy_prescribed",
+        "energy_prescribed_point_impulse",
+        "energy_prescribed_patch",
+    )
     coupler_mode = _CLI_TO_COUPLER_MODE[velocity_mode]
     enforce_bound = is_energy_mode  # cap recommended on for energy_* modes
 
@@ -665,6 +699,7 @@ def main():
             deformed_normal_method=deformed_normal_method,
             friction_cone_clip=friction_cone_clip,
             kinematic_cap=kinematic_cap,
+            damping_scale=damping_scale,
         )
         print(f"  Bodies: {len(world.bodies)}")
         print(f"  Dynamic: {[n for n in body_info]}")

@@ -36,13 +36,14 @@ The paper's modal step treats the projected impulse as a *forced* IIR input (Eq.
 
 The paper's `Δv = d_max / h` (Eq. 12) is a length-per-step heuristic with no energy semantics. This repo adds two new modes that prescribe the kick from the same passivity budget used for the modal injection, so the rigid bounce-back becomes physically meaningful:
 
-| Mode | Direction | Mechanism | Sets velocity for |
-|------|-----------|-----------|-------------------|
-| `dcr` (paper Eq. 12) | smooth contact normal | linear COM kick | translation only |
-| `energy_prescribed` (Version A) | **deformed** normal `n′` | linear COM kick | translation only |
-| `energy_prescribed_point_impulse` (Version B) | deformed normal `n′` | **true point impulse** `J = m·v` | translation + rotation |
+| Mode | Direction | Mechanism | Sets velocity for | Magnitude driver |
+|------|-----------|-----------|-------------------|------------------|
+| `dcr` (paper Eq. 12) | smooth contact normal | linear COM kick | translation only | `d_max / h` (kinematic) |
+| `energy_prescribed` (Version A) | **deformed** normal `n′` | linear COM kick | translation only | `√(2·E_target/m)` (energy budget) |
+| `energy_prescribed_point_impulse` (Version B) | deformed normal `n′` | **true point impulse** `J = m·v` | translation + rotation | quadratic γ\*\_B from energy budget |
+| `energy_prescribed_patch` (Patch reformulation) | deformed normal `n′` at patch centroid `x̄` | point impulse `λ = K_total⁻¹·Δv_des` at `x̄` (clustered contacts) | translation + rotation | **modal velocity `v_f = Φ(x̄)·q̇`**; energy budget is a passivity *limit*, not a driver |
 
-A vs B is a controlled comparison: same direction `n′`, different kick mechanism. Both consume `β · E_available` where `E_available = min(η·E_rigid_loss, E_modal_reservoir)` (or either alone, per `--budget-source`). Details: `docs/distant_velocity_modes.md`.
+A vs B vs Patch comparison: same direction primitive (`n′`), different magnitude philosophy. A and B consume `β · E_available` to drive magnitude; Patch is driven by the support's actual modal velocity, with `β · E_modal_reservoir` as a passivity ceiling. All three use the same modal injection step (Section 1) for the slab side. Details: `docs/distant_velocity_modes.md`.
 
 ### 3. Deformation-aware contact frame
 
@@ -52,7 +53,37 @@ A vs B is a controlled comparison: same direction `n′`, different kick mechani
 
 `DCRWorld.enforce_rigid_energy_bound = True` aggregates the predicted ΔKE from every DCR distant velocity assignment in a step and uniformly scales them so the total stays ≤ `η · E_rigid_loss`. The cap binds rarely on the paper-baseline `dcr` mode (the Eq. 12 kick is usually small enough on its own) and binds often on the energy-prescribed modes when `β` is pushed high — both behaviors are documented in `docs/distant_velocity_modes.md`.
 
-### 5. Honest scope clarifications (binding per foundation §14)
+### 5. Patch-based reformulation (`energy_prescribed_patch`)
+
+Versions A and B both keep the paper's "magnitude from the energy budget" architecture — they just change the direction (deformed normal) and the mechanism (linear vs point impulse). This reformulation steps back further and replaces the whole open-loop pipeline
+
+> `E_target → invent γ → apply γ·n′ at the contact`
+
+with a **passivity-limited moving deformable support**:
+
+> `modal deformation defines a moving support → solve a contact-consistent velocity correction → project to Coulomb cone → scale by passivity`
+
+Implemented as a fourth `--mode energy_prescribed_patch`, coexisting with the other three:
+
+- **Contact clustering** — `dcr/dcr/contact_patch.py:cluster_contacts_by_body_pair` groups simultaneous contacts on the same body pair into a single patch; `build_patch` computes the weighted centroid `x̄`, the averaged rest normal `n̄_rest`, and per-body lever arms `r̄_a, r̄_b` (clamped to body half-extents). Replaces per-contact response with a single response point per body pair, killing the corner-migration feedback loop that destabilises Version B.
+- **Bilateral velocity-matching solve** — `_compute_distant_response_patch` in `dcr/dcr/passive_dcr.py`:
+  - `v_f = Φ(x̄)·q̇` modal velocity at the patch centroid (snapshotted right after the kick, before `step_n` decays it).
+  - `Δv_des = v_f − v_p` desired velocity correction at the contact.
+  - `λ = (K_body + Φ·Φᵀ)⁻¹ · Δv_des` — the **full 3×3 contact effective mass `K_total`** combining the rigid body's `K_body = (1/m)I + [r̄]_×·I⁻¹·[r̄]_×ᵀ` and the modal system's `Φ·Φᵀ`. Using `K_body` alone treats the modal system as an infinite-mass wall and creates a positive-feedback runaway on each modal back-reaction (verified empirically: books launched to >1 m, fixed by adding `Φ·Φᵀ`).
+  - Coulomb cone projection of `λ` around the **rest normal** `n_rest` (not the deformed normal — the whole point of `n′` is to tilt λ into the lateral direction; projecting around `n′` would treat that lateral leak as "normal" and defeat its purpose).
+  - Quadratic passivity scaling `s = (-a + √(a² + 2·b·E_cap))/b` with `E_cap = β · E_modal_reservoir` per patch.
+- **Modal back-reaction** (Newton's third law) — after applying `λ` to the receiver body, the modal `q̇` is decremented by `Φ(x̄)ᵀ·λ`. This drains the modal reservoir at each kick instead of relying solely on Rayleigh damping. With the `K_total` solve above, the back-reaction is energy-conservative: `ΔE_total = -½·λᵀ·K_total·λ ≤ 0` (perfectly inelastic).
+- **`--damping-scale` knob** — multiplies the FEM Rayleigh damping (`α₀`, `α₁`) at scene-build time. Default `1.0`. Useful for `energy_prescribed_patch` specifically because that mode keeps delivering kicks for as long as the modal reservoir has energy; bumping to `5–20` makes the elastic slab settle in <1 s instead of ringing for the full sim.
+
+Where the formulation visibly differs from `dcr` / Versions A/B:
+
+| scene | what's different | data |
+|---|---|---|
+| `ledge` | Boulder gains real rolling rotation as it sits on the deflected pedestal. Lever `r̄` is not parallel to `n_def`, so `r̄ × λ` is non-zero → physically-meaningful torque (the whole point of the formulation). | `boulder.max_tilt°`: 0° (coevoet) → 2.6° (B) → **36°** (patch). |
+| `truck` | Cones / lumber rotate by the kick at the patch centroid; less violent than Version B (6× less drift) because `K_total`'s `Φ·Φᵀ` term absorbs part of each impulse into modal back-reaction. | `lumber_3.max_tilt°`: 0° → 89.7° (B, drift 2.5 m) → **50°** (patch, drift 0.16 m). |
+| `shelf` | **Less successful.** Flat thin-book geometry has `r̄ ∥ n_def`, so the torque-via-lever benefit isn't exercised; Coulomb cone tangent budget accumulates and tips books over many steps. Pure-normal projection (`μ=0`) would degenerate the formulation to ≈ Coevoet's `Δv = d_max/h`. Suggests the patch formulation is the right tool for non-flat contact geometries, less so for flat thin-body scenes. |
+
+### 6. Honest scope clarifications (binding per foundation §14)
 
 The follow-up makes **no claim** of:
 - audio synthesis or `.wav` output,
@@ -168,8 +199,11 @@ This is what the test in `tests/stageE4` asserts across full simulation runs (no
 | Passive α | `dcr/modal/passive_inject.py:passive_alpha` |
 | Homogeneous modal stepper | `dcr/modal/homogeneous_stepper.py` |
 | Passive coupler (full pipeline) | `dcr/dcr/passive_dcr.py:PassiveDCRCoupler` |
-| Deformed normal primitive | `dcr/dcr/deformed_normal.py` |
+| Deformed normal primitive | `dcr/dcr/deformed_normal.py` (patch-fit), `dcr/dcr/deformed_normal_bj.py` (Barbič-James F⁻ᵀ) |
 | Distant-velocity Versions A/B | `dcr/dcr/distant_velocity.py` |
+| Patch primitive + K_total + cone + passivity helpers | `dcr/dcr/contact_patch.py` |
+| Patch-mode response pipeline + modal back-reaction | `dcr/dcr/passive_dcr.py:_compute_distant_response_patch` |
+| Patch-impulse application on the receiver body | `dcr/dcr/dcr_world.py:_apply_patch_impulse_dcr_velocities` |
 | Global rigid-energy bound | `dcr/dcr/dcr_world.py:DCRWorld.enforce_rigid_energy_bound` |
 | Demo runner | `scripts/run_scenes.py` |
 

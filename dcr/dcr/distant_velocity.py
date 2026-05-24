@@ -123,6 +123,55 @@ class PointImpulseKick:
 
 
 # ----------------------------------------------------------------------
+# PatchKick — return type for the patch-based reformulation (prompt §9)
+# ----------------------------------------------------------------------
+
+@dataclass
+class PatchKick:
+    """One patch-based impulse at a clustered contact centroid.
+
+    Applied to body p with lever arm r̄ = patch.x_bar - body.position by
+    `_apply_patch_impulse_dcr_velocities` (dcr_world.py):
+
+        body.velocity[0:3] += (1/m) · lam
+        body.velocity[3:6] += I_world_inv @ (r̄ × lam)
+
+    Unlike `PointImpulseKick`, `lam` is a full 3-vector (not magnitude +
+    unit direction), because Coulomb projection (prompt §5) can rotate
+    the impulse off the deformed normal — the post-projection direction
+    is not necessarily n̄'.
+
+    Attributes:
+        body_idx: Index of the receiving body (not the elastic foundation).
+        lam: (3,) full impulse vector after Coulomb cone projection and
+            passivity scaling.
+        x_bar: (3,) patch centroid in world frame (the application point).
+        r_bar: (3,) lever arm `x_bar - body.position` (already clamped by
+            the patch construction).
+        n_def: (3,) deformed normal at x_bar (diagnostic — the direction
+            against which the cone was closed).
+        v_f: (3,) modal velocity Φ(x̄)·q̇ at x_bar (diagnostic — the
+            "moving support" velocity that drove Δv_des = v_f − v_p).
+        v_p_pre: (3,) body contact-point velocity v + ω×r̄ before the kick
+            (diagnostic).
+        s_passivity: passivity scale ∈ [0, 1] from `patch_passive_scaling`.
+            1.0 means passivity did not bind; < 1.0 means it did.
+        cone_clipped: True if the Coulomb projection altered the impulse
+            (either via the normal non-adhesion clamp or the tangential
+            μ·λ_n cap).
+    """
+    body_idx: int
+    lam: NDArray[np.float64]
+    x_bar: NDArray[np.float64]
+    r_bar: NDArray[np.float64]
+    n_def: NDArray[np.float64]
+    v_f: NDArray[np.float64]
+    v_p_pre: NDArray[np.float64]
+    s_passivity: float = 1.0
+    cone_clipped: bool = False
+
+
+# ----------------------------------------------------------------------
 # Inverse effective mass at a point along a direction (paper Eq. 17)
 # ----------------------------------------------------------------------
 

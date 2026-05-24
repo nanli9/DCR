@@ -148,7 +148,15 @@ class DCRWorld:
                 dcr_velocities = coupler.process_step(
                     contacts, lam, self.h, self.last_E_max,
                     bodies=self.bodies)
-                if coupler.last_point_impulse_kicks is not None:
+                if (getattr(coupler, "last_patch_kicks", None)
+                        is not None):
+                    # Patch-based reformulation (prompt §9): full 3-vector
+                    # impulse at the patch centroid. The coupler has
+                    # already applied §9.5 (cone) and §9.6 (passivity);
+                    # the world just applies the impulse to the receiver.
+                    self._apply_patch_impulse_dcr_velocities(
+                        coupler.last_patch_kicks)
+                elif coupler.last_point_impulse_kicks is not None:
                     # Version B: deformed normal + true point impulse.
                     kicks_b, s = self._bound_point_impulse_dcr_velocities(
                         coupler.last_point_impulse_kicks)
@@ -481,6 +489,41 @@ class DCRWorld:
                 body.velocity[3:6] @ (body.inertia_world() @ body.velocity[3:6]))
             self.last_dcr_ke_injected += ke_after - ke_before
         return n_friction_fired
+
+    def _apply_patch_impulse_dcr_velocities(
+        self,
+        kicks: "list",
+    ) -> None:
+        """Apply patch-based impulses (prompt §9). `kicks` is a
+        `list[PatchKick]`; the type hint is loose to avoid an import
+        cycle with `passive_dcr → distant_velocity → dcr_world`.
+
+        Each kick is a full 3-vector impulse `kk.lam` applied at the
+        patch centroid `kk.x_bar` on the receiving body, with lever arm
+        `kk.r_bar = x_bar - body.position`. The coupler has already
+        performed §9.5 (Coulomb cone projection) and §9.6 (passivity
+        scaling), so there is no world-level rescale: just apply
+        `lam` and account for it in `last_dcr_ke_injected`.
+
+            v_lin += (1/m) · lam
+            ω     += I⁻¹ · (r̄ × lam)
+        """
+        for kk in kicks:
+            body = self.bodies[kk.body_idx]
+            if body.is_static or body.mass <= 0.0:
+                continue
+            ke_before = 0.5 * body.mass * float(
+                body.velocity[:3] @ body.velocity[:3])
+            ke_before += 0.5 * float(
+                body.velocity[3:6] @ (body.inertia_world() @ body.velocity[3:6]))
+            I_inv = body.inertia_world_inv()
+            body.velocity[0:3] += kk.lam / body.mass
+            body.velocity[3:6] += I_inv @ np.cross(kk.r_bar, kk.lam)
+            ke_after = 0.5 * body.mass * float(
+                body.velocity[:3] @ body.velocity[:3])
+            ke_after += 0.5 * float(
+                body.velocity[3:6] @ (body.inertia_world() @ body.velocity[3:6]))
+            self.last_dcr_ke_injected += ke_after - ke_before
 
     def _apply_dcr_velocities(
         self,
