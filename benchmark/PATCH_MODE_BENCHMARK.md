@@ -120,41 +120,95 @@ Open questions to iterate on:
 When you come back interactively, pick (1)–(8) one at a time and we turn
 the diagnostic harness into a real benchmark suite.
 
+## Status of the open questions
+
+| Q | name | status |
+|---|---|---|
+| Q1 | Reference / ground truth | open |
+| Q2 | Acceptance criteria | **landed** — `dcr/benchmark/rubric.py` + harness wiring (commit `4e60b76`). Strict 1 mm penetration, per-body PASS/FAIL with run AND. Surfaced that coevoet baseline itself fails (1.3–9.4 mm penetration on shelf) → rigid-solver ERP slack to address next. |
+| Q3 | Scene library expansion | partially scoped — deferred until benchmark machinery stabilises. User has confirmed primitives are sufficient for fast iteration; dinner-table (complex mesh + collision proxy) is on the roadmap but not Q-blocking. |
+| Q4 | Time budget | not yet formalised |
+| Q5 | Output format (CSV, plots) | **landed in part** — matplotlib PNGs per run via `dcr/benchmark/plots.py` (commit `3fd7402`). CSV emission still open. |
+| Q6 | Parameter sweep tooling | **landed in part** — `scripts/sweep_beta.py` (β over `{0.1, 0.25, 0.5, 1.0}`) and `scripts/compare_deformed_normals.py` (BJ vs rest) (commit `4e5a0ce`). Grid over η + damping_scale still open. |
+| Q7 | Passivity invariant logging | **landed** — `EnergyLog.invariant_violation()` checks `∑ΔE_modal_injected ≤ η · ∑ΔE_rigid_loss` (foundation §15) and the harness prints it per run. |
+| Q8 | Determinism / regression baseline | not yet formalised |
+
+## Energy bookkeeping (Q5 + Q7)
+
+`dcr/benchmark/energy_log.py` defines an `EnergyLog` that records per
+step:
+
+- `E_rigid_KE_post`        - rigid kinetic energy after the solve + DCR kicks
+- `E_modal_post`           - ½‖q̇‖² + ½‖ω q‖² at step end
+- `dE_rigid_loss`          - the world's per-step rigid loss (foundation §1)
+- `dE_modal_injected`      - per-step modal energy delta (positive = injected,
+                            negative = back-reaction extraction, patch mode)
+- `alpha`                  - passive-scaling coefficient that step
+- `eta`                    - transfer efficiency η
+
+The energy plot has 4 panels:
+  (a) E_rigid_KE(t), E_modal(t)            - state
+  (b) cumulative ΔE_rigid_loss / η·loss / ΔE_injected / ΔE_extracted
+                                            - the §15 bound visualised
+  (c) per-step ΔE_modal_injected           - injection vs extraction split
+  (d) α(t)                                 - when the bound is binding
+
+### Findings from the energy plots
+
+- **§15 invariant holds across all (scene, mode, β) tested** —
+  `EnergyLog.invariant_violation()` returns 0 for every run.
+- **`barbic_james` vs `patch_fit` produce near-identical energy** on the
+  flat shelf/truck scenes (e.g. shelf+point_impulse: E_modal_peak 28.668 J
+  vs 28.669 J). Expected — the deformed normal barely tilts from rest on
+  a flat slab. The two methods should diverge measurably on the ledge
+  scene where the slab cantilevers; comparison plot in
+  `benchmark/plots/compare_normals_*.png`.
+- **β sweep reveals a runaway regime at β=1.0**: on shelf+point_impulse,
+  β=0.1/0.25/0.5 stay tightly bounded (cumulative injection 27–55 J);
+  β=1.0 cascades to 1180 J. The per-step §15 bound holds in all cases,
+  but at β=1 the modal kick is large enough to make the dropper rebound
+  multiple times, each rebound adds more rigid loss, which raises the
+  per-step budget, allowing even larger kicks. The bound is local; the
+  feedback loop is not. **Recommendation: keep β ≤ 0.5 for stability.**
+
 ## Files to know
 
 | file | role |
 |---|---|
-| `scripts/analyze_patch_mode.py` | the harness — analyze + sweep |
-| `scripts/run_scenes.py` | scene builders + `simulate()` + CLI |
+| `scripts/analyze_patch_mode.py` | per-run harness; prints rubric + saves energy PNG |
+| `scripts/compare_deformed_normals.py` | BJ vs rest-normal, all scenes × modes |
+| `scripts/sweep_beta.py` | β ∈ {0.1, 0.25, 0.5, 1.0} sweep, all scenes × modes |
+| `scripts/run_scenes.py` | scene builders + `simulate()` + visual CLI |
+| `dcr/benchmark/rubric.py` | pass/fail rubric (Q2) |
+| `dcr/benchmark/energy_log.py` | per-step energy log + §15 invariant check (Q7) |
+| `dcr/benchmark/plots.py` | matplotlib plotters (Q5) |
 | `dcr/dcr/contact_patch.py` | patch primitives, K matrix, cone, passivity |
 | `dcr/dcr/passive_dcr.py::_compute_distant_response_patch` | patch pipeline |
-| `dcr/dcr/dcr_world.py::_apply_patch_impulse_dcr_velocities` | impulse apply |
+| `dcr/dcr/dcr_world.py` | DCRWorld + the `enable_energy_logging` flag |
 | `CONTRIBUTIONS.md` §5 | written description of the patch reformulation |
-| `tests/stageDV/test_contact_patch.py` | 60 unit + integration tests |
+| `tests/stageDV/test_contact_patch.py` | 60 patch unit + integration tests |
+| `tests/benchmark/test_rubric.py` | 17 rubric unit tests |
 
 ## How to run
 
 ```bash
-# Full audit (15-20 min, 9 runs)
+# Per-run analysis + energy plots (9 runs, ~15 min)
 uv run python scripts/analyze_patch_mode.py
 
-# Visual sim of a single scene/mode (with viewer)
+# BJ vs rest-normal comparison (18 runs, ~25 min)
+uv run python scripts/compare_deformed_normals.py
+
+# β sweep (36 runs, ~50 min)
+uv run python scripts/sweep_beta.py
+
+# Visual sim of one scene/mode (with viewer)
 uv run python scripts/run_scenes.py truck --mode energy_prescribed_patch \
     --damping-scale 5 --sim-duration 2.0
 
-# Damping sweep on one scene
-uv run python -c "
-from scripts.run_scenes import build_truck_scene, simulate
-import numpy as np
-for ds in [1.0, 5.0, 20.0]:
-    world, coupler, body_info, *_ = build_truck_scene(
-        velocity_mode='energy_prescribed_patch', beta=0.25, damping_scale=ds)
-    _, positions, _ = simulate(world, coupler, body_info, n_steps=1000)
-    for name in ['cone_0', 'lumber_0']:
-        xs = np.array([p[0] for p in positions[name]])
-        print(f'ds={ds}  {name}  drift={float(np.abs(xs-xs[0]).max()):.4f}')
-"
-
-# Regression suite
-uv run pytest tests/stageDV/ tests/stageE4/
+# Regression
+uv run pytest tests/stageDV/ tests/stageE4/ tests/benchmark/
 ```
+
+Output plots all land in `benchmark/plots/` (PNGs, named by scene/mode/
+parameter).
+
