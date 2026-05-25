@@ -262,6 +262,91 @@ in this diagnosis pass:
 | Halve `h` to 0.005 + keep rubric | ~4.7 mm | ~0.7 mm | 2× compute |
 | Accept 1 cm as the practical bound | 9.45 mm | 5.6 mm | zero |
 
+## Contact-causal gating — empirical evaluation
+
+The proposal in `prompts/passive_contact_causal_modal_coupling.md` adds
+three gates to the patch-mode dispatch (opt-in via `--causal-gating`,
+landed in commit `d1b0405`):
+
+1. **Contact-shell** (`gap ≤ δ_contact`, default `1e-4 m`)
+2. **Closing-velocity** (`(v_f − v_p) · push_dir > v_min`, default `0.044 m/s = √(2·g·1e-4)`)
+3. **Numerical cutoff** (skip when `E_modal < 1e-5 · E_peak`)
+
+Implementation passes 328 tests including 16 new `TestCausalGating`
+tests, all §15-invariant-clean.
+
+### Finding: gates alone do not quiet visual bumping
+
+User-reported problem: on
+`truck --mode energy_prescribed_patch --beta 0.7 --deformed-normal-method barbic_james --sim-duration 15`,
+slab vibration continues sub-millimetre for the full 15 s and bodies
+"buzz" (350-490 zero-crossings per body in the last 5 s).
+
+Apples-to-apples 8 s comparison (`causal_gating={off, on}`, β=0.70,
+damping_scale=1.0, BJ normal):
+
+| body | UNGATED bumps / y_range | GATED bumps / y_range |
+|---|---|---|
+| cone_0 | 176 / 5.6 mm | 99 / 32.8 mm |
+| cone_2 | 266 / 0.8 mm | 99 / 24.7 mm |
+| cone_4 | 67 / 56.9 mm | 90 / 42.3 mm |
+| **lumber_1** | **137 / 8.6 mm** | **40 / 385.9 mm** |
+| lumber_2 | 139 / 10.9 mm | 123 / 8.9 mm |
+
+The gates reduce bump *count* (as designed) but **increase bump
+amplitude** — sometimes catastrophically. `lumber_1` flies 386 mm above
+its resting position in the gated case.
+
+**Structural cause**: the cone projection (`λ_n ≥ 0`) already zeroes
+the AWAY half of the slab's oscillation. The closing-velocity gate
+zeroes some of the INTO half too. Net energy delivered per cycle is
+approximately unchanged — only the **temporal concentration** changes.
+Larger concentrated kicks throw bodies higher. Empirically, peak
+`E_modal` is HIGHER with gating (1646 J vs 1203 J ungated) because the
+back-reaction `q̇ -= Φᵀλ` fires less often → reservoir drains slower →
+each gated kick is bigger.
+
+### β-sweep with gating: smaller β is the fix
+
+Gated × β ∈ {0.10, 0.15, 0.25, 0.50} on the truck scene (8 s sim each,
+last 3 s tail):
+
+| β (gated) | max y_range across bodies | total bumps |
+|---|---|---|
+| **0.10** | **3.21 mm** | 1568 |
+| 0.15 | 10.6 mm | 1411 |
+| 0.25 | 13.4 mm | 1025 |
+| 0.50 | 102.5 mm | 1228 |
+| 0.70 | 385.9 mm | ~990 |
+
+β=0.10 with gating is the cleanest config across the entire sweep —
+max body amplitude stays below 3.2 mm in the last 3 s. The trajectory
+plot
+`benchmark/plots/causal_gating_truck/truck_gated_beta_comparison_tail3s.png`
+overlays β ∈ {0.10, 0.25, 0.70} (gated) + the ungated β=0.70 baseline
+per body; the `lumber_1` subplot shows the structural failure most
+clearly (red gated-β=0.70 spikes to 0.4 m; green gated-β=0.10 stays
+tight near 0.18 m).
+
+### Reviewer-defensible recipe
+
+Two practical configurations that quiet the bumping while preserving
+the §15 invariant:
+
+| recipe | knobs | trade-off |
+|---|---|---|
+| **gated + small β** (preferred) | `--causal-gating --beta 0.10` | Fully principled. Each kick is small AND only fires when slab is closing into body. Limits modal-to-rigid transfer to 10% per step. |
+| **gated + heavy damping** | `--causal-gating --damping-scale 10` | Works visually but `damping-scale > 1` is a cosmetic knob, not a physical material constant. Defensible only as "engineering polish for visual demos." |
+| **gated + small β + light damping** | `--causal-gating --beta 0.10 --damping-scale 3` | Cleanest combination. Each mitigation does its principled job, no single knob carries the burden. |
+
+The structural lesson: **persistent modal state requires both a per-kick
+frequency rule AND a per-kick magnitude rule.** Gates alone supply
+frequency; β alone supplies magnitude; either alone is empirically
+insufficient on the truck scene. The proposal's "do not aggressively
+quiet the slab" framing is correct in spirit (the gates are the right
+*kind* of fix), but the choice of β is not optional once gating is on
+— `β ≤ 0.2` is the practical cap.
+
 ## Files to know
 
 | file | role |
