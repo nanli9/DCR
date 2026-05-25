@@ -228,6 +228,40 @@ Three takeaways:
    cumulative integral (the trailing kicks after the initial impact);
    the spike is set by physics, not by β.
 
+## Rigid-solver penetration diagnosis (Q2 follow-up)
+
+The strict 1 mm penetration rubric flagged every `coevoet` shelf body as
+failing (1.3–9.4 mm). Read-only ERP sweep on shelf+coevoet to
+diagnose:
+
+| `erp` | books max pen | `drop` impact pen |
+|---|---|---|
+| 0.20 (current) | 5.6 mm | 9.45 mm |
+| 0.40 | **2.8 mm** | 9.45 mm |
+| 0.60 | 4.2 mm | 9.45 mm |
+| 0.80 | **36.3 mm** (overshoot — destabilising) | 9.45 mm |
+| 0.95 | 35.7 mm | 9.45 mm |
+
+Two distinct penetration sources:
+
+1. **Impact penetration** (`drop` body, 9.45 mm) — the body advances
+   `v_impact · h` into the slab in the timestep the contact is first
+   detected. `h = 0.01 s`, impact speed ≈ 0.94 m/s → 9.4 mm exactly.
+   **Independent of ERP.** Only `h` fixes this.
+2. **Resting penetration** (books, 2.8–5.6 mm) — steady-state of
+   `g·h²/erp` ± Baumgarte ringing. Minimum at `erp ≈ 0.4`; `erp ≥ 0.8`
+   destabilises into 36 mm overshoot.
+
+**Implication for the rubric:** 1 mm is structurally too tight for
+PGS+Baumgarte at `h = 0.01`. Three principled options, no action taken
+in this diagnosis pass:
+
+| option | impact pen | resting pen | cost |
+|---|---|---|---|
+| Tighten `erp` to 0.4 + per-body-type rubric (e.g. `penetration_max_m = 0.010` for impactors, `0.003` for resting) | 9.45 mm (no change) | 2.8 mm | zero — config change |
+| Halve `h` to 0.005 + keep rubric | ~4.7 mm | ~0.7 mm | 2× compute |
+| Accept 1 cm as the practical bound | 9.45 mm | 5.6 mm | zero |
+
 ## Files to know
 
 | file | role |

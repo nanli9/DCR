@@ -148,3 +148,42 @@ class TestEnergyLogPlotSmoke:
             log_patch_fit=log_a, log_barbic_james=log_b,
             scene="test", mode="test", out_path=out)
         assert out.exists()
+
+
+class TestEnergyLogCSV:
+    def test_csv_round_trip(self, tmp_path):
+        import csv
+        log = EnergyLog()
+        log.append(_entry(0, 0.01, 10.0, 3.0, alpha=0.5, eta=0.3,
+                          E_rigid=12.0, E_modal=1.0))
+        log.append(_entry(1, 0.02, 5.0, -1.0, alpha=0.7, eta=0.3,
+                          E_rigid=11.0, E_modal=2.5))
+        out = tmp_path / "log.csv"
+        log.to_csv(out)
+        with open(out) as f:
+            rows = list(csv.DictReader(f))
+        assert len(rows) == 2
+        assert rows[0]["step"] == "0"
+        assert float(rows[0]["dE_rigid_loss"]) == pytest.approx(10.0)
+        assert float(rows[0]["dE_modal_injected"]) == pytest.approx(3.0)
+        assert float(rows[0]["cum_modal_injected"]) == pytest.approx(3.0)
+        assert float(rows[0]["cum_modal_extracted"]) == pytest.approx(0.0)
+        # Second row: extraction (negative delta) shouldn't add to injection
+        assert float(rows[1]["cum_modal_injected"]) == pytest.approx(3.0)
+        assert float(rows[1]["cum_modal_extracted"]) == pytest.approx(1.0)
+        assert float(rows[1]["cum_rigid_loss"]) == pytest.approx(15.0)
+
+    def test_csv_empty_log(self, tmp_path):
+        log = EnergyLog()
+        out = tmp_path / "empty.csv"
+        log.to_csv(out)
+        assert out.exists()
+        # Header only
+        assert out.read_text().count("\n") == 1
+
+    def test_csv_creates_parent_dir(self, tmp_path):
+        log = EnergyLog()
+        log.append(_entry(0, 0.01, 1.0, 0.5))
+        out = tmp_path / "subdir" / "log.csv"
+        log.to_csv(out)
+        assert out.exists()

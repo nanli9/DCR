@@ -107,3 +107,37 @@ class EnergyLog:
         bound = eta * self.cumulative_rigid_loss()
         injected = self.cumulative_modal_injected()
         return float(np.max(injected - bound))
+
+    # ----------------- serialization (CSV / npz) ------------------------
+
+    def to_csv(self, path) -> None:
+        """Write one row per step. Columns: every raw EnergyLogEntry
+        field + cumulative_rigid_loss + cumulative_modal_injected +
+        cumulative_modal_extracted. Header is the first row.
+        """
+        import csv
+        from pathlib import Path
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        cum_loss = self.cumulative_rigid_loss()
+        cum_inj = self.cumulative_modal_injected()
+        cum_ext = self.cumulative_modal_extracted()
+        with open(path, "w", newline="") as f:
+            w = csv.writer(f)
+            w.writerow([
+                "step", "t",
+                "E_rigid_KE_post", "E_modal_post",
+                "dE_rigid_loss", "dE_modal_injected",
+                "alpha", "eta",
+                "cum_rigid_loss", "cum_modal_injected",
+                "cum_modal_extracted",
+            ])
+            for i, e in enumerate(self.entries):
+                w.writerow([
+                    e.step, f"{e.t:.6f}",
+                    f"{e.E_rigid_KE_post:.6e}", f"{e.E_modal_post:.6e}",
+                    f"{e.dE_rigid_loss:.6e}", f"{e.dE_modal_injected:.6e}",
+                    f"{e.alpha:.6e}", f"{e.eta:.6e}",
+                    f"{cum_loss[i]:.6e}", f"{cum_inj[i]:.6e}",
+                    f"{cum_ext[i]:.6e}",
+                ])

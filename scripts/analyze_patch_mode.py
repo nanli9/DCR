@@ -149,11 +149,15 @@ def analyze_run(scene: str, mode: str, beta: float = 0.25,
                if inv_violation <= 1e-9
                else f"VIOLATED by {inv_violation:.3e} J")
     print(f"  §15 invariant: {inv_str}")
-    plot_path = PLOT_DIR / f"energy_{scene}_{mode}_b{beta:g}_ds{damping_scale:g}.png"
+    stem = f"energy_{scene}_{mode}_b{beta:g}_ds{damping_scale:g}"
+    plot_path = PLOT_DIR / f"{stem}.png"
+    csv_path = PLOT_DIR.parent / "data" / f"{stem}.csv"
     title = (f"{scene}/{mode}  β={beta:g}  damping_scale={damping_scale:g}  "
              f"steps={n_steps}")
     plot_energy_timeseries(world.energy_log, title=title, out_path=plot_path)
+    world.energy_log.to_csv(csv_path)
     print(f"  energy plot: {plot_path.relative_to(PLOT_DIR.parents[1])}")
+    print(f"  energy csv:  {csv_path.relative_to(PLOT_DIR.parents[1])}")
     sys.stdout.flush()
     return result
 

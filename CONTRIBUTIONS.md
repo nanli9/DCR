@@ -83,7 +83,50 @@ Where the formulation visibly differs from `dcr` / Versions A/B:
 | `truck` | Cones / lumber rotate by the kick at the patch centroid; less violent than Version B (6× less drift) because `K_total`'s `Φ·Φᵀ` term absorbs part of each impulse into modal back-reaction. | `lumber_3.max_tilt°`: 0° → 89.7° (B, drift 2.5 m) → **50°** (patch, drift 0.16 m). |
 | `shelf` | **Less successful.** Flat thin-book geometry has `r̄ ∥ n_def`, so the torque-via-lever benefit isn't exercised; Coulomb cone tangent budget accumulates and tips books over many steps. Pure-normal projection (`μ=0`) would degenerate the formulation to ≈ Coevoet's `Δv = d_max/h`. Suggests the patch formulation is the right tool for non-flat contact geometries, less so for flat thin-body scenes. |
 
-### 6. Honest scope clarifications (binding per foundation §14)
+### 6. Empirical validation infrastructure (`dcr/benchmark/`)
+
+The first five contributions are *formulations*; this one is the harness that lets us *check whether each formulation does what we claim*. Three pieces, all under `dcr/benchmark/`:
+
+- **Pass/fail rubric** (`dcr/benchmark/rubric.py`) — `BodyRubric` dataclass with strict tolerances (1 mm penetration, 5° tilt, 5 cm drift, 5 mm tail-y settling), `evaluate_run()` that scores a recorded trajectory per body and ANDs into a run-level PASS/FAIL. Per-body overrides relax bounds for bodies whose intended behaviour is something other than "stay still and upright" (e.g. the ledge boulder is *supposed* to roll, so its `max_tilt_deg` is raised to 90°). 17 unit tests with synthetic trajectories pin the math.
+
+- **Per-step energy log** (`dcr/benchmark/energy_log.py`) — `EnergyLog` accumulates one `EnergyLogEntry` per `DCRWorld.step()` capturing `E_rigid_KE`, `E_modal`, `dE_rigid_loss`, `dE_modal_injected`, `α`, `η`. The `invariant_violation()` accessor measures the worst-case excess of cumulative-injected over `η · cumulative-loss` — the foundation §15 bound made concrete and testable. `DCRWorld` gets a new `enable_energy_logging` flag (OFF by default, zero overhead OFF); turning it ON appends one entry per step from inside `step()`. 14 unit tests.
+
+- **Matplotlib plotters** (`dcr/benchmark/plots.py`) — three batch-savefig plotters (no `plt.show()`, headless Agg backend):
+  - `plot_energy_timeseries`: 4-panel per-run figure — `(a)` E_rigid/E_modal state, `(b)` cumulative loss/budget/injected/extracted with the §15 bound visualised as a green ceiling line, `(c)` per-step ΔE_modal split into injection (+) and extraction (−) bars, `(d)` α over time.
+  - `plot_param_sweep`: overlays cumulative-injected and E_modal across a parameter value set (β or η).
+  - `plot_bj_vs_rest_comparison`: side-by-side `patch_fit` vs `barbic_james` for one (scene, mode).
+
+Three driver scripts use this infrastructure:
+
+| script | what it does |
+|---|---|
+| `scripts/analyze_patch_mode.py` | for each (scene × mode), records trajectories, runs the rubric, prints PASS/FAIL + §15 invariant, saves one energy PNG per run |
+| `scripts/compare_deformed_normals.py` | for each (scene × mode), runs both `patch_fit` and `barbic_james`, saves side-by-side energy PNG, prints comparative metric table |
+| `scripts/sweep_beta.py` | for each (scene × mode), sweeps β ∈ {0.1, 0.25, 0.5, 1.0}, saves overlay PNG, prints per-β peak/cumulative/invariant |
+
+#### What the data showed
+
+**§15 invariant holds zero-violation across all 54 sweep runs tested** (9 scenes × 6 mode/method combinations). The passivity claim is empirically validated.
+
+Three structural findings, captured in `benchmark/PATCH_MODE_BENCHMARK.md`:
+
+1. **BJ vs rest-normal matters specifically for `point_impulse` mode, specifically on deflecting slabs.** Cumulative energy injected is ~identical (≤ 1 %) between the two methods on every (scene, mode) pair; the win is in *temporal/spatial concentration*:
+
+   | scene/point_impulse | drift `patch_fit` → `barbic_james` |
+   |---|---|
+   | shelf (flat) | 0.046 → 0.049 m (no change) |
+   | truck | 2.27 → 1.25 m (1.8×) |
+   | **ledge (cantilever)** | **0.43 → 0.11 m (4× reduction)** |
+
+   The ledge energy plot shows BJ injects ~195 J in a single spike at impact (right direction immediately, minimal tangential leak); patch_fit injects ~75 J at impact + ~120 J in trailing kicks (cumulative totals match within 2 %, but the trailing kicks have larger tangential component that the rigid body absorbs as horizontal drift).
+
+2. **β = 1.0 is a runaway regime** for the `energy_prescribed` and `point_impulse` modes. The per-step §15 bound holds, but the cascade is open-loop: higher modal kick → more rigid bouncing → larger per-step rigid loss → larger per-step budget → larger next kick. Worst case `truck/point_impulse`: cumulative injection jumps 1380 J → 13980 J as β goes 0.1 → 1.0. **Recommendation: keep β ≤ 0.5.** Patch mode does not exhibit this behaviour (it budgets from the modal reservoir, not β·E_loss — see takeaway 3).
+
+3. **Patch mode is β-insensitive by design** — verified across all three scenes. `truck/patch` `E_modal_peak`: 1173.858 / 1173.854 / 1173.864 / 1173.860 J for β = 0.10 / 0.25 / 0.50 / 1.00, identical to 4 sig figs. The reformulation budgets from `E_modal_reservoir` (foundation §1.modal_reservoir), so β only affects modes that route through the per-contact modal-path branch — which the patch reformulation bypasses by construction.
+
+A side-finding worth recording: the strict 1 mm penetration rubric flags the rigid baseline (`coevoet`) as failing on shelf (1.3–9.4 mm of penetration across bodies). This is rigid-solver ERP slack (`erp = 0.2`), not a DCR issue — but the rubric now makes it visible so it can be addressed independently.
+
+### 7. Honest scope clarifications (binding per foundation §14)
 
 The follow-up makes **no claim** of:
 - audio synthesis or `.wav` output,
@@ -205,6 +248,12 @@ This is what the test in `tests/stageE4` asserts across full simulation runs (no
 | Patch-mode response pipeline + modal back-reaction | `dcr/dcr/passive_dcr.py:_compute_distant_response_patch` |
 | Patch-impulse application on the receiver body | `dcr/dcr/dcr_world.py:_apply_patch_impulse_dcr_velocities` |
 | Global rigid-energy bound | `dcr/dcr/dcr_world.py:DCRWorld.enforce_rigid_energy_bound` |
+| Per-step energy log + §15 invariant | `dcr/benchmark/energy_log.py` |
+| Pass/fail rubric (per-body + run-level) | `dcr/benchmark/rubric.py` |
+| Matplotlib energy plotters | `dcr/benchmark/plots.py` |
+| Per-run analysis harness | `scripts/analyze_patch_mode.py` |
+| BJ vs rest-normal comparison sweep | `scripts/compare_deformed_normals.py` |
+| β parameter sweep | `scripts/sweep_beta.py` |
 | Demo runner | `scripts/run_scenes.py` |
 
-Per-stage notes and plots live in `docs/stageE0.md` … `docs/stageE5.md`; comparative h-sweep results in `docs/distant_velocity_modes.md`.
+Per-stage notes and plots live in `docs/stageE0.md` … `docs/stageE5.md`; comparative h-sweep results in `docs/distant_velocity_modes.md`; benchmark infrastructure + findings in `benchmark/PATCH_MODE_BENCHMARK.md` with PNGs under `benchmark/plots/`.
