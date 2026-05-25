@@ -347,6 +347,41 @@ quiet the slab" framing is correct in spirit (the gates are the right
 *kind* of fix), but the choice of β is not optional once gating is on
 — `β ≤ 0.2` is the practical cap.
 
+### Generalization to shelf and ledge
+
+Gated × β ∈ {0.10, 0.25, 0.50, 0.70} sweep on the other two scenes
+(same 8 s sim, BJ normal, damping_scale=1):
+
+| scene | β=0.10 | β=0.25 | β=0.50 | β=0.70 |
+|---|---|---|---|---|
+| **truck** | 3.21 mm | 13.4 mm | 102.5 mm | **385.9 mm** |
+| shelf | 0.87 mm | 0.68 mm | 0.94 mm | 0.02 mm (see caveat) |
+| ledge | 0.00 mm | 0.00 mm | 0.00 mm | 0.00 mm |
+
+**Reading**: the truck scene is the worst case for the trailing-vibration
+problem — it has 13 bodies on a large flat slab with three sequential
+impacts, accumulating modal coupling across many patches per step.
+Shelf has 5 thin books on a soft cantilever; ledge has 4 bodies on a
+stiff stone cantilever with a single boulder impact. On both, modal
+energy at the bodies' contact points is tiny regardless of β.
+
+**Caveat — the shelf β=0.70 number is metric-limited, not physically
+quiet.** A `y_range = 0.02 mm` with `bumps = 0` is suspicious: it
+suggests the patch kicks at β=0.70 are violent enough to **tip the
+thin books over**, after which they're lying flat and their COM y-
+position is essentially constant (0 bumps in y-axis). The
+`bumps`+`y_range` metric used here measures vertical bouncing only,
+not tipping. The proper test for tipping is `max_tilt_deg` in
+`dcr/benchmark/rubric.py`, which was not re-run for this sweep
+(scheduled as a future addition to the benchmark grid).
+
+**What this means for the recipe**: the truck-scene finding generalizes
+in the *non-harmful* direction (the gated + small-β recipe doesn't
+break the other scenes), but does not generalize as a strong
+benefit — shelf and ledge don't exhibit the truck-style trailing
+vibration even without gating. The headline recipe `--causal-gating
+--beta 0.10` is justified by the truck-scene worst case alone.
+
 ## Files to know
 
 | file | role |
