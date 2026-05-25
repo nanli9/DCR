@@ -309,3 +309,15 @@ The lesson:
 > Persistent modal state requires **both** a per-kick frequency rule (the gates) AND a per-kick magnitude rule (small β, equivalently η). Either alone is insufficient. The proposal's η ∈ [0.05, 0.2] is the magnitude rule; this addendum is to underline that pairing it with the gates is *required*, not optional.
 
 Full empirical writeup: `benchmark/PATCH_MODE_BENCHMARK.md` → "Contact-causal gating — empirical evaluation".
+
+### Follow-up findings (post-summary verification, 2026-05-25)
+
+Three open caveats from the original addendum were verified head-to-head with controlled headless sweeps:
+
+1. **Damping-scale recipe (truck)**: comparing β=0.10 and β=0.70 at `damping_scale ∈ {1, 3, 10}`, the practical default is **`--causal-gating --beta 0.10 --damping-scale 3`** (max body y-range 0.46 mm, max bumps = 1). `damping-scale=10` is even quieter (0.04 mm, 0 bumps) but most of that quiet is from the slab itself barely moving — defensible as visual polish, not as a principled recipe. `--causal-gating --beta 0.10` alone (no damping multiplier) leaves residual ~3-14 mm motion on the noisier bodies.
+
+2. **Shelf tipping is gating-agnostic**: the suspicious `y_range = 0.02 mm` numbers on the shelf scene at large β were verified with a `max_tilt_deg` sweep. All 5 books tip to ~90° in every condition (gated/ungated × β=0.10/0.70). The shelf scene's heavy 8 kg drop on the cantilever next to thin books is enough to topple the row in every config. The original hypothesis — "gating at large β tips the books" — was **wrong**. Gating is exonerated; the shelf scene simply doesn't exercise the trailing-vibration regime. The shelf scene's bumps/y_range numbers in the benchmark are metric-meaningless and should be replaced with `max_tilt_deg` (or the scene replaced).
+
+3. **Steel-variant test confirms wood-specificity**: swapping the truck slab from wood (E=10 GPa, ρ=500) to structural steel (E=200 GPa, ρ=7850) with everything else fixed (gated, β=0.70, damping=1, 8 s) drops every body's y-range by 4× to 42×. lumber_1 (the worst body in the wood case) goes from 45.9 mm to 1.09 mm — a **42× drop**. The 16× larger modal effective mass means each impact transfers a proportionally smaller velocity fraction into the modal reservoir, so the trailing residual is small enough to never trigger the visible-bumping cycle. **The trailing-vibration failure mode is wood-specific** — a reviewer asking whether the method also breaks on stiffer substrates can be answered no.
+
+These three findings do not modify the proposal; they refine its empirical positioning. The "damping_scale=3 + β=0.10 + gated" recipe replaces the prior "β=0.10 alone" as the recommended truck-scene default. Full data and side-by-side tables in `benchmark/PATCH_MODE_BENCHMARK.md` → "Reviewer-defensible recipe" / "Material sensitivity (caveat 3)".

@@ -330,14 +330,16 @@ tight near 0.18 m).
 
 ### Reviewer-defensible recipe
 
-Two practical configurations that quiet the bumping while preserving
-the §15 invariant:
+Three practical configurations were measured head-to-head on the truck scene
+(8 s sim, gated, BJ normal, metric: max y_range across all 13 bodies in
+last 3 s; §15 invariant verified zero-violation in all four runs):
 
-| recipe | knobs | trade-off |
-|---|---|---|
-| **gated + small β** (preferred) | `--causal-gating --beta 0.10` | Fully principled. Each kick is small AND only fires when slab is closing into body. Limits modal-to-rigid transfer to 10% per step. |
-| **gated + heavy damping** | `--causal-gating --damping-scale 10` | Works visually but `damping-scale > 1` is a cosmetic knob, not a physical material constant. Defensible only as "engineering polish for visual demos." |
-| **gated + small β + light damping** | `--causal-gating --beta 0.10 --damping-scale 3` | Cleanest combination. Each mitigation does its principled job, no single knob carries the burden. |
+| recipe | knobs | max y_range | max bumps | trade-off |
+|---|---|---|---|---|
+| **gated + small β** | `--causal-gating --beta 0.10` | 13.7 mm | 429 | Principled but **still visibly noisy** at `damping_scale=1`. Best body is ~0.4 mm; worst (cone_1) is 13.7 mm. |
+| **gated + small β + light damping** (preferred) | `--causal-gating --beta 0.10 --damping-scale 3` | **0.46 mm** | **1** | Cleanest combination. Each mitigation does its principled job; no single knob carries the burden. |
+| **gated + heavy damping** | `--causal-gating --damping-scale 10` | 0.04 mm | 0 | Quietest visually but `damping-scale=10` multiplies α₀ from 2.0 → 20.0 — *all* numbers go to zero because the slab itself barely moves. Defensible only as "engineering polish for visual demos." |
+| **gated + large β** (baseline) | `--causal-gating --beta 0.70` | 22.7 mm | 317 | Confirms gating alone is insufficient at large β. (Earlier 15 s run on the same config produced lumber_1 = 386 mm at the trailing edge; here at 8 s the same worst body is at 22.7 mm.) |
 
 The structural lesson: **persistent modal state requires both a per-kick
 frequency rule AND a per-kick magnitude rule.** Gates alone supply
@@ -345,7 +347,43 @@ frequency; β alone supplies magnitude; either alone is empirically
 insufficient on the truck scene. The proposal's "do not aggressively
 quiet the slab" framing is correct in spirit (the gates are the right
 *kind* of fix), but the choice of β is not optional once gating is on
-— `β ≤ 0.2` is the practical cap.
+— `β ≤ 0.2` is the practical cap. **`damping_scale=3` paired with
+β=0.10 is the recommended principled default**; `damping_scale=10` is
+also offered as a "visual polish" knob but its perfect-zero numbers
+should not be over-interpreted (they are largely the slab not moving
+at all, not the response being correctly attenuated).
+
+### Material sensitivity (caveat 3)
+
+The above results are all with the truck slab at the paper's "ground"
+material (E = 10 GPa, ρ = 500 kg/m³ — wood-ish, NOT steel). A
+controlled comparison swaps in structural steel (E = 200 GPa, ρ =
+7850 kg/m³) while holding every other knob constant (gated, β=0.70,
+damping_scale=1, 8 s sim):
+
+| body | wood y_range (mm) | steel y_range (mm) | ratio |
+|---|---|---|---|
+| cone_0 | 18.79 | 0.88 | 0.047 (21× drop) |
+| cone_1 | 3.55 | 0.78 | 0.220 |
+| lumber_0 | 2.18 | 0.84 | 0.385 |
+| lumber_1 | **45.88** | **1.09** | **0.024 (42× drop)** |
+| lumber_2 | 6.08 | 1.03 | 0.169 |
+| drop_heavy | 7.46 | 0.71 | 0.095 |
+
+**The trailing-vibration failure mode is wood-specific.** Steel's
+~16× larger modal effective mass (ρ × eigenfunctions scale linearly
+with ρ; the modal energy per unit impact velocity goes as 1/M_modal)
+keeps every per-impact modal kick small enough that the residual
+back-reaction never accumulates into visible body bumping. This is
+not a substitute for the principled β/damping recipe above — both
+solutions matter — but it does pin the truck-scene worst case to a
+material-specific regime. A reviewer asking "does your method also
+break on stiffer substrates?" can be answered no.
+
+This is a benchmark observation, **not a recommendation to change the
+truck scene's material** (which intentionally matches the paper's
+Table 2 ground model). The wood material is the harder test case;
+steel is offered as the structural-prediction sanity check.
 
 ### Generalization to shelf and ledge
 
@@ -365,15 +403,33 @@ Shelf has 5 thin books on a soft cantilever; ledge has 4 bodies on a
 stiff stone cantilever with a single boulder impact. On both, modal
 energy at the bodies' contact points is tiny regardless of β.
 
-**Caveat — the shelf β=0.70 number is metric-limited, not physically
-quiet.** A `y_range = 0.02 mm` with `bumps = 0` is suspicious: it
-suggests the patch kicks at β=0.70 are violent enough to **tip the
-thin books over**, after which they're lying flat and their COM y-
-position is essentially constant (0 bumps in y-axis). The
-`bumps`+`y_range` metric used here measures vertical bouncing only,
-not tipping. The proper test for tipping is `max_tilt_deg` in
-`dcr/benchmark/rubric.py`, which was not re-run for this sweep
-(scheduled as a future addition to the benchmark grid).
+**Caveat — every shelf number above is metric-meaningless.** A
+follow-up tilt sweep (`max_tilt_deg` from `dcr/benchmark/rubric.py`)
+confirms that **all 5 books tip to ~90° in every condition** — gated
+*and* ungated, β=0.10 *and* β=0.70 — within the 8 s sim window:
+
+| condition | book_0 | book_1 | book_2 | book_3 | book_4 |
+|---|---|---|---|---|---|
+| ungated β=0.10 | 90.0° | 90.0° | 90.0° | 89.9° | 90.0° |
+| ungated β=0.70 | 90.0° | 90.0° | 90.0° | 90.0° | 90.0° |
+| gated β=0.10  | 90.0° | 89.8° | 90.0° | 90.0° | 90.0° |
+| gated β=0.70  | 90.0° | 90.0° | 90.0° | 90.0° | 90.0° |
+
+So the original hypothesis — "β=0.70 with gating tips the books" —
+was **wrong**: tipping is the shelf scene's *natural physics* (8 kg
+heavy drop onto the free end of a 0.5 GPa cantilever right next to
+thin standing books, restitution 0.1). The drop's transferred impulse
+through the cantilever bending is enough to topple the books in every
+configuration. Gating is exonerated as the cause; the shelf scene
+just doesn't exercise the trailing-vibration regime the way the truck
+scene does.
+
+What this means for the recipe: the shelf scene should be **removed
+from the trailing-vibration evaluation grid** — it does not produce
+the failure mode and its y-axis metric is meaningless once books
+tip. Either keep it as a separate "tipping behaviour" test (with
+`max_tilt_deg` as the metric, not bumps/y_range) or replace it with
+a scene where books don't naturally fall.
 
 **What this means for the recipe**: the truck-scene finding generalizes
 in the *non-harmful* direction (the gated + small-β recipe doesn't
