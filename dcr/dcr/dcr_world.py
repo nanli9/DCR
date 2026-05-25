@@ -73,8 +73,18 @@ class DCRWorld:
     last_E_rigid_out_after_cap: float = 0.0
     last_dcr_clipped: bool = False
 
+    # Energy bookkeeping log (foundation §15 invariant + plotting).
+    # When True, append one EnergyLogEntry per step to `self.energy_log`.
+    # OFF by default to keep step() overhead-free for regression runs.
+    enable_energy_logging: bool = False
+    energy_log: "EnergyLog" = field(default_factory=lambda: None)  # noqa: F821
+
     def __post_init__(self) -> None:
         self.solver.h = self.h
+        # Lazy import to avoid circular dep with dcr.benchmark at module-load
+        if self.enable_energy_logging and self.energy_log is None:
+            from dcr.benchmark.energy_log import EnergyLog
+            self.energy_log = EnergyLog()
 
     def add_body(self, body: RigidBody) -> int:
         self.bodies.append(body)
@@ -205,6 +215,38 @@ class DCRWorld:
                 body.orientation, body.velocity[3:6], self.h)
 
         self.time += self.h
+
+        # 6. Energy log (one entry per step when enabled). Pulls from
+        # both rigid (E_KE, E_loss) and modal (E_modal pre/post kick,
+        # alpha) state. Foundation §15 invariant is checked offline by
+        # EnergyLog.invariant_violation().
+        if self.enable_energy_logging and self.energy_log is not None:
+            from dcr.benchmark.energy_log import EnergyLogEntry
+            E_rigid_post = rigid_kinetic_energy(self.bodies)
+            E_modal_post = 0.0
+            dE_modal_injected = 0.0
+            alpha_used = 0.0
+            for coupler in self.passive_couplers:
+                E_modal_post = float(getattr(
+                    coupler, "last_E_modal_post_kick", 0.0))
+                E_pre_kick = float(getattr(
+                    coupler, "last_E_modal_pre_kick", 0.0))
+                dE_modal_injected = E_modal_post - E_pre_kick
+                alpha_used = float(getattr(coupler, "last_alpha", 0.0))
+                # Only the first passive coupler is logged for now (single-
+                # elastic-body scenes — covers all current run_scenes setups).
+                break
+            self.energy_log.append(EnergyLogEntry(
+                step=len(self.energy_log),
+                t=self.time,
+                E_rigid_KE_post=E_rigid_post,
+                E_modal_post=E_modal_post,
+                dE_rigid_loss=self.last_E_loss,
+                dE_modal_injected=dE_modal_injected,
+                alpha=alpha_used,
+                eta=self.eta,
+            ))
+
         self.prev_contacts = contacts
         return contacts
 

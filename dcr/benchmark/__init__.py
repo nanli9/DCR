@@ -13,6 +13,7 @@ from dcr.benchmark.rubric import (
     evaluate_body,
     evaluate_run,
 )
+from dcr.benchmark.energy_log import EnergyLog, EnergyLogEntry
 
 __all__ = [
     "BodyRubric",
@@ -21,4 +22,6 @@ __all__ = [
     "quat_to_tilt_deg",
     "evaluate_body",
     "evaluate_run",
+    "EnergyLog",
+    "EnergyLogEntry",
 ]

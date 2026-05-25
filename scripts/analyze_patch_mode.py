@@ -8,15 +8,22 @@ Run: uv run python scripts/analyze_patch_mode.py
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 
 from dcr.benchmark import BodyRubric, evaluate_run, quat_to_tilt_deg
+from dcr.benchmark.energy_log import EnergyLog
+from dcr.benchmark.plots import plot_energy_timeseries
 from scripts.run_scenes import (
     build_ledge_scene,
     build_shelf_scene,
     build_truck_scene,
     simulate,
 )
+
+
+PLOT_DIR = Path(__file__).resolve().parents[1] / "benchmark" / "plots"
 
 
 SCENE_BUILDERS = {
@@ -83,6 +90,10 @@ def analyze_run(scene: str, mode: str, beta: float = 0.25,
     builder = SCENE_BUILDERS[scene]
     world, coupler, body_info, _mesh, _title = builder(
         velocity_mode=mode, beta=beta, damping_scale=damping_scale)
+    # Turn on energy logging for this run; the world appends one entry
+    # per step. Negligible overhead (~one dict per step).
+    world.enable_energy_logging = True
+    world.energy_log = EnergyLog()
     print(f"  built scene ({len(world.bodies)} bodies), "
           f"simulating {n_steps} steps...", flush=True)
     times, positions, orientations = simulate(
@@ -131,6 +142,18 @@ def analyze_run(scene: str, mode: str, beta: float = 0.25,
     for body_result in result.body_results:
         print(f"  {body_result}")
     print(f"  >>> {result.summary()}")
+
+    # Energy plot for this run.
+    inv_violation = world.energy_log.invariant_violation()
+    inv_str = (f"OK (cumulative injected ≤ η · cumulative loss)"
+               if inv_violation <= 1e-9
+               else f"VIOLATED by {inv_violation:.3e} J")
+    print(f"  §15 invariant: {inv_str}")
+    plot_path = PLOT_DIR / f"energy_{scene}_{mode}_b{beta:g}_ds{damping_scale:g}.png"
+    title = (f"{scene}/{mode}  β={beta:g}  damping_scale={damping_scale:g}  "
+             f"steps={n_steps}")
+    plot_energy_timeseries(world.energy_log, title=title, out_path=plot_path)
+    print(f"  energy plot: {plot_path.relative_to(PLOT_DIR.parents[1])}")
     sys.stdout.flush()
     return result
 
