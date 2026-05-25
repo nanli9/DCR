@@ -42,13 +42,15 @@ def quat_to_tilt_deg(q: np.ndarray) -> float:
     return float(np.degrees(np.arccos(abs(cos_theta))))
 
 
-def analyze_run(scene: str, mode: str, beta: float = 0.25, n_steps: int = 1500):
+def analyze_run(scene: str, mode: str, beta: float = 0.25,
+                n_steps: int = 1500, damping_scale: float = 1.0):
     import sys
     print(f"\n========== scene={scene}  mode={mode}  beta={beta}  "
-          f"steps={n_steps} ==========", flush=True)
+          f"damping_scale={damping_scale}  steps={n_steps} ==========",
+          flush=True)
     builder = SCENE_BUILDERS[scene]
     world, coupler, body_info, _mesh, _title = builder(
-        velocity_mode=mode, beta=beta)
+        velocity_mode=mode, beta=beta, damping_scale=damping_scale)
     print(f"  built scene ({len(world.bodies)} bodies), "
           f"simulating {n_steps} steps...", flush=True)
     times, positions, orientations = simulate(
@@ -79,13 +81,16 @@ def analyze_run(scene: str, mode: str, beta: float = 0.25, n_steps: int = 1500):
 def main():
     n_steps = 1500
     beta = 0.25
-    # All three scenes × {coevoet (baseline), point_impulse (Version B), patch}.
-    # Lets us see which scene actually exercises the patch machinery.
+    # Patch mode gets --damping-scale 5 (the analyze script doesn't take
+    # CLI args; this is hardcoded). Other modes use damping_scale=1.0
+    # since they don't suffer from the continuous-kick issue.
     for scene in ["shelf", "truck", "ledge"]:
         for mode in ["coevoet", "energy_prescribed_point_impulse",
                      "energy_prescribed_patch"]:
             try:
-                analyze_run(scene, mode, beta=beta, n_steps=n_steps)
+                ds = 5.0 if mode == "energy_prescribed_patch" else 1.0
+                analyze_run(scene, mode, beta=beta, n_steps=n_steps,
+                            damping_scale=ds)
             except Exception as e:
                 print(f"  FAILED: {type(e).__name__}: {e}", flush=True)
 
