@@ -157,19 +157,57 @@ The energy plot has 4 panels:
 
 - **§15 invariant holds across all (scene, mode, β) tested** —
   `EnergyLog.invariant_violation()` returns 0 for every run.
-- **`barbic_james` vs `patch_fit` produce near-identical energy** on the
-  flat shelf/truck scenes (e.g. shelf+point_impulse: E_modal_peak 28.668 J
-  vs 28.669 J). Expected — the deformed normal barely tilts from rest on
-  a flat slab. The two methods should diverge measurably on the ledge
-  scene where the slab cantilevers; comparison plot in
-  `benchmark/plots/compare_normals_*.png`.
-- **β sweep reveals a runaway regime at β=1.0**: on shelf+point_impulse,
-  β=0.1/0.25/0.5 stay tightly bounded (cumulative injection 27–55 J);
-  β=1.0 cascades to 1180 J. The per-step §15 bound holds in all cases,
-  but at β=1 the modal kick is large enough to make the dropper rebound
-  multiple times, each rebound adds more rigid loss, which raises the
-  per-step budget, allowing even larger kicks. The bound is local; the
-  feedback loop is not. **Recommendation: keep β ≤ 0.5 for stability.**
+
+#### BJ vs rest-normal (full matrix, `scripts/compare_deformed_normals.py`)
+
+Cumulative modal energy injection is ~identical between methods on every
+pair (≤ 1% difference). The two interesting metrics are **drift** and
+the **temporal profile of injection**.
+
+| scene | mode | drift patch_fit → BJ | reduction |
+|---|---|---|---|
+| shelf | point_impulse | 0.046 → 0.049 m | none (flat slab) |
+| truck | point_impulse | **2.27 → 1.25 m** | **1.8×** |
+| ledge | point_impulse | **0.43 → 0.11 m** | **4×** |
+| any | energy_prescribed | sub-mm both methods | none (Version A linear COM kick) |
+| any | patch | identical to 4 sig figs | by design (§9.5 closes cone on rest normal) |
+
+Two structural takeaways:
+
+1. **BJ vs rest only matters for `point_impulse` mode.** Version A uses
+   the averaged rest normal for the COM kick; patch mode closes its
+   Coulomb cone around the rest normal per the §9.5 decision. Only
+   `point_impulse` puts the kick along the deformed normal at the
+   contact point.
+2. **Even for `point_impulse`, BJ wins on deflecting-slab scenes.** On
+   the flat shelf the rest normal is already correct; on the ledge
+   cantilever the slab tilts measurably and BJ tracks that tilt. The
+   energy plots make this concrete: on ledge/point_impulse, BJ delivers
+   ~195 J in a single instant at impact (the kick is along the "right"
+   direction immediately), patch_fit only ~75 J at impact and another
+   ~120 J in trailing kicks (cumulative totals are within 2%). Same
+   total energy, but BJ's tangential leak is much smaller → 4× less
+   drift.
+
+#### β sweep (`scripts/sweep_beta.py`)
+
+- **`energy_prescribed` and `point_impulse` modes are β-sensitive
+  as expected**: on truck/point_impulse,
+    `β=0.10 → 1180 J peak, 1380 J ∑E_inj`
+    `β=0.25 → 1266 J peak, 1814 J`
+    `β=0.50 → 1987 J peak, 3119 J`
+    `β=1.00 → 3967 J peak, 13980 J`
+  — clear runaway at β=1.0. Per-step §15 bound still holds; the cascade
+  is open-loop (higher kick → more bouncing → more rigid loss → larger
+  budget → larger kick).
+  **Recommendation: keep β ≤ 0.5 for stability.**
+- **Patch mode is β-insensitive by design.** On truck/patch,
+    `β=0.10 → 1173.858 J peak, 1319 J ∑E_inj`
+    `β=0.25 → 1173.854 J peak, 1333 J`
+  — peaks identical to 4 sig figs. Patch mode budgets from the modal
+  reservoir (foundation §1.modal_reservoir), not β·E_loss; β only
+  affects modes that route through the per-contact modal-path branch,
+  which the patch reformulation bypasses.
 
 ## Files to know
 
