@@ -1,20 +1,16 @@
-"""Headless analysis harness for the shelf scene across modes.
+"""Headless analysis harness across scenes × modes, with pass/fail rubric.
 
-Records rigid-body trajectories for each --mode, then reports per-body:
-  * min y (penetration check — shelf_top = 0.015)
-  * max y
-  * max tilt angle (degrees off-upright, from quaternion)
-  * total x drift (sliding)
-  * max body velocity magnitude
+For each (scene, mode), records rigid-body trajectories then evaluates
+against `dcr.benchmark.rubric` and prints both the raw metric table and
+a per-body pass/fail summary.
 
-Used to verify the patch mode actually produces sane behavior before
-shipping. Run with: uv run python scripts/analyze_patch_mode.py
+Run: uv run python scripts/analyze_patch_mode.py
 """
 from __future__ import annotations
 
 import numpy as np
 
-from dcr.rigid.body import quat_to_rot
+from dcr.benchmark import BodyRubric, evaluate_run, quat_to_tilt_deg
 from scripts.run_scenes import (
     build_ledge_scene,
     build_shelf_scene,
@@ -30,16 +26,52 @@ SCENE_BUILDERS = {
 }
 
 
-SHELF_TOP = 0.015  # mirrors build_shelf_scene
+# Default support-surface height per scene (where most bodies rest).
+SCENE_DEFAULT_SUPPORT = {
+    "shelf": 0.015,    # slab top
+    "truck": 0.03,     # ground_top
+    "ledge": 0.04,     # ledge_top
+}
 
 
-def quat_to_tilt_deg(q: np.ndarray) -> float:
-    """Angle in degrees between the body-frame +y axis (book up axis) and
-    the world-frame +y axis. 0° = upright, 90° = on its side."""
-    R = quat_to_rot(q)
-    up_world = R @ np.array([0.0, 1.0, 0.0])
-    cos_theta = float(np.clip(up_world[1], -1.0, 1.0))
-    return float(np.degrees(np.arccos(abs(cos_theta))))
+# Per-body support overrides (body sits on something other than the
+# default support surface).
+# ledge:  pedestal_top = ledge_top + 2*pedestal_hy + 0.001 = 0.141
+LEDGE_PEDESTAL_TOP = 0.04 + 2 * 0.05 + 0.001
+SCENE_SUPPORT_OVERRIDES = {
+    "shelf": {},
+    "truck": {},
+    "ledge": {
+        "box_0": LEDGE_PEDESTAL_TOP,
+        "box_1": LEDGE_PEDESTAL_TOP,
+        "box_2": LEDGE_PEDESTAL_TOP,
+    },
+}
+
+
+# Per-body rubric overrides — relax bounds for bodies whose intended
+# behavior is something other than "stay still and upright".
+SCENE_RUBRIC_OVERRIDES = {
+    "shelf": {
+        # Drop is the impactor; it falls a long way, so x/z drift is
+        # measured relative to its drop position. Tail-y range will be
+        # tiny after it settles. Keep default rubric.
+    },
+    "truck": {
+        # Drop bodies are impactors; same as above.
+    },
+    "ledge": {
+        # The boulder is the impactor AND the test subject for rolling
+        # response. Rolling is intentional — allow more tilt and drift.
+        "boulder": BodyRubric(
+            penetration_max_m=0.005,
+            max_tilt_deg=90.0,
+            x_drift_max_m=0.15,
+            z_drift_max_m=0.10,
+            tail_y_range_max_m=0.010,
+        ),
+    },
+}
 
 
 def analyze_run(scene: str, mode: str, beta: float = 0.25,
@@ -57,42 +89,87 @@ def analyze_run(scene: str, mode: str, beta: float = 0.25,
         world, coupler, body_info, n_steps=n_steps)
     sys.stdout.flush()
 
-    # Per-body stats. Books are book_0..book_4 (hy=0.04, so book bottom
-    # is at center_y - 0.04; should never go below SHELF_TOP=0.015 →
-    # center_y >= 0.055).
+    # Raw metric table (same as before).
+    default_support = SCENE_DEFAULT_SUPPORT[scene]
+    overrides = SCENE_SUPPORT_OVERRIDES[scene]
     print(f"{'body':<10} {'min_y':>9} {'max_y':>9} {'penetration':>12}  "
-          f"{'max_tilt°':>10} {'x_drift':>9}  {'z_drift':>9}")
-    for name, (idx, _hx, hy, _hz, _color) in body_info.items():
+          f"{'max_tilt°':>10} {'x_drift':>9}  {'z_drift':>9}  {'tail_yr':>8}")
+    for name, (_idx, _hx, hy, _hz, _color) in body_info.items():
         pos = np.array(positions[name])
         orient = np.array(orientations[name])
         ys = pos[:, 1]
         xs = pos[:, 0]
         zs = pos[:, 2]
-        body_bottom = ys - hy  # bottom of box
-        pen = float(SHELF_TOP - body_bottom.min())  # +ve = below shelf
+        body_bottom = ys - hy
+        support_y = overrides.get(name, default_support)
+        pen = float(max(0.0, support_y - body_bottom.min()))
         tilts = [quat_to_tilt_deg(q) for q in orient]
         x_drift = float(xs[-1] - xs[0])
         z_drift = float(zs[-1] - zs[0])
+        # tail y range over last 0.5s
+        times_arr = np.asarray(times)
+        tail_mask = times_arr >= (times_arr[-1] - 0.5)
+        if tail_mask.sum() < 2:
+            tail_mask[-2:] = True
+        tail_yr = float(ys[tail_mask].max() - ys[tail_mask].min())
         print(f"{name:<10} {ys.min():>9.4f} {ys.max():>9.4f} {pen:>12.4f}  "
-              f"{max(tilts):>10.2f} {x_drift:>+9.4f} {z_drift:>+9.4f}")
-    return body_info, positions, orientations
+              f"{max(tilts):>10.2f} {x_drift:>+9.4f} {z_drift:>+9.4f}  "
+              f"{tail_yr:>8.4f}")
+
+    # Pass/fail rubric.
+    support_for = {**{n: default_support for n in body_info},
+                   **overrides}
+    body_overrides = SCENE_RUBRIC_OVERRIDES.get(scene, {})
+    result = evaluate_run(
+        scene=scene, mode=mode, body_info=body_info,
+        positions=positions, orientations=orientations,
+        times=np.asarray(times),
+        support_for=support_for,
+        body_overrides=body_overrides,
+    )
+    print()
+    for body_result in result.body_results:
+        print(f"  {body_result}")
+    print(f"  >>> {result.summary()}")
+    sys.stdout.flush()
+    return result
 
 
 def main():
     n_steps = 1500
     beta = 0.25
-    # Patch mode gets --damping-scale 5 (the analyze script doesn't take
-    # CLI args; this is hardcoded). Other modes use damping_scale=1.0
-    # since they don't suffer from the continuous-kick issue.
+    all_results = []
+    # Patch mode gets --damping-scale 5; other modes 1.0.
     for scene in ["shelf", "truck", "ledge"]:
         for mode in ["coevoet", "energy_prescribed_point_impulse",
                      "energy_prescribed_patch"]:
             try:
                 ds = 5.0 if mode == "energy_prescribed_patch" else 1.0
-                analyze_run(scene, mode, beta=beta, n_steps=n_steps,
-                            damping_scale=ds)
+                result = analyze_run(scene, mode, beta=beta,
+                                     n_steps=n_steps, damping_scale=ds)
+                all_results.append(result)
             except Exception as e:
                 print(f"  FAILED: {type(e).__name__}: {e}", flush=True)
+
+    # Final grid: scene × mode pass/fail.
+    print("\n\n==================== SUMMARY GRID ====================")
+    by_scene_mode = {(r.scene, r.mode): r for r in all_results}
+    modes = ["coevoet", "energy_prescribed_point_impulse",
+             "energy_prescribed_patch"]
+    header = f"{'scene':<8} " + " ".join(f"{m[:18]:>20}" for m in modes)
+    print(header)
+    for scene in ["shelf", "truck", "ledge"]:
+        row = [f"{scene:<8} "]
+        for mode in modes:
+            r = by_scene_mode.get((scene, mode))
+            if r is None:
+                row.append(f"{'(error)':>20}")
+            else:
+                flag = "PASS" if r.passed else "FAIL"
+                n_pass = sum(1 for b in r.body_results if b.passed)
+                n_total = len(r.body_results)
+                row.append(f"{flag} {n_pass}/{n_total}".rjust(20))
+        print(" ".join(row))
 
 
 if __name__ == "__main__":
