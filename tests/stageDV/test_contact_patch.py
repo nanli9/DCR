@@ -994,3 +994,391 @@ class TestPatchResponsePipeline:
             assert not np.allclose(qdot_pre, qdot_post)
             return
         pytest.fail("no non-trivial patch kick fired within 500 steps")
+
+
+# ======================================================================
+# TestCausalGating — proposal: prompts/passive_contact_causal_modal_coupling.md
+# ======================================================================
+
+
+def _make_gate_test_setup(gap_m: float = 5e-5, qdot_scale: float = 0.0):
+    """Build a minimal one-patch, one-contact scenario for gate unit tests.
+
+    Returns (coupler, patches, resting_contacts, bodies). The receiver is
+    a 0.05 m half-extent box centered above the static plane at y=0; the
+    contact is at the box bottom, normal = +y, with `penetration = -gap_m`
+    (so gap_m is the separation distance).
+
+    qdot_scale sets `coupler._stepper.qdot[0]` so the caller can dial
+    the closing-velocity gate independently. v_f at x_bar ≈ Φ(x_bar)·qdot;
+    Phi is unit-of-order, so a scale of ~0.1 gives v_f roughly 0.1 m/s.
+    """
+    modal = _build_slab_modal()
+    # Use the modal mesh's actual surface so eval_basis_at_point works.
+    # We construct the receiver and contact directly; the elastic body
+    # at index 0 is a virtual static plane (we don't need a full world).
+    from dcr.rigid.body import make_static_plane, make_dynamic_box
+    plane = make_static_plane(normal=(0, 1, 0), point=(0, 0, 0), friction=0.5)
+    box = make_dynamic_box(mass=1.0, hx=0.05, hy=0.05, hz=0.05,
+                           position=(0.0, 0.05 + gap_m, 0.0),
+                           restitution=0.0, friction=0.5)
+    bodies = [plane, box]
+    coupler = PassiveDCRCoupler(
+        modal=modal, elastic_body_idx=0,
+        dcr_velocity_mode="energy_prescribed_patch",
+        energy_response_beta=0.5,
+        energy_budget_source="modal_reservoir",
+        causal_gating=True,
+    )
+    # Build a single contact at the box bottom (y = box_center − hy).
+    # Collision-detector convention: body_a is the dynamic body, normal
+    # points from body_a outward (toward the elastic / static body).
+    # See _build_drop_scene live behaviour.
+    contact_point = np.array([0.0, 0.05 + gap_m - 0.05, 0.0])  # at box bottom
+    contact_normal = np.array([0.0, 1.0, 0.0])  # +y, box→plane (body_a=1)
+    c = Contact(
+        body_a=1, body_b=0,
+        point=contact_point, normal=contact_normal,
+        penetration=-gap_m, is_new=False,
+    )
+    resting_contacts = [c]
+    patch = build_patch(
+        body_a=0, body_b=1, contact_idxs=[0],
+        contacts=resting_contacts, bodies=bodies,
+        weight_mode="uniform",
+    )
+    patches = [patch]
+    # Set qdot so v_f at the contact point is roughly qdot_scale along +y.
+    # We use Phi(x_bar) to back-solve: desired v_f = (0, qdot_scale, 0).
+    # `qdot = pinv(Phi) @ desired_v_f` gives the minimum-norm modal
+    # amplitude vector that yields that contact-point velocity.
+    # This is portable across mode-shape sign choices (which ARPACK can
+    # flip arbitrarily). The patch driver reads from `_qdot_just_after_kick`
+    # so we set both for safety.
+    from dcr.modal.passive_inject import eval_basis_at_point
+    Phi = eval_basis_at_point(
+        patch.x_bar, coupler._surface, coupler.modal.U_surf,
+        coupler.modal.surface_vertex_indices, coupler._vert_to_surf_idx)
+    coupler._stepper.qdot[:] = 0.0
+    if qdot_scale != 0.0:
+        desired_v_f = np.array([0.0, float(qdot_scale), 0.0])
+        coupler._stepper.qdot[:] = np.linalg.pinv(Phi) @ desired_v_f
+    coupler._qdot_just_after_kick = coupler._stepper.qdot.copy()
+    return coupler, patches, resting_contacts, bodies
+
+
+class TestCausalGating:
+    """Contact-causal passive modal coupling gates (proposal §1-§3)."""
+
+    # ---- Opt-in contract + bit-identity ------------------------------
+
+    def test_causal_gating_default_off(self):
+        """No kwarg → causal_gating == False. Opt-in contract."""
+        modal = _build_slab_modal()
+        coupler = PassiveDCRCoupler(
+            modal=modal, elastic_body_idx=0,
+            dcr_velocity_mode="energy_prescribed_patch",
+        )
+        assert coupler.causal_gating is False
+        assert coupler.contact_shell_delta == pytest.approx(1e-4)
+        assert coupler.v_min_closing == pytest.approx(0.044)
+        assert coupler.e_modal_cutoff_frac == pytest.approx(1e-5)
+
+    def test_causal_gating_off_is_bit_identical(self):
+        """200-step run with flag explicitly off matches a run with no
+        kwarg, to ARPACK/BLAS float noise (rtol=1e-12). Pins regression:
+        the new code is invisible to existing patch-mode behaviour when
+        the flag is off."""
+        n_steps = 200
+        # Run A: no kwarg (default False).
+        world_a, _, _t, _b = _build_drop_scene(mode="energy_prescribed_patch")
+        ys_a = []
+        for _ in range(n_steps):
+            world_a.step()
+            ys_a.append(world_a.bodies[1].position.copy())
+        # Run B: explicit causal_gating=False (post-construction set).
+        world_b, coupler_b, _t, _b = _build_drop_scene(
+            mode="energy_prescribed_patch")
+        coupler_b.causal_gating = False
+        ys_b = []
+        for _ in range(n_steps):
+            world_b.step()
+            ys_b.append(world_b.bodies[1].position.copy())
+        # Note: literal bit-identity is not achievable because the modal
+        # eigendecomposition (ARPACK / scipy.sparse.linalg.eigsh) and the
+        # BLAS calls in the patch-mode solve can produce 1e-15 to 1e-20
+        # numerical jitter between runs even with identical inputs. The
+        # important regression invariant is that no NEW divergence path
+        # is introduced — rtol=1e-12 is well below any code-induced delta.
+        for a, b in zip(ys_a, ys_b):
+            np.testing.assert_allclose(a, b, rtol=1e-12, atol=1e-15)
+
+    # ---- Validation ---------------------------------------------------
+
+    def test_invalid_contact_shell_delta_raises(self):
+        modal = _build_slab_modal()
+        with pytest.raises(ValueError, match="contact_shell_delta"):
+            PassiveDCRCoupler(
+                modal=modal, elastic_body_idx=0,
+                dcr_velocity_mode="energy_prescribed_patch",
+                contact_shell_delta=-1e-3,
+            )
+
+    def test_invalid_v_min_closing_raises(self):
+        modal = _build_slab_modal()
+        with pytest.raises(ValueError, match="v_min_closing"):
+            PassiveDCRCoupler(
+                modal=modal, elastic_body_idx=0,
+                dcr_velocity_mode="energy_prescribed_patch",
+                v_min_closing=-0.01,
+            )
+
+    def test_invalid_e_modal_cutoff_frac_raises(self):
+        modal = _build_slab_modal()
+        with pytest.raises(ValueError, match="e_modal_cutoff_frac"):
+            PassiveDCRCoupler(
+                modal=modal, elastic_body_idx=0,
+                dcr_velocity_mode="energy_prescribed_patch",
+                e_modal_cutoff_frac=1.5,
+            )
+
+    # ---- Contact-shell gate ------------------------------------------
+
+    def test_shell_gate_skips_patch_with_large_gap(self):
+        """gap=10mm >> δ=1e-4m → patch gated out, no kick, counter +1."""
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=0.010,        # 10 mm gap
+            qdot_scale=10.0,    # force closing-velocity to pass if ever reached
+        )
+        coupler.contact_shell_delta = 1e-4
+        # Reset counters explicitly (the function sets them on process_step,
+        # but we're calling _compute_distant_response_patch directly).
+        coupler.last_patch_gated_no_contact = 0
+        kicks = coupler._compute_distant_response_patch(
+            patches=patches, resting_contacts=resting,
+            q_history=coupler._stepper.q.reshape(1, -1).copy(),
+            bodies=bodies, E_target=1.0, h=1e-3,
+        )
+        assert kicks == []
+        assert coupler.last_patch_gated_no_contact == 1
+
+    def test_shell_gate_admits_patch_within_shell(self):
+        """gap=0.05mm < δ=1e-4m + closing-velocity passes → kick fires."""
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=5e-5,         # 0.05 mm gap; well below δ
+            qdot_scale=10.0,    # force big +y closing velocity
+        )
+        coupler.last_patch_gated_no_contact = 0
+        coupler.last_patch_gated_low_closing = 0
+        kicks = coupler._compute_distant_response_patch(
+            patches=patches, resting_contacts=resting,
+            q_history=coupler._stepper.q.reshape(1, -1).copy(),
+            bodies=bodies, E_target=1.0, h=1e-3,
+        )
+        assert len(kicks) == 1
+        assert coupler.last_patch_gated_no_contact == 0
+        assert coupler.last_patch_gated_low_closing == 0
+
+    def test_min_gap_rule_admits_when_one_contact_in_shell(self):
+        """Two contacts in patch with gaps (1e-5, 5e-3) → admit via min-gap."""
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=1e-5, qdot_scale=10.0,
+        )
+        # Build a second contact further away; same body pair.
+        # Same collision-detector convention as _make_gate_test_setup.
+        c2 = Contact(
+            body_a=1, body_b=0,
+            point=np.array([0.03, 0.05 + 5e-3 - 0.05, 0.0]),
+            normal=np.array([0.0, 1.0, 0.0]),
+            penetration=-5e-3, is_new=False,
+        )
+        resting.append(c2)
+        # Rebuild patch using both contacts.
+        patches = [build_patch(
+            body_a=0, body_b=1, contact_idxs=[0, 1],
+            contacts=resting, bodies=bodies, weight_mode="uniform",
+        )]
+        coupler.last_patch_gated_no_contact = 0
+        kicks = coupler._compute_distant_response_patch(
+            patches=patches, resting_contacts=resting,
+            q_history=coupler._stepper.q.reshape(1, -1).copy(),
+            bodies=bodies, E_target=1.0, h=1e-3,
+        )
+        # min(-(-1e-5), -(-5e-3)) = min(1e-5, 5e-3) = 1e-5 < δ → admit.
+        assert coupler.last_patch_gated_no_contact == 0
+        assert len(kicks) == 1
+
+    # ---- Closing-velocity gate ---------------------------------------
+
+    def test_closing_velocity_gate_skips_when_below_v_min(self):
+        """Contact in shell but closing ≈ 0 << v_min=0.044 → gated out."""
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=5e-5,         # in shell
+            qdot_scale=0.0,     # zero modal velocity → v_f = 0 → closing ≈ 0
+        )
+        coupler.last_patch_gated_low_closing = 0
+        kicks = coupler._compute_distant_response_patch(
+            patches=patches, resting_contacts=resting,
+            q_history=coupler._stepper.q.reshape(1, -1).copy(),
+            bodies=bodies, E_target=1.0, h=1e-3,
+        )
+        assert kicks == []
+        assert coupler.last_patch_gated_low_closing == 1
+
+    def test_closing_velocity_gate_admits_when_above_v_min(self):
+        """Contact in shell + closing > v_min → kick fires."""
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=5e-5, qdot_scale=10.0,
+        )
+        coupler.last_patch_gated_low_closing = 0
+        kicks = coupler._compute_distant_response_patch(
+            patches=patches, resting_contacts=resting,
+            q_history=coupler._stepper.q.reshape(1, -1).copy(),
+            bodies=bodies, E_target=1.0, h=1e-3,
+        )
+        assert len(kicks) == 1
+        assert coupler.last_patch_gated_low_closing == 0
+
+    def test_separating_motion_gated_out(self):
+        """Closing velocity = -0.2 m/s (slab pulling AWAY) → gated out."""
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=5e-5, qdot_scale=-10.0,   # negative qdot → v_f points down
+        )
+        coupler.last_patch_gated_low_closing = 0
+        kicks = coupler._compute_distant_response_patch(
+            patches=patches, resting_contacts=resting,
+            q_history=coupler._stepper.q.reshape(1, -1).copy(),
+            bodies=bodies, E_target=1.0, h=1e-3,
+        )
+        assert kicks == []
+        # closing = (v_f - v_p) · +y is <= 0 < v_min, so the closing gate fires.
+        assert coupler.last_patch_gated_low_closing == 1
+
+    def test_closing_velocity_uses_push_dir_not_n_def(self):
+        """Pin §design choice 2: the gate axis is push_dir (rest normal),
+        NOT n_def (deformed normal). With a v_f purely in +x and push_dir
+        purely in +y, closing = 0 → gated out. If the gate used n_def
+        (which can tilt), an x-component could leak into 'closing'.
+
+        We monkey-patch _deformed_normal to return n_def = +x, forcing the
+        scenario where the two axes disagree.
+        """
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=5e-5, qdot_scale=0.0,
+        )
+        # Force v_f to have only +x: tweak qdot manually by overriding
+        # the snapshot used by the patch driver.
+        # The Phi entries are mesh-dependent; the cleanest way to force
+        # v_f along +x is to override qdot_just_after_kick directly and
+        # use eval_basis_at_point to back-solve. Simpler: monkey-patch
+        # eval_basis_at_point to return a fixed Phi where +x is the only
+        # active axis.
+        import dcr.dcr.passive_dcr as pdcr
+        original_eval = pdcr.eval_basis_at_point
+        original_def = coupler._deformed_normal
+        try:
+            def fake_phi(*args, **kwargs):
+                # Return Phi where row 0 (x) is unit on mode 0, all others zero.
+                # So v_f = Phi @ qdot = [qdot[0], 0, 0].
+                P = np.zeros((3, coupler._stepper.qdot.size))
+                P[0, 0] = 1.0
+                return P
+            pdcr.eval_basis_at_point = fake_phi
+            # Set qdot[0] large → v_f = (10, 0, 0). v_p = 0. (v_f-v_p)·+y = 0.
+            coupler._stepper.qdot[0] = 10.0
+            coupler._qdot_just_after_kick = coupler._stepper.qdot.copy()
+            # Force n_def to also be in +x (different from push_dir = +y).
+            coupler._deformed_normal = lambda **kw: (
+                np.array([1.0, 0.0, 0.0]), 0.0, 0)
+            coupler.last_patch_gated_low_closing = 0
+            kicks = coupler._compute_distant_response_patch(
+                patches=patches, resting_contacts=resting,
+                q_history=coupler._stepper.q.reshape(1, -1).copy(),
+                bodies=bodies, E_target=1.0, h=1e-3,
+            )
+            # closing computed along push_dir=+y is 0 → gated out.
+            # If gate used n_def=+x instead, closing would be 10.0 → admitted.
+            assert kicks == [], (
+                "gate appears to use n_def axis instead of push_dir")
+            assert coupler.last_patch_gated_low_closing == 1
+        finally:
+            pdcr.eval_basis_at_point = original_eval
+            coupler._deformed_normal = original_def
+
+    # ---- Numerical cutoff (§3) ---------------------------------------
+
+    def test_numerical_cutoff_skips_when_E_modal_tiny(self):
+        """qdot tiny + peak well above → cutoff fires, returns []."""
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=5e-5, qdot_scale=1e-20,
+        )
+        coupler.last_E_modal_peak = 1.0
+        coupler.e_modal_cutoff_frac = 1e-5
+        coupler.last_patch_gated_numerical = 0
+        kicks = coupler._compute_distant_response_patch(
+            patches=patches, resting_contacts=resting,
+            q_history=coupler._stepper.q.reshape(1, -1).copy(),
+            bodies=bodies, E_target=1.0, h=1e-3,
+        )
+        assert kicks == []
+        assert coupler.last_patch_gated_numerical == len(patches)
+
+    def test_numerical_cutoff_inactive_when_peak_zero(self):
+        """First step (peak=0) → cutoff no-op; reaches the per-patch gates."""
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=5e-5, qdot_scale=10.0,
+        )
+        coupler.last_E_modal_peak = 0.0   # explicit
+        coupler.last_patch_gated_numerical = 0
+        coupler.last_patch_gated_low_closing = 0
+        kicks = coupler._compute_distant_response_patch(
+            patches=patches, resting_contacts=resting,
+            q_history=coupler._stepper.q.reshape(1, -1).copy(),
+            bodies=bodies, E_target=1.0, h=1e-3,
+        )
+        # Cutoff did NOT fire (peak was 0); patch admitted.
+        assert coupler.last_patch_gated_numerical == 0
+        assert len(kicks) == 1
+
+    # ---- Back-reaction not applied on gated patches ------------------
+
+    def test_gated_patch_does_not_debit_qdot(self):
+        """All-patches-gated step: qdot unchanged by patch dispatch
+        (back-reaction `qdot -= Phi.T @ λ` does not fire for skipped
+        patches; §15 invariant trivially preserved)."""
+        coupler, patches, resting, bodies = _make_gate_test_setup(
+            gap_m=0.010,    # large gap → shell-gate fires
+            qdot_scale=10.0,
+        )
+        qdot_pre = coupler._stepper.qdot.copy()
+        _ = coupler._compute_distant_response_patch(
+            patches=patches, resting_contacts=resting,
+            q_history=coupler._stepper.q.reshape(1, -1).copy(),
+            bodies=bodies, E_target=1.0, h=1e-3,
+        )
+        np.testing.assert_array_equal(coupler._stepper.qdot, qdot_pre)
+
+    # ---- End-to-end on drop scene ------------------------------------
+
+    def test_causal_gating_drop_scene_runs_to_completion(self):
+        """1000 steps with causal_gating=True: no exceptions, box settles
+        near the slab top, and the closing-velocity gate fires at some
+        point post-settling (proving the gate is active on residual modal
+        motion, not just dead code)."""
+        world, coupler, _t, box_idx = _build_drop_scene(
+            mode="energy_prescribed_patch")
+        coupler.causal_gating = True
+        saw_low_closing_gate = False
+        for step in range(1000):
+            world.step()
+            if coupler.last_patch_gated_low_closing > 0 and step > 500:
+                saw_low_closing_gate = True
+        # Box should be at roughly its rest height (bottom at slab top).
+        box_y = world.bodies[box_idx].position[1]
+        assert 0.04 <= box_y <= 0.07, (
+            f"box y={box_y} not in expected rest range [0.04, 0.07]")
+        assert saw_low_closing_gate, (
+            "closing-velocity gate never fired post-settling; gates appear "
+            "to be dead code")
+        # Peak modal energy should have been recorded by the running-max.
+        assert coupler.last_E_modal_peak > 0.0

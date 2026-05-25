@@ -182,6 +182,29 @@ class PassiveDCRCoupler:
     friction_cone_clip_enabled: bool = False
     kinematic_cap: str = "none"
 
+    # ----- Contact-causal passive coupling gates (opt-in) ---------------
+    # See `prompts/passive_contact_causal_modal_coupling.md` for full
+    # motivation. When `causal_gating == True`, the patch dispatch in
+    # `_compute_distant_response_patch` short-circuits any patch where
+    # (a) the slab is not within `contact_shell_delta` of the receiver,
+    # (b) the slab is not moving INTO the receiver at >= `v_min_closing`
+    #     along the rest-normal axis (same axis the cone closes on, §9.5),
+    # or (c) the modal reservoir has dropped below
+    #     `e_modal_cutoff_frac · last_E_modal_peak` (numerical cutoff).
+    # All other patch-mode machinery (K_total solve, cone projection,
+    # modal back-reaction, §15 invariant) is unchanged. With the flag
+    # OFF (default), behaviour is bit-identical to the un-gated patch
+    # mode that has been in regression for 263 tests.
+    #
+    # The proposal's `η ∈ [0.05, 0.2]` per-step transfer fraction is the
+    # same dimensionless quantity as `energy_response_beta` above —
+    # documentation choice, not code. Recommended range when gating is
+    # on: `energy_response_beta ∈ [0.05, 0.2]`.
+    causal_gating: bool = False
+    contact_shell_delta: float = 1e-4         # m;   proposal §1
+    v_min_closing: float = 0.044              # m/s; proposal §2, √(2·g·δ_slop) with δ_slop=1e-4
+    e_modal_cutoff_frac: float = 1e-5         # frac; proposal §3
+
     # Internals.
     _stepper: HomogeneousStepper = field(init=False, repr=False)
     _surface: TriMesh = field(init=False, repr=False)
@@ -229,6 +252,14 @@ class PassiveDCRCoupler:
     last_patches: list[ContactPatch] | None = None
     last_patch_kicks: list[PatchKick] | None = None
 
+    # ----- Contact-causal gating diagnostics (proposal §1-§3) -----------
+    # Per-step gate-fire counters (reset in process_step). Cumulative
+    # running max of E_modal_post_kick is used by the numerical cutoff.
+    last_E_modal_peak: float = 0.0
+    last_patch_gated_no_contact: int = 0
+    last_patch_gated_low_closing: int = 0
+    last_patch_gated_numerical: int = 0
+
     def __post_init__(self) -> None:
         self._stepper = HomogeneousStepper.from_modal_analysis(self.modal)
         # Snapshot of qdot just after this step's kick (before step_n
@@ -257,6 +288,19 @@ class PassiveDCRCoupler:
             raise ValueError(
                 "unknown kinematic_cap: "
                 f"{self.kinematic_cap!r} (expected 'none' or 'coevoet')")
+
+        # Contact-causal gate knob validation (proposal §1-§3).
+        if self.contact_shell_delta < 0.0:
+            raise ValueError(
+                "contact_shell_delta must be >= 0; got "
+                f"{self.contact_shell_delta}")
+        if self.v_min_closing < 0.0:
+            raise ValueError(
+                f"v_min_closing must be >= 0; got {self.v_min_closing}")
+        if not 0.0 <= self.e_modal_cutoff_frac <= 1.0:
+            raise ValueError(
+                "e_modal_cutoff_frac must be in [0, 1]; got "
+                f"{self.e_modal_cutoff_frac}")
 
     # ------------------------------------------------------------------
     # Energy budget source dispatch (foundation §1 / §2)
@@ -376,6 +420,10 @@ class PassiveDCRCoupler:
         self.last_kinematic_cap_attempted = 0
         self.last_patches = None
         self.last_patch_kicks = None
+        # Contact-causal gate counters (proposal §1-§3).
+        self.last_patch_gated_no_contact = 0
+        self.last_patch_gated_low_closing = 0
+        self.last_patch_gated_numerical = 0
 
         # --- Identify new and resting contacts on the elastic body ---
         new_contacts_data: list[tuple[Contact, int]] = []  # (contact, ci)
@@ -426,6 +474,8 @@ class PassiveDCRCoupler:
             self.last_E_modal_pre_kick = modal_energy(
                 self._stepper.q, self._stepper.qdot, omega)
             self.last_E_modal_post_kick = self.last_E_modal_pre_kick
+            self.last_E_modal_peak = max(
+                self.last_E_modal_peak, self.last_E_modal_post_kick)
             self._qdot_just_after_kick = self._stepper.qdot.copy()
             self._stepper.step_n(n_substeps)
             if self.dcr_velocity_mode == "energy_prescribed_patch":
@@ -456,6 +506,8 @@ class PassiveDCRCoupler:
 
         self.last_E_modal_post_kick = modal_energy(
             self._stepper.q, self._stepper.qdot, omega)
+        self.last_E_modal_peak = max(
+            self.last_E_modal_peak, self.last_E_modal_post_kick)
 
         # Snapshot qdot right after the kick, BEFORE step_n decays it
         # through h substeps. The patch mode's §9.2 modal velocity driver
@@ -565,7 +617,13 @@ class PassiveDCRCoupler:
             patches = self._build_patches_for_step(resting_contacts, bodies)
             self.last_patches = patches
             patch_kicks = self._compute_distant_response_patch(
-                patches, q_history, bodies, E_target, h)
+                patches=patches,
+                resting_contacts=resting_contacts,
+                q_history=q_history,
+                bodies=bodies,
+                E_target=E_target,
+                h=h,
+            )
             self.last_linear_kicks = None
             self.last_point_impulse_kicks = None
             self.last_patch_kicks = patch_kicks
@@ -620,6 +678,7 @@ class PassiveDCRCoupler:
     def _compute_distant_response_patch(
         self,
         patches: list[ContactPatch],
+        resting_contacts: list[Contact],
         q_history: NDArray[np.float64],
         bodies: list[RigidBody],
         E_target: float,
@@ -671,6 +730,19 @@ class PassiveDCRCoupler:
         """
         if not patches:
             return []
+
+        # ---- Contact-causal numerical cutoff (proposal §3, opt-in) -------
+        # Skip the entire patch dispatch when residual modal energy is
+        # below `e_modal_cutoff_frac · last_E_modal_peak`. This is a
+        # computation-only gate (no physical effect at the threshold
+        # we use, default 1e-5 · E_peak ≈ 0.01 J for typical scenes).
+        if self.causal_gating and self.last_E_modal_peak > 0.0:
+            E_now = float(modal_energy(
+                self._stepper.q, self._stepper.qdot, self.modal.frequencies))
+            if E_now < self.e_modal_cutoff_frac * self.last_E_modal_peak:
+                self.last_patch_gated_numerical = len(patches)
+                return []
+
         # Filter patches that have a non-static receiver and identify it.
         valid: list[tuple[ContactPatch, int, NDArray[np.float64], NDArray[np.float64]]] = []
         for p in patches:
@@ -745,6 +817,34 @@ class PassiveDCRCoupler:
             v_lin = recv.velocity[0:3]
             omega = recv.velocity[3:6]
             v_p = v_lin + np.cross(omega, r_bar)
+
+            # ---- Contact-causal gates (proposal §1, §2; opt-in) ---------
+            # Both gates close the cone on the SAME axis the §9.5 cone
+            # uses — push_dir (rest normal). Using n_def here would
+            # defeat its purpose as a tilt direction (lateral leak would
+            # show up as 'closing'). See plan §design-rationale-2.
+            if self.causal_gating:
+                # §1 contact-shell gate: admit when ANY contact in the
+                # patch is within delta of the slab. Min-gap is the
+                # conservative-admit rule. `gap = -penetration` because
+                # Contact.penetration is signed positive when overlapping.
+                min_gap = min(
+                    -resting_contacts[ci].penetration
+                    for ci in patch.contact_indices
+                )
+                if min_gap > self.contact_shell_delta:
+                    self.last_patch_gated_no_contact += 1
+                    continue
+                # §2 closing-velocity gate: skip if the slab is not
+                # moving INTO the receiver above the contact-slop
+                # deadband. v_min ≈ √(2·g·δ_slop) is the speed at which
+                # the surface could lift the body above contact slop.
+                n_axis = push_dir / max(
+                    float(np.linalg.norm(push_dir)), 1e-30)
+                closing = float((v_f - v_p) @ n_axis)
+                if closing <= self.v_min_closing:
+                    self.last_patch_gated_low_closing += 1
+                    continue
 
             # Δv_des = v_f − v_p (prompt §2.3, no clamp; see DEVIATION).
             dv_des = v_f - v_p

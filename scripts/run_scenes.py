@@ -83,6 +83,10 @@ def _add_coupler(
     deformed_normal_method: str = "patch_fit",
     friction_cone_clip: bool = False,
     kinematic_cap: str = "none",
+    causal_gating: bool = False,
+    contact_shell_delta: float = 1e-4,
+    v_min_closing: float = 0.044,
+    e_modal_cutoff_frac: float = 1e-5,
 ):
     """Create and register a passive DCR coupler.
 
@@ -102,6 +106,16 @@ def _add_coupler(
         kinematic_cap: "none" (default) or "coevoet" — cap the per-step
             energy-mode kick magnitude by d_max/h to recover Coevoet's
             h-invariance. See PassiveDCRCoupler.kinematic_cap docstring.
+        causal_gating: Enable contact-causal passive coupling gates for
+            patch mode (default False). When True, patch dispatch
+            additionally requires the receiver to be within
+            `contact_shell_delta` of the slab AND the slab to be moving
+            into it at >= `v_min_closing`. See
+            prompts/passive_contact_causal_modal_coupling.md.
+        contact_shell_delta: Contact-shell tolerance δ in m (proposal §1).
+        v_min_closing: Closing-velocity deadband in m/s (proposal §2).
+        e_modal_cutoff_frac: Skip patch dispatch when modal energy drops
+            below this fraction of the running-peak (proposal §3).
     """
     coupler = PassiveDCRCoupler(
         modal=modal,
@@ -112,6 +126,10 @@ def _add_coupler(
         deformed_normal_method=deformed_normal_method,
         friction_cone_clip_enabled=friction_cone_clip,
         kinematic_cap=kinematic_cap,
+        causal_gating=causal_gating,
+        contact_shell_delta=contact_shell_delta,
+        v_min_closing=v_min_closing,
+        e_modal_cutoff_frac=e_modal_cutoff_frac,
     )
     world.enforce_rigid_energy_bound = enforce_bound
     world.add_passive_coupler(coupler)
@@ -122,7 +140,11 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
                       budget_source="min_rigid_loss_modal", enforce_bound=False,
                       deformed_normal_method="patch_fit",
                       friction_cone_clip=False, kinematic_cap="none",
-                      damping_scale=1.0):
+                      damping_scale=1.0,
+                      causal_gating=False,
+                      contact_shell_delta=1e-4,
+                      v_min_closing=0.044,
+                      e_modal_cutoff_frac=1e-5):
     """Heavy objects dropped sequentially on road. Cones and lumber respond.
 
     Three drops at different positions and heights so they hit the ground
@@ -157,6 +179,10 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
         budget_source=budget_source, enforce_bound=enforce_bound,
         deformed_normal_method=deformed_normal_method,
         friction_cone_clip=friction_cone_clip, kinematic_cap=kinematic_cap,
+        causal_gating=causal_gating,
+        contact_shell_delta=contact_shell_delta,
+        v_min_closing=v_min_closing,
+        e_modal_cutoff_frac=e_modal_cutoff_frac,
     )
 
     body_info = {}  # name -> (idx, hx, hy, hz, color)
@@ -214,7 +240,11 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
                       budget_source="min_rigid_loss_modal", enforce_bound=False,
                       deformed_normal_method="patch_fit",
                       friction_cone_clip=False, kinematic_cap="none",
-                      damping_scale=1.0):
+                      damping_scale=1.0,
+                      causal_gating=False,
+                      contact_shell_delta=1e-4,
+                      v_min_closing=0.044,
+                      e_modal_cutoff_frac=1e-5):
     """Heavy box dropped on a shelf. Books standing upright topple.
 
     The shelf is a cantilever beam (fixed at one edge). Books are
@@ -249,6 +279,10 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
         budget_source=budget_source, enforce_bound=enforce_bound,
         deformed_normal_method=deformed_normal_method,
         friction_cone_clip=friction_cone_clip, kinematic_cap=kinematic_cap,
+        causal_gating=causal_gating,
+        contact_shell_delta=contact_shell_delta,
+        v_min_closing=v_min_closing,
+        e_modal_cutoff_frac=e_modal_cutoff_frac,
     )
 
     body_info = {}
@@ -290,7 +324,11 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
                       damping_scale=1.0,
                       budget_source="min_rigid_loss_modal", enforce_bound=False,
                       deformed_normal_method="patch_fit",
-                      friction_cone_clip=False, kinematic_cap="none"):
+                      friction_cone_clip=False, kinematic_cap="none",
+                      causal_gating=False,
+                      contact_shell_delta=1e-4,
+                      v_min_closing=0.044,
+                      e_modal_cutoff_frac=1e-5):
     """Boulder hits a cliff ledge, balanced rocks fall off the edge.
 
     Inspired by the paper's 'Rockfall' scene. The ledge is an elastic
@@ -322,6 +360,10 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
         budget_source=budget_source, enforce_bound=enforce_bound,
         deformed_normal_method=deformed_normal_method,
         friction_cone_clip=friction_cone_clip, kinematic_cap=kinematic_cap,
+        causal_gating=causal_gating,
+        contact_shell_delta=contact_shell_delta,
+        v_min_closing=v_min_closing,
+        e_modal_cutoff_frac=e_modal_cutoff_frac,
     )
 
     body_info = {}
@@ -605,6 +647,18 @@ def main():
         print(f"  --sim-duration:   Simulated duration in seconds; n_steps is "
               f"derived as round(duration / h) so playback length stays "
               f"constant when you change h (default: 2.0s, truck: 1.8s).")
+        print(f"  --causal-gating:  Enable contact-causal patch gates "
+              f"(default off; energy_prescribed_patch only).")
+        print(f"                    Combines: (1) contact-shell gate "
+              f"(gap <= delta), (2) closing-velocity deadband, (3) numerical")
+        print(f"                    E_modal cutoff. See "
+              f"prompts/passive_contact_causal_modal_coupling.md.")
+        print(f"  --contact-shell-delta <f>: shell tolerance δ in m "
+              f"(default: 1e-4).")
+        print(f"  --v-min-closing <f>:       closing-velocity deadband in m/s "
+              f"(default: 0.044 = √(2·g·1e-4)).")
+        print(f"  --e-modal-cutoff-frac <f>: numerical cutoff as fraction "
+              f"of peak E_modal (default: 1e-5).")
         sys.exit(1)
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
@@ -616,7 +670,10 @@ def main():
                  "--deformed-normal-method",
                  "--kinematic-cap",
                  "--damping-scale",
-                 "--sim-duration") and i + 1 < len(sys.argv):
+                 "--sim-duration",
+                 "--contact-shell-delta",
+                 "--v-min-closing",
+                 "--e-modal-cutoff-frac") and i + 1 < len(sys.argv):
             flag_value_args.add(sys.argv[i + 1])
     args = [a for a in args if a not in flag_value_args]
 
@@ -652,6 +709,18 @@ def main():
     if damping_scale <= 0.0:
         print(f"--damping-scale must be > 0; got {damping_scale}")
         sys.exit(1)
+
+    # Contact-causal gate flags (proposal: prompts/passive_contact_causal_modal_coupling.md).
+    causal_gating = "--causal-gating" in sys.argv
+    try:
+        contact_shell_delta = float(_parse_kv_flag("--contact-shell-delta", 1e-4))
+        v_min_closing = float(_parse_kv_flag("--v-min-closing", 0.044))
+        e_modal_cutoff_frac = float(_parse_kv_flag("--e-modal-cutoff-frac", 1e-5))
+    except ValueError:
+        print("--contact-shell-delta / --v-min-closing / --e-modal-cutoff-frac "
+              "must be floats")
+        sys.exit(1)
+
     sim_duration_arg = _parse_kv_flag("--sim-duration", None)
 
     # Map --mode → (coupler.dcr_velocity_mode, enforce_rigid_energy_bound).
@@ -686,6 +755,8 @@ def main():
                 mode_str += " +clip"
             if kinematic_cap != "none":
                 mode_str += f" +cap={kinematic_cap}"
+            if causal_gating:
+                mode_str += " +causal"
 
     for name in names:
         print(f"\n{'='*60}")
@@ -700,6 +771,10 @@ def main():
             friction_cone_clip=friction_cone_clip,
             kinematic_cap=kinematic_cap,
             damping_scale=damping_scale,
+            causal_gating=causal_gating,
+            contact_shell_delta=contact_shell_delta,
+            v_min_closing=v_min_closing,
+            e_modal_cutoff_frac=e_modal_cutoff_frac,
         )
         print(f"  Bodies: {len(world.bodies)}")
         print(f"  Dynamic: {[n for n in body_info]}")
