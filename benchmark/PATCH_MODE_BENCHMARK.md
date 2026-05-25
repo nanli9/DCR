@@ -189,25 +189,44 @@ Two structural takeaways:
    total energy, but BJ's tangential leak is much smaller → 4× less
    drift.
 
-#### β sweep (`scripts/sweep_beta.py`)
+#### β sweep (`scripts/sweep_beta.py`, all 36 runs complete)
 
-- **`energy_prescribed` and `point_impulse` modes are β-sensitive
-  as expected**: on truck/point_impulse,
-    `β=0.10 → 1180 J peak, 1380 J ∑E_inj`
-    `β=0.25 → 1266 J peak, 1814 J`
-    `β=0.50 → 1987 J peak, 3119 J`
-    `β=1.00 → 3967 J peak, 13980 J`
-  — clear runaway at β=1.0. Per-step §15 bound still holds; the cascade
-  is open-loop (higher kick → more bouncing → more rigid loss → larger
-  budget → larger kick).
-  **Recommendation: keep β ≤ 0.5 for stability.**
-- **Patch mode is β-insensitive by design.** On truck/patch,
-    `β=0.10 → 1173.858 J peak, 1319 J ∑E_inj`
-    `β=0.25 → 1173.854 J peak, 1333 J`
-  — peaks identical to 4 sig figs. Patch mode budgets from the modal
-  reservoir (foundation §1.modal_reservoir), not β·E_loss; β only
-  affects modes that route through the per-contact modal-path branch,
-  which the patch reformulation bypasses.
+Full numeric matrix. **E_modal_peak [J] | ∑E_inj [J]** per cell.
+§15_viol = 0.00e+00 for every cell.
+
+| scene/mode | β=0.10 | β=0.25 | β=0.50 | β=1.00 |
+|---|---|---|---|---|
+| shelf/energy_prescribed | 22.76 \| 23.23 | 22.76 \| 23.23 | 22.76 \| 23.49 | **62.06 \| 68.09** |
+| shelf/point_impulse | 22.76 \| 27.57 | 28.67 \| 34.63 | 37.94 \| 59.64 | **590.5 \| 1541** |
+| shelf/patch | 22.76 \| 24.08 | 22.76 \| 24.11 | 22.76 \| 24.30 | 22.76 \| 24.79 |
+| truck/energy_prescribed | 1180 \| 1303 | 1179 \| 1491 | 1466 \| 2033 | **2081 \| 3649** |
+| truck/point_impulse | 1179 \| 1380 | 1266 \| 1814 | 1987 \| 3119 | **3967 \| 13980** |
+| truck/patch | 1173.858 \| 1319 | 1173.854 \| 1333 | 1173.864 \| 1346 | 1173.860 \| 1340 |
+| ledge/energy_prescribed | 195.1 \| 195.2 | 195.1 \| 195.2 | 195.1 \| 208.1 | 195.1 \| 223.8 |
+| ledge/point_impulse | 195.1 \| 197.5 | 195.1 \| 200.3 | 195.1 \| 204.5 | 195.1 \| **282.6** |
+| ledge/patch | 195.1 \| 197.7 | 195.1 \| 197.9 | 195.1 \| 197.9 | 195.1 \| 197.9 |
+
+Three takeaways:
+
+1. **β=1.0 is a runaway regime** for `energy_prescribed` and
+   `point_impulse` (bolded cells). The worst offender is
+   `truck/point_impulse`: 1380 J → 13980 J cumulative as β goes
+   0.10 → 1.00 (10× more energy injected). The per-step §15 bound holds
+   in every case — but the cascade (higher kick → more bouncing → more
+   rigid loss → larger budget → larger kick) is open-loop.
+   **Recommendation: keep β ≤ 0.5 for stability.**
+2. **Patch mode is β-insensitive by design.** `truck/patch` shows
+   `E_modal_peak = 1173.858 J` at β=0.10, `1173.854 J` at β=0.25,
+   `1173.864 J` at β=0.50, `1173.860 J` at β=1.00 — identical to 4
+   sig figs. Patch budgets from the modal reservoir
+   (foundation §1.modal_reservoir), not β·E_loss; β only affects modes
+   that route through the per-contact modal-path branch, which the
+   patch reformulation bypasses.
+3. **E_modal_peak is capped by the rigid impact energy.** On ledge
+   (50 kg boulder dropped 0.8 m → ~196 J impact half-KE), every mode
+   and every β sees the *same* peak ≈ 195.1 J. β only changes the
+   cumulative integral (the trailing kicks after the initial impact);
+   the spike is set by physics, not by β.
 
 ## Files to know
 
