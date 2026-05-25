@@ -275,3 +275,37 @@ This proposed method is a real theory improvement:
 The slab should not be aggressively quieted. The coupling should be made more physically selective and energy-passive.
 
 That is the clean fix.
+
+---
+
+## Empirical Addendum (post-implementation, May 2026)
+
+The proposal was implemented in commit `d1b0405` as opt-in (default OFF) on the existing `energy_prescribed_patch` mode. All three gates (contact-shell, closing-velocity, numerical cutoff) landed; the foundation §15 invariant continues to hold zero-violation in every gated run; 328 tests pass.
+
+**However, empirical evaluation on the truck scene revealed that the gates alone do not solve the user-reported visual bumping.** Summary (8 s sim, β=0.70 = paper-like, BJ deformed normal, `damping_scale=1`):
+
+| metric | UNGATED | GATED |
+|---|---|---|
+| `lumber_1` y-range in last 3 s | 8.6 mm | **385.9 mm** |
+| `cone_0` y-range | 5.6 mm | 32.8 mm |
+| peak `E_modal` | 1203 J | **1646 J** (higher) |
+| §15 invariant violation | 0.0 | 0.0 |
+
+The gates reduce per-step kick *count* (as designed) but **increase per-kick *amplitude*** — sometimes catastrophically. Structural cause: the cone projection (`λ_n ≥ 0`) already zeroes the AWAY half of the slab's oscillation. The closing-velocity gate also zeroes some of the INTO half. Net energy delivered per cycle is approximately unchanged — only the **temporal concentration** changes. Larger concentrated kicks throw bodies higher. Empirically, peak `E_modal` is HIGHER with gating because the back-reaction `q̇ -= Φᵀλ` fires less often → reservoir drains slower → each kick that does fire is bigger.
+
+**The fix is to pair gating with a smaller per-step transfer fraction.** β-sweep on the truck scene (gated, 8 s):
+
+| β | max y_range across bodies |
+|---|---|
+| 0.10 | **3.2 mm**  ← cleanest |
+| 0.15 | 10.6 mm |
+| 0.25 | 13.4 mm |
+| 0.50 | 102.5 mm |
+| 0.70 | 385.9 mm |
+
+So the proposal's framing — "do not aggressively quiet the slab; use contact-causal selectivity" — is correct *in spirit*, but the proposal's recommended η range (§3, "η ∈ [0.05, 0.2]") is **not optional once gating is on**. In code: `--causal-gating --beta 0.10` is the practical default. With β > 0.5, gating is actively harmful.
+
+The lesson:
+> Persistent modal state requires **both** a per-kick frequency rule (the gates) AND a per-kick magnitude rule (small β, equivalently η). Either alone is insufficient. The proposal's η ∈ [0.05, 0.2] is the magnitude rule; this addendum is to underline that pairing it with the gates is *required*, not optional.
+
+Full empirical writeup: `benchmark/PATCH_MODE_BENCHMARK.md` → "Contact-causal gating — empirical evaluation".

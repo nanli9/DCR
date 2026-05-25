@@ -163,7 +163,13 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
     # Ground: wide elastic slab (2.5m x 1.5m, thin).
     mesh = make_slab_tet_mesh(length=2.5, width=1.5, height=0.06,
                               nx=16, ny=10, nz=2)
-    mat = Material(E=10.0e9, nu=0.3, rho=500.0)  # stiff ground
+    # E=10 GPa, ρ=500 kg/m³ — wood-like params matching the paper's
+    # Table 2 "ground" model (Coevoet et al. SCA 2020). NOT steel.
+    # For structural steel use E=200e9, ρ=7850; that would raise
+    # modal effective mass ~16× and likely mute the trailing-vibration
+    # behaviour the empirical evaluation in
+    # `benchmark/PATCH_MODE_BENCHMARK.md` is targeting.
+    mat = Material(E=10.0e9, nu=0.3, rho=500.0)
     ground_top = 0.03
     ground = make_static_plane(normal=(0, 1, 0),
                                point=(0, ground_top, 0), friction=0.6)
