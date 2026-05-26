@@ -1,0 +1,1044 @@
+{
+  "benchmark_id": "B3",
+  "title": "\u03b2 sweep across modes \u00d7 scenes",
+  "completed_at": "2026-05-26T05:13:13.390292+00:00",
+  "git_sha": "235abb6c6cf7595a7a2587fdf6eae5c84675e5c1",
+  "n_runs": 45,
+  "runs": [
+    {
+      "run_id": "ledge__energy_prescribed__b0.1",
+      "scene": "ledge",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.1,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.1_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed__b0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed__b0.25",
+      "scene": "ledge",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.25_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed__b0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed__b0.5",
+      "scene": "ledge",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.5,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.5_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed__b0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed__b0.75",
+      "scene": "ledge",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.75,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b0.75_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed__b0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed__b1",
+      "scene": "ledge",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 1.0,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed__b1_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed__b1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_patch__b0.1",
+      "scene": "ledge",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.1,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.1_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_patch__b0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_patch__b0.25",
+      "scene": "ledge",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.25_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_patch__b0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_patch__b0.5",
+      "scene": "ledge",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.5,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.5_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_patch__b0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_patch__b0.75",
+      "scene": "ledge",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.75,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b0.75_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_patch__b0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_patch__b1",
+      "scene": "ledge",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 1.0,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_patch__b1_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_patch__b1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_point_impulse__b0.1",
+      "scene": "ledge",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.1,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.1_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_point_impulse__b0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_point_impulse__b0.25",
+      "scene": "ledge",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.25_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_point_impulse__b0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_point_impulse__b0.5",
+      "scene": "ledge",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.5,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.5_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_point_impulse__b0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_point_impulse__b0.75",
+      "scene": "ledge",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.75,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b0.75_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_point_impulse__b0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_point_impulse__b1",
+      "scene": "ledge",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 1.0,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/ledge__energy_prescribed_point_impulse__b1_summary.json",
+        "log": "benchmark/logs/B3/ledge__energy_prescribed_point_impulse__b1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed__b0.1",
+      "scene": "shelf",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.1,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.1_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed__b0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed__b0.25",
+      "scene": "shelf",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.25_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed__b0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed__b0.5",
+      "scene": "shelf",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.5,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.5_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed__b0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed__b0.75",
+      "scene": "shelf",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.75,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b0.75_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed__b0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed__b1",
+      "scene": "shelf",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 1.0,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed__b1_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed__b1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_patch__b0.1",
+      "scene": "shelf",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.1,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.1_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_patch__b0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_patch__b0.25",
+      "scene": "shelf",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.25_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_patch__b0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_patch__b0.5",
+      "scene": "shelf",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.5,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.5_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_patch__b0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_patch__b0.75",
+      "scene": "shelf",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.75,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b0.75_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_patch__b0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_patch__b1",
+      "scene": "shelf",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 1.0,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_patch__b1_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_patch__b1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_point_impulse__b0.1",
+      "scene": "shelf",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.1,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.1_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_point_impulse__b0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_point_impulse__b0.25",
+      "scene": "shelf",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.25_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_point_impulse__b0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_point_impulse__b0.5",
+      "scene": "shelf",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.5,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.5_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_point_impulse__b0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_point_impulse__b0.75",
+      "scene": "shelf",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.75,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b0.75_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_point_impulse__b0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_point_impulse__b1",
+      "scene": "shelf",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 1.0,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/shelf__energy_prescribed_point_impulse__b1_summary.json",
+        "log": "benchmark/logs/B3/shelf__energy_prescribed_point_impulse__b1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed__b0.1",
+      "scene": "truck",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.1,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.1_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed__b0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed__b0.25",
+      "scene": "truck",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.25_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed__b0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed__b0.5",
+      "scene": "truck",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.5,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.5_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed__b0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed__b0.75",
+      "scene": "truck",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.75,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b0.75_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed__b0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed__b1",
+      "scene": "truck",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 1.0,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed__b1_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed__b1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__b0.1",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.1,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.1_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_patch__b0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__b0.25",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.25_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_patch__b0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__b0.5",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.5,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.5_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_patch__b0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__b0.75",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.75,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b0.75_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_patch__b0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__b1",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 1.0,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_patch__b1_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_patch__b1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_point_impulse__b0.1",
+      "scene": "truck",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.1,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.1_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_point_impulse__b0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_point_impulse__b0.25",
+      "scene": "truck",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.25_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_point_impulse__b0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_point_impulse__b0.5",
+      "scene": "truck",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.5,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.5_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_point_impulse__b0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_point_impulse__b0.75",
+      "scene": "truck",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.75,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b0.75_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_point_impulse__b0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_point_impulse__b1",
+      "scene": "truck",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 1.0,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b1_trajectory.csv",
+        "summary_json": "benchmark/runs/B3_beta_sweep/truck__energy_prescribed_point_impulse__b1_summary.json",
+        "log": "benchmark/logs/B3/truck__energy_prescribed_point_impulse__b1.log"
+      },
+      "status": "ok"
+    }
+  ]
+}

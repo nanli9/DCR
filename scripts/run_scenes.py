@@ -27,13 +27,39 @@ from dcr.dcr import PassiveDCRCoupler, DCRWorld
 
 
 H = 5e-3
-ETA = 0.5
+# Default transfer efficiency η for DCRWorld. 0.5 was the development
+# default; `benchmark/BENCHMARK_PROMPT.md` §4 ships 0.95 as the benchmark
+# default. Pass an explicit `eta=` kwarg to a builder to override either.
+DEFAULT_ETA = 0.5
 
 # Fixed simulated duration for the playback (seconds). n_steps is derived
 # from this and the active timestep h, so changing h does not change the
 # wallclock playback length — only the simulation resolution within it.
 SIM_DURATION_DEFAULT = 2.0      # seconds, for shelf and ledge
 SIM_DURATION_TRUCK = 1.8        # seconds, for truck (matches old 1800 steps @ h=1e-3)
+
+
+# Material registry used by the `material` kwarg on every scene builder.
+# `None` means "keep the scene's paper-matching default" (wood for truck,
+# stone for ledge, soft for shelf). The string forms below are used by
+# the B5 benchmark (steel vs wood comparison on truck).
+_MATERIAL_REGISTRY = {
+    # `benchmark/BENCHMARK_PROMPT.md` §5.5 / §4 — wood-like / steel.
+    "wood":  dict(E=10.0e9,  nu=0.3, rho=500.0),
+    "steel": dict(E=200.0e9, nu=0.3, rho=7850.0),
+}
+
+
+def _resolve_material(name, default):
+    """Return a `Material` instance from a registry name, or `default`
+    when `name` is None. Unknown names raise a clear KeyError so a typo
+    on the CLI surfaces immediately instead of silently falling back."""
+    if name is None:
+        return default
+    if name not in _MATERIAL_REGISTRY:
+        raise KeyError(
+            f"unknown material {name!r}; known: {sorted(_MATERIAL_REGISTRY)}")
+    return Material(**_MATERIAL_REGISTRY[name])
 
 
 def _fix_corners(mesh):
@@ -87,6 +113,7 @@ def _add_coupler(
     contact_shell_delta: float = 1e-4,
     v_min_closing: float = 0.044,
     e_modal_cutoff_frac: float = 1e-5,
+    paper_baseline_mode: bool = False,
 ):
     """Create and register a passive DCR coupler.
 
@@ -130,6 +157,7 @@ def _add_coupler(
         contact_shell_delta=contact_shell_delta,
         v_min_closing=v_min_closing,
         e_modal_cutoff_frac=e_modal_cutoff_frac,
+        paper_baseline_mode=paper_baseline_mode,
     )
     world.enforce_rigid_energy_bound = enforce_bound
     world.add_passive_coupler(coupler)
@@ -144,7 +172,11 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
                       causal_gating=False,
                       contact_shell_delta=1e-4,
                       v_min_closing=0.044,
-                      e_modal_cutoff_frac=1e-5):
+                      e_modal_cutoff_frac=1e-5,
+                      eta=DEFAULT_ETA,
+                      material=None,
+                      paper_baseline_mode=False,
+                      h=H):
     """Heavy objects dropped sequentially on road. Cones and lumber respond.
 
     Three drops at different positions and heights so they hit the ground
@@ -155,21 +187,19 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
     Ground is the elastic body; impactors, cones, and lumber are rigid.
     """
     world = DCRWorld(
-        h=H, eta=ETA,
-        solver=ConstraintSolver(h=H, cfm=1e-6, erp=0.2, pgs_iterations=120),
+        h=h, eta=eta,
+        solver=ConstraintSolver(h=h, cfm=1e-6, erp=0.2, pgs_iterations=120),
         dcr_enabled=True,
     )
 
     # Ground: wide elastic slab (2.5m x 1.5m, thin).
     mesh = make_slab_tet_mesh(length=2.5, width=1.5, height=0.06,
                               nx=16, ny=10, nz=2)
-    # E=10 GPa, ρ=500 kg/m³ — wood-like params matching the paper's
-    # Table 2 "ground" model (Coevoet et al. SCA 2020). NOT steel.
-    # For structural steel use E=200e9, ρ=7850; that would raise
-    # modal effective mass ~16× and likely mute the trailing-vibration
-    # behaviour the empirical evaluation in
-    # `benchmark/PATCH_MODE_BENCHMARK.md` is targeting.
-    mat = Material(E=10.0e9, nu=0.3, rho=500.0)
+    # Default is wood-like (E=10 GPa, ρ=500 kg/m³) matching the paper's
+    # Table 2 "ground" model (Coevoet et al. SCA 2020). The `material`
+    # kwarg overrides via `_resolve_material()` — `benchmark/BENCHMARK_PROMPT.md`
+    # §5.5 uses this to swap in structural steel (E=200 GPa, ρ=7850).
+    mat = _resolve_material(material, Material(E=10.0e9, nu=0.3, rho=500.0))
     ground_top = 0.03
     ground = make_static_plane(normal=(0, 1, 0),
                                point=(0, ground_top, 0), friction=0.6)
@@ -189,6 +219,7 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
         contact_shell_delta=contact_shell_delta,
         v_min_closing=v_min_closing,
         e_modal_cutoff_frac=e_modal_cutoff_frac,
+        paper_baseline_mode=paper_baseline_mode,
     )
 
     body_info = {}  # name -> (idx, hx, hy, hz, color)
@@ -250,7 +281,11 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
                       causal_gating=False,
                       contact_shell_delta=1e-4,
                       v_min_closing=0.044,
-                      e_modal_cutoff_frac=1e-5):
+                      e_modal_cutoff_frac=1e-5,
+                      eta=DEFAULT_ETA,
+                      material=None,
+                      paper_baseline_mode=False,
+                      h=H):
     """Heavy box dropped on a shelf. Books standing upright topple.
 
     The shelf is a cantilever beam (fixed at one edge). Books are
@@ -258,8 +293,8 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
     onto the free end of the shelf.
     """
     world = DCRWorld(
-        h=H, eta=ETA,
-        solver=ConstraintSolver(h=H, cfm=1e-6, erp=0.2, pgs_iterations=120),
+        h=h, eta=eta,
+        solver=ConstraintSolver(h=h, cfm=1e-6, erp=0.2, pgs_iterations=120),
         dcr_enabled=True,
     )
 
@@ -268,8 +303,8 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
                               nx=12, ny=5, nz=2)
     # Soft slab so the deformed normal (used by Version B) has visible
     # tilt during impact — previously controlled by the now-removed
-    # `tilt_mode` flag.
-    mat = Material(E=0.5e9, nu=0.3, rho=600.0)
+    # `tilt_mode` flag. Override via `material` kwarg if needed.
+    mat = _resolve_material(material, Material(E=0.5e9, nu=0.3, rho=600.0))
     shelf_top = 0.015  # top of slab (height/2)
     shelf = make_static_plane(normal=(0, 1, 0),
                               point=(0, shelf_top, 0), friction=0.5)
@@ -289,6 +324,7 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
         contact_shell_delta=contact_shell_delta,
         v_min_closing=v_min_closing,
         e_modal_cutoff_frac=e_modal_cutoff_frac,
+        paper_baseline_mode=paper_baseline_mode,
     )
 
     body_info = {}
@@ -334,7 +370,11 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
                       causal_gating=False,
                       contact_shell_delta=1e-4,
                       v_min_closing=0.044,
-                      e_modal_cutoff_frac=1e-5):
+                      e_modal_cutoff_frac=1e-5,
+                      eta=DEFAULT_ETA,
+                      material=None,
+                      paper_baseline_mode=False,
+                      h=H):
     """Boulder hits a cliff ledge, balanced rocks fall off the edge.
 
     Inspired by the paper's 'Rockfall' scene. The ledge is an elastic
@@ -342,15 +382,16 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
     balanced near the free edge. A heavy boulder drops onto the ledge.
     """
     world = DCRWorld(
-        h=H, eta=ETA,
-        solver=ConstraintSolver(h=H, cfm=1e-6, erp=0.2, pgs_iterations=120),
+        h=h, eta=eta,
+        solver=ConstraintSolver(h=h, cfm=1e-6, erp=0.2, pgs_iterations=120),
         dcr_enabled=True,
     )
 
     # Ledge: elastic slab, cantilever from left edge.
     mesh = make_slab_tet_mesh(length=1.2, width=0.8, height=0.08,
                               nx=12, ny=8, nz=2)
-    mat = Material(E=10.0e9, nu=0.3, rho=2500.0)  # stone
+    # Default is stone (E=10 GPa, ρ=2500 kg/m³). `material` kwarg overrides.
+    mat = _resolve_material(material, Material(E=10.0e9, nu=0.3, rho=2500.0))
     ledge_top = 0.04
     ledge = make_static_plane(normal=(0, 1, 0),
                               point=(0, ledge_top, 0), friction=0.5)
@@ -370,6 +411,7 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
         contact_shell_delta=contact_shell_delta,
         v_min_closing=v_min_closing,
         e_modal_cutoff_frac=e_modal_cutoff_frac,
+        paper_baseline_mode=paper_baseline_mode,
     )
 
     body_info = {}
@@ -422,8 +464,17 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
 # Simulation + Polyscope playback
 # ======================================================================
 
-def simulate(world, coupler, body_info, n_steps=1500):
-    """Settle then simulate, recording positions."""
+def simulate(world, coupler, body_info, n_steps=1500, record_velocities=False):
+    """Settle then simulate, recording positions (and optionally velocities).
+
+    Returns either:
+      * `(times, positions, orientations)` — back-compat default.
+      * `(times, positions, orientations, velocities)` — when
+        `record_velocities=True`. `velocities[name]` is a list of (6,)
+        arrays `[vx, vy, vz, wx, wy, wz]` per recorded step. Used by
+        `scripts/run_one.py` to write the §2.2 trajectory CSV without
+        a second pass.
+    """
     # Identify impactors: bodies named drop_*, truck, boulder, drop.
     impactor_names = {"drop", "truck", "boulder"}
     impactor_idxs = []
@@ -446,11 +497,28 @@ def simulate(world, coupler, body_info, n_steps=1500):
         world.bodies[idx].is_static = False
     world.dcr_enabled = old_dcr
     world.time = 0.0
+    # Drop any log entries the settle phase accumulated — the benchmark
+    # output should describe ONLY the recorded simulation, not the
+    # settling prelude. Re-instantiates the same log types so callers
+    # holding the world keep working with their original toggles.
+    if getattr(world, "enable_energy_logging", False) \
+            and world.energy_log is not None:
+        from dcr.benchmark.energy_log import EnergyLog
+        world.energy_log = EnergyLog()
+    if getattr(world, "enable_impulse_logging", False) \
+            and world.impulse_log is not None:
+        from dcr.benchmark.impulse_log import ImpulseLog
+        world.impulse_log = ImpulseLog()
+    if getattr(world, "enable_timing_log", False) \
+            and world.timing_log is not None:
+        from dcr.benchmark.timing_log import TimingLog
+        world.timing_log = TimingLog()
 
     # Record.
     times = []
     positions = {name: [] for name in body_info}
     orientations = {name: [] for name in body_info}
+    velocities = {name: [] for name in body_info} if record_velocities else None
 
     for step_i in range(n_steps):
         world.step()
@@ -458,7 +526,11 @@ def simulate(world, coupler, body_info, n_steps=1500):
         for name, (idx, *_) in body_info.items():
             positions[name].append(world.bodies[idx].position.copy())
             orientations[name].append(world.bodies[idx].orientation.copy())
+            if record_velocities:
+                velocities[name].append(world.bodies[idx].velocity.copy())
 
+    if record_velocities:
+        return times, positions, orientations, velocities
     return times, positions, orientations
 
 
@@ -553,7 +625,7 @@ def playback_polyscope(mesh, body_info, times, positions, orientations, title):
         _, speed[0] = imgui.SliderFloat("Speed", speed[0], 0.05, 4.0)
 
         si = _frame_for_sim_t(sim_t[0])
-        imgui.Text(f"{title}  (eta={ETA})")
+        imgui.Text(f"{title}")
         imgui.Text(f"t = {times[si]*1000:.0f} ms   "
                    f"(h = {dt_record*1000:.2f} ms, speed = {speed[0]:.2f}×)")
 

@@ -27,23 +27,31 @@ class EnergyLogEntry:
     """One step's energy snapshot.
 
     All values in SI (J). `dE_*` are per-step deltas, not cumulative.
+    Column names on disk follow `benchmark/BENCHMARK_PROMPT.md` §2.1;
+    Python-side field names are kept verbose for readability and remapped
+    in `EnergyLog.to_csv()`.
     """
     step: int
     t: float                          # sim time at end of step
-    E_rigid_KE_post: float            # rigid kinetic energy AFTER rigid solve
-                                      #   (and after DCR velocity kicks)
-    E_modal_post: float               # ½‖q̇‖² + ½‖ω q‖² at end of step
+    E_rigid_KE_post: float            # → CSV col "E_rigid_KE": rigid KE AFTER
+                                      #   rigid solve + DCR velocity kicks
+    E_modal_post: float               # → CSV col "E_modal": ½‖q̇‖² + ½‖ω q‖²
     dE_rigid_loss: float              # = world.last_E_loss (E_pre - E_post,
                                       #   raw rigid KE lost in solve)
-    dE_modal_injected: float          # change in E_modal due to coupler kick:
-                                      #   = last_E_modal_post_kick
-                                      #     - last_E_modal_pre_kick
-                                      #   POSITIVE for A/B modes (injection),
-                                      #   may be NEGATIVE for patch mode
-                                      #   (back-reaction extracts from modes)
+    dE_modal_injected: float          # POSITIVE part of modal energy delta
+                                      #   this step (max(dE, 0)).
+    dE_modal_extracted: float         # POSITIVE part of modal energy DROP
+                                      #   this step (max(-dE, 0)). Tracks the
+                                      #   patch-mode back-reaction draining
+                                      #   the modal reservoir.
     alpha: float                      # last_alpha (passive scaling coef
-                                      #   used by A/B modes; 0 for patch)
-    eta: float                        # world.eta at this step (constant per run)
+                                      #   used by A/B modes; NaN for paper
+                                      #   baseline coevoet mode per §2.1).
+    eta: float                        # world.eta at this step (constant)
+    beta: float                       # world.beta at this step (constant)
+    n_active_kicks: int               # DCR distant-velocity kicks issued
+                                      #   this step (after any α/cap clip).
+    n_active_contacts: int            # total active contacts in solver.
 
 
 @dataclass
@@ -84,19 +92,20 @@ class EnergyLog:
     def cumulative_rigid_loss(self) -> NDArray[np.float64]:
         return np.cumsum(self.dE_rigid_loss())
 
+    def dE_modal_extracted(self) -> NDArray[np.float64]:
+        return np.array([e.dE_modal_extracted for e in self.entries],
+                        dtype=np.float64)
+
     def cumulative_modal_injected(self) -> NDArray[np.float64]:
-        """Cumulative POSITIVE injected modal energy (clipped at zero per
-        step). Negative deltas (extraction in patch mode) are NOT counted
-        as injection — they appear in `cumulative_modal_extracted()`."""
-        d = self.dE_modal_injected()
-        return np.cumsum(np.maximum(0.0, d))
+        """Cumulative POSITIVE injected modal energy (the per-step deltas
+        are already clipped at zero in `EnergyLogEntry.dE_modal_injected`).
+        Drops show up in `cumulative_modal_extracted()`."""
+        return np.cumsum(self.dE_modal_injected())
 
     def cumulative_modal_extracted(self) -> NDArray[np.float64]:
-        """Cumulative POSITIVE extracted modal energy: sum of `-dE` where
-        `dE < 0`. This is the patch-mode back-reaction draining the
-        reservoir."""
-        d = self.dE_modal_injected()
-        return np.cumsum(np.maximum(0.0, -d))
+        """Cumulative POSITIVE extracted modal energy — patch-mode
+        back-reaction draining the reservoir."""
+        return np.cumsum(self.dE_modal_extracted())
 
     def invariant_violation(self) -> float:
         """Max excess of cumulative_modal_injected over eta * cumulative
@@ -111,11 +120,19 @@ class EnergyLog:
     # ----------------- serialization (CSV / npz) ------------------------
 
     def to_csv(self, path) -> None:
-        """Write one row per step. Columns: every raw EnergyLogEntry
-        field + cumulative_rigid_loss + cumulative_modal_injected +
-        cumulative_modal_extracted. Header is the first row.
+        """Write one row per step in `BENCHMARK_PROMPT.md` §2.1 schema.
+
+        Columns (case-sensitive — the plotter selects by name):
+            step, t,
+            E_rigid_KE, E_modal,
+            dE_rigid_loss, dE_modal_injected, dE_modal_extracted,
+            cum_E_loss, cum_E_budget_eta,
+            cum_E_injected, cum_E_extracted,
+            alpha, eta, beta,
+            n_active_kicks, n_active_contacts
         """
         import csv
+        import math
         from pathlib import Path
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -126,18 +143,28 @@ class EnergyLog:
             w = csv.writer(f)
             w.writerow([
                 "step", "t",
-                "E_rigid_KE_post", "E_modal_post",
-                "dE_rigid_loss", "dE_modal_injected",
-                "alpha", "eta",
-                "cum_rigid_loss", "cum_modal_injected",
-                "cum_modal_extracted",
+                "E_rigid_KE", "E_modal",
+                "dE_rigid_loss", "dE_modal_injected", "dE_modal_extracted",
+                "cum_E_loss", "cum_E_budget_eta",
+                "cum_E_injected", "cum_E_extracted",
+                "alpha", "eta", "beta",
+                "n_active_kicks", "n_active_contacts",
             ])
             for i, e in enumerate(self.entries):
+                cum_budget = e.eta * cum_loss[i]
+                # NaN α written as the string "nan" — spec §2.1 explicitly
+                # admits NaN here for paper-baseline coevoet rows.
+                alpha_str = (
+                    "nan" if (isinstance(e.alpha, float) and math.isnan(e.alpha))
+                    else f"{e.alpha:.6e}"
+                )
                 w.writerow([
                     e.step, f"{e.t:.6f}",
                     f"{e.E_rigid_KE_post:.6e}", f"{e.E_modal_post:.6e}",
                     f"{e.dE_rigid_loss:.6e}", f"{e.dE_modal_injected:.6e}",
-                    f"{e.alpha:.6e}", f"{e.eta:.6e}",
-                    f"{cum_loss[i]:.6e}", f"{cum_inj[i]:.6e}",
-                    f"{cum_ext[i]:.6e}",
+                    f"{e.dE_modal_extracted:.6e}",
+                    f"{cum_loss[i]:.6e}", f"{cum_budget:.6e}",
+                    f"{cum_inj[i]:.6e}", f"{cum_ext[i]:.6e}",
+                    alpha_str, f"{e.eta:.6e}", f"{e.beta:.6e}",
+                    e.n_active_kicks, e.n_active_contacts,
                 ])

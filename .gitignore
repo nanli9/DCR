@@ -21,3 +21,8 @@ imgui.ini
 
 # Benchmark CSV outputs
 benchmarks/output/
+
+# Benchmark sweep artifacts (regeneratable via scripts/run_all_benchmarks.py)
+benchmark/runs/
+benchmark/logs/
+dcr_benchmark_data.tar.gz

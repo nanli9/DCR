@@ -12,13 +12,20 @@ from dcr.benchmark import EnergyLog, EnergyLogEntry
 
 
 def _entry(step, t, dE_rigid_loss, dE_modal_injected, alpha=1.0, eta=0.5,
-           E_rigid=0.0, E_modal=0.0):
+           E_rigid=0.0, E_modal=0.0, beta=0.25,
+           n_active_kicks=0, n_active_contacts=0):
+    """Helper that splits a signed `dE_modal_injected` into the two
+    schema fields (positive → injected, negative → extracted).
+
+    Mirrors how `DCRWorld.step()` populates the entry."""
     return EnergyLogEntry(
         step=step, t=t,
         E_rigid_KE_post=E_rigid, E_modal_post=E_modal,
         dE_rigid_loss=dE_rigid_loss,
-        dE_modal_injected=dE_modal_injected,
-        alpha=alpha, eta=eta,
+        dE_modal_injected=max(0.0, dE_modal_injected),
+        dE_modal_extracted=max(0.0, -dE_modal_injected),
+        alpha=alpha, eta=eta, beta=beta,
+        n_active_kicks=n_active_kicks, n_active_contacts=n_active_contacts,
     )
 
 
@@ -41,6 +48,7 @@ class TestEnergyLog:
         np.testing.assert_array_equal(log.times(), [0.01, 0.02])
         np.testing.assert_array_equal(log.dE_rigid_loss(), [10.0, 5.0])
         np.testing.assert_array_equal(log.dE_modal_injected(), [3.0, 1.0])
+        np.testing.assert_array_equal(log.dE_modal_extracted(), [0.0, 0.0])
 
     def test_cumulative_rigid_loss(self):
         log = EnergyLog()
@@ -166,12 +174,18 @@ class TestEnergyLogCSV:
         assert rows[0]["step"] == "0"
         assert float(rows[0]["dE_rigid_loss"]) == pytest.approx(10.0)
         assert float(rows[0]["dE_modal_injected"]) == pytest.approx(3.0)
-        assert float(rows[0]["cum_modal_injected"]) == pytest.approx(3.0)
-        assert float(rows[0]["cum_modal_extracted"]) == pytest.approx(0.0)
+        assert float(rows[0]["cum_E_injected"]) == pytest.approx(3.0)
+        assert float(rows[0]["cum_E_extracted"]) == pytest.approx(0.0)
         # Second row: extraction (negative delta) shouldn't add to injection
-        assert float(rows[1]["cum_modal_injected"]) == pytest.approx(3.0)
-        assert float(rows[1]["cum_modal_extracted"]) == pytest.approx(1.0)
-        assert float(rows[1]["cum_rigid_loss"]) == pytest.approx(15.0)
+        assert float(rows[1]["cum_E_injected"]) == pytest.approx(3.0)
+        assert float(rows[1]["cum_E_extracted"]) == pytest.approx(1.0)
+        assert float(rows[1]["cum_E_loss"]) == pytest.approx(15.0)
+        # cum_E_budget_eta = eta * cum_E_loss
+        assert float(rows[1]["cum_E_budget_eta"]) == pytest.approx(0.3 * 15.0)
+        # Schema fields present
+        assert "beta" in rows[0]
+        assert "n_active_kicks" in rows[0]
+        assert "n_active_contacts" in rows[0]
 
     def test_csv_empty_log(self, tmp_path):
         log = EnergyLog()

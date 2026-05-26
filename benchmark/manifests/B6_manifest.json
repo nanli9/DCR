@@ -1,0 +1,297 @@
+{
+  "benchmark_id": "B6",
+  "title": "Runtime breakdown per scene \u00d7 mode",
+  "completed_at": "2026-05-26T06:17:13.001085+00:00",
+  "git_sha": "235abb6c6cf7595a7a2587fdf6eae5c84675e5c1",
+  "n_runs": 12,
+  "runs": [
+    {
+      "run_id": "ledge__coevoet",
+      "scene": "ledge",
+      "mode": "coevoet",
+      "flavor": "rest",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/ledge__coevoet_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/ledge__coevoet_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/ledge__coevoet_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/ledge__coevoet_timing.csv",
+        "log": "benchmark/logs/B6/ledge__coevoet.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_patch",
+      "scene": "ledge",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/ledge__energy_prescribed_patch_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/ledge__energy_prescribed_patch_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/ledge__energy_prescribed_patch_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/ledge__energy_prescribed_patch_timing.csv",
+        "log": "benchmark/logs/B6/ledge__energy_prescribed_patch.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed_point_impulse",
+      "scene": "ledge",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/ledge__energy_prescribed_point_impulse_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/ledge__energy_prescribed_point_impulse_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/ledge__energy_prescribed_point_impulse_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/ledge__energy_prescribed_point_impulse_timing.csv",
+        "log": "benchmark/logs/B6/ledge__energy_prescribed_point_impulse.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "ledge__energy_prescribed",
+      "scene": "ledge",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/ledge__energy_prescribed_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/ledge__energy_prescribed_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/ledge__energy_prescribed_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/ledge__energy_prescribed_timing.csv",
+        "log": "benchmark/logs/B6/ledge__energy_prescribed.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__coevoet",
+      "scene": "shelf",
+      "mode": "coevoet",
+      "flavor": "rest",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/shelf__coevoet_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/shelf__coevoet_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/shelf__coevoet_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/shelf__coevoet_timing.csv",
+        "log": "benchmark/logs/B6/shelf__coevoet.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_patch",
+      "scene": "shelf",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/shelf__energy_prescribed_patch_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/shelf__energy_prescribed_patch_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/shelf__energy_prescribed_patch_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/shelf__energy_prescribed_patch_timing.csv",
+        "log": "benchmark/logs/B6/shelf__energy_prescribed_patch.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed_point_impulse",
+      "scene": "shelf",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/shelf__energy_prescribed_point_impulse_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/shelf__energy_prescribed_point_impulse_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/shelf__energy_prescribed_point_impulse_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/shelf__energy_prescribed_point_impulse_timing.csv",
+        "log": "benchmark/logs/B6/shelf__energy_prescribed_point_impulse.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "shelf__energy_prescribed",
+      "scene": "shelf",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/shelf__energy_prescribed_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/shelf__energy_prescribed_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/shelf__energy_prescribed_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/shelf__energy_prescribed_timing.csv",
+        "log": "benchmark/logs/B6/shelf__energy_prescribed.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__coevoet",
+      "scene": "truck",
+      "mode": "coevoet",
+      "flavor": "rest",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/truck__coevoet_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/truck__coevoet_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/truck__coevoet_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/truck__coevoet_timing.csv",
+        "log": "benchmark/logs/B6/truck__coevoet.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/truck__energy_prescribed_patch_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/truck__energy_prescribed_patch_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/truck__energy_prescribed_patch_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/truck__energy_prescribed_patch_timing.csv",
+        "log": "benchmark/logs/B6/truck__energy_prescribed_patch.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_point_impulse",
+      "scene": "truck",
+      "mode": "energy_prescribed_point_impulse",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/truck__energy_prescribed_point_impulse_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/truck__energy_prescribed_point_impulse_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/truck__energy_prescribed_point_impulse_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/truck__energy_prescribed_point_impulse_timing.csv",
+        "log": "benchmark/logs/B6/truck__energy_prescribed_point_impulse.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed",
+      "scene": "truck",
+      "mode": "energy_prescribed",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B6_runtime/truck__energy_prescribed_energy.csv",
+        "trajectory_csv": "benchmark/runs/B6_runtime/truck__energy_prescribed_trajectory.csv",
+        "summary_json": "benchmark/runs/B6_runtime/truck__energy_prescribed_summary.json",
+        "timing_csv": "benchmark/runs/B6_runtime/truck__energy_prescribed_timing.csv",
+        "log": "benchmark/logs/B6/truck__energy_prescribed.log"
+      },
+      "status": "ok"
+    }
+  ]
+}

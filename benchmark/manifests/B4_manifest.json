@@ -1,0 +1,147 @@
+{
+  "benchmark_id": "B4",
+  "title": "\u03b7 sweep at fixed scene/mode",
+  "completed_at": "2026-05-26T05:18:14.021941+00:00",
+  "git_sha": "235abb6c6cf7595a7a2587fdf6eae5c84675e5c1",
+  "n_runs": 6,
+  "runs": [
+    {
+      "run_id": "truck__energy_prescribed_patch__eta0.1",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.1,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.1_trajectory.csv",
+        "summary_json": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.1_summary.json",
+        "log": "benchmark/logs/B4/truck__energy_prescribed_patch__eta0.1.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__eta0.25",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.25,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.25_energy.csv",
+        "trajectory_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.25_trajectory.csv",
+        "summary_json": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.25_summary.json",
+        "log": "benchmark/logs/B4/truck__energy_prescribed_patch__eta0.25.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__eta0.5",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.5,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.5_energy.csv",
+        "trajectory_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.5_trajectory.csv",
+        "summary_json": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.5_summary.json",
+        "log": "benchmark/logs/B4/truck__energy_prescribed_patch__eta0.5.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__eta0.75",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.75,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.75_energy.csv",
+        "trajectory_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.75_trajectory.csv",
+        "summary_json": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.75_summary.json",
+        "log": "benchmark/logs/B4/truck__energy_prescribed_patch__eta0.75.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__eta0.95",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 0.95,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.95_energy.csv",
+        "trajectory_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.95_trajectory.csv",
+        "summary_json": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta0.95_summary.json",
+        "log": "benchmark/logs/B4/truck__energy_prescribed_patch__eta0.95.log"
+      },
+      "status": "ok"
+    },
+    {
+      "run_id": "truck__energy_prescribed_patch__eta1",
+      "scene": "truck",
+      "mode": "energy_prescribed_patch",
+      "flavor": "barbic_james",
+      "params": {
+        "eta": 1.0,
+        "beta": 0.25,
+        "h": 0.005,
+        "duration_s": 4.0,
+        "damping_scale": 1.0,
+        "restitution": 0.15,
+        "material": "default",
+        "causal_gating": false
+      },
+      "files": {
+        "energy_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta1_energy.csv",
+        "trajectory_csv": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta1_trajectory.csv",
+        "summary_json": "benchmark/runs/B4_eta_sweep/truck__energy_prescribed_patch__eta1_summary.json",
+        "log": "benchmark/logs/B4/truck__energy_prescribed_patch__eta1.log"
+      },
+      "status": "ok"
+    }
+  ]
+}

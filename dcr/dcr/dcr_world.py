@@ -79,6 +79,22 @@ class DCRWorld:
     enable_energy_logging: bool = False
     energy_log: "EnergyLog" = field(default_factory=lambda: None)  # noqa: F821
 
+    # B2 per-contact impulse log (`benchmark/BENCHMARK_PROMPT.md` §2.4).
+    # When True, the step appends one `ImpulseLogEntry` per active contact
+    # this step (i.e. those whose `lam` block has nonzero impulses) to
+    # `self.impulse_log`. `body_name_map` is body-index → body-name and
+    # must be populated by the caller before `step()` if it wants the
+    # CSV's `body_name` column filled (otherwise it falls back to
+    # `body_<idx>`). OFF by default — only B2 sets it.
+    enable_impulse_logging: bool = False
+    impulse_log: "ImpulseLog" = field(default_factory=lambda: None)  # noqa: F821
+    body_name_map: dict[int, str] = field(default_factory=dict)
+
+    # B6 per-step wall-clock log (`benchmark/BENCHMARK_PROMPT.md` §2.5).
+    # Same on/off discipline. OFF by default; only B6 sets it.
+    enable_timing_log: bool = False
+    timing_log: "TimingLog" = field(default_factory=lambda: None)  # noqa: F821
+
     def __post_init__(self) -> None:
         self.solver.h = self.h
         # Lazy import to avoid circular dep with dcr.benchmark at module-load
@@ -115,6 +131,10 @@ class DCRWorld:
 
         Returns the contact list for this step.
         """
+        # B6 timing log: monotonic step-start timestamp.
+        if self.enable_timing_log:
+            import time as _time
+            _step_t0 = _time.perf_counter_ns()
         # 1. Apply gravity.
         for body in self.bodies:
             body.force = np.zeros(6)
@@ -128,7 +148,25 @@ class DCRWorld:
         E_pre = rigid_kinetic_energy(self.bodies)
 
         # 3. Solve constraints → velocities updated, get λ.
+        if self.enable_timing_log:
+            import time as _time
+            _rigid_t0 = _time.perf_counter_ns()
         lam = self.solver.solve(self.bodies, contacts, self.joints)
+        if self.enable_timing_log:
+            _rigid_solve_ms = (_time.perf_counter_ns() - _rigid_t0) * 1e-6
+        else:
+            _rigid_solve_ms = 0.0
+
+        # B2 impulse log: snapshot of (J_n, J_t1, J_t2) + rest normal per
+        # contact for the §2.4 CSV. Deformed normals come from the
+        # coupler in step 4 — we record both here using whatever it
+        # stashed last step (or fall back to n_rest). For the FIRST step
+        # there's no prior coupler state, so this is informational only.
+        # Reading post-step (after the coupler has run) was considered
+        # but loses the contact list at that point (contacts mutate).
+        self._impulse_log_capture_pending = (
+            contacts, lam, list(self.bodies)
+        ) if self.enable_impulse_logging else None
 
         # E0.3: sample rigid KE after solve, compute E_loss (foundation §1).
         E_post = rigid_kinetic_energy(self.bodies)
@@ -141,6 +179,9 @@ class DCRWorld:
         self.last_E_rigid_out_after_cap = 0.0
         self.last_dcr_clipped = False
         clip_eps = 1.0 - 1e-9  # treat s < this as "scaling fired"
+        # Timing-log defaults for the case where dcr is disabled or no
+        # contacts (the timed blocks below don't fire then).
+        _distant_response_ms = 0.0
         if self.dcr_enabled and len(lam) > 0:
             # Original modal-path couplers (Stage 5, forced IIR).
             for coupler in self.dcr_couplers:
@@ -154,6 +195,9 @@ class DCRWorld:
 
             # Passive energy-bounded couplers (Stage E3) +
             # this follow-up's energy_prescribed* modes.
+            if self.enable_timing_log:
+                import time as _time
+                _dr_t0 = _time.perf_counter_ns()
             for coupler in self.passive_couplers:
                 dcr_velocities = coupler.process_step(
                     contacts, lam, self.h, self.last_E_max,
@@ -196,6 +240,12 @@ class DCRWorld:
                     self._apply_dcr_velocities(
                         dcr_velocities, contacts, coupler.elastic_body_idx)
 
+            if self.enable_timing_log:
+                _distant_response_ms = (
+                    _time.perf_counter_ns() - _dr_t0) * 1e-6
+            else:
+                _distant_response_ms = 0.0
+
             # Spatial-attenuation couplers (Stage 6).
             for coupler in self.spatial_couplers:
                 dcr_velocities = coupler.process_step(contacts, lam, self.h)
@@ -216,6 +266,84 @@ class DCRWorld:
 
         self.time += self.h
 
+        # 5.4 B6 timing log: one row per step. The per-mode breakdown
+        # (`t_modal_step_ms`, `t_deformed_normal_ms`) reads the first
+        # passive coupler's accumulators (single-elastic-body scenes —
+        # same convention as energy logging).
+        if (self.enable_timing_log and self.timing_log is not None):
+            from dcr.benchmark.timing_log import TimingLogEntry
+            import time as _time
+            _total_ms = (_time.perf_counter_ns() - _step_t0) * 1e-6
+            _modal_ms = 0.0
+            _dn_ms = 0.0
+            for _c in self.passive_couplers:
+                _modal_ms = float(getattr(_c, "last_timing_modal_ms", 0.0))
+                _dn_ms = float(getattr(
+                    _c, "last_timing_deformed_normal_ms", 0.0))
+                break  # first coupler only — matches energy log convention
+            step_idx = (len(self.energy_log)
+                        if self.energy_log is not None else 0)
+            self.timing_log.append(TimingLogEntry(
+                step=step_idx, t=self.time,
+                t_rigid_solve_ms=_rigid_solve_ms,
+                t_modal_step_ms=_modal_ms,
+                t_deformed_normal_ms=_dn_ms,
+                t_distant_response_ms=_distant_response_ms,
+                t_total_step_ms=_total_ms,
+            ))
+
+        # 5.5 B2 impulse log: flush per-active-contact rows for this step.
+        # Reads the coupler's `last_deformed_normals` (keyed by id(contact))
+        # populated during step 4 above; contacts the coupler didn't touch
+        # fall back to n_rest. Skipped when no impulse logging is on.
+        if (self.enable_impulse_logging and self.impulse_log is not None
+                and self._impulse_log_capture_pending is not None):
+            from dcr.benchmark.impulse_log import ImpulseLogEntry
+            from dcr.rigid.solver import _pick_friction_dirs
+            cap_contacts, cap_lam, _ = self._impulse_log_capture_pending
+            step_idx = (len(self.energy_log)
+                        if self.energy_log is not None else 0)
+            # Collect deformed-normal stashes across all passive couplers.
+            stash: dict[int, NDArray[np.float64]] = {}
+            for c in self.passive_couplers:
+                stash.update(getattr(c, "last_deformed_normals", {}) or {})
+            for ci, contact in enumerate(cap_contacts):
+                if 3 * ci + 2 >= len(cap_lam):
+                    continue
+                J_n = float(cap_lam[3 * ci])
+                J_t1 = float(cap_lam[3 * ci + 1])
+                J_t2 = float(cap_lam[3 * ci + 2])
+                # Filter to "active" rows: at least one of J_n, J_t1, J_t2
+                # is meaningfully non-zero. Avoids a row per inactive
+                # resting contact (lots of zeros for the boulder-on-shelf
+                # static stack).
+                if max(abs(J_n), abs(J_t1), abs(J_t2)) < 1e-9:
+                    continue
+                # Body to attribute to: the non-elastic / non-static body.
+                # If both are non-elastic, default to body_a. Names come
+                # from `body_name_map` (run_one.py populates this).
+                body_idx_for_name = contact.body_b
+                if (self.bodies[contact.body_b].is_static
+                        and not self.bodies[contact.body_a].is_static):
+                    body_idx_for_name = contact.body_a
+                body_name = self.body_name_map.get(
+                    body_idx_for_name, f"body_{body_idx_for_name}")
+                n_rest = np.asarray(contact.normal, dtype=np.float64)
+                n_def = stash.get(id(contact), n_rest).copy()
+                self.impulse_log.append(ImpulseLogEntry(
+                    step=step_idx, t=self.time,
+                    body_name=body_name,
+                    contact_x=float(contact.point[0]),
+                    contact_y=float(contact.point[1]),
+                    contact_z=float(contact.point[2]),
+                    J_normal=J_n,
+                    J_tangential_u=J_t1,
+                    J_tangential_v=J_t2,
+                    n_rest=n_rest,
+                    n_deformed=n_def,
+                ))
+            self._impulse_log_capture_pending = None
+
         # 6. Energy log (one entry per step when enabled). Pulls from
         # both rigid (E_KE, E_loss) and modal (E_modal pre/post kick,
         # alpha) state. Foundation §15 invariant is checked offline by
@@ -224,27 +352,58 @@ class DCRWorld:
             from dcr.benchmark.energy_log import EnergyLogEntry
             E_rigid_post = rigid_kinetic_energy(self.bodies)
             E_modal_post = 0.0
-            dE_modal_injected = 0.0
+            dE_modal = 0.0
             alpha_used = 0.0
+            beta_used = 0.0
+            n_active_kicks = 0
             for coupler in self.passive_couplers:
                 E_modal_post = float(getattr(
                     coupler, "last_E_modal_post_kick", 0.0))
                 E_pre_kick = float(getattr(
                     coupler, "last_E_modal_pre_kick", 0.0))
-                dE_modal_injected = E_modal_post - E_pre_kick
+                dE_modal = E_modal_post - E_pre_kick
                 alpha_used = float(getattr(coupler, "last_alpha", 0.0))
-                # Only the first passive coupler is logged for now (single-
-                # elastic-body scenes — covers all current run_scenes setups).
+                beta_used = float(getattr(
+                    coupler, "energy_response_beta", 0.0))
+                # `n_active_kicks` reflects whichever code-path the
+                # coupler dispatched on this step. Each branch sets
+                # exactly one of these to non-None on the coupler.
+                if getattr(coupler, "last_patch_kicks", None):
+                    n_active_kicks += sum(
+                        1 for k in coupler.last_patch_kicks
+                        if k is not None
+                    )
+                elif getattr(coupler, "last_point_impulse_kicks", None):
+                    n_active_kicks += len(coupler.last_point_impulse_kicks)
+                elif getattr(coupler, "last_linear_kicks", None):
+                    n_active_kicks += len(coupler.last_linear_kicks)
+                else:
+                    # Scalar-Δv path (coevoet): count non-zero entries
+                    # in last_dcr_velocities if exposed by the coupler.
+                    dv = getattr(coupler, "last_dcr_velocities", None) or {}
+                    n_active_kicks += sum(1 for v in dv.values() if v != 0.0)
+                # Only the first passive coupler is logged (single-
+                # elastic-body scenes — covers all spec scenes).
                 break
+            # Paper-baseline mode logs α as NaN per spec §2.1.
+            is_paper_baseline = any(
+                getattr(c, "paper_baseline_mode", False)
+                for c in self.passive_couplers
+            )
+            alpha_field = float("nan") if is_paper_baseline else alpha_used
             self.energy_log.append(EnergyLogEntry(
                 step=len(self.energy_log),
                 t=self.time,
                 E_rigid_KE_post=E_rigid_post,
                 E_modal_post=E_modal_post,
                 dE_rigid_loss=self.last_E_loss,
-                dE_modal_injected=dE_modal_injected,
-                alpha=alpha_used,
+                dE_modal_injected=max(0.0, dE_modal),
+                dE_modal_extracted=max(0.0, -dE_modal),
+                alpha=alpha_field,
                 eta=self.eta,
+                beta=beta_used,
+                n_active_kicks=n_active_kicks,
+                n_active_contacts=len(contacts),
             ))
 
         self.prev_contacts = contacts

@@ -24,6 +24,7 @@ energy-budgeted in this follow-up.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -205,6 +206,16 @@ class PassiveDCRCoupler:
     v_min_closing: float = 0.044              # m/s; proposal §2, √(2·g·δ_slop) with δ_slop=1e-4
     e_modal_cutoff_frac: float = 1e-5         # frac; proposal §3
 
+    # ----- Paper-baseline (B1 benchmark) toggle ------------------------
+    # When True, the modal velocity kick (qdot += α · s_total) is applied
+    # with α = 1 — i.e. the foundation §15 passive cap is bypassed. This
+    # reproduces the unbounded modal injection of the paper's Eq. 10
+    # forced IIR step, which has no global energy ceiling. Used only by
+    # `benchmark/BENCHMARK_PROMPT.md` B1 "paper baseline" runs (paired
+    # with `dcr_velocity_mode == "coevoet"`); off by default so all
+    # pre-benchmark regression tests retain their α-capped semantics.
+    paper_baseline_mode: bool = False
+
     # Internals.
     _stepper: HomogeneousStepper = field(init=False, repr=False)
     _surface: TriMesh = field(init=False, repr=False)
@@ -221,6 +232,26 @@ class PassiveDCRCoupler:
     last_E_modal_post_kick: float = 0.0
     last_alpha: float = 0.0
     last_q_history_transient: NDArray[np.float64] | None = None
+
+    # Per-step wall-clock accumulators for the B6 timing log (`benchmark/
+    # BENCHMARK_PROMPT.md` §2.5). Reset at the top of process_step();
+    # incremented every time `_deformed_normal` or `_stepper.step_n` is
+    # called. The world reads these at end-of-step. Always populated
+    # regardless of `enable_timing_log` (cost is negligible — two
+    # perf_counter_ns() pairs per dispatch).
+    last_timing_modal_ms: float = 0.0
+    last_timing_deformed_normal_ms: float = 0.0
+
+    # Per-contact deformed-normal stash for the B2 impulse logger.
+    # Keyed by `id(contact)` (the Python identity of the `Contact`
+    # object passed into process_step) so that any dispatch path can
+    # populate it without threading a separate world-index through the
+    # `resting_contacts` filter. The world's `ImpulseLog` reads this
+    # after the solve to fill the §2.4 schema's `n_deformed_*` columns;
+    # contacts without a stashed entry are logged with
+    # `n_deformed = n_rest` (no flavor effect on that contact).
+    last_deformed_normals: dict[int, NDArray[np.float64]] = field(
+        default_factory=dict)
 
     # ----- New: per-step diagnostics for the velocity-mode follow-up ----
     # Always populated when bodies is passed to process_step():
@@ -278,11 +309,11 @@ class PassiveDCRCoupler:
         if self.deformed_normal_method == "barbic_james":
             self._bj_cache = build_barbic_james_cache(
                 self.modal, self._surface)
-        elif self.deformed_normal_method != "patch_fit":
+        elif self.deformed_normal_method not in ("patch_fit", "rest"):
             raise ValueError(
                 "unknown deformed_normal_method: "
                 f"{self.deformed_normal_method!r} "
-                "(expected 'patch_fit' or 'barbic_james')")
+                "(expected 'rest', 'patch_fit', or 'barbic_james')")
 
         if self.kinematic_cap not in ("none", "coevoet"):
             raise ValueError(
@@ -354,6 +385,32 @@ class PassiveDCRCoupler:
         barbic_james backend uses only the current substep q
         (q_history[-1]) consistent with Barbič & James 2008 §4.1.
         """
+        _t0_dn = time.perf_counter_ns()
+        try:
+            return self._deformed_normal_impl(
+                contact_point=contact_point, push_dir=push_dir,
+                q_history=q_history, frames=frames)
+        finally:
+            self.last_timing_deformed_normal_ms += (
+                (time.perf_counter_ns() - _t0_dn) * 1e-6)
+
+    def _deformed_normal_impl(
+        self,
+        contact_point: NDArray[np.float64],
+        push_dir: NDArray[np.float64],
+        q_history: NDArray[np.float64],
+        frames: SurfaceTangentFrames,
+    ) -> tuple[NDArray[np.float64], float, int]:
+        """Untimed implementation of `_deformed_normal`. Split out so the
+        wrapper can accumulate B6 timing without nested try/finally noise
+        across every backend branch."""
+        if self.deformed_normal_method == "rest":
+            # "rest" flavor: no deformation tilt — emit the unchanged rest
+            # normal so the impulse fires along contact.normal. Triangle
+            # index −1 signals "not derived from a specific triangle".
+            # Used by B2 cells (coevoet, rest) + (energy_prescribed_point_impulse, rest).
+            n_rest = np.asarray(push_dir, dtype=np.float64).copy()
+            return n_rest, 0.0, -1
         if self.deformed_normal_method == "patch_fit":
             return compute_deformed_normal(
                 contact_point=contact_point,
@@ -420,6 +477,12 @@ class PassiveDCRCoupler:
         self.last_kinematic_cap_attempted = 0
         self.last_patches = None
         self.last_patch_kicks = None
+        # B2 impulse log: clear last step's deformed normals so id(contact)
+        # entries don't leak across steps once GC reuses identities.
+        self.last_deformed_normals = {}
+        # B6 timing log: reset per-step wall accumulators.
+        self.last_timing_modal_ms = 0.0
+        self.last_timing_deformed_normal_ms = 0.0
         # Contact-causal gate counters (proposal §1-§3).
         self.last_patch_gated_no_contact = 0
         self.last_patch_gated_low_closing = 0
@@ -477,7 +540,10 @@ class PassiveDCRCoupler:
             self.last_E_modal_peak = max(
                 self.last_E_modal_peak, self.last_E_modal_post_kick)
             self._qdot_just_after_kick = self._stepper.qdot.copy()
+            _t0_modal = time.perf_counter_ns()
             self._stepper.step_n(n_substeps)
+            self.last_timing_modal_ms += (
+                (time.perf_counter_ns() - _t0_modal) * 1e-6)
             if self.dcr_velocity_mode == "energy_prescribed_patch":
                 # Synthesise a single-snapshot q_history so the deformed-
                 # normal helpers see the current persistent modal state
@@ -495,7 +561,23 @@ class PassiveDCRCoupler:
         # --- Passive scaling (E2, foundation §6) ---
         self.last_E_modal_pre_kick = modal_energy(
             self._stepper.q, self._stepper.qdot, omega)
-        alpha = passive_alpha(s_total, self._stepper.qdot, E_max)
+        if self.paper_baseline_mode:
+            # # DEVIATION from foundation §15: paper baseline (Coevoet
+            # # 2020 Eq. 10 forced IIR + Eq. 12) has no global passive
+            # # ceiling. We replicate the paper's uncapped modal injection
+            # # by skipping the passive_alpha clamp and applying the raw
+            # # projected impulse (α = 1) to qdot. Cumulative modal
+            # # injection will then, in general, exceed η · cumulative
+            # # E_loss — precisely the B1 headline signal
+            # # (`benchmark/BENCHMARK_PROMPT.md` §5.1, §6.1). Eq. 10's
+            # # forced-IIR formula and this velocity-kick formulation
+            # # differ in detail (impulse-invariant vs ZOH, m_j scaling)
+            # # but agree on the key property: no global energy ceiling.
+            # # The side-channel reads last_E_modal_post_kick −
+            # # last_E_modal_pre_kick around the kick below.
+            alpha = 1.0
+        else:
+            alpha = passive_alpha(s_total, self._stepper.qdot, E_max)
         self.last_alpha = alpha
 
         # The scaled kick applied to the persistent energy state.
@@ -519,13 +601,19 @@ class PassiveDCRCoupler:
         self._qdot_just_after_kick = self._stepper.qdot.copy()
 
         # --- Step persistent state for energy bookkeeping (E3.1) ---
+        _t0_modal = time.perf_counter_ns()
         self._stepper.step_n(n_substeps)
+        self.last_timing_modal_ms += (
+            (time.perf_counter_ns() - _t0_modal) * 1e-6)
 
         # --- Transient displacement for DCR response (Eqs. 11-13) ---
         # Use ONLY this step's kick for the displacement response, not
         # the full persistent state. This matches the original IIR behavior
         # (reset each step) while keeping the persistent state for energy.
+        _t0_modal = time.perf_counter_ns()
         q_history_transient = self._stepper.transient_step_n(alpha_s, n_substeps)
+        self.last_timing_modal_ms += (
+            (time.perf_counter_ns() - _t0_modal) * 1e-6)
         self.last_q_history_transient = q_history_transient
 
         return self._compute_distant_response(
@@ -804,6 +892,17 @@ class PassiveDCRCoupler:
                 q_history=q_history,
                 frames=frames,
             )
+            # B2 impulse log: stash this patch's deformed normal against
+            # every constituent contact, keyed by id() so the world-level
+            # ImpulseLog writer can look it up while iterating the full
+            # `contacts` list (which has different indices from the
+            # patch-local `resting_contacts` indices stored in
+            # `patch.contact_indices`).
+            n_def_arr = np.asarray(n_def, dtype=np.float64).copy()
+            for local_ci in patch.contact_indices:
+                if 0 <= local_ci < len(resting_contacts):
+                    self.last_deformed_normals[
+                        id(resting_contacts[local_ci])] = n_def_arr
             # §9.2 — modal velocity at the patch centroid.
             # eval_basis_at_point returns Φ(x̄) ∈ R^{3 × n_modes}; the
             # support's contact-point velocity is Φ(x̄)·q̇.
@@ -1054,6 +1153,9 @@ class PassiveDCRCoupler:
                 q_history=q_history,
                 frames=frames,
             )
+            # B2 impulse log: see `last_deformed_normals` docstring.
+            self.last_deformed_normals[id(contact)] = np.asarray(
+                u, dtype=np.float64).copy()
             speed = gamma_from_energy_linear(body, u, E_target)
             if speed <= 0.0:
                 continue
@@ -1161,6 +1263,8 @@ class PassiveDCRCoupler:
                 continue
             # Rest normal — same axis the PGS friction cone was closed on.
             n_rest = push_dir
+            # (B2 impulse log: stash deformed normal by id(contact) below
+            # once `u` is computed. See last_deformed_normals docstring.)
             # Deformed contact normal (patch_fit or barbic_james; see
             # deformed_normal_method docstring).
             u, theta, _ = self._deformed_normal(
@@ -1169,6 +1273,9 @@ class PassiveDCRCoupler:
                 q_history=q_history,
                 frames=frames,
             )
+            # B2 impulse log: see `last_deformed_normals` docstring.
+            self.last_deformed_normals[id(contact)] = np.asarray(
+                u, dtype=np.float64).copy()
             r = contact.point - body.position
             J = impulse_from_energy_point(body, r, u, E_target)
             if J <= 0.0:

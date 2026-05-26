@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.0",
+  "repo": "",
+  "completed_at": "2026-05-26T06:17:13.040614+00:00",
+  "git_sha": "235abb6c6cf7595a7a2587fdf6eae5c84675e5c1",
+  "benchmarks": [
+    {
+      "id": "B1",
+      "manifest": "benchmark/manifests/B1_manifest.json",
+      "status": "complete",
+      "n_runs": 6
+    },
+    {
+      "id": "B2",
+      "manifest": "benchmark/manifests/B2_manifest.json",
+      "status": "complete",
+      "n_runs": 15
+    },
+    {
+      "id": "B3",
+      "manifest": "benchmark/manifests/B3_manifest.json",
+      "status": "complete",
+      "n_runs": 45
+    },
+    {
+      "id": "B4",
+      "manifest": "benchmark/manifests/B4_manifest.json",
+      "status": "complete",
+      "n_runs": 6
+    },
+    {
+      "id": "B5",
+      "manifest": "benchmark/manifests/B5_manifest.json",
+      "status": "complete",
+      "n_runs": 2
+    },
+    {
+      "id": "B6",
+      "manifest": "benchmark/manifests/B6_manifest.json",
+      "status": "complete",
+      "n_runs": 12
+    },
+    {
+      "id": "B7",
+      "manifest": "benchmark/manifests/B7_manifest.json",
+      "status": "complete",
+      "n_runs": 20
+    }
+  ]
+}
