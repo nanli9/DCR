@@ -74,6 +74,7 @@ Implemented as a fourth `--mode energy_prescribed_patch`, coexisting with the ot
   - Quadratic passivity scaling `s = (-a + √(a² + 2·b·E_cap))/b` with `E_cap = β · E_modal_reservoir` per patch.
 - **Modal back-reaction** (Newton's third law) — after applying `λ` to the receiver body, the modal `q̇` is decremented by `Φ(x̄)ᵀ·λ`. This drains the modal reservoir at each kick instead of relying solely on Rayleigh damping. With the `K_total` solve above, the back-reaction is energy-conservative: `ΔE_total = -½·λᵀ·K_total·λ ≤ 0` (perfectly inelastic).
 - **`--damping-scale` knob** — multiplies the FEM Rayleigh damping (`α₀`, `α₁`) at scene-build time. Default `1.0`. Useful for `energy_prescribed_patch` specifically because that mode keeps delivering kicks for as long as the modal reservoir has energy; bumping to `5–20` makes the elastic slab settle in <1 s instead of ringing for the full sim.
+- **Contact-causal gating (opt-in extension, May 2026)** — `dcr/dcr/passive_dcr.py` `causal_gating: bool = False`. When on, each patch is admitted only if **(a)** some contact in the patch has gap ≤ `contact_shell_delta` (default 1e-4 m), **(b)** the modal closing velocity along the rest normal exceeds `v_min_closing` (default 0.044 m/s = √(2·g·δ_slop)), AND **(c)** the global modal energy exceeds `e_modal_cutoff_frac` × peak (default 1e-5). Failing patches short-circuit before solving for λ and do not debit the modal reservoir. Implements `prompts/passive_contact_causal_modal_coupling.md` as additive refinement: same K_total solve, same cone, same Newton's third-law back-reaction, same §15 invariant. Bit-identical to ungated when `causal_gating=False`. The proposal's framing — "the slab is a passive moving boundary, not a residual-energy kick generator" — only holds once gating is paired with a magnitude rule (small β); see Section 6's "Caveat verifications" below.
 
 Where the formulation visibly differs from `dcr` / Versions A/B:
 
@@ -81,7 +82,7 @@ Where the formulation visibly differs from `dcr` / Versions A/B:
 |---|---|---|
 | `ledge` | Boulder gains real rolling rotation as it sits on the deflected pedestal. Lever `r̄` is not parallel to `n_def`, so `r̄ × λ` is non-zero → physically-meaningful torque (the whole point of the formulation). | `boulder.max_tilt°`: 0° (coevoet) → 2.6° (B) → **36°** (patch). |
 | `truck` | Cones / lumber rotate by the kick at the patch centroid; less violent than Version B (6× less drift) because `K_total`'s `Φ·Φᵀ` term absorbs part of each impulse into modal back-reaction. | `lumber_3.max_tilt°`: 0° → 89.7° (B, drift 2.5 m) → **50°** (patch, drift 0.16 m). |
-| `shelf` | **Less successful.** Flat thin-book geometry has `r̄ ∥ n_def`, so the torque-via-lever benefit isn't exercised; Coulomb cone tangent budget accumulates and tips books over many steps. Pure-normal projection (`μ=0`) would degenerate the formulation to ≈ Coevoet's `Δv = d_max/h`. Suggests the patch formulation is the right tool for non-flat contact geometries, less so for flat thin-body scenes. |
+| `shelf` | **Not a useful test of the patch formulation.** A follow-up `max_tilt_deg` sweep (`benchmark/PATCH_MODE_BENCHMARK.md` → "Caveat — every shelf number above is metric-meaningless") confirms all 5 books tip to ~90° in *every* configuration — including ungated patch mode and the paper-baseline `coevoet` mode. Tipping is scene-physical (8 kg drop onto cantilever next to thin standing books, restitution 0.1), not patch-specific. The `r̄ ∥ n_def` geometry still means the torque-via-lever benefit isn't exercised, so this scene is geometrically degenerate for this formulation regardless; combined with the natural tipping, the shelf scene should be downgraded to a separate "tipping behaviour" test or replaced. |
 
 ### 6. Empirical validation infrastructure (`dcr/benchmark/`)
 
@@ -125,6 +126,16 @@ Three structural findings, captured in `benchmark/PATCH_MODE_BENCHMARK.md`:
 3. **Patch mode is β-insensitive by design** — verified across all three scenes. `truck/patch` `E_modal_peak`: 1173.858 / 1173.854 / 1173.864 / 1173.860 J for β = 0.10 / 0.25 / 0.50 / 1.00, identical to 4 sig figs. The reformulation budgets from `E_modal_reservoir` (foundation §1.modal_reservoir), so β only affects modes that route through the per-contact modal-path branch — which the patch reformulation bypasses by construction.
 
 A side-finding worth recording: the strict 1 mm penetration rubric flags the rigid baseline (`coevoet`) as failing on shelf (1.3–9.4 mm of penetration across bodies). This is rigid-solver ERP slack (`erp = 0.2`), not a DCR issue — but the rubric now makes it visible so it can be addressed independently.
+
+#### Caveat verifications (May 2026)
+
+Three open caveats from the original gating evaluation were verified with controlled headless sweeps (all in `benchmark/PATCH_MODE_BENCHMARK.md` → "Reviewer-defensible recipe" / "Material sensitivity"):
+
+1. **Recipe: damping pairs with β.** Head-to-head on truck (8 s, gated, BJ, max y_range last 3 s): `--causal-gating --beta 0.10 --damping-scale 3` → 0.46 mm / 1 bump (preferred default). `--causal-gating --beta 0.10` alone → 13.7 mm / 429 bumps (still noisy). `--causal-gating --damping-scale 10` → 0.04 mm / 0 bumps but cosmetic (slab itself barely moves under 10× Rayleigh). **Persistent modal state requires both a per-kick frequency rule (the gates) AND a per-kick magnitude rule (small β); the damping multiplier is visual polish, not a substitute.**
+
+2. **Shelf tipping is gating-agnostic.** All 5 books tip to ~90° in every gated/ungated × β condition tested. The shelf scene's heavy drop on the cantilever next to thin standing books topples them by design; this is not a gating- or patch-specific failure. The shelf scene's bumps/y_range metric is meaningless on this scene; use `max_tilt_deg` or replace the scene.
+
+3. **Trailing vibration is wood-specific.** Swapping the truck slab from wood (E=10 GPa, ρ=500) to structural steel (E=200 GPa, ρ=7850) — everything else fixed (gated, β=0.70, damping=1, 8 s) — drops every body's y_range by 4×–42×. `lumber_1` worst case: 45.88 → 1.09 mm. The 16× larger modal effective mass keeps every per-impact modal kick small enough that the residual back-reaction never accumulates into visible bumping. **A reviewer asking whether the method also breaks on stiffer substrates can be answered no.** `scripts/run_truck_steel_visual.py` is a wrapper that monkey-patches the truck slab to steel for visual inspection.
 
 ### 7. Honest scope clarifications (binding per foundation §14)
 
