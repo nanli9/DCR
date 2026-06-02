@@ -66,17 +66,53 @@ def _closest_point_on_triangle(
     return v0 + v * ab + w * ac, np.array([1.0 - v - w, v, w])
 
 
+def _get_or_build_tri_kdtree(surface: TriMesh):
+    """Lazily build (and cache on the TriMesh) a scipy.cKDTree over
+    triangle centroids. Replaces the O(n_tri) brute-force scan in
+    eval_basis_at_point with an O(log n_tri) query.
+
+    Cached attribute names:
+        surface._tri_kdtree    : cKDTree (None if scipy is missing)
+        surface._tri_centroids : (n_tri, 3) cached centroid array
+    """
+    cached = getattr(surface, "_tri_kdtree", None)
+    if cached is not None:
+        return cached, surface._tri_centroids
+    try:
+        from scipy.spatial import cKDTree  # noqa: WPS433
+    except Exception:
+        surface._tri_kdtree = False  # poison marker
+        surface._tri_centroids = None
+        return False, None
+    verts = surface.vertices
+    faces = surface.faces
+    centroids = (
+        verts[faces[:, 0]] + verts[faces[:, 1]] + verts[faces[:, 2]]
+    ) / 3.0
+    tree = cKDTree(centroids)
+    surface._tri_kdtree = tree
+    surface._tri_centroids = centroids
+    return tree, centroids
+
+
 def eval_basis_at_point(
     point: NDArray[np.float64],
     surface: TriMesh,
     U_surf: NDArray[np.float64],
     surface_vertex_indices: NDArray[np.int32],
     vert_to_surf_idx: NDArray[np.int32],
+    k_candidates: int = 8,
 ) -> NDArray[np.float64]:
     """Evaluate the modal basis Phi(x_c) at a world point (foundation §4).
 
     Locates the closest surface triangle, computes barycentric weights,
     and interpolates the surface-restricted mode basis U_surf.
+
+    Uses a cKDTree over triangle centroids (lazily built on `surface`)
+    to narrow the search to the `k_candidates` nearest triangles, then
+    runs the exact Voronoi-region closest-point computation on each.
+    For typical slab meshes (~hundreds of triangles) this cuts the
+    inner loop from O(n_tri) to O(k) per call.
 
     Args:
         point: (3,) world-space contact point on the elastic surface.
@@ -84,6 +120,9 @@ def eval_basis_at_point(
         U_surf: (3*n_surf, n_modes) surface-restricted eigenvector matrix.
         surface_vertex_indices: (n_surf,) global vertex indices of surface nodes.
         vert_to_surf_idx: (n_verts,) maps global vertex → surface index (-1 if not surface).
+        k_candidates: How many nearest-centroid candidate triangles to
+            check with the exact closest-point routine. 8 is enough for
+            structured tet-slab meshes; raise if the mesh has slivers.
 
     Returns:
         Phi_x: (3, n_modes) modal basis evaluated at the contact point.
@@ -92,12 +131,20 @@ def eval_basis_at_point(
     faces = surface.faces
     n_modes = U_surf.shape[1]
 
-    # Find closest triangle (brute force, fine for small meshes).
+    tree, _ = _get_or_build_tri_kdtree(surface)
+    if tree is False:
+        # scipy unavailable — fall back to brute force.
+        candidate_tris = range(faces.shape[0])
+    else:
+        k = min(k_candidates, faces.shape[0])
+        _, idxs = tree.query(point, k=k)
+        candidate_tris = np.atleast_1d(idxs)
+
     best_dist = np.inf
     best_tri = 0
     best_bary = np.array([1.0 / 3, 1.0 / 3, 1.0 / 3])
-
-    for fi in range(faces.shape[0]):
+    for fi in candidate_tris:
+        fi = int(fi)
         v0, v1, v2 = verts[faces[fi, 0]], verts[faces[fi, 1]], verts[faces[fi, 2]]
         cp, bary = _closest_point_on_triangle(point, v0, v1, v2)
         d = np.linalg.norm(point - cp)
@@ -110,14 +157,14 @@ def eval_basis_at_point(
     face = faces[best_tri]
     Phi_x = np.zeros((3, n_modes), dtype=np.float64)
 
-    for k in range(3):
-        vert_global = face[k]
+    for k_v in range(3):
+        vert_global = face[k_v]
         surf_idx = vert_to_surf_idx[vert_global]
         if surf_idx < 0:
             continue  # Fixed boundary node
         row_start = 3 * surf_idx
         U_i = U_surf[row_start:row_start + 3, :]  # (3, n_modes)
-        Phi_x += best_bary[k] * U_i
+        Phi_x += best_bary[k_v] * U_i
 
     return Phi_x
 
