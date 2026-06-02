@@ -173,7 +173,15 @@ class PassiveDCRCoupler:
 
     # ----- New: distant velocity mode -----------------------------------
     # See class docstring above for semantics.
-    dcr_velocity_mode: str = "coevoet"
+    #
+    # AVBD branch (Phase A): the only supported mode is
+    # "energy_prescribed_patch". The legacy modes "coevoet",
+    # "energy_prescribed", and "energy_prescribed_point_impulse" are
+    # walled off by the validation in __post_init__ below — their code
+    # paths (and the `last_linear_kicks` / `last_point_impulse_kicks`
+    # fields they populate) are unreachable but retained for git
+    # history. See `prompts/avbd_native_dcr_followup_spec_v2.md` §1.
+    dcr_velocity_mode: str = "energy_prescribed_patch"
     energy_response_beta: float = 0.25
     energy_budget_source: str = "min_rigid_loss_modal"
     theta_max_deformed: float = float(np.radians(3.0))
@@ -275,6 +283,19 @@ class PassiveDCRCoupler:
     last_patch_gated_numerical: int = 0
 
     def __post_init__(self) -> None:
+        # AVBD Phase A: enforce single-mode operation. The legacy modes
+        # remain in code as unreachable branches (kept for git history /
+        # offline analysis); only "energy_prescribed_patch" is exercised.
+        # See prompts/avbd_native_dcr_followup_spec_v2.md §1.
+        if self.dcr_velocity_mode != "energy_prescribed_patch":
+            raise ValueError(
+                "AVBD branch supports only "
+                "dcr_velocity_mode='energy_prescribed_patch'; "
+                f"got {self.dcr_velocity_mode!r}. "
+                "Legacy modes (coevoet, energy_prescribed, "
+                "energy_prescribed_point_impulse) are walled off in this "
+                "branch."
+            )
         if not 0.0 <= self.modal_decay_gamma <= 1.0:
             raise ValueError(
                 "modal_decay_gamma must be in [0, 1]; got "
