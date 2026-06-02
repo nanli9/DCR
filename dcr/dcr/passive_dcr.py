@@ -601,14 +601,24 @@ class PassiveDCRCoupler:
     ) -> dict[int, float]:
         """Dispatch on `dcr_velocity_mode`.
 
-        Always computes the Coevoet proposal for direction reference and
-        diagnostics. Also computes Version A in parallel for the dv_ratio
-        diagnostic (so a paper-grade comparison is available regardless of
-        which mode is active).
+        In the AVBD branch only "energy_prescribed_patch" is reachable
+        (the other branches are walled off in __post_init__). When the
+        active mode is patch, we skip the always-on Coevoet + Version A
+        diagnostic computations entirely — each does a brute-force
+        closest-triangle scan over the slab mesh per contact and
+        dominated the cost profile on CPU.
         """
+        is_patch_only = (self.dcr_velocity_mode == "energy_prescribed_patch")
+
         # --- 1. Coevoet proposal (existing Eq. 12). Unchanged. ----------
-        dv_coevoet = self._compute_distant_response_coevoet(
-            resting_contacts, q_history, h)
+        # Skipped in patch-only mode — Coevoet's dv is not consumed and
+        # _compute_distant_response_coevoet calls _compute_max_displacement
+        # which scans the surface mesh per contact.
+        if is_patch_only:
+            dv_coevoet = {}
+        else:
+            dv_coevoet = self._compute_distant_response_coevoet(
+                resting_contacts, q_history, h)
         self.last_dcr_velocities_coevoet = dict(dv_coevoet)
 
         # --- 2. Energy budget for this step ----------------------------
@@ -619,13 +629,13 @@ class PassiveDCRCoupler:
         self.last_E_target = E_target
 
         # --- 3. Version A (deformed-normal, linear-only) ---------------
-        # Computed in parallel even when not the active mode, so the
-        # dv_ratio diagnostic / CSV columns are always populated.
-        if bodies is not None:
+        # Same skip — Version A also walks the surface per contact for
+        # its deformed-normal lookup.
+        if is_patch_only or bodies is None:
+            linear_kicks = []
+        else:
             linear_kicks = self._compute_distant_response_energy_A(
                 resting_contacts, q_history, bodies, E_target, h)
-        else:
-            linear_kicks = []
         # Backward-compatible diagnostic dict: speed-magnitudes by body.
         self.last_dcr_velocities_energy_A = {
             kk.body_idx: kk.speed for kk in linear_kicks}

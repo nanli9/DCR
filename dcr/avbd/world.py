@@ -111,6 +111,14 @@ class AVBDDCRWorld:
     last_lam: NDArray[np.float64] = field(
         default_factory=lambda: np.zeros(0), init=False, repr=False)
     last_step_ms: float = field(default=0.0, init=False)
+    # Per-stage breakdown (ms). Helps profile where step time goes.
+    last_solve_ms: float = field(default=0.0, init=False)
+    last_extract_ms: float = field(default=0.0, init=False)
+    last_coupler_ms: float = field(default=0.0, init=False)
+    last_sync_ms: float = field(default=0.0, init=False)
+    # Number of dynamic body velocities pushed back into AVBD this step.
+    # Zero when no patch kicks fired (DCR didn't modify any velocity).
+    last_sync_n: int = field(default=0, init=False)
 
     def __post_init__(self) -> None:
         self._solver = Solver6DOF(
@@ -260,18 +268,22 @@ class AVBDDCRWorld:
         E_rigid_pre = rigid_kinetic_energy([d.dcr_body for d in self._descs])
 
         # (2) AVBD solve.
+        t_solve_0 = _t.perf_counter()
         self._solver.step()
+        self.last_solve_ms = (_t.perf_counter() - t_solve_0) * 1000.0
 
-        # (3) sync state AVBD → DCR.
+        # (3) sync state AVBD → DCR (single batched readback per array).
         self._sync_avbd_to_dcr()
 
         # (4) extract contacts.
+        t_extract_0 = _t.perf_counter()
         contacts, lam, records, current_keys = extract_contacts(
             self._solver,
             floor_body_idx=self._floor_body_idx,
             prev_contact_keys=self._prev_contact_keys,
             dt=self.h,
         )
+        self.last_extract_ms = (_t.perf_counter() - t_extract_0) * 1000.0
         self._prev_contact_keys = current_keys
         self.last_contacts = contacts
         self.last_lam = lam
@@ -283,17 +295,27 @@ class AVBDDCRWorld:
         self.last_dcr_ke_injected = 0.0
 
         # (6/7) coupler dispatch + apply patch impulses.
+        t_coupler_0 = _t.perf_counter()
         bodies = [d.dcr_body for d in self._descs]
+        kicked_any = False
         for coupler in self.passive_couplers:
             coupler.process_step(
                 contacts, lam, self.h, self.last_E_max, bodies=bodies)
             patch_kicks = getattr(coupler, "last_patch_kicks", None)
             if patch_kicks:
                 self._apply_patch_kicks(patch_kicks, bodies)
+                kicked_any = True
+        self.last_coupler_ms = (_t.perf_counter() - t_coupler_0) * 1000.0
 
-        # Push DCR velocities back into AVBD so the next step picks them
-        # up. Only push dynamic bodies that have an AVBD counterpart.
-        self._sync_dcr_to_avbd_velocities()
+        # Sync DCR → AVBD only if a patch kick actually modified velocities.
+        # Without this gate, even on steps where the coupler is a no-op we
+        # were paying ~24 full-array CPU↔Warp roundtrips (every step).
+        t_sync_0 = _t.perf_counter()
+        if kicked_any:
+            self._sync_dcr_to_avbd_velocities_batched()
+        else:
+            self.last_sync_n = 0
+        self.last_sync_ms = (_t.perf_counter() - t_sync_0) * 1000.0
 
         self.time += self.h
         self.last_step_ms = (_t.perf_counter() - t0) * 1000.0
@@ -305,7 +327,10 @@ class AVBDDCRWorld:
         """Copy positions / orientations / velocities from Solver6DOF
         readbacks into the parallel DCR-side body list.
 
-        Quaternion convention swap: AVBD = XYZW, DCR = WXYZ.
+        Four `.numpy()` calls (one per state array) — each is a single
+        device→host transfer that's then sliced cheaply in numpy. Per-
+        body indexing happens on the host-side ndarrays, no further
+        GPU traffic. Quaternion convention swap: AVBD = XYZW, DCR = WXYZ.
         """
         positions = self._solver.positions()        # (n_b, 3)
         orientations = self._solver.orientations()  # (n_b, 4) xyzw
@@ -315,36 +340,44 @@ class AVBDDCRWorld:
             if desc.avbd_body is None:
                 continue
             i = desc.avbd_body.index
-            desc.dcr_body.position = positions[i].astype(np.float64).copy()
-            qx, qy, qz, qw = (
-                float(orientations[i, 0]),
-                float(orientations[i, 1]),
-                float(orientations[i, 2]),
-                float(orientations[i, 3]),
-            )
-            desc.dcr_body.orientation = np.array(
-                [qw, qx, qy, qz], dtype=np.float64)
-            desc.dcr_body.velocity[0:3] = velocities[i].astype(np.float64)
-            desc.dcr_body.velocity[3:6] = omegas[i].astype(np.float64)
+            desc.dcr_body.position[:] = positions[i]
+            # XYZW → WXYZ.
+            desc.dcr_body.orientation[0] = orientations[i, 3]
+            desc.dcr_body.orientation[1] = orientations[i, 0]
+            desc.dcr_body.orientation[2] = orientations[i, 1]
+            desc.dcr_body.orientation[3] = orientations[i, 2]
+            desc.dcr_body.velocity[0:3] = velocities[i]
+            desc.dcr_body.velocity[3:6] = omegas[i]
 
-    def _sync_dcr_to_avbd_velocities(self) -> None:
+    def _sync_dcr_to_avbd_velocities_batched(self) -> None:
         """After patch kicks modify DCR-side velocities, push them back
-        into AVBD so the next solve sees the corrected v / ω.
-        Position changes from the kicks are velocity-only (the kick is
-        an impulse, not a displacement), so positions stay in sync.
+        into AVBD in a SINGLE batched read/write per array.
+
+        The naive `Solver6DOF.set_velocity(body, v)` does
+        `wp.array(self.v.numpy().copy()...)` per call — for N bodies,
+        that's 2N full-array CPU↔Warp roundtrips per step. Here we do
+        one download + one in-place upload per array, even with N=12
+        dynamic bodies as in the truck scene.
+
+        Uses `wp.array.assign(numpy_arr)` for in-place upload (does NOT
+        reallocate the warp buffer, so kernel array refs stay valid).
         """
+        sol = self._solver
+        # Snapshot once.
+        v_np = sol.v.numpy().copy()
+        w_np = sol.omega.numpy().copy()
+        n = 0
         for desc in self._descs:
             if desc.avbd_body is None or desc.dcr_body.is_static:
                 continue
-            v = desc.dcr_body.velocity
-            self._solver.set_velocity(
-                desc.avbd_body,
-                (float(v[0]), float(v[1]), float(v[2])),
-            )
-            self._solver.set_angular_velocity(
-                desc.avbd_body,
-                (float(v[3]), float(v[4]), float(v[5])),
-            )
+            i = desc.avbd_body.index
+            dv = desc.dcr_body.velocity
+            v_np[i] = (float(dv[0]), float(dv[1]), float(dv[2]))
+            w_np[i] = (float(dv[3]), float(dv[4]), float(dv[5]))
+            n += 1
+        sol.v.assign(v_np)
+        sol.omega.assign(w_np)
+        self.last_sync_n = n
 
     def _apply_patch_kicks(
         self,
