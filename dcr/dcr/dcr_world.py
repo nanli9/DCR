@@ -226,6 +226,7 @@ class DCRWorld:
             E_modal_post = 0.0
             dE_modal_injected = 0.0
             alpha_used = 0.0
+            dE_modal_attenuation = 0.0
             for coupler in self.passive_couplers:
                 E_modal_post = float(getattr(
                     coupler, "last_E_modal_post_kick", 0.0))
@@ -233,6 +234,8 @@ class DCRWorld:
                     coupler, "last_E_modal_pre_kick", 0.0))
                 dE_modal_injected = E_modal_post - E_pre_kick
                 alpha_used = float(getattr(coupler, "last_alpha", 0.0))
+                dE_modal_attenuation = float(getattr(
+                    coupler, "last_E_modal_attenuation_diss", 0.0))
                 # Only the first passive coupler is logged for now (single-
                 # elastic-body scenes — covers all current run_scenes setups).
                 break
@@ -245,6 +248,7 @@ class DCRWorld:
                 dE_modal_injected=dE_modal_injected,
                 alpha=alpha_used,
                 eta=self.eta,
+                dE_modal_attenuation=dE_modal_attenuation,
             ))
 
         self.prev_contacts = contacts

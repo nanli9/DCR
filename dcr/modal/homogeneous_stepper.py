@@ -35,6 +35,17 @@ class HomogeneousStepper:
         omega: (n_modes,) natural frequencies in rad/s.
         zeta: (n_modes,) damping ratios (per-mode Rayleigh damping).
         T: Sub-step size (= pi / (2 * omega_max), same as IIR convention).
+        gamma: End-of-rigid-step modal-state attenuation in [0, 1].
+            Caller invokes apply_rigid_step_decay() after each rigid step's
+            step_n() to multiply (q, qdot) by gamma. gamma=1.0 (default) is
+            persistent state (the §15 main method). gamma=0.0 is the original
+            DCR-style per-step reset (paper §4.5), as the limiting case of
+            our framework. Intermediate gamma is opt-in explicit dissipation.
+            # DEVIATION from foundation §15: gamma < 1 introduces explicit
+            # numerical dissipation outside the Rayleigh-damping model.
+            # Energy removed by this operator is dissipation, NOT a refund
+            # to the §15 reservoir (would let one rigid impact fund
+            # unlimited future kicks; see CONTRIBUTIONS.md §6).
         q: (n_modes,) modal displacement.
         qdot: (n_modes,) modal velocity.
     """
@@ -42,6 +53,7 @@ class HomogeneousStepper:
     omega: NDArray[np.float64]
     zeta: NDArray[np.float64]
     T: float
+    gamma: float = 1.0
 
     q: NDArray[np.float64] = field(init=False, repr=False)
     qdot: NDArray[np.float64] = field(init=False, repr=False)
@@ -53,6 +65,8 @@ class HomogeneousStepper:
     _A11: NDArray[np.float64] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
+        if not 0.0 <= self.gamma <= 1.0:
+            raise ValueError(f"gamma must be in [0, 1]; got {self.gamma}")
         m = len(self.omega)
         self.q = np.zeros(m, dtype=np.float64)
         self.qdot = np.zeros(m, dtype=np.float64)
@@ -103,6 +117,29 @@ class HomogeneousStepper:
         """Reset modal state to zero."""
         self.q[:] = 0.0
         self.qdot[:] = 0.0
+
+    def apply_rigid_step_decay(self) -> float:
+        """Apply (q, qdot) *= gamma at the end of a rigid step. Returns the
+        modal energy dissipated by the operator (foundation §16; #DEVIATION
+        from §15 for gamma < 1).
+
+        With mass-normalized modes, E_modal = ½ q̇ᵀq̇ + ½ qᵀΩ²q scales by
+        gamma² under the (q, qdot) *= gamma operator, so the dissipation is
+        (1 − gamma²) · E_modal_pre. Returned for energy logging — must NOT
+        be refunded to the §15 reservoir.
+
+        Caller (passive_dcr.py) invokes this ONCE per rigid step, AFTER
+        step_n() and AFTER the DCR response has been computed from the
+        transient q_history (the displacement work must happen before
+        the attenuation).
+        """
+        if self.gamma == 1.0:
+            return 0.0
+        E_pre = 0.5 * float(np.dot(self.qdot, self.qdot)) + \
+            0.5 * float(np.dot(self.q, self.omega ** 2 * self.q))
+        self.q *= self.gamma
+        self.qdot *= self.gamma
+        return (1.0 - self.gamma ** 2) * E_pre
 
     def step(self) -> None:
         """Advance one sub-step T using the exact state transition.
@@ -164,8 +201,12 @@ class HomogeneousStepper:
         return q_history
 
     @classmethod
-    def from_modal_analysis(cls, modal) -> "HomogeneousStepper":
-        """Construct from a ModalAnalysis instance, matching IIR stepper conventions."""
+    def from_modal_analysis(cls, modal, gamma: float = 1.0) -> "HomogeneousStepper":
+        """Construct from a ModalAnalysis instance, matching IIR stepper conventions.
+
+        See the class docstring for `gamma` semantics (default 1.0 = persistent
+        state, the §15 main method).
+        """
         omega = modal.frequencies.copy()
         alpha0 = modal.fem.alpha0
         alpha1 = modal.fem.alpha1
@@ -180,4 +221,4 @@ class HomogeneousStepper:
         omega_max = omega[-1] if omega[-1] > 0 else 1.0
         T = np.pi / (2.0 * omega_max)
 
-        return cls(omega=omega, zeta=zeta, T=T)
+        return cls(omega=omega, zeta=zeta, T=T, gamma=gamma)

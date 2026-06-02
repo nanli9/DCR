@@ -44,6 +44,11 @@ class EnergyLogEntry:
     alpha: float                      # last_alpha (passive scaling coef
                                       #   used by A/B modes; 0 for patch)
     eta: float                        # world.eta at this step (constant per run)
+    dE_modal_attenuation: float = 0.0 # end-of-step γ-decay dissipation
+                                      #   (foundation §16, #DEVIATION from §15
+                                      #   for gamma < 1; always 0 at gamma=1).
+                                      #   ALWAYS >= 0; NEVER refunded to the
+                                      #   §15 reservoir.
 
 
 @dataclass
@@ -80,6 +85,16 @@ class EnergyLog:
 
     def alpha(self) -> NDArray[np.float64]:
         return np.array([e.alpha for e in self.entries], dtype=np.float64)
+
+    def dE_modal_attenuation(self) -> NDArray[np.float64]:
+        return np.array([e.dE_modal_attenuation for e in self.entries],
+                        dtype=np.float64)
+
+    def cumulative_modal_attenuation(self) -> NDArray[np.float64]:
+        """Cumulative end-of-step γ-decay dissipation (foundation §16).
+        Always non-negative. Independent of §15 — does NOT count as either
+        injection or extraction."""
+        return np.cumsum(self.dE_modal_attenuation())
 
     def cumulative_rigid_loss(self) -> NDArray[np.float64]:
         return np.cumsum(self.dE_rigid_loss())
@@ -122,6 +137,7 @@ class EnergyLog:
         cum_loss = self.cumulative_rigid_loss()
         cum_inj = self.cumulative_modal_injected()
         cum_ext = self.cumulative_modal_extracted()
+        cum_att = self.cumulative_modal_attenuation()
         with open(path, "w", newline="") as f:
             w = csv.writer(f)
             w.writerow([
@@ -129,8 +145,10 @@ class EnergyLog:
                 "E_rigid_KE_post", "E_modal_post",
                 "dE_rigid_loss", "dE_modal_injected",
                 "alpha", "eta",
+                "dE_modal_attenuation",
                 "cum_rigid_loss", "cum_modal_injected",
                 "cum_modal_extracted",
+                "cum_modal_attenuation",
             ])
             for i, e in enumerate(self.entries):
                 w.writerow([
@@ -138,6 +156,8 @@ class EnergyLog:
                     f"{e.E_rigid_KE_post:.6e}", f"{e.E_modal_post:.6e}",
                     f"{e.dE_rigid_loss:.6e}", f"{e.dE_modal_injected:.6e}",
                     f"{e.alpha:.6e}", f"{e.eta:.6e}",
+                    f"{e.dE_modal_attenuation:.6e}",
                     f"{cum_loss[i]:.6e}", f"{cum_inj[i]:.6e}",
                     f"{cum_ext[i]:.6e}",
+                    f"{cum_att[i]:.6e}",
                 ])

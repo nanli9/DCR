@@ -87,6 +87,7 @@ def _add_coupler(
     contact_shell_delta: float = 1e-4,
     v_min_closing: float = 0.044,
     e_modal_cutoff_frac: float = 1e-5,
+    modal_decay_gamma: float = 1.0,
 ):
     """Create and register a passive DCR coupler.
 
@@ -130,6 +131,7 @@ def _add_coupler(
         contact_shell_delta=contact_shell_delta,
         v_min_closing=v_min_closing,
         e_modal_cutoff_frac=e_modal_cutoff_frac,
+        modal_decay_gamma=modal_decay_gamma,
     )
     world.enforce_rigid_energy_bound = enforce_bound
     world.add_passive_coupler(coupler)
@@ -144,7 +146,8 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
                       causal_gating=False,
                       contact_shell_delta=1e-4,
                       v_min_closing=0.044,
-                      e_modal_cutoff_frac=1e-5):
+                      e_modal_cutoff_frac=1e-5,
+                      modal_decay_gamma=1.0):
     """Heavy objects dropped sequentially on road. Cones and lumber respond.
 
     Three drops at different positions and heights so they hit the ground
@@ -189,6 +192,7 @@ def build_truck_scene(velocity_mode="coevoet", beta=0.25,
         contact_shell_delta=contact_shell_delta,
         v_min_closing=v_min_closing,
         e_modal_cutoff_frac=e_modal_cutoff_frac,
+        modal_decay_gamma=modal_decay_gamma,
     )
 
     body_info = {}  # name -> (idx, hx, hy, hz, color)
@@ -250,7 +254,8 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
                       causal_gating=False,
                       contact_shell_delta=1e-4,
                       v_min_closing=0.044,
-                      e_modal_cutoff_frac=1e-5):
+                      e_modal_cutoff_frac=1e-5,
+                      modal_decay_gamma=1.0):
     """Heavy box dropped on a shelf. Books standing upright topple.
 
     The shelf is a cantilever beam (fixed at one edge). Books are
@@ -289,6 +294,7 @@ def build_shelf_scene(velocity_mode="coevoet", beta=0.25,
         contact_shell_delta=contact_shell_delta,
         v_min_closing=v_min_closing,
         e_modal_cutoff_frac=e_modal_cutoff_frac,
+        modal_decay_gamma=modal_decay_gamma,
     )
 
     body_info = {}
@@ -334,7 +340,8 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
                       causal_gating=False,
                       contact_shell_delta=1e-4,
                       v_min_closing=0.044,
-                      e_modal_cutoff_frac=1e-5):
+                      e_modal_cutoff_frac=1e-5,
+                      modal_decay_gamma=1.0):
     """Boulder hits a cliff ledge, balanced rocks fall off the edge.
 
     Inspired by the paper's 'Rockfall' scene. The ledge is an elastic
@@ -370,6 +377,7 @@ def build_ledge_scene(velocity_mode="coevoet", beta=0.25,
         contact_shell_delta=contact_shell_delta,
         v_min_closing=v_min_closing,
         e_modal_cutoff_frac=e_modal_cutoff_frac,
+        modal_decay_gamma=modal_decay_gamma,
     )
 
     body_info = {}
@@ -665,6 +673,12 @@ def main():
               f"(default: 0.044 = √(2·g·1e-4)).")
         print(f"  --e-modal-cutoff-frac <f>: numerical cutoff as fraction "
               f"of peak E_modal (default: 1e-5).")
+        print(f"  --modal-decay-gamma <f>:   End-of-rigid-step modal state "
+              f"attenuation in [0, 1] (default 1.0 = persistent state,")
+        print(f"                             foundation §15 main method). "
+              f"γ < 1 = explicit dissipation (§16 #DEVIATION); γ = 0 is")
+        print(f"                             original-DCR-style per-step "
+              f"reset as the limiting case. Robust-demo values: 0.8-0.95.")
         sys.exit(1)
 
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
@@ -679,7 +693,8 @@ def main():
                  "--sim-duration",
                  "--contact-shell-delta",
                  "--v-min-closing",
-                 "--e-modal-cutoff-frac") and i + 1 < len(sys.argv):
+                 "--e-modal-cutoff-frac",
+                 "--modal-decay-gamma") and i + 1 < len(sys.argv):
             flag_value_args.add(sys.argv[i + 1])
     args = [a for a in args if a not in flag_value_args]
 
@@ -725,6 +740,16 @@ def main():
     except ValueError:
         print("--contact-shell-delta / --v-min-closing / --e-modal-cutoff-frac "
               "must be floats")
+        sys.exit(1)
+
+    try:
+        modal_decay_gamma = float(_parse_kv_flag("--modal-decay-gamma", 1.0))
+    except ValueError:
+        print(f"--modal-decay-gamma must be a float; got "
+              f"{_parse_kv_flag('--modal-decay-gamma', None)!r}")
+        sys.exit(1)
+    if not 0.0 <= modal_decay_gamma <= 1.0:
+        print(f"--modal-decay-gamma must be in [0, 1]; got {modal_decay_gamma}")
         sys.exit(1)
 
     sim_duration_arg = _parse_kv_flag("--sim-duration", None)
@@ -781,6 +806,7 @@ def main():
             contact_shell_delta=contact_shell_delta,
             v_min_closing=v_min_closing,
             e_modal_cutoff_frac=e_modal_cutoff_frac,
+            modal_decay_gamma=modal_decay_gamma,
         )
         print(f"  Bodies: {len(world.bodies)}")
         print(f"  Dynamic: {[n for n in body_info]}")

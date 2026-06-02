@@ -205,6 +205,16 @@ class PassiveDCRCoupler:
     v_min_closing: float = 0.044              # m/s; proposal §2, √(2·g·δ_slop) with δ_slop=1e-4
     e_modal_cutoff_frac: float = 1e-5         # frac; proposal §3
 
+    # ----- Opt-in γ-decay stabilizer (foundation §16, #DEVIATION from §15) ---
+    # End-of-rigid-step modal-state attenuation factor in [0, 1]. See
+    # HomogeneousStepper.apply_rigid_step_decay() for semantics:
+    #   gamma = 1.0   persistent state, main contribution (default)
+    #   gamma ∈ (0,1) explicit dissipation, scene stabilizer (e.g. 0.95, 0.9)
+    #   gamma = 0.0   original-DCR-style per-step reset as limiting case
+    # Energy removed by the operator is LOGGED as dissipation
+    # (last_E_modal_attenuation_diss) and never refunded to the reservoir.
+    modal_decay_gamma: float = 1.0
+
     # Internals.
     _stepper: HomogeneousStepper = field(init=False, repr=False)
     _surface: TriMesh = field(init=False, repr=False)
@@ -221,6 +231,10 @@ class PassiveDCRCoupler:
     last_E_modal_post_kick: float = 0.0
     last_alpha: float = 0.0
     last_q_history_transient: NDArray[np.float64] | None = None
+    # Modal energy removed by end-of-step γ-decay (foundation §16). Always
+    # >= 0, exactly zero when modal_decay_gamma == 1.0. Logged as
+    # dissipation; NEVER refunded to the §15 reservoir.
+    last_E_modal_attenuation_diss: float = 0.0
 
     # ----- New: per-step diagnostics for the velocity-mode follow-up ----
     # Always populated when bodies is passed to process_step():
@@ -261,7 +275,12 @@ class PassiveDCRCoupler:
     last_patch_gated_numerical: int = 0
 
     def __post_init__(self) -> None:
-        self._stepper = HomogeneousStepper.from_modal_analysis(self.modal)
+        if not 0.0 <= self.modal_decay_gamma <= 1.0:
+            raise ValueError(
+                "modal_decay_gamma must be in [0, 1]; got "
+                f"{self.modal_decay_gamma}")
+        self._stepper = HomogeneousStepper.from_modal_analysis(
+            self.modal, gamma=self.modal_decay_gamma)
         # Snapshot of qdot just after this step's kick (before step_n
         # decays it). The patch mode's v_f driver reads this; other modes
         # ignore it. Initialized to zero for the first-step case where
@@ -424,6 +443,8 @@ class PassiveDCRCoupler:
         self.last_patch_gated_no_contact = 0
         self.last_patch_gated_low_closing = 0
         self.last_patch_gated_numerical = 0
+        # γ-decay dissipation accumulator (foundation §16). Reset each step.
+        self.last_E_modal_attenuation_diss = 0.0
 
         # --- Identify new and resting contacts on the elastic body ---
         new_contacts_data: list[tuple[Contact, int]] = []  # (contact, ci)
@@ -484,10 +505,17 @@ class PassiveDCRCoupler:
                 # (they expect q_history of shape (n_steps+1, n_modes)).
                 q_history = self._stepper.q.reshape(1, -1).copy()
                 self.last_q_history_transient = q_history
-                return self._compute_distant_response(
+                result = self._compute_distant_response(
                     resting_contacts, q_history, h, E_max, bodies)
+                # γ-decay must run AFTER DCR reads modal state (§16).
+                self.last_E_modal_attenuation_diss = \
+                    self._stepper.apply_rigid_step_decay()
+                return result
             self.last_q_history_transient = None
             self._reset_velocity_mode_diagnostics()
+            # γ-decay end-of-step (no DCR work was done; safe to attenuate).
+            self.last_E_modal_attenuation_diss = \
+                self._stepper.apply_rigid_step_decay()
             return {}
 
         s_total = aggregate_kicks(kicks_modal)
@@ -528,8 +556,15 @@ class PassiveDCRCoupler:
         q_history_transient = self._stepper.transient_step_n(alpha_s, n_substeps)
         self.last_q_history_transient = q_history_transient
 
-        return self._compute_distant_response(
+        result = self._compute_distant_response(
             resting_contacts, q_history_transient, h, E_max, bodies)
+        # γ-decay must run AFTER DCR reads modal state (§16). transient_step_n
+        # is pure (its output is independent of self.q/self.qdot), but
+        # _compute_distant_response may read the persistent state for patch
+        # mode / back-reaction; attenuate after it returns.
+        self.last_E_modal_attenuation_diss = \
+            self._stepper.apply_rigid_step_decay()
+        return result
 
     # ------------------------------------------------------------------
     # Distant response dispatch (this follow-up)
