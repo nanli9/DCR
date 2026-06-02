@@ -244,6 +244,120 @@ class AVBDDCRWorld:
                 f"{coupler.dcr_velocity_mode!r}")
         self.passive_couplers.append(coupler)
 
+    # ---- Snapshot / restore (powers the viewer "reset" button) ----------
+
+    def snapshot(self) -> dict:
+        """Capture the current dynamic state of the world and every
+        attached coupler. Returned dict can be passed to `restore()` at
+        any later step to rewind. Static-floor descriptors are not
+        snapshotted (they don't change).
+        """
+        # Make sure the parallel DCR list reflects the live AVBD state
+        # before we copy out of it.
+        try:
+            self._sync_avbd_to_dcr()
+        except Exception:
+            pass
+        bodies_snap = []
+        for desc in self._descs:
+            db = desc.dcr_body
+            bodies_snap.append({
+                "position": db.position.copy(),
+                "orientation": db.orientation.copy(),
+                "velocity": db.velocity.copy(),
+            })
+        couplers_snap = []
+        for coupler in self.passive_couplers:
+            couplers_snap.append({
+                "q": coupler._stepper.q.copy(),
+                "qdot": coupler._stepper.qdot.copy(),
+                "last_E_modal_peak": float(coupler.last_E_modal_peak),
+            })
+        return {
+            "time": float(self.time),
+            "bodies": bodies_snap,
+            "couplers": couplers_snap,
+        }
+
+    def restore(self, snap: dict) -> None:
+        """Restore a snapshot. Resets time, per-step diagnostics, contact
+        keys, and rewires both the DCR-side bodies AND the AVBD-side
+        Warp arrays in one batched upload per state array.
+        """
+        import numpy as _np
+        # 1. Restore DCR-side body state from the snapshot.
+        for desc, b in zip(self._descs, snap["bodies"]):
+            desc.dcr_body.position[:] = b["position"]
+            desc.dcr_body.orientation[:] = b["orientation"]
+            desc.dcr_body.velocity[:] = b["velocity"]
+        # 2. Restore the coupler state (modal q, qdot, peak energy).
+        for coupler, cs in zip(self.passive_couplers, snap["couplers"]):
+            coupler._stepper.q[:] = cs["q"]
+            coupler._stepper.qdot[:] = cs["qdot"]
+            coupler.last_E_modal_peak = cs["last_E_modal_peak"]
+            # Reset cumulative diagnostics so a fresh run looks fresh.
+            coupler.last_alpha = 0.0
+            coupler.last_E_modal_pre_kick = 0.0
+            coupler.last_E_modal_post_kick = 0.0
+            coupler.last_E_modal_attenuation_diss = 0.0
+            coupler.last_patches = None
+            coupler.last_patch_kicks = None
+        # 3. Push every body's state back into the Warp arrays in one
+        # batched upload per array (no per-body reallocation).
+        sol = self._solver
+        if sol.x is not None:
+            x_np = sol.x.numpy().copy()
+            q_np = sol.q.numpy().copy()
+            v_np = sol.v.numpy().copy()
+            w_np = sol.omega.numpy().copy()
+            for desc in self._descs:
+                if desc.avbd_body is None:
+                    continue
+                i = desc.avbd_body.index
+                db = desc.dcr_body
+                x_np[i] = (float(db.position[0]),
+                           float(db.position[1]),
+                           float(db.position[2]))
+                # DCR WXYZ → AVBD XYZW.
+                q_np[i] = (float(db.orientation[1]),
+                           float(db.orientation[2]),
+                           float(db.orientation[3]),
+                           float(db.orientation[0]))
+                v_np[i] = (float(db.velocity[0]),
+                           float(db.velocity[1]),
+                           float(db.velocity[2]))
+                w_np[i] = (float(db.velocity[3]),
+                           float(db.velocity[4]),
+                           float(db.velocity[5]))
+            sol.x.assign(x_np)
+            sol.q.assign(q_np)
+            sol.v.assign(v_np)
+            sol.omega.assign(w_np)
+            # prev_v / prev_omega feed the BDF1 inertial target; zero them
+            # so the first post-reset step doesn't get a phantom v_inertia
+            # carried over from the pre-reset trajectory.
+            if sol.prev_v is not None:
+                sol.prev_v.zero_()
+            if sol.prev_omega is not None:
+                sol.prev_omega.zero_()
+            # Clear any cached CUDA-graph: the captured launches reference
+            # array allocations that may have shifted on the next _flush.
+            sol._graph = None
+        # 4. World-level state.
+        self.time = float(snap["time"])
+        self._prev_contact_keys = set()
+        self.last_contacts = []
+        self.last_lam = _np.zeros(0)
+        self.last_E_loss = 0.0
+        self.last_E_max = 0.0
+        self.last_dcr_ke_injected = 0.0
+        self.last_step_ms = 0.0
+        self.last_solve_ms = 0.0
+        self.last_extract_ms = 0.0
+        self.last_coupler_ms = 0.0
+        self.last_sync_ms = 0.0
+        self.last_sync_n = 0
+
     # ---- Step -------------------------------------------------------------
 
     def step(self) -> list[Contact]:

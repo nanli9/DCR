@@ -339,6 +339,14 @@ class AVBDDCRViewer:
         self.slab_mesh = slab_mesh
         self.title = title
 
+        # Take the as-built snapshot BEFORE the first step. The "reset"
+        # button restores to this baseline.
+        self._initial_snapshot = world.snapshot()
+        # Lock guards world.step() vs world.restore() — without it a
+        # reset click landing mid-step would corrupt the Warp arrays
+        # the running step is mid-launching against.
+        self._world_lock = threading.Lock()
+
         self.server = viser.ViserServer(host="0.0.0.0", port=args.port)
         try:
             self.server.scene.set_up_direction("+y")
@@ -396,6 +404,12 @@ class AVBDDCRViewer:
             self.gui_causal = self.server.gui.add_checkbox(
                 "causal_gating",
                 initial_value=bool(coupler.causal_gating))
+        with self.server.gui.add_folder("Actions"):
+            self.gui_reset = self.server.gui.add_button(
+                "reset scene",
+                hint="Restore the as-built initial positions, velocities, "
+                     "modal state, and time. Re-runs from t=0.")
+            self.gui_reset.on_click(lambda _: self._reset_scene())
         with self.server.gui.add_folder("Status"):
             self.gui_t = self.server.gui.add_text("t (s)", initial_value="0.000")
             self.gui_step_ms = self.server.gui.add_text(
@@ -444,6 +458,18 @@ class AVBDDCRViewer:
     def _causal_changed(self, _evt):
         self.coupler.causal_gating = bool(self.gui_causal.value)
 
+    def _reset_scene(self):
+        """Restore the as-built snapshot taken at viewer construction.
+
+        Holds the world lock so the running solver thread can't race
+        the restore. After the restore returns we immediately push one
+        render tick so the viewer reflects t=0 even if the user has
+        paused playback.
+        """
+        with self._world_lock:
+            self.world.restore(self._initial_snapshot)
+        self._render_tick()
+
     # ---- Loop ------------------------------------------------------------
 
     def run(self):
@@ -472,7 +498,8 @@ class AVBDDCRViewer:
             # solver can't run away from the renderer on a slow machine.
             steps_this_frame = 0
             while accum >= h and steps_this_frame < 4:
-                self.world.step()
+                with self._world_lock:
+                    self.world.step()
                 accum -= h
                 steps_this_frame += 1
             self._render_tick()
