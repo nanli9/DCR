@@ -203,10 +203,23 @@ def compute_deformed_normal(
     verts = surface.vertices
     faces = surface.faces
 
-    # Step 1: closest triangle.
+    # Step 1: closest triangle. Use the cKDTree centroid index attached
+    # to `surface` by dcr.modal.passive_inject._get_or_build_tri_kdtree
+    # (shared cache — same TriMesh instance). Fall back to brute force
+    # if scipy isn't available.
+    from dcr.modal.passive_inject import _get_or_build_tri_kdtree
+    tree, _ = _get_or_build_tri_kdtree(surface)
+    if tree is False:
+        candidate_tris = range(faces.shape[0])
+    else:
+        k = min(8, faces.shape[0])
+        _, idxs = tree.query(contact_point, k=k)
+        candidate_tris = np.atleast_1d(idxs)
+
     best_dist = np.inf
     best_tri = 0
-    for fi in range(faces.shape[0]):
+    for fi in candidate_tris:
+        fi = int(fi)
         v0 = verts[faces[fi, 0]]
         v1 = verts[faces[fi, 1]]
         v2 = verts[faces[fi, 2]]
