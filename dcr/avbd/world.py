@@ -610,6 +610,13 @@ class AVBDDCRWorld:
             self._E_modal_peak_running = max(
                 self._E_modal_peak_running, E_modal_now)
 
+            # Spec §22 Inv 3 fast-path: empty modal reservoir ⇒ no support
+            # contribution. Skip BEFORE we pay for Φ(x̄) and BJ-normal
+            # computation on every patch — those dominate the per-step
+            # cost on a busy scene (truck has ~7 patches × ~50µs each).
+            if E_modal_now <= 1e-18:
+                continue
+
             for patch in patches:
                 # Receiver = the body in the pair that is NOT the elastic.
                 if patch.body_a == coupler.elastic_body_idx:
