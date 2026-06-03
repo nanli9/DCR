@@ -44,6 +44,10 @@ from ._solver import (
     FLOOR_CONTACT_6DOF,
 )
 from .contact_extract import extract_contacts
+from .diagnostics import EnergyLedger
+from .moving_support_solve import MovingSupportResult, solve_one_contact
+from ..modal.passive_inject import eval_basis_at_point
+from ..dcr.deformed_normal_bj import compute_deformed_normal_barbic_james
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +97,19 @@ class AVBDDCRWorld:
     avbd_substeps: int = 1
     enforce_rigid_energy_bound: bool = False
 
+    # ---- Phase B: moving-support AVBD pass (spec §7 + §12) -----------------
+    # When True, after the patch coupler returns, run a per-patch
+    # moving-support AL solve via dcr.avbd.moving_support_solve. This
+    # adds a BUDGET-BOUNDED residual response funded by the modal
+    # reservoir, on top of whatever the patch coupler already applied.
+    # The causal gates (§14) keep it inactive on first contact, so the
+    # standard drop-and-settle dynamics behave like Phase A.
+    enable_moving_support_pass: bool = False
+    moving_support_beta: float = 0.1
+    moving_support_max_attempts: int = 3
+    moving_support_use_bj: bool = False
+    moving_support_theta_max: float = float(np.radians(3.0))
+
     # Filled in by the user via add_body / add_passive_coupler.
     _descs: list[AVBDBodyDescriptor] = field(default_factory=list, init=False)
     passive_couplers: list[PassiveDCRCoupler] = field(
@@ -119,6 +136,21 @@ class AVBDDCRWorld:
     # Number of dynamic body velocities pushed back into AVBD this step.
     # Zero when no patch kicks fired (DCR didn't modify any velocity).
     last_sync_n: int = field(default=0, init=False)
+
+    # ---- Phase B diagnostics (spec §21 subset) ---------------------------
+    # All zero / empty when enable_moving_support_pass is False. When the
+    # Phase B pass runs, each scalar is the aggregate over all patches
+    # that fired this step.
+    last_W_support: float = field(default=0.0, init=False)
+    last_E_support_budget: float = field(default=0.0, init=False)
+    last_gamma_support_min: float = field(default=1.0, init=False)
+    last_n_moving_support: int = field(default=0, init=False)
+    last_n_moving_support_gated: int = field(default=0, init=False)
+    last_bj_angle_deg_max: float = field(default=0.0, init=False)
+    last_bj_fallbacks: int = field(default=0, init=False)
+    last_moving_support_ms: float = field(default=0.0, init=False)
+    # Cumulative running max of E_modal for §14.3 modal cutoff gate.
+    _E_modal_peak_running: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
         self._solver = Solver6DOF(
@@ -396,6 +428,7 @@ class AVBDDCRWorld:
             floor_body_idx=self._floor_body_idx,
             prev_contact_keys=self._prev_contact_keys,
             dt=self.h,
+            avbd_to_dcr=self._avbd_to_dcr_index_map(),
         )
         self.last_extract_ms = (_t.perf_counter() - t_extract_0) * 1000.0
         self._prev_contact_keys = current_keys
@@ -421,11 +454,20 @@ class AVBDDCRWorld:
                 kicked_any = True
         self.last_coupler_ms = (_t.perf_counter() - t_coupler_0) * 1000.0
 
+        # (Phase B) Optional moving-support AVBD pass (spec §7 + §12).
+        # Runs AFTER the patch coupler so the causal gates can see the
+        # post-coupler state. Always a no-op when the flag is False.
+        t_ms_0 = _t.perf_counter()
+        ms_kicked_any = False
+        if self.enable_moving_support_pass and self.passive_couplers:
+            ms_kicked_any = self._run_moving_support_pass(bodies)
+        self.last_moving_support_ms = (_t.perf_counter() - t_ms_0) * 1000.0
+
         # Sync DCR → AVBD only if a patch kick actually modified velocities.
         # Without this gate, even on steps where the coupler is a no-op we
         # were paying ~24 full-array CPU↔Warp roundtrips (every step).
         t_sync_0 = _t.perf_counter()
-        if kicked_any:
+        if kicked_any or ms_kicked_any:
             self._sync_dcr_to_avbd_velocities_batched()
         else:
             self.last_sync_n = 0
@@ -492,6 +534,172 @@ class AVBDDCRWorld:
         sol.v.assign(v_np)
         sol.omega.assign(w_np)
         self.last_sync_n = n
+
+    def _avbd_to_dcr_index_map(self) -> dict[int, int]:
+        """Mapping AVBD body index → DCR body index.
+
+        AVBD assigns body indices in the order `solver.add_box(...)` is
+        called; DCR-side indices are positions in `self._descs`, which
+        includes a static floor entry that AVBD doesn't see. Cached on
+        first call (the mapping is fixed at world construction time
+        after all add_* calls have finished — we don't currently support
+        dynamic body add/remove, so the cache is safe).
+        """
+        cached = getattr(self, "_avbd_to_dcr_cache", None)
+        if cached is not None:
+            return cached
+        mp: dict[int, int] = {}
+        for dcr_idx, desc in enumerate(self._descs):
+            if desc.avbd_body is None:
+                continue
+            mp[int(desc.avbd_body.index)] = dcr_idx
+        self._avbd_to_dcr_cache = mp
+        return mp
+
+    def _run_moving_support_pass(
+        self,
+        bodies: list[RigidBody],
+    ) -> bool:
+        """Phase B (spec §7 + §12 + §13): per-patch moving-support AVBD pass.
+
+        For each PassiveDCRCoupler's `last_patches` (built earlier in this
+        step by the patch coupler), runs `solve_one_contact` against the
+        modal support and applies the resulting impulse + back-reaction.
+
+        The receiver body for each patch is the non-elastic body. The
+        elastic body itself is static-floor-like — no kick is applied to
+        it (the support's reaction is the modal back-reaction qdot ← qdot
+        − Φᵀ J, which we apply directly to the coupler's stepper).
+
+        Returns True iff any patch applied a non-zero impulse to a rigid
+        body (the caller needs this to decide whether to re-sync DCR →
+        AVBD velocities).
+
+        Bookkeeping cumulated on `self.last_*` for the viewer:
+          last_W_support, last_E_support_budget, last_gamma_support_min,
+          last_n_moving_support (= active), last_n_moving_support_gated,
+          last_bj_angle_deg_max, last_bj_fallbacks.
+        """
+        # Reset per-step accumulators.
+        self.last_W_support = 0.0
+        self.last_E_support_budget = 0.0
+        self.last_gamma_support_min = 1.0
+        self.last_n_moving_support = 0
+        self.last_n_moving_support_gated = 0
+        self.last_bj_angle_deg_max = 0.0
+        self.last_bj_fallbacks = 0
+        any_impulse = False
+
+        contacts = self.last_contacts
+        for coupler in self.passive_couplers:
+            patches = getattr(coupler, "last_patches", None)
+            if not patches:
+                continue
+            modal = coupler.modal
+            U_surf = modal.U_surf
+            surf = coupler._surface
+            surf_vert_idx = modal.surface_vertex_indices
+            vert_to_surf = coupler._vert_to_surf_idx
+            omega2 = modal.frequencies ** 2
+
+            # §14.3 modal peak (running max).
+            from ..modal.energy import modal_energy as _me
+            E_modal_now = float(_me(
+                coupler._stepper.q, coupler._stepper.qdot,
+                modal.frequencies))
+            self._E_modal_peak_running = max(
+                self._E_modal_peak_running, E_modal_now)
+
+            for patch in patches:
+                # Receiver = the body in the pair that is NOT the elastic.
+                if patch.body_a == coupler.elastic_body_idx:
+                    receiver_idx = patch.body_b
+                    r_bar = patch.r_bar_b
+                    # n_rest_bar points A→B (i.e., elastic→receiver), which
+                    # is the "push direction FROM elastic INTO receiver."
+                    n_rest = np.asarray(patch.n_rest_bar, dtype=np.float64)
+                elif patch.body_b == coupler.elastic_body_idx:
+                    receiver_idx = patch.body_a
+                    r_bar = patch.r_bar_a
+                    # n_rest_bar points A→B (receiver→elastic); the push
+                    # direction FROM elastic INTO receiver is its negation.
+                    n_rest = -np.asarray(patch.n_rest_bar, dtype=np.float64)
+                else:
+                    # Patch doesn't touch the elastic body — skip.
+                    continue
+
+                body = bodies[receiver_idx]
+                if body.is_static or not np.isfinite(body.mass):
+                    continue
+
+                # Φ(x̄) at the patch centroid (shared cache via cKDTree).
+                Phi = eval_basis_at_point(
+                    patch.x_bar, surf, U_surf,
+                    surf_vert_idx, vert_to_surf)
+
+                # Frozen contact-frame normal (BJ if enabled, else rest).
+                n_frame = n_rest
+                if self.moving_support_use_bj and coupler._bj_cache is not None:
+                    try:
+                        n_bj, theta, _ = compute_deformed_normal_barbic_james(
+                            patch.x_bar, n_rest, coupler._stepper.q,
+                            surf, coupler._bj_cache,
+                            self.moving_support_theta_max,
+                        )
+                        bad = (not np.all(np.isfinite(n_bj))
+                               or abs(float(np.linalg.norm(n_bj)) - 1.0) > 1e-6)
+                        if bad:
+                            self.last_bj_fallbacks += 1
+                        else:
+                            n_frame = n_bj
+                            self.last_bj_angle_deg_max = max(
+                                self.last_bj_angle_deg_max,
+                                float(np.degrees(theta)))
+                    except Exception:
+                        self.last_bj_fallbacks += 1
+
+                # Approximate gap from current geometry (patch lives on
+                # the contact shell, so gap ≈ 0 if the patch is active).
+                gap = 0.0
+
+                res: MovingSupportResult = solve_one_contact(
+                    body, r_bar, Phi, n_frame,
+                    coupler._stepper.qdot.copy(),
+                    coupler._stepper.q.copy(),
+                    omega2,
+                    beta=self.moving_support_beta,
+                    mu=float(body.friction),
+                    gap=gap,
+                    max_attempts=self.moving_support_max_attempts,
+                    causal_gating=bool(coupler.causal_gating),
+                    contact_shell_delta=float(coupler.contact_shell_delta),
+                    v_min_closing=float(coupler.v_min_closing),
+                    e_modal_cutoff_frac=float(coupler.e_modal_cutoff_frac),
+                    E_modal_peak=self._E_modal_peak_running,
+                    restitution=float(getattr(body, "restitution", 0.0)),
+                )
+
+                if res.gated_out:
+                    self.last_n_moving_support_gated += 1
+                    continue
+                if float(np.linalg.norm(res.J)) < 1e-12:
+                    continue
+
+                # Apply impulse to the receiver body AND back-react the
+                # modal stepper (same Φ instance — Invariant 5).
+                body.velocity[0:3] = res.v_after
+                body.velocity[3:6] = res.omega_after
+                coupler._stepper.qdot[:] = res.qdot_after
+
+                # Aggregate diagnostics for the viewer.
+                self.last_W_support += float(res.W_support_to_rigid)
+                self.last_E_support_budget += float(res.E_support_budget)
+                self.last_gamma_support_min = min(
+                    self.last_gamma_support_min, float(res.gamma_final))
+                self.last_n_moving_support += 1
+                any_impulse = True
+
+        return any_impulse
 
     def _apply_patch_kicks(
         self,

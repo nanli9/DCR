@@ -71,6 +71,7 @@ def extract_contacts(
     floor_body_idx: int | None,
     prev_contact_keys: set | None = None,
     dt: float | None = None,
+    avbd_to_dcr: dict[int, int] | None = None,
 ) -> tuple[list[Contact], NDArray[np.float64], list[AVBDContactRecord], set]:
     """Walk solver rows, build DCR-shaped contacts + lam triples.
 
@@ -87,6 +88,14 @@ def extract_contacts(
             ratio Σ|λ|/(m·g·h) = 1/h) into impulse units that the patch
             coupler's modal projection expects. If None, falls back to
             `solver.dt`.
+        avbd_to_dcr: optional dict mapping AVBD-side body index → DCR-side
+            body index. When the world's `_descs` list has a static floor
+            registered BEFORE any dynamic body, the DCR-side index is
+            shifted by +1 relative to the AVBD-side index (the floor has
+            no AVBD body). Without this map the emitted Contact records
+            collide on `body_a == body_b == 0`, which silently breaks any
+            downstream code that clusters contacts by body pair. If None
+            (legacy callers), the identity map is used.
 
     Returns:
         contacts:      list[Contact], one per normal row that has λ_n > 0.
@@ -97,6 +106,11 @@ def extract_contacts(
     """
     if prev_contact_keys is None:
         prev_contact_keys = set()
+
+    def _to_dcr(avbd_idx: int) -> int:
+        if avbd_to_dcr is None:
+            return int(avbd_idx)
+        return int(avbd_to_dcr.get(int(avbd_idx), int(avbd_idx)))
     # AVBD λ is force-like in BDF1; multiply by dt to obtain impulse.
     h = float(dt) if dt is not None else float(solver.dt)
     rows = solver._rows
@@ -156,17 +170,21 @@ def extract_contacts(
         if abs(lam_n) < 1e-12:
             continue
 
-        # Body indices on the rigid side.
-        ba = int(body_a[i])
+        # Body indices on the AVBD side (used for indexing AVBD arrays).
+        # DCR-side indices (used in the emitted Contact record) are
+        # computed below via _to_dcr — they may differ when a static
+        # floor sits at DCR index 0 ahead of any dynamic body.
+        ba_avbd = int(body_a[i])
 
         # ---- Contact point + world normal --------------------------------
-        R_a = _avbd_quat_to_rot(orientations[ba])
-        p_world = positions[ba] + R_a @ off_a[i]
+        R_a = _avbd_quat_to_rot(orientations[ba_avbd])
+        p_world = positions[ba_avbd] + R_a @ off_a[i]
 
         if t == FLOOR_CONTACT_6DOF:
             if floor_body_idx is None:
                 continue
-            bb = floor_body_idx
+            bb = floor_body_idx                  # already DCR-side
+            ba = _to_dcr(ba_avbd)                # AVBD → DCR for receiver
             n_world = np.array([0.0, 1.0, 0.0])  # AVBD assumes +Y floor
             floor_y = float(anchors[i, 1])
             penetration = max(0.0, floor_y - float(p_world[1]))
@@ -179,10 +197,10 @@ def extract_contacts(
             # on the receiver side. This is approximate at large
             # penetrations but adequate for the patch coupler's K_total
             # solve, which only needs a reasonable normal direction.
-            bb = int(body_b[i])
-            R_b = _avbd_quat_to_rot(orientations[bb])
+            bb_avbd = int(body_b[i])
+            R_b = _avbd_quat_to_rot(orientations[bb_avbd])
             off_b_arr = solver.c_off_b.numpy().reshape(-1, 3)
-            q_world = positions[bb] + R_b @ off_b_arr[i]
+            q_world = positions[bb_avbd] + R_b @ off_b_arr[i]
             sep = p_world - q_world
             ns = np.linalg.norm(sep)
             if ns < 1e-9:
@@ -194,6 +212,9 @@ def extract_contacts(
             # derive a consistent local basis here. The DCR re-basing
             # below makes this choice immaterial for the spatial impulse.
             avbd_t1, avbd_t2 = _pick_friction_dirs(n_world)
+            # Now remap to DCR-side for the emitted Contact record.
+            ba = _to_dcr(ba_avbd)
+            bb = _to_dcr(bb_avbd)
 
         # ---- Gather tangent λ's for this normal row ----------------------
         t_idx1, t_idx2 = normal_to_tangents.get(i, (-1, -1))

@@ -75,11 +75,16 @@ def _fix_one_edge(mesh) -> np.ndarray:
 def build_truck_scene(
     device: str, h: float, eta: float, beta: float,
     causal_gating: bool, modal_decay_gamma: float,
+    enable_phase_b: bool = False, ms_beta: float = 0.1,
+    use_bj: bool = False,
 ) -> tuple[AVBDDCRWorld, PassiveDCRCoupler, list[SceneBox], object, str]:
     """Heavy objects dropped sequentially on a wood-like 'road'."""
     world = AVBDDCRWorld(
         h=h, eta=eta, device=device,
         avbd_iterations=10, avbd_substeps=4,
+        enable_moving_support_pass=enable_phase_b,
+        moving_support_beta=ms_beta,
+        moving_support_use_bj=use_bj,
     )
     ground_top = 0.03
     floor_idx = world.add_floor(floor_y=ground_top, friction=0.6, name="road")
@@ -99,7 +104,7 @@ def build_truck_scene(
         elastic_body_idx=floor_idx,
         dcr_velocity_mode="energy_prescribed_patch",
         energy_response_beta=beta,
-        deformed_normal_method="patch_fit",
+        deformed_normal_method=("barbic_james" if use_bj else "patch_fit"),
         causal_gating=causal_gating,
         modal_decay_gamma=modal_decay_gamma,
     )
@@ -151,11 +156,16 @@ def build_truck_scene(
 def build_shelf_scene(
     device: str, h: float, eta: float, beta: float,
     causal_gating: bool, modal_decay_gamma: float,
+    enable_phase_b: bool = False, ms_beta: float = 0.1,
+    use_bj: bool = False,
 ) -> tuple[AVBDDCRWorld, PassiveDCRCoupler, list[SceneBox], object, str]:
     """Heavy box drops on a soft cantilever shelf; books topple."""
     world = AVBDDCRWorld(
         h=h, eta=eta, device=device,
         avbd_iterations=10, avbd_substeps=4,
+        enable_moving_support_pass=enable_phase_b,
+        moving_support_beta=ms_beta,
+        moving_support_use_bj=use_bj,
     )
     shelf_top = 0.015
     shelf_idx = world.add_floor(
@@ -175,7 +185,7 @@ def build_shelf_scene(
         elastic_body_idx=shelf_idx,
         dcr_velocity_mode="energy_prescribed_patch",
         energy_response_beta=beta,
-        deformed_normal_method="patch_fit",
+        deformed_normal_method=("barbic_james" if use_bj else "patch_fit"),
         causal_gating=causal_gating,
         modal_decay_gamma=modal_decay_gamma,
     )
@@ -213,11 +223,16 @@ def build_shelf_scene(
 def build_ledge_scene(
     device: str, h: float, eta: float, beta: float,
     causal_gating: bool, modal_decay_gamma: float,
+    enable_phase_b: bool = False, ms_beta: float = 0.1,
+    use_bj: bool = False,
 ) -> tuple[AVBDDCRWorld, PassiveDCRCoupler, list[SceneBox], object, str]:
     """Boulder hits a stone cantilever ledge; balanced pillars fall."""
     world = AVBDDCRWorld(
         h=h, eta=eta, device=device,
         avbd_iterations=10, avbd_substeps=4,
+        enable_moving_support_pass=enable_phase_b,
+        moving_support_beta=ms_beta,
+        moving_support_use_bj=use_bj,
     )
     ledge_top = 0.04
     ledge_idx = world.add_floor(
@@ -237,7 +252,7 @@ def build_ledge_scene(
         elastic_body_idx=ledge_idx,
         dcr_velocity_mode="energy_prescribed_patch",
         energy_response_beta=beta,
-        deformed_normal_method="patch_fit",
+        deformed_normal_method=("barbic_james" if use_bj else "patch_fit"),
         causal_gating=causal_gating,
         modal_decay_gamma=modal_decay_gamma,
     )
@@ -404,6 +419,27 @@ class AVBDDCRViewer:
             self.gui_causal = self.server.gui.add_checkbox(
                 "causal_gating",
                 initial_value=bool(coupler.causal_gating))
+        with self.server.gui.add_folder("Phase B (moving support, spec §7/§12)"):
+            self.gui_phase_b = self.server.gui.add_checkbox(
+                "enable_moving_support_pass",
+                initial_value=bool(world.enable_moving_support_pass),
+                hint="Runs spec §7 moving-support AVBD solve after the patch "
+                     "coupler each step. Bounded by §12 γ line search so "
+                     "W_support ≤ β · E_modal. No-op when modal reservoir "
+                     "is empty (spec §22 Inv 3).")
+            self.gui_ms_beta = self.server.gui.add_slider(
+                "moving_support_beta (§11)",
+                0.0, 1.0, step=0.01,
+                initial_value=float(world.moving_support_beta),
+                hint="Fraction of modal reservoir the support may spend per "
+                     "step. β=0 disables; β=1 allows full spend.")
+            self.gui_use_bj = self.server.gui.add_checkbox(
+                "use_bj_normal (§3)",
+                initial_value=bool(world.moving_support_use_bj),
+                hint="Use Barbič-James deformed normal for the frozen "
+                     "contact frame. Only meaningful if the coupler was "
+                     "built with deformed_normal_method='barbic_james' "
+                     "(toggle via --use-bj at startup).")
         with self.server.gui.add_folder("Actions"):
             self.gui_reset = self.server.gui.add_button(
                 "reset scene",
@@ -424,6 +460,21 @@ class AVBDDCRViewer:
                 "contacts", initial_value="0")
             self.gui_n_patches = self.server.gui.add_text(
                 "patches", initial_value="0")
+        with self.server.gui.add_folder("Phase B Status"):
+            self.gui_ms_active = self.server.gui.add_text(
+                "moving-support active", initial_value="0")
+            self.gui_ms_gated = self.server.gui.add_text(
+                "moving-support gated", initial_value="0")
+            self.gui_W_support = self.server.gui.add_text(
+                "W_support (J)", initial_value="—")
+            self.gui_E_budget = self.server.gui.add_text(
+                "E_support_budget (J)", initial_value="—")
+            self.gui_gamma_min = self.server.gui.add_text(
+                "γ_min (§12)", initial_value="—")
+            self.gui_bj_angle = self.server.gui.add_text(
+                "max BJ angle (deg)", initial_value="—")
+            self.gui_ms_ms = self.server.gui.add_text(
+                "moving-support time (ms)", initial_value="—")
 
         # Wire reactive GUI knobs.
         self.gui_iters.on_update(self._iters_changed)
@@ -432,6 +483,9 @@ class AVBDDCRViewer:
         self.gui_eta.on_update(self._eta_changed)
         self.gui_modal_gamma.on_update(self._mgamma_changed)
         self.gui_causal.on_update(self._causal_changed)
+        self.gui_phase_b.on_update(self._phase_b_changed)
+        self.gui_ms_beta.on_update(self._ms_beta_changed)
+        self.gui_use_bj.on_update(self._use_bj_changed)
 
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -457,6 +511,19 @@ class AVBDDCRViewer:
 
     def _causal_changed(self, _evt):
         self.coupler.causal_gating = bool(self.gui_causal.value)
+
+    def _phase_b_changed(self, _evt):
+        self.world.enable_moving_support_pass = bool(self.gui_phase_b.value)
+
+    def _ms_beta_changed(self, _evt):
+        self.world.moving_support_beta = float(self.gui_ms_beta.value)
+
+    def _use_bj_changed(self, _evt):
+        # Only takes effect if the coupler was built with the BJ cache
+        # (deformed_normal_method='barbic_james'). When the cache is
+        # absent the moving-support pass silently falls back to n_rest;
+        # the BJ-angle status will stay at 0.
+        self.world.moving_support_use_bj = bool(self.gui_use_bj.value)
 
     def _reset_scene(self):
         """Restore the as-built snapshot taken at viewer construction.
@@ -537,6 +604,22 @@ class AVBDDCRViewer:
         n_p = (len(self.coupler.last_patch_kicks)
                if self.coupler.last_patch_kicks else 0)
         self.gui_n_patches.value = str(n_p)
+        # Phase B status — meaningful only when the moving-support pass
+        # actually fired this step.
+        self.gui_ms_active.value = str(w.last_n_moving_support)
+        self.gui_ms_gated.value = str(w.last_n_moving_support_gated)
+        if w.last_n_moving_support > 0:
+            self.gui_W_support.value = f"{w.last_W_support:.4e}"
+            self.gui_E_budget.value = f"{w.last_E_support_budget:.4e}"
+            self.gui_gamma_min.value = f"{w.last_gamma_support_min:.4f}"
+        else:
+            self.gui_W_support.value = "—"
+            self.gui_E_budget.value = "—"
+            self.gui_gamma_min.value = "—"
+        self.gui_bj_angle.value = (
+            f"{w.last_bj_angle_deg_max:.4f}"
+            if w.last_bj_angle_deg_max > 0.0 else "—")
+        self.gui_ms_ms.value = f"{w.last_moving_support_ms:.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +640,21 @@ def main():
                     help="energy_response_beta for the patch coupler.")
     ap.add_argument("--causal-gating", action="store_true")
     ap.add_argument("--modal-decay-gamma", type=float, default=1.0)
+    # ---- Phase B (spec §7 / §12 / §13) ----
+    ap.add_argument(
+        "--phase-b", action="store_true",
+        help="Enable the spec §7 moving-support AVBD pass at startup. "
+             "Toggleable live via the 'Phase B' folder in the viewer GUI.")
+    ap.add_argument(
+        "--ms-beta", type=float, default=0.1,
+        help="moving_support_beta (spec §11): fraction of modal reservoir "
+             "the support may spend per step. Default 0.1.")
+    ap.add_argument(
+        "--use-bj", action="store_true",
+        help="Build the coupler with deformed_normal_method='barbic_james' "
+             "and enable the BJ-normal path in the moving-support pass. "
+             "Without this flag the coupler caches no BJ basis and the "
+             "viewer's 'use_bj_normal' toggle silently falls back to rest.")
     args = ap.parse_args()
 
     builder = SCENES[args.scene]
@@ -564,6 +662,9 @@ def main():
         device=args.device, h=args.h, eta=args.eta, beta=args.beta,
         causal_gating=args.causal_gating,
         modal_decay_gamma=args.modal_decay_gamma,
+        enable_phase_b=args.phase_b,
+        ms_beta=args.ms_beta,
+        use_bj=args.use_bj,
     )
     print(f"\n{title}")
     print(f"  bodies={len(world._descs)}  modes={coupler.modal.U.shape[1]}")
