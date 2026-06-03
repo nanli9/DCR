@@ -368,15 +368,30 @@ class AVBDDCRViewer:
         except Exception:
             pass
 
-        # Elastic surface mesh (rest pose, updated each tick).
+        # Elastic surface mesh. Two handles share the same vertices each
+        # tick — a solid one and a tet-mesh wireframe one — so the
+        # "Visualization" GUI can switch between a plain rigid-looking
+        # slab and the deforming FEM tet mesh without re-adding geometry.
+        # See _render_tick for the per-frame vertex / visibility update.
         self._surface_tri = coupler._surface  # cached TriMesh
-        surf_verts = self._surface_tri.vertices
-        surf_faces = self._surface_tri.faces
+        self._surf_faces = self._surface_tri.faces.astype(np.int32)
+        # Rest-pose surface vertices (world coords on the floor plane).
+        # Used verbatim when "render FEM vibration" is off → flat slab.
+        self._surf_rest_verts = self._surface_tri.vertices.astype(np.float32).copy()
         self.surface_handle = self.server.scene.add_mesh_simple(
             "/elastic_surface",
-            vertices=surf_verts.astype(np.float32),
-            faces=surf_faces.astype(np.int32),
+            vertices=self._surf_rest_verts,
+            faces=self._surf_faces,
             color=(0.6, 0.5, 0.35),
+        )
+        # Tet-mesh wireframe twin (shows the FEM surface triangulation).
+        self.surface_handle_wire = self.server.scene.add_mesh_simple(
+            "/elastic_surface_wire",
+            vertices=self._surf_rest_verts,
+            faces=self._surf_faces,
+            color=(0.25, 0.8, 0.45),
+            wireframe=True,
+            visible=False,
         )
 
         # Body handles.
@@ -395,6 +410,18 @@ class AVBDDCRViewer:
             self.body_handles.append(h)
 
         # GUI.
+        with self.server.gui.add_folder("Visualization"):
+            self.gui_show_vibration = self.server.gui.add_checkbox(
+                "render FEM vibration", initial_value=False,
+                hint="Apply the modal displacement Φ·q to the elastic slab. "
+                     "Off (default): the slab is drawn flat, like a plain "
+                     "rigid body. On: shows the modal (FEM-reduced) "
+                     "deformation.")
+            self.gui_tet_style = self.server.gui.add_checkbox(
+                "FEM tet-mesh style", initial_value=False,
+                hint="Draw the slab as a tet-mesh wireframe (the FEM surface "
+                     "triangulation) instead of a solid surface. Off "
+                     "(default): plain solid slab.")
         with self.server.gui.add_folder("Simulation"):
             self.gui_pause = self.server.gui.add_checkbox(
                 "pause", initial_value=False)
@@ -486,6 +513,8 @@ class AVBDDCRViewer:
         self.gui_phase_b.on_update(self._phase_b_changed)
         self.gui_ms_beta.on_update(self._ms_beta_changed)
         self.gui_use_bj.on_update(self._use_bj_changed)
+        self.gui_show_vibration.on_update(self._vis_changed)
+        self.gui_tet_style.on_update(self._vis_changed)
 
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -517,6 +546,30 @@ class AVBDDCRViewer:
 
     def _ms_beta_changed(self, _evt):
         self.world.moving_support_beta = float(self.gui_ms_beta.value)
+
+    def _vis_changed(self, _evt):
+        # Apply immediately (responds even when paused), then let
+        # _render_tick keep it in sync each frame.
+        self._apply_surface_vis()
+
+    def _apply_surface_vis(self):
+        """Update the slab's rendered vertices + which handle is visible,
+        per the two Visualization checkboxes. Off/off (default) = a flat,
+        solid, rigid-looking slab; vibration on = rest + Φ·q; tet-mesh
+        style swaps the solid handle for the wireframe twin."""
+        if bool(self.gui_show_vibration.value):
+            verts = _surface_vertex_world_positions(
+                self.coupler, self.slab_mesh).astype(np.float32)
+        else:
+            verts = self._surf_rest_verts            # flat / rigid look
+        tet_style = bool(self.gui_tet_style.value)
+        for handle in (self.surface_handle, self.surface_handle_wire):
+            try:
+                handle.vertices = verts
+            except Exception:
+                pass
+        self.surface_handle.visible = not tet_style
+        self.surface_handle_wire.visible = tet_style
 
     def _use_bj_changed(self, _evt):
         # Only takes effect if the coupler was built with the BJ cache
@@ -581,13 +634,11 @@ class AVBDDCRViewer:
             handle.wxyz = (
                 float(q_wxyz[0]), float(q_wxyz[1]),
                 float(q_wxyz[2]), float(q_wxyz[3]))
-        # elastic surface (Φ·q displacement, rendered on the floor plane).
-        verts = _surface_vertex_world_positions(self.coupler, self.slab_mesh)
-        try:
-            self.surface_handle.vertices = verts.astype(np.float32)
-        except Exception:
-            # viser API variants — some versions need re-add
-            pass
+        # elastic surface — honours the two Visualization checkboxes
+        # (render FEM vibration on/off, solid vs tet-mesh wireframe).
+        # Default: flat solid slab, so the road/shelf reads as a plain
+        # rigid body and the Φ·q compute is skipped entirely.
+        self._apply_surface_vis()
         # status text.
         from dcr.rigid.energy import rigid_kinetic_energy
         bodies = [d.dcr_body for d in w._descs]
