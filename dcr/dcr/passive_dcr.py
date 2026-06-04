@@ -285,6 +285,30 @@ class PassiveDCRCoupler:
     reservoir_eps: float = 1e-10          # min energy to be eligible
     reservoir_max_factor: float = 1.0     # B_max = factor · recent_peak(E_max)
 
+    # ----- Impact gate on the reservoir deposit (docs §13) ------------------
+    # Without this, the reservoir deposits η·E_loss EVERY step, including the
+    # tiny steady E_loss a resting contact leaks when its block-coordinate
+    # (Gauss-Seidel) solve has not fully converged at low AVBD iterations.
+    # With energy-PRESCRIBED scaling that resting trickle gets pumped back into
+    # the foundation modes directly under the resting body and the patch kicks
+    # it → the body never visually settles (the "boulder keeps vibrating on the
+    # ledge" artifact; see docs §13 diagnosis). The gate funds the reservoir
+    # ONLY from genuine impacts: a contact's deposit is admitted iff the partner
+    # body's measured contact impulse exceeds its weight-support impulse by
+    # `impact_gate_dp_factor` —
+    #     ‖Δp_partner‖  >  impact_gate_dp_factor · h · m · g
+    # A body merely resting has ‖Δp‖ ≈ h·m·g (ratio ≈ 1, gated out); a body
+    # decelerating an impact has ratio ≫ 1 (admitted). This uses the same
+    # iteration-insensitive measured-Δp signal as impulse_source="delta_p", so
+    # genuine impacts still deposit at all iteration counts (the §12 prescribed
+    # fix is preserved) while the resting self-loop is starved. Deposit can only
+    # SHRINK, so global passivity Σ E_inj ≤ η·Σ E_loss is unaffected. Requires
+    # body_dp (delta_p source); with body_dp None the gate is inert (deposits
+    # as before). Default OFF → bit-identical to the un-gated path.
+    use_impact_gate: bool = False
+    impact_gate_dp_factor: float = 2.0    # ‖Δp‖ / (h·m·g) threshold (>1 = impact)
+    gravity_magnitude: float = 9.81       # |g| for the weight-support impulse
+
     # ----- Coherent impact impulse bank (coherent_impact_impulse_bank_fix) ---
     # The reservoir fixed the low-iteration TIMING starvation but not the
     # MAGNITUDE: a soft solve smears one impact over many small per-frame
@@ -504,6 +528,13 @@ class PassiveDCRCoupler:
         if not 0.0 <= self.reservoir_decay <= 1.0:
             raise ValueError(
                 f"reservoir_decay must be in [0, 1]; got {self.reservoir_decay}")
+        if self.impact_gate_dp_factor < 1.0:
+            raise ValueError(
+                "impact_gate_dp_factor must be >= 1 (1 = pure weight support); "
+                f"got {self.impact_gate_dp_factor}")
+        if self.gravity_magnitude <= 0.0:
+            raise ValueError(
+                f"gravity_magnitude must be > 0; got {self.gravity_magnitude}")
 
         # Coherent impact bank (coherent_impact_impulse_bank_fix). The bank
         # SUBSUMES the reservoir: if both flags are on, the bank wins and the
@@ -561,28 +592,70 @@ class PassiveDCRCoupler:
             del self.impact_reservoirs[key]
         self.cum_E_reservoir_expired += self.last_E_reservoir_expired
 
+    def _is_impacting(
+        self,
+        body_id: int,
+        bodies: list[RigidBody] | None,
+        body_dp: dict[int, NDArray[np.float64]] | None,
+        h: float,
+    ) -> bool:
+        """Impact gate (docs §13): True iff `body_id`'s measured contact impulse
+        exceeds its weight-support impulse by `impact_gate_dp_factor`:
+            ‖Δp‖ > impact_gate_dp_factor · h · m · g.
+        A resting body has ‖Δp‖ ≈ h·m·g (Δp = m·(v_post−v_pre) − h·m·g with
+        v_post≈v_pre≈0; see world.step §2.3) → ratio ≈ 1 → not impacting.
+        Inert (admits) when the gate is off or Δp/bodies are unavailable."""
+        if not self.use_impact_gate:
+            return True
+        if body_dp is None or bodies is None:
+            return True
+        dp = body_dp.get(body_id)
+        if dp is None:
+            return True       # static / infinite-mass partner: leave admitted
+        m = float(bodies[body_id].mass)
+        if not np.isfinite(m) or m <= 0.0:
+            return True
+        weight_impulse = h * m * self.gravity_magnitude
+        if weight_impulse <= 0.0:
+            return True
+        return float(np.linalg.norm(dp)) > self.impact_gate_dp_factor * weight_impulse
+
     def _reservoir_deposit(
         self,
         contacts: list[Contact],
         lam: NDArray[np.float64],
         E_max: float,
+        bodies: list[RigidBody] | None = None,
+        body_dp: dict[int, NDArray[np.float64]] | None = None,
+        h: float = 0.0,
     ) -> None:
         """§4: deposit D^n = E_max (= η·E_loss) across current elastic-body
         contact keys, weighted by Σ|λ_N| over each key (fallback weight).
         ρ_B decay was already applied in _reservoir_age_expire, so here we add
-        D on top: energy ← min(B_max, energy + D)."""
+        D on top: energy ← min(B_max, energy + D).
+
+        Impact gate (docs §13): when `use_impact_gate`, a key is admitted only
+        if its partner body is genuinely impacting (`_is_impacting`); resting
+        contacts deposit nothing, so the reservoir under a parked body drains
+        and the patch stops re-exciting it. Deposit can only shrink → passivity
+        Σ E_inj ≤ η·Σ E_loss is unaffected."""
         self.last_E_reservoir_deposit = 0.0
+        self.last_n_impact_gated_keys = 0
         if E_max <= 0.0 or not contacts:
             return
         # Decaying running peak of the per-step budget → B_max ceiling (§4).
         self._recent_peak_E_max = max(
             E_max, self.reservoir_decay * self._recent_peak_E_max)
         B_max = self.reservoir_max_factor * self._recent_peak_E_max
-        # Σ|λ_N| per key (fallback impact weight, §4).
+        # Σ|λ_N| per key (fallback impact weight, §4). Keys whose partner body
+        # is not impacting are dropped by the gate (docs §13).
         key_w: dict[ImpactKey, float] = {}
         for ci, c in enumerate(contacts):
             key = self._reservoir_key(c)
             if key is None:
+                continue
+            if not self._is_impacting(key.body_id, bodies, body_dp, h):
+                self.last_n_impact_gated_keys += 1
                 continue
             lamN = abs(float(lam[3 * ci])) if 3 * ci < len(lam) else 0.0
             key_w[key] = key_w.get(key, 0.0) + lamN
@@ -833,6 +906,9 @@ class PassiveDCRCoupler:
         self.last_patch_gated_no_contact = 0
         self.last_patch_gated_low_closing = 0
         self.last_patch_gated_numerical = 0
+        # Impact-gate diagnostic (docs §13): reservoir keys dropped this step
+        # because their partner body was resting (not impacting).
+        self.last_n_impact_gated_keys = 0
         # γ-decay dissipation accumulator (foundation §16). Reset each step.
         self.last_E_modal_attenuation_diss = 0.0
 
@@ -870,7 +946,8 @@ class PassiveDCRCoupler:
         eligible_keys: set = set()
         if self.use_impact_reservoir:
             self._reservoir_age_expire()
-            self._reservoir_deposit(contacts, lam, E_max)
+            self._reservoir_deposit(
+                contacts, lam, E_max, bodies=bodies, body_dp=body_dp, h=h)
             injection_data, eligible_keys = self._reservoir_eligible(contacts)
             E_inj_budget = float(sum(
                 self.impact_reservoirs[k].energy for k in eligible_keys))

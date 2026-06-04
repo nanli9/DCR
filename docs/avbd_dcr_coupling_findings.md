@@ -471,3 +471,73 @@ injection_scaling="prescribed"` — the timing fix (reservoir) + the magnitude f
 (prescribed) together give iteration-insensitive, passivity-safe modal coupling at
 iters=4. `prescribed_mu ∈ (0,1]` dials the fraction of the budget spent (1.0 =
 hit the η·E_loss bound; lower for a gentler response).
+
+## 13. Ledge scene — "the boulder keeps vibrating" (diagnosed; gate implemented)
+
+Reported symptom (viewer default = the §12 prescribed combo): on the **ledge**
+scene the fallen boulder visibly trembles on the FEM ledge, **worse the lower the
+AVBD-iterations slider is dragged**, and it "only happens on the ledge, not the
+truck." Diagnostic: `scripts/_diag_ledge_boulder_jitter.py` (+ scratch probes).
+
+**What it is — confirmed.** The boulder's motion is **100% the DCR coupling**: with
+DCR off (`η=0`) the boulder is *exactly* dead-still (`vy_std = 0.0`), and so is it
+with `β=0` (patch off). The loop: the boulder lands → injects ~190 J into the ledge
+modes at its own contact → the ledge surface under it rings (`v_f = Φ(x̄)·q̇`) → the
+patch distant-response reads `v_f` and kicks the boulder to match it → the boulder's
+motion re-disturbs its contact → re-inject. Two components:
+- **Impact ring-down** (first ~1–2 s): *physical and correct* — a 50 kg rock dropped
+  0.8 m onto an elastic cantilever is supposed to ring it, and the rock rides that.
+- **Persistent low-iteration twitch:** *the artifact.* A parked boulder on the
+  *compliant* ledge never reaches a converged static contact at low iters, so it
+  leaks a steady trickle of `E_loss`; the reservoir deposits `η·E_loss` every step
+  (weighted by `|λ_N|`, so it lands on the heavy boulder), prescribed pumps it back
+  into the modes directly under the boulder, and the patch kicks it — a body that
+  should be at rest never settles. Scales with low iters exactly as reported
+  (boulder-only `vy` floor: 0.4 µm/s @ iters=40 → 13 µm/s @ iters=4, tracking the
+  deposit rate).
+
+**Five hypotheses chased and *disproved* by measurement** (the honest record — do
+not resurrect these):
+
+| hypothesis | verdict | killer datum |
+|---|---|---|
+| laundered from the stacked pillars (`|λ_N|` weight) | ✗ | boulder-*only* (no pillars) shows the same loop; pillars get **0** patch kicks |
+| boulder sits at the high-deflection free end | ✗ | `‖Φ(x̄)‖` at boulder vs pedestal = **1.01×** (15-mode norm washes out tip amplification) |
+| specific to the prescribed default | ✗ | passive buzzes comparably; iteration pattern is **pillar-topple timing**, non-monotonic |
+| ledge is a soft cantilever, truck is stiff | ✗ | `f₀` = 63 Hz (ledge) vs 71 Hz (truck) — the corner-pinned truck slab is just as compliant |
+| clean monotonic iteration-scaling of pillar jitter | ✗ | rigid (DCR-off) stacked-body jitter is **chaotic** — truck lumber at iters=40 was the worst row measured |
+
+**Truck vs ledge — the premise itself doesn't hold.** By every metric (surface
+wobble `‖Φq‖`, peak modal energy, fraction of post-settle time any body moves
+> 1 mm/s), the **truck is *more* active than the ledge**, not less (e.g. 97.7 % vs
+22 % of the time moving at iters=4). The perceived difference is **visual character**,
+not magnitude: ledge movers = a rock visibly ringing + three tall 4:1 thin pillars
+wobbling (salient); truck movers = heavy 50–100 kg boxes slowly creeping to rest
+(reads as "settling"). Two structural facts back this: (a) only bodies *touching the
+elastic foundation* get the patch coupling — the ledge pillars rest on the *pedestal*,
+so they get **0** patch kicks and their motion is purely rigid; (b) the patch is a
+velocity-match (`Δv = v_f − v_p`), so it *damps* a body on a calm surface (at iters=4
+it cuts ledge "fraction moving" 100 %→22 %) and *transmits* vibration from a ringing
+one — same coupling, opposite visible effect.
+
+**Fix implemented — impact gate on the reservoir deposit (`use_impact_gate`,
+default OFF).** Fund the reservoir only from *genuine* impacts: a contact's deposit
+is admitted iff the partner body's measured contact impulse exceeds its
+weight-support impulse, `‖Δp‖ > impact_gate_dp_factor · h·m·g` (a resting body has
+`‖Δp‖ ≈ h·m·g`, ratio ≈ 1, gated out; an impacting body, ratio ≫ 1, admitted). Uses
+the same iteration-insensitive measured-Δp signal as `impulse_source="delta_p"`, so
+genuine impacts still deposit at all iteration counts (the §12 fix is preserved) and
+deposit can only *shrink* → global passivity `Σ E_inj ≤ η·Σ E_loss` is unaffected.
+`dcr/dcr/passive_dcr.py`: `_is_impacting()` + gate in `_reservoir_deposit()`.
+
+**Status — preliminary, NOT yet a proven cure (honest).** Validated so far: the
+impact ring-down is preserved to within 0.1 % (peak modal energy 67–70 J unchanged),
+global passivity holds, and 78/78 avbd tests pass with it default-OFF. On the *clean*
+boulder-only self-loop the gate starves the resting deposit as intended; but on the
+**full** ledge scene the steady-state is dominated by chaotic pillar topples (genuine
+impacts the gate *correctly* admits, then `|λ_N|`-attributed to the boulder), so the
+net effect there is mixed (helps at iters=10, neutral/worse at iters=4 in one run).
+The gate addresses the *resting self-loop*, not the *topple re-injection* nor the
+underlying rigid pillar instability. Left default-OFF pending a cleaner full-scene
+validation; the residual visible motion is, by the measurements above, as much rigid
+stack tumbling (no DCR involvement) as DCR ring-down.
