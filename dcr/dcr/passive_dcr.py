@@ -34,6 +34,7 @@ from ..modal.modal_analysis import ModalAnalysis
 from ..modal.homogeneous_stepper import HomogeneousStepper
 from ..modal.passive_inject import (
     eval_basis_at_point, project_impulse, aggregate_kicks, passive_alpha,
+    prescribed_alpha,
 )
 from ..modal.energy import modal_energy
 from ..rigid.body import RigidBody
@@ -62,9 +63,23 @@ from .distant_velocity import (
     gamma_from_energy_linear,
     impulse_from_energy_point,
 )
+from .impact_bank import ImpactBank, ImpactKey
 
 
 _EPS_TINY = 1e-12
+
+
+# ImpactKey is now defined in impact_bank.py (the coherent-bank module is the
+# more fundamental owner of the per-impact identity) and imported above. The
+# impact-window reservoir reuses the same (rigid partner, support) key.
+
+
+@dataclass
+class ImpactReservoirEntry:
+    """Short-lived passive energy budget for one ImpactKey (reservoir-fix §2).
+    Funded by η·E_loss, spent by modal injection, expired after W steps."""
+    energy: float = 0.0
+    age: int = 0       # steps since last deposit; expire when age > W
 
 
 @dataclass
@@ -213,6 +228,88 @@ class PassiveDCRCoupler:
     v_min_closing: float = 0.044              # m/s; proposal §2, √(2·g·δ_slop) with δ_slop=1e-4
     e_modal_cutoff_frac: float = 1e-5         # frac; proposal §3
 
+    # ----- New-contact modal-injection impulse source --------------------
+    # Which contact impulse drives the E1 modal injection s = Φ(x)ᵀ J
+    # (realtime-coupling-fix §2).
+    #   "lambda_only": J = λ_N·n + λ_T·t            — DEFAULT (proven path).
+    #   "augmented"  : J += h·k_N·max(0,pen)·n       — §2.2 effective impulse.
+    #   "delta_p"    : J = −(rigid partner's measured contact Δp), split per
+    #                  contact by |λ_N| — §2.3 measured momentum change.
+    #
+    # NOTE (decided by scripts/_diag_injection_iter_sensitivity.py): the
+    # effective sources do NOT reduce iteration-sensitivity here. The stored λ
+    # IS under-grown at low AVBD iters (max|λ_n| ≈ 0.16 @iters=4 vs 4.2 @iters=8),
+    # but the injection is energy-capped by passive_alpha at E_max = η·E_loss
+    # (α ≈ 0.3 < 1, always binding), so the kick MAGNITUDE never limits the
+    # injected energy — the cap does. All three sources give identical capped
+    # injection (CV ≈ 0.688). The real iteration-sensitivity is the is_new ×
+    # E_max timing coincidence (total E_loss is ~constant across iters; the
+    # fraction landing on an injecting step collapses at low iters). So the
+    # default stays lambda_only (zero behaviour change); augmented/delta_p are
+    # kept as opt-in ablations / the §16 record.
+    impulse_source: str = "lambda_only"
+
+    # ----- New-contact injection scaling (energy-prescribed option) ------
+    # How the aggregated modal kick s = Σ Φ(x)ᵀ J is scaled before q̇ += α·s.
+    #   "passive"    : α = passive_alpha (α ∈ [0,1], scale DOWN to fit budget) —
+    #                  DEFAULT, the foundation-§15 bound. Starves at low AVBD
+    #                  iters because ‖s‖ is tiny and α clamps at 1 (docs §9-§11).
+    #   "prescribed" : α = prescribed_alpha — scale s UP or DOWN to DEPOSIT
+    #                  μ·(available budget) of modal energy (foundation §15
+    #                  inequality used as a TARGET, not a ceiling). The kick
+    #                  DIRECTION still comes from Φ(x)ᵀ J (correct spectral
+    #                  distribution); only the MAGNITUDE is set from the energy
+    #                  budget, so it is iteration-insensitive. Pair with the
+    #                  impact reservoir (timing) for the full low-iter fix.
+    #                  DEVIATION: synthesizes modal energy the literal impulse
+    #                  did not carry; still globally passive because the realized
+    #                  ΔE is debited from the η·E_loss budget (docs §12).
+    injection_scaling: str = "passive"
+    prescribed_mu: float = 1.0           # fraction of available budget to deposit
+    prescribed_alpha_max: float = 100.0  # guard vs amplifying a noisy direction
+
+    # ----- Impact-window energy reservoir (avbd_dcr_impact_reservoir_fix) ----
+    # The real fix for the low-iteration starvation (docs §9): decouple the
+    # E1 injection's DEPOSIT timing (every E_loss step) from its SPEND timing
+    # (any near-contact step within W frames), instead of the brittle
+    # same-frame `is_new × E_max` gate. Deposits η·E_loss into per-(rigid,
+    # support) reservoirs; the injection spends the accumulated budget when a
+    # contact is still geometrically near. Global passivity is preserved:
+    # Σ E_inj ≤ η·Σ E_loss (deposits bounded by η·E_loss, spend bounded by the
+    # reservoir, passive_alpha cap retained). Default OFF → bit-identical to
+    # the is_new path; flip on after the §12 diagnostic passes.
+    use_impact_reservoir: bool = False
+    reservoir_window_steps: int = 4       # W: expire entries with age > W
+    reservoir_decay: float = 0.65         # rho_B: stored-budget decay per step
+    reservoir_gate_delta: float = 1e-4    # delta_gate (m); gap=-penetration ≤ this
+    reservoir_eps: float = 1e-10          # min energy to be eligible
+    reservoir_max_factor: float = 1.0     # B_max = factor · recent_peak(E_max)
+
+    # ----- Coherent impact impulse bank (coherent_impact_impulse_bank_fix) ---
+    # The reservoir fixed the low-iteration TIMING starvation but not the
+    # MAGNITUDE: a soft solve smears one impact over many small per-frame
+    # impulses, and per-frame injection keeps only Σ½‖s_i‖², discarding the
+    # cross terms ½‖Σs_i‖² would recover (spec §3). The bank accumulates the
+    # impulses of one physical impact over a short causal window and injects the
+    # event-level ½‖Σs_i‖² once, capped by a passive budget funded by η·E_loss.
+    #
+    # The bank SUBSUMES the reservoir: when use_coherent_impulse_bank is True the
+    # standalone reservoir deposit/spend is suppressed, so η·E_loss is deposited
+    # exactly ONCE and global passivity Σ E_inj ≤ η·Σ E_loss is preserved (the
+    # spec §15 config that turns both on would otherwise double-count). Default
+    # OFF → bit-identical to the is_new / reservoir paths. See dcr/dcr/impact_bank.py.
+    use_coherent_impulse_bank: bool = False
+    impact_bank_mode: str = "impulse_reconstruct"   # | "modal_sum" (ablation)
+    impact_bank_inject_policy: str = "end_of_window"  # | "every_frame"
+    impact_bank_window: int = 4              # samples gathered before firing
+    impact_bank_max_event_age: int = 8       # delete an event after this many steps
+    impact_bank_decay: float = 0.65          # lambda_B: budget decay per step
+    impact_bank_coherence_cos_min: float = 0.5    # §8.1 directional gate
+    impact_bank_normal_cos_min: float = 0.7       # §8.2 normal gate
+    impact_bank_patch_radius: float = 0.05        # §8.3 m; ‖x_i − x̄‖ ceiling
+    impact_bank_tangential_dominance_max: float = 2.0  # §8.5b ‖J_t‖/(|J_n|+ε)
+    impact_bank_max_factor: float = 1.0      # B_max = factor · recent_peak(E_max)
+
     # ----- Opt-in γ-decay stabilizer (foundation §16, #DEVIATION from §15) ---
     # End-of-rigid-step modal-state attenuation factor in [0, 1]. See
     # HomogeneousStepper.apply_rigid_step_decay() for semantics:
@@ -237,6 +334,17 @@ class PassiveDCRCoupler:
     # Energy diagnostics per step.
     last_E_modal_pre_kick: float = 0.0
     last_E_modal_post_kick: float = 0.0
+    # Modal energy injected by THIS step's kick (post − pre) and its running
+    # cumulative sum (realtime-coupling-fix §16 diagnostic). The cumulative
+    # value is the iteration-sensitivity signal: ~flat across AVBD iters for a
+    # good impulse source, rising with iters for the lagging λ-only source.
+    last_E_modal_injected: float = 0.0
+    cum_E_modal_injected: float = 0.0
+    # Raw (pre-cap) kick magnitude and the uncapped injection it would deliver
+    # at α=1. Used to test whether the impulse SOURCE is iteration-sensitive
+    # separately from the passive_alpha cap (realtime-coupling-fix §16).
+    last_s_total_norm: float = 0.0
+    last_dE_full_uncapped: float = 0.0
     last_alpha: float = 0.0
     # Smallest passivity scale applied to a patch back-reaction this step
     # (foundation §15 extraction dual). 1.0 = every kick was already
@@ -267,6 +375,10 @@ class PassiveDCRCoupler:
     last_friction_clip_attempted: int = 0
     last_kinematic_cap_fired: int = 0
     last_kinematic_cap_attempted: int = 0
+    # How often prescribed-injection scaling hit its alpha_max guard this step
+    # (a noisy/near-zero direction being amplified). Nonzero ⇒ raise
+    # prescribed_alpha_max or tighten impulse_threshold.
+    last_prescribed_alpha_cap_fired: int = 0
 
     # ----- Patch-based reformulation diagnostics (prompt §9) -------------
     # Populated when `dcr_velocity_mode == "energy_prescribed_patch"`.
@@ -287,6 +399,29 @@ class PassiveDCRCoupler:
     last_patch_gated_low_closing: int = 0
     last_patch_gated_numerical: int = 0
 
+    # ----- Impact-window reservoir state + diagnostics -------------------
+    impact_reservoirs: dict = field(default_factory=dict, init=False, repr=False)
+    _recent_peak_E_max: float = field(default=0.0, init=False, repr=False)
+    last_E_reservoir_deposit: float = 0.0
+    last_E_reservoir_spent: float = 0.0
+    last_E_reservoir_expired: float = 0.0
+    last_E_reservoir_total: float = 0.0   # Σ energy across live entries
+    last_n_eligible_reservoirs: int = 0
+    cum_E_reservoir_deposit: float = 0.0
+    cum_E_reservoir_spent: float = 0.0
+    cum_E_reservoir_expired: float = 0.0
+
+    # ----- Coherent impact bank state + diagnostics ----------------------
+    # The ImpactBank instance (built in __post_init__ when the flag is on).
+    # Cumulative deposit/spend/expired live on the bank; per-step values are
+    # mirrored here to match the reservoir diagnostics pattern.
+    _bank: ImpactBank | None = field(default=None, init=False, repr=False)
+    last_E_bank_deposit: float = 0.0
+    last_E_bank_spent: float = 0.0
+    last_E_bank_expired: float = 0.0
+    last_n_bank_events: int = 0
+    last_R_coherence: float = 0.0   # mean ‖Σs_i‖²/Σ‖s_i‖² over fired windows
+
     def __post_init__(self) -> None:
         # AVBD Phase A: enforce single-mode operation. The legacy modes
         # remain in code as unreachable branches (kept for git history /
@@ -305,6 +440,22 @@ class PassiveDCRCoupler:
             raise ValueError(
                 "modal_decay_gamma must be in [0, 1]; got "
                 f"{self.modal_decay_gamma}")
+        if self.impulse_source not in ("lambda_only", "augmented", "delta_p"):
+            raise ValueError(
+                "impulse_source must be one of "
+                "{'lambda_only', 'augmented', 'delta_p'}; got "
+                f"{self.impulse_source!r}")
+        if self.injection_scaling not in ("passive", "prescribed"):
+            raise ValueError(
+                "injection_scaling must be 'passive' or 'prescribed'; got "
+                f"{self.injection_scaling!r}")
+        if not 0.0 <= self.prescribed_mu <= 1.0:
+            raise ValueError(
+                f"prescribed_mu must be in [0, 1]; got {self.prescribed_mu}")
+        if self.prescribed_alpha_max <= 0.0:
+            raise ValueError(
+                "prescribed_alpha_max must be > 0; got "
+                f"{self.prescribed_alpha_max}")
         self._stepper = HomogeneousStepper.from_modal_analysis(
             self.modal, gamma=self.modal_decay_gamma)
         # Snapshot of qdot just after this step's kick (before step_n
@@ -346,6 +497,154 @@ class PassiveDCRCoupler:
             raise ValueError(
                 "e_modal_cutoff_frac must be in [0, 1]; got "
                 f"{self.e_modal_cutoff_frac}")
+        if self.reservoir_window_steps < 0:
+            raise ValueError(
+                "reservoir_window_steps must be >= 0; got "
+                f"{self.reservoir_window_steps}")
+        if not 0.0 <= self.reservoir_decay <= 1.0:
+            raise ValueError(
+                f"reservoir_decay must be in [0, 1]; got {self.reservoir_decay}")
+
+        # Coherent impact bank (coherent_impact_impulse_bank_fix). The bank
+        # SUBSUMES the reservoir: if both flags are on, the bank wins and the
+        # standalone reservoir is suppressed so η·E_loss is deposited exactly
+        # once (the spec §15 config turns both on, which would double-count the
+        # passivity budget). The ImpactBank validates its own config fields.
+        if self.use_coherent_impulse_bank and self.use_impact_reservoir:
+            self.use_impact_reservoir = False
+        self._bank = ImpactBank(
+            n_modes=len(self.modal.frequencies),
+            mode=self.impact_bank_mode,
+            inject_policy=self.impact_bank_inject_policy,
+            window=self.impact_bank_window,
+            max_event_age=self.impact_bank_max_event_age,
+            decay=self.impact_bank_decay,
+            coherence_cos_min=self.impact_bank_coherence_cos_min,
+            normal_cos_min=self.impact_bank_normal_cos_min,
+            patch_radius=self.impact_bank_patch_radius,
+            tangential_dominance_max=self.impact_bank_tangential_dominance_max,
+            b_max_factor=self.impact_bank_max_factor,
+            eps=self.reservoir_eps,
+        )
+
+    # ------------------------------------------------------------------
+    # Impact-window energy reservoir (avbd_dcr_impact_reservoir_fix §2-§7)
+    # ------------------------------------------------------------------
+
+    def _reservoir_key(self, contact: Contact) -> ImpactKey | None:
+        """The (rigid partner, support) key for an elastic-body contact, or
+        None if the contact does not touch the modal support."""
+        e = self.elastic_body_idx
+        if contact.body_a == e:
+            partner = contact.body_b
+        elif contact.body_b == e:
+            partner = contact.body_a
+        else:
+            return None
+        if partner == e:
+            return None
+        return ImpactKey(body_id=partner, support_id=e)
+
+    def _reservoir_age_expire(self) -> None:
+        """§7/§10.1: age every entry, apply ρ_B decay, expire entries past the
+        window W. Runs at the top of each step (= end-of-prev-step expiry)."""
+        self.last_E_reservoir_expired = 0.0
+        W = int(self.reservoir_window_steps)
+        dead: list[ImpactKey] = []
+        for key, ent in self.impact_reservoirs.items():
+            ent.age += 1
+            ent.energy *= self.reservoir_decay   # ρ_B decay each step
+            if ent.age > W:
+                self.last_E_reservoir_expired += max(0.0, ent.energy)
+                dead.append(key)
+        for key in dead:
+            del self.impact_reservoirs[key]
+        self.cum_E_reservoir_expired += self.last_E_reservoir_expired
+
+    def _reservoir_deposit(
+        self,
+        contacts: list[Contact],
+        lam: NDArray[np.float64],
+        E_max: float,
+    ) -> None:
+        """§4: deposit D^n = E_max (= η·E_loss) across current elastic-body
+        contact keys, weighted by Σ|λ_N| over each key (fallback weight).
+        ρ_B decay was already applied in _reservoir_age_expire, so here we add
+        D on top: energy ← min(B_max, energy + D)."""
+        self.last_E_reservoir_deposit = 0.0
+        if E_max <= 0.0 or not contacts:
+            return
+        # Decaying running peak of the per-step budget → B_max ceiling (§4).
+        self._recent_peak_E_max = max(
+            E_max, self.reservoir_decay * self._recent_peak_E_max)
+        B_max = self.reservoir_max_factor * self._recent_peak_E_max
+        # Σ|λ_N| per key (fallback impact weight, §4).
+        key_w: dict[ImpactKey, float] = {}
+        for ci, c in enumerate(contacts):
+            key = self._reservoir_key(c)
+            if key is None:
+                continue
+            lamN = abs(float(lam[3 * ci])) if 3 * ci < len(lam) else 0.0
+            key_w[key] = key_w.get(key, 0.0) + lamN
+        if not key_w:
+            return
+        wsum = sum(key_w.values())
+        n = len(key_w)
+        for key, w in key_w.items():
+            frac = (w / wsum) if wsum > self.reservoir_eps else (1.0 / n)
+            D = frac * E_max
+            ent = self.impact_reservoirs.get(key)
+            if ent is None:
+                ent = ImpactReservoirEntry()
+                self.impact_reservoirs[key] = ent
+            ent.energy = min(B_max, ent.energy + D)
+            ent.age = 0
+            self.last_E_reservoir_deposit += D
+        self.cum_E_reservoir_deposit += self.last_E_reservoir_deposit
+
+    def _reservoir_eligible(
+        self, contacts: list[Contact],
+    ) -> tuple[list[tuple[Contact, int]], set]:
+        """§5: elastic-body contacts whose key has energy, is within the
+        window, and is still geometrically near (gap = -penetration ≤
+        δ_gate). NO is_new requirement. Returns (eligible_data, eligible_keys).
+        """
+        W = int(self.reservoir_window_steps)
+        eligible_data: list[tuple[Contact, int]] = []
+        eligible_keys: set = set()
+        for ci, c in enumerate(contacts):
+            key = self._reservoir_key(c)
+            if key is None:
+                continue
+            ent = self.impact_reservoirs.get(key)
+            if ent is None or ent.energy <= self.reservoir_eps or ent.age > W:
+                continue
+            gap = -float(c.penetration)   # ≤0 overlapping, >0 separated
+            if gap > self.reservoir_gate_delta:
+                continue
+            eligible_data.append((c, ci))
+            eligible_keys.add(key)
+        return eligible_data, eligible_keys
+
+    def _reservoir_debit(self, eligible_keys: set, E_inj: float) -> None:
+        """§7: drain the actual injected energy from eligible reservoirs,
+        split by stored-energy share (fallback weight)."""
+        self.last_E_reservoir_spent = 0.0
+        if E_inj <= 0.0 or not eligible_keys:
+            return
+        total = sum(
+            max(0.0, self.impact_reservoirs[k].energy)
+            for k in eligible_keys if k in self.impact_reservoirs)
+        if total <= self.reservoir_eps:
+            return
+        for k in eligible_keys:
+            ent = self.impact_reservoirs.get(k)
+            if ent is None:
+                continue
+            S = E_inj * (max(0.0, ent.energy) / total)
+            ent.energy = max(0.0, ent.energy - S)
+            self.last_E_reservoir_spent += S
+        self.cum_E_reservoir_spent += self.last_E_reservoir_spent
 
     # ------------------------------------------------------------------
     # Energy budget source dispatch (foundation §1 / §2)
@@ -426,6 +725,61 @@ class PassiveDCRCoupler:
         )
 
     # ------------------------------------------------------------------
+    # Contact-impulse source dispatch (realtime-coupling-fix §2)
+    # ------------------------------------------------------------------
+
+    def _impulse_for_contact(
+        self,
+        contact: Contact,
+        ci: int,
+        lam: NDArray[np.float64],
+        h: float,
+        k_normal: NDArray[np.float64] | None,
+        body_dp: dict[int, NDArray[np.float64]] | None,
+        partner_lamN_sum: dict[int, float],
+    ) -> NDArray[np.float64] | None:
+        """World-frame contact impulse j that drives the modal injection
+        s = Φ(x)ᵀ j, dispatched on `impulse_source` (realtime-coupling-fix §2).
+        Returns None if the contact has no λ rows. Shared by the is_new /
+        reservoir per-frame path and the coherent impact bank, so all three
+        sources compose with both injection structures.
+        """
+        if 3 * ci + 2 >= len(lam):
+            return None
+        lambda_N = lam[3 * ci]
+        lambda_T1 = lam[3 * ci + 1]
+        lambda_T2 = lam[3 * ci + 2]
+        t1, t2 = _pick_friction_dirs(contact.normal)
+        # Baseline λ-only impulse (foundation §4 / realtime §2.1).
+        j_world = contact.normal * lambda_N + t1 * lambda_T1 + t2 * lambda_T2
+
+        if (self.impulse_source == "augmented"
+                and k_normal is not None and ci < len(k_normal)):
+            # §2.2 effective augmented impulse — add the penalty term the lagging
+            # AL dual under-represents at low AVBD iters. h-scaled to match the λ
+            # triple's impulse units (the extractor multiplies λ by h).
+            # DEVIATION (realtime-coupling-fix §2.2): raw penetration as C_N⁺; the
+            # post-solve λ already folded in the final k·C, so this can
+            # double-count — the §16 diagnostic validates it against delta_p.
+            c_plus = max(0.0, float(contact.penetration))
+            j_world = j_world + (
+                h * float(k_normal[ci]) * c_plus) * contact.normal
+        elif self.impulse_source == "delta_p" and body_dp is not None:
+            # §2.3 measured contact momentum change: impulse INTO the elastic
+            # body = −(net contact Δp of the rigid partner), split across the
+            # partner's contacts by |λ_N| weight (iteration-insensitive). Falls
+            # back to λ-only for a static partner or when no λ exists.
+            partner = (contact.body_a
+                       if contact.body_b == self.elastic_body_idx
+                       else contact.body_b)
+            dp = body_dp.get(partner)
+            denom = partner_lamN_sum.get(partner, 0.0)
+            if dp is not None and denom > 1e-30:
+                w = abs(float(lambda_N)) / denom
+                j_world = -w * np.asarray(dp, dtype=np.float64)
+        return j_world
+
+    # ------------------------------------------------------------------
     # Main entry point — process one rigid-body step
     # ------------------------------------------------------------------
 
@@ -436,6 +790,9 @@ class PassiveDCRCoupler:
         h: float,
         E_max: float,
         bodies: list[RigidBody] | None = None,
+        *,
+        k_normal: NDArray[np.float64] | None = None,
+        body_dp: dict[int, NDArray[np.float64]] | None = None,
     ) -> dict[int, float]:
         """Run the passive DCR pipeline for one rigid-body step.
 
@@ -449,6 +806,12 @@ class PassiveDCRCoupler:
                 compatibility with the legacy "coevoet" path; required for
                 the energy_prescribed* modes (a clear ValueError is raised
                 otherwise).
+            k_normal: Per-contact normal-row penalty stiffness k_N, parallel
+                to `contacts`. Used by impulse_source == "augmented"
+                (realtime-coupling-fix §2.2). None falls back to λ-only.
+            body_dp: Map body index → measured contact impulse Δp this step.
+                Used by impulse_source == "delta_p" (§2.3). None falls back
+                to λ-only.
 
         Returns:
             dcr_velocities: Dict mapping body index → separation velocity Δv
@@ -463,6 +826,7 @@ class PassiveDCRCoupler:
         self.last_friction_clip_attempted = 0
         self.last_kinematic_cap_fired = 0
         self.last_kinematic_cap_attempted = 0
+        self.last_prescribed_alpha_cap_fired = 0
         self.last_patches = None
         self.last_patch_kicks = None
         # Contact-causal gate counters (proposal §1-§3).
@@ -485,17 +849,66 @@ class PassiveDCRCoupler:
             else:
                 resting_contacts.append(contact)
 
+        # --- Coherent impact impulse bank (subsumes the reservoir) ----------
+        # When on, the bank owns the new-contact injection: it banks per-frame
+        # impulses over a short window and injects ½‖Σs_i‖² (coherent-bank-fix
+        # §2/§3), then runs the same patch distant-response tail. Bit-identical
+        # to below when off.
+        if self.use_coherent_impulse_bank:
+            return self._process_step_coherent_bank(
+                contacts, lam, h, E_max, bodies, resting_contacts, omega,
+                k_normal, body_dp)
+
+        # --- Injection set + budget: impact-window reservoir or is_new ------
+        # The reservoir (avbd_dcr_impact_reservoir_fix §2) replaces ONLY the
+        # is_new gate + the η·E_loss cap of the E1 injection. `resting_contacts`
+        # and the patch channel below are untouched. Deposit η·E_loss (= the
+        # passed E_max) every step, then spend the accumulated per-key budget
+        # whenever a contact is still near — decoupling deposit from spend
+        # timing (the docs §9 root cause). With the flag OFF this is
+        # bit-identical to the is_new path.
+        eligible_keys: set = set()
+        if self.use_impact_reservoir:
+            self._reservoir_age_expire()
+            self._reservoir_deposit(contacts, lam, E_max)
+            injection_data, eligible_keys = self._reservoir_eligible(contacts)
+            E_inj_budget = float(sum(
+                self.impact_reservoirs[k].energy for k in eligible_keys))
+            self.last_E_reservoir_spent = 0.0   # set by _reservoir_debit if it fires
+            self.last_E_reservoir_total = float(sum(
+                e.energy for e in self.impact_reservoirs.values()))
+            self.last_n_eligible_reservoirs = len(eligible_keys)
+        else:
+            injection_data = new_contacts_data
+            E_inj_budget = E_max
+            self.last_E_reservoir_deposit = 0.0
+            self.last_E_reservoir_spent = 0.0
+            self.last_E_reservoir_expired = 0.0
+            self.last_E_reservoir_total = 0.0
+            self.last_n_eligible_reservoirs = 0
+
+        # delta_p source pre-pass: per rigid partner, sum |λ_N| over its NEW
+        # contacts so the body's net measured contact impulse can be split
+        # across those contacts by weight (realtime-coupling-fix §2.3).
+        partner_lamN_sum: dict[int, float] = {}
+        if self.impulse_source == "delta_p" and body_dp is not None:
+            for contact, ci in injection_data:
+                if 3 * ci >= len(lam):
+                    continue
+                partner = (contact.body_a
+                           if contact.body_b == self.elastic_body_idx
+                           else contact.body_b)
+                partner_lamN_sum[partner] = (
+                    partner_lamN_sum.get(partner, 0.0)
+                    + abs(float(lam[3 * ci])))
+
         # --- Project new contact impulses → s_total (E1, foundation §4, §8) ---
         kicks_modal: list[NDArray[np.float64]] = []
-        for contact, ci in new_contacts_data:
-            if 3 * ci + 2 >= len(lam):
+        for contact, ci in injection_data:
+            j_world = self._impulse_for_contact(
+                contact, ci, lam, h, k_normal, body_dp, partner_lamN_sum)
+            if j_world is None:
                 continue
-            lambda_N = lam[3 * ci]
-            lambda_T1 = lam[3 * ci + 1]
-            lambda_T2 = lam[3 * ci + 2]
-            t1, t2 = _pick_friction_dirs(contact.normal)
-            j_world = (
-                contact.normal * lambda_N + t1 * lambda_T1 + t2 * lambda_T2)
             if np.linalg.norm(j_world) < self.impulse_threshold:
                 continue
             Phi_x = eval_basis_at_point(
@@ -521,6 +934,7 @@ class PassiveDCRCoupler:
             self.last_E_modal_pre_kick = modal_energy(
                 self._stepper.q, self._stepper.qdot, omega)
             self.last_E_modal_post_kick = self.last_E_modal_pre_kick
+            self.last_E_modal_injected = 0.0  # no new-contact injection
             self.last_E_modal_peak = max(
                 self.last_E_modal_peak, self.last_E_modal_post_kick)
             self._qdot_just_after_kick = self._stepper.qdot.copy()
@@ -549,7 +963,29 @@ class PassiveDCRCoupler:
         # --- Passive scaling (E2, foundation §6) ---
         self.last_E_modal_pre_kick = modal_energy(
             self._stepper.q, self._stepper.qdot, omega)
-        alpha = passive_alpha(s_total, self._stepper.qdot, E_max)
+        # Raw (pre-cap) kick diagnostics (realtime-coupling-fix §16). These
+        # expose whether the IMPULSE SOURCE is iteration-sensitive
+        # independently of the passive_alpha cap that may mask it:
+        #   last_s_total_norm    = ‖s‖ (raw aggregated modal kick)
+        #   last_dE_full_uncapped = b + ½a (modal energy the kick WOULD inject
+        #                           at α=1, before the E_max cap).
+        a_raw = float(np.dot(s_total, s_total))
+        b_raw = float(np.dot(self._stepper.qdot, s_total))
+        self.last_s_total_norm = float(np.sqrt(max(0.0, a_raw)))
+        self.last_dE_full_uncapped = b_raw + 0.5 * a_raw
+        if self.injection_scaling == "prescribed":
+            # Energy-PRESCRIBED: scale the ΦᵀJ direction to deposit μ·budget of
+            # modal energy (scale UP or DOWN), instead of capping at the raw
+            # kick (foundation §15 as a target; docs §12). Iteration-insensitive
+            # because the magnitude comes from E_loss, not from ‖s‖.
+            E_target = float(np.clip(self.prescribed_mu, 0.0, 1.0)) * E_inj_budget
+            alpha = prescribed_alpha(
+                s_total, self._stepper.qdot, E_target,
+                self.prescribed_alpha_max)
+            if alpha >= self.prescribed_alpha_max - 1e-12:
+                self.last_prescribed_alpha_cap_fired += 1
+        else:
+            alpha = passive_alpha(s_total, self._stepper.qdot, E_inj_budget)
         self.last_alpha = alpha
 
         # The scaled kick applied to the persistent energy state.
@@ -562,6 +998,14 @@ class PassiveDCRCoupler:
             self._stepper.q, self._stepper.qdot, omega)
         self.last_E_modal_peak = max(
             self.last_E_modal_peak, self.last_E_modal_post_kick)
+        # Injected modal energy this step (realtime-coupling-fix §16 signal).
+        self.last_E_modal_injected = (
+            self.last_E_modal_post_kick - self.last_E_modal_pre_kick)
+        self.cum_E_modal_injected += max(0.0, self.last_E_modal_injected)
+        # §7: drain the actual injected energy from the spending reservoirs.
+        if self.use_impact_reservoir:
+            self._reservoir_debit(
+                eligible_keys, max(0.0, self.last_E_modal_injected))
 
         # Snapshot qdot right after the kick, BEFORE step_n decays it
         # through h substeps. The patch mode's §9.2 modal velocity driver
@@ -588,6 +1032,161 @@ class PassiveDCRCoupler:
         # is pure (its output is independent of self.q/self.qdot), but
         # _compute_distant_response may read the persistent state for patch
         # mode / back-reaction; attenuate after it returns.
+        self.last_E_modal_attenuation_diss = \
+            self._stepper.apply_rigid_step_decay()
+        return result
+
+    # ------------------------------------------------------------------
+    # Coherent impact impulse bank step (coherent_impact_impulse_bank_fix)
+    # ------------------------------------------------------------------
+
+    def _process_step_coherent_bank(
+        self,
+        contacts: list[Contact],
+        lam: NDArray[np.float64],
+        h: float,
+        E_max: float,
+        bodies: list[RigidBody] | None,
+        resting_contacts: list[Contact],
+        omega: NDArray[np.float64],
+        k_normal: NDArray[np.float64] | None,
+        body_dp: dict[int, NDArray[np.float64]] | None,
+    ) -> dict[int, float]:
+        """Coherent impact impulse bank path (coherent_impact_impulse_bank_fix).
+
+        Banks the per-frame contact impulses of one physical impact into a
+        per-(rigid, support) event over a short causal window, then injects the
+        event-level modal energy ½‖Σ s_i‖² — recovering the positive cross terms
+        the per-frame path discards (spec §3). Subsumes the reservoir: η·E_loss
+        is deposited once into the event budget, and each injection is capped by
+        passive_alpha(S_event, q̇, B_event), so global passivity
+        Σ E_inj ≤ η·Σ E_loss holds (spec §4). The patch distant-response tail
+        mirrors process_step's (the AVBD branch only runs energy_prescribed_patch).
+        """
+        bank = self._bank
+        assert bank is not None
+        n_substeps = max(1, int(np.ceil(h / self._stepper.T)))
+
+        # Reservoir diagnostics are inert here — the bank owns the budget.
+        self.last_E_reservoir_deposit = 0.0
+        self.last_E_reservoir_spent = 0.0
+        self.last_E_reservoir_expired = 0.0
+        self.last_E_reservoir_total = 0.0
+        self.last_n_eligible_reservoirs = 0
+
+        # 1. Age / λ_B-decay / expire, then deposit η·E_loss once (spec §4, §10).
+        bank.begin_step()
+        bank.deposit(contacts, lam, E_max, self._reservoir_key)
+
+        # 2. Accumulate every engaged elastic-body contact's impulse, gated for
+        #    coherence (spec §8). delta_p needs the per-partner |λ_N| prepass.
+        elastic_data = [
+            (c, ci) for ci, c in enumerate(contacts)
+            if self._reservoir_key(c) is not None]
+        partner_lamN_sum: dict[int, float] = {}
+        if self.impulse_source == "delta_p" and body_dp is not None:
+            for contact, ci in elastic_data:
+                if 3 * ci >= len(lam):
+                    continue
+                partner = (contact.body_a
+                           if contact.body_b == self.elastic_body_idx
+                           else contact.body_b)
+                partner_lamN_sum[partner] = (
+                    partner_lamN_sum.get(partner, 0.0)
+                    + abs(float(lam[3 * ci])))
+        for contact, ci in elastic_data:
+            key = self._reservoir_key(contact)
+            if key is None:
+                continue
+            j_world = self._impulse_for_contact(
+                contact, ci, lam, h, k_normal, body_dp, partner_lamN_sum)
+            if j_world is None:
+                continue
+            if np.linalg.norm(j_world) < self.impulse_threshold:
+                continue
+            Phi_x = eval_basis_at_point(
+                contact.point, self._surface, self.modal.U_surf,
+                self.modal.surface_vertex_indices, self._vert_to_surf_idx,
+            )
+            s_i = project_impulse(Phi_x, j_world)
+            n_i = np.asarray(contact.normal, dtype=np.float64)
+            n_hat = n_i / max(float(np.linalg.norm(n_i)), 1e-30)
+            jn = abs(float(np.dot(j_world, n_hat)))
+            jt = float(np.linalg.norm(j_world - np.dot(j_world, n_hat) * n_hat))
+            bank.accumulate(key, s_i, j_world, contact.point, n_i, jn, jt)
+
+        # 3. Inject ready events (spec §10). Each event uses its own budget
+        #    B_event with passive_alpha; the realized ΔE is measured on q̇ and
+        #    debited back, so cum_E_modal_injected is the single global ledger.
+        self.last_E_modal_pre_kick = modal_energy(
+            self._stepper.q, self._stepper.qdot, omega)
+        alpha_s_total = np.zeros_like(self._stepper.qdot)
+        a_raw_sum = 0.0
+        dE_full_sum = 0.0
+        alpha_max = 0.0
+        for key in bank.ready_keys():
+            ev = bank.event(key)
+            if self.impact_bank_mode == "modal_sum":
+                S = ev.S_event
+            else:  # impulse_reconstruct: project the summed impulse at x̄ once.
+                if ev.Jmag_sum <= bank.eps:
+                    bank.mark_spent(key, 0.0)
+                    continue
+                Phi_xbar = eval_basis_at_point(
+                    ev.x_bar, self._surface, self.modal.U_surf,
+                    self.modal.surface_vertex_indices, self._vert_to_surf_idx,
+                )
+                S = project_impulse(Phi_xbar, ev.J_event)
+            a = float(np.dot(S, S))
+            if a <= _EPS_TINY:
+                bank.mark_spent(key, 0.0)
+                continue
+            b = float(np.dot(self._stepper.qdot, S))
+            a_raw_sum += a
+            dE_full_sum += b + 0.5 * a
+            pre = modal_energy(self._stepper.q, self._stepper.qdot, omega)
+            alpha = passive_alpha(S, self._stepper.qdot, ev.B_event)
+            self._stepper.qdot += alpha * S
+            post = modal_energy(self._stepper.q, self._stepper.qdot, omega)
+            injected = post - pre
+            self.cum_E_modal_injected += max(0.0, injected)
+            alpha_s_total = alpha_s_total + alpha * S
+            alpha_max = max(alpha_max, alpha)
+            bank.mark_spent(key, max(0.0, injected))
+        bank.end_step()
+
+        # 4. Energy + bank diagnostics (mirror the reservoir/per-frame fields).
+        self.last_E_modal_post_kick = modal_energy(
+            self._stepper.q, self._stepper.qdot, omega)
+        self.last_E_modal_injected = (
+            self.last_E_modal_post_kick - self.last_E_modal_pre_kick)
+        self.last_E_modal_peak = max(
+            self.last_E_modal_peak, self.last_E_modal_post_kick)
+        self.last_alpha = alpha_max
+        self.last_s_total_norm = float(np.sqrt(max(0.0, a_raw_sum)))
+        self.last_dE_full_uncapped = dE_full_sum
+        self.last_E_bank_deposit = bank.last_E_deposit
+        self.last_E_bank_spent = bank.last_E_spent
+        self.last_E_bank_expired = bank.last_E_expired
+        self.last_n_bank_events = bank.last_n_events
+        self.last_R_coherence = bank.mean_R_coherence()
+
+        # 5. Step persistent state, build the transient displacement for the
+        #    patch distant response, then γ-decay (foundation §16) — mirrors
+        #    process_step's tail. has_kick decides transient vs free-decay q.
+        self._qdot_just_after_kick = self._stepper.qdot.copy()
+        self._stepper.step_n(n_substeps)
+        has_kick = float(np.dot(alpha_s_total, alpha_s_total)) > _EPS_TINY
+        if has_kick:
+            q_history = self._stepper.transient_step_n(alpha_s_total, n_substeps)
+        else:
+            # No injection this step — drive the patch response from the current
+            # persistent modal state (same as process_step's no-kick patch
+            # branch); the moving support still rings as q̇ decays.
+            q_history = self._stepper.q.reshape(1, -1).copy()
+        self.last_q_history_transient = q_history
+        result = self._compute_distant_response(
+            resting_contacts, q_history, h, E_max, bodies)
         self.last_E_modal_attenuation_diss = \
             self._stepper.apply_rigid_step_decay()
         return result

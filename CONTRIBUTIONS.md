@@ -333,6 +333,81 @@ Invariant 5 is non-trivial.
 
 ---
 
+## Phase C — low-iteration coupling robustness (docs §9–§12)
+
+Phases A/B couple cleanly at the default 40 inner iterations, but the
+modal injection **starves at low AVBD iteration counts** — the regime
+that makes the solver real-time. At `iters=4` the books on the shelf
+scene barely vibrate. `docs/avbd_dcr_coupling_findings.md` §9–§12 records
+the full investigation; the summary:
+
+**Root cause (two parts).** (1) *Timing* — the injection only fired on
+`is_new` contact frames, which desync from the `E_loss` spike at low
+iters (total `E_loss ≈ 46 J` is iteration-insensitive, but the fraction
+landing on an injecting frame collapses). (2) *Magnitude* — the kick
+`s = Φ(x)ᵀJ` takes its size from the contact impulse `J`, which a soft
+low-iteration solve smears thin, and `passive_alpha` can only scale
+**down** (α∈[0,1]) — so a large `η·E_loss` budget sits unspent.
+
+**Three fixes tried, two refuted** (kept as OFF-by-default ablations):
+
+| Fix | Flag | Result |
+|---|---|---|
+| Effective impulse source | `impulse_source ∈ {lambda_only, augmented, delta_p}` | §9: refuted for magnitude — the `passive_alpha` cap binds regardless of source. `delta_p` (measured Δp) is iteration-insensitive, useful as a *direction*. |
+| Impact-window reservoir | `use_impact_reservoir` | §10: fixes **timing** (iters=4: 0 → 1.4 J) but not magnitude; CV stays ~0.68. |
+| Coherent impulse bank | `use_coherent_impulse_bank` | §11: **refuted** — banking ½‖Σs‖² defers the spend and loses budget to decay faster than the cross-term gain; worse than per-frame. |
+| **Energy-prescribed injection** | **`injection_scaling="prescribed"`** | **§12: the fix (below).** |
+
+**The fix — energy-prescribed injection (§12).** Keep `s`'s **direction**
+(the spectral mode-mix from the contact geometry — robust across iters)
+but set the **magnitude** from the budget: `prescribed_alpha` scales the
+kick up OR down so `ΔE_modal = μ·(available budget)` (the foundation §15
+inequality used as a **target**, not a ceiling). Layered on the reservoir
+(timing) + `delta_p` (iteration-insensitive direction), the injected modal
+energy becomes iteration-insensitive (shelf, η=0.5, E_rigid lost → E_modal):
+
+| iters | E_rigid lost | is_new λ passive | reservoir δp passive | **reservoir δp PRESCRIBED** |
+|---:|---:|---:|---:|---:|
+| 4  | 46.5 | 0.00 | 1.43 | **23.8** |
+| 8  | 44.7 | 5.79 | 7.95 | **22.8** |
+| 16 | 45.2 | 12.55 | 22.6 | **22.7** |
+| 32 | 45.3 | 13.59 | 22.6 | **22.6** |
+| **CV** | | 0.689 | 0.678 | **0.022** |
+
+Still globally passive: `fill = 1.000` means it hits the `η·E_loss` bound
+exactly and never exceeds it (the realized ΔE is debited from the
+reservoir, which is bounded by `η·Σ E_loss`). The `α_max` noise guard
+never fires (the upscale is ~4×, finite, because `impulse_threshold`
+rejects near-zero directions).
+
+> **# DEVIATION (foundation §14 — the honest caveat).** Prescribed
+> injection **synthesizes** modal energy the literal contact impulse did
+> not carry — it re-sharpens a soft solve's response. The claim is an
+> *energy-bounded modal excitation whose magnitude is prescribed from the
+> rigid energy loss and whose direction is the contact-geometry mode mix*,
+> NOT the impulse's true modal projection (same footing as the
+> spatial-attenuation patch channel). We do **not** claim AVBD gives
+> iteration-insensitive modal excitation, nor that the coherent bank
+> closes the gap — neither is true.
+
+**Library defaults unchanged.** All four flags default to the conservative
+pre-§12 path (`injection_scaling="passive"`, no reservoir, `lambda_only`),
+so the 105 avbd+stageE3+stageE4 regression tests are bit-identical. The
+**viser viewer turns the recommended combo on by default** (`reservoir +
+delta_p + prescribed`, μ=1.0); start the pre-§12 path with
+`--legacy-coupling`, or toggle live in the DCR GUI folder.
+
+New tests (all passing): `test_injection_impulse_source.py` (§9),
+`test_impact_reservoir_passivity.py` (§10),
+`test_coherent_impact_bank_passivity.py` (§11, 10 tests),
+`test_prescribed_injection.py` (§12, 9 tests). Diagnostics:
+`scripts/_diag_{injection,impact_reservoir,impact_bank,prescribed_injection}_iter_sensitivity.py`.
+The new code is `dcr/modal/passive_inject.py::prescribed_alpha`,
+`dcr/dcr/impact_bank.py` (the refuted bank), and the injection-scaling +
+reservoir + bank wiring in `dcr/dcr/passive_dcr.py`.
+
+---
+
 ## Math formulation
 
 All section numbers below refer to `prompts/avbd_native_dcr_followup_spec_v2.md`.

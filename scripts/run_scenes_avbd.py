@@ -359,6 +359,18 @@ class AVBDDCRViewer:
         self.slab_mesh = slab_mesh
         self.title = title
 
+        # Recommended low-iteration coupling (docs §12 — the "reservoir δp
+        # PRESCRIBED" column): impact reservoir (timing) + delta_p impulse
+        # (iteration-insensitive) + energy-prescribed scaling (magnitude from
+        # the η·E_loss budget). ON by default so the modal coupling holds up
+        # when the AVBD-iterations slider is dragged low; toggle live in the
+        # DCR folder, or start the pre-§12 path with --legacy-coupling.
+        if not getattr(args, "legacy_coupling", False):
+            coupler.use_impact_reservoir = True
+            coupler.impulse_source = "delta_p"
+            coupler.injection_scaling = "prescribed"
+            coupler.prescribed_mu = 1.0
+
         # Take the as-built snapshot BEFORE the first step. The "reset"
         # button restores to this baseline.
         self._initial_snapshot = world.snapshot()
@@ -451,6 +463,29 @@ class AVBDDCRViewer:
             self.gui_causal = self.server.gui.add_checkbox(
                 "causal_gating",
                 initial_value=bool(coupler.causal_gating))
+            self.gui_prescribed = self.server.gui.add_checkbox(
+                "energy-prescribed injection (§12)",
+                initial_value=(coupler.injection_scaling == "prescribed"),
+                hint="Scale the modal kick to deposit μ·budget of energy "
+                     "(instead of capping at the raw, smeared impulse). Makes "
+                     "the coupling iteration-insensitive; still globally "
+                     "passive. OFF = the pre-§12 passive cap.")
+            self.gui_reservoir = self.server.gui.add_checkbox(
+                "impact reservoir (timing)",
+                initial_value=bool(coupler.use_impact_reservoir),
+                hint="Deposit η·E_loss every step and spend it within a short "
+                     "window, so injection doesn't hinge on is_new timing.")
+            self.gui_impulse_source = self.server.gui.add_dropdown(
+                "impulse_source",
+                ("delta_p", "lambda_only", "augmented"),
+                initial_value=str(coupler.impulse_source),
+                hint="delta_p = measured momentum change (iteration-"
+                     "insensitive); the recommended source for low iters.")
+            self.gui_prescribed_mu = self.server.gui.add_slider(
+                "prescribed_mu", 0.0, 1.0, step=0.01,
+                initial_value=float(coupler.prescribed_mu),
+                hint="Fraction of the η·E_loss budget the prescribed kick "
+                     "deposits per step. 1.0 = hit the passivity bound.")
         with self.server.gui.add_folder("Phase B (moving support, spec §7/§12)"):
             self.gui_phase_b = self.server.gui.add_checkbox(
                 "enable_moving_support_pass",
@@ -488,6 +523,8 @@ class AVBDDCRViewer:
                 "E_modal (J)", initial_value="—")
             self.gui_e_loss = self.server.gui.add_text(
                 "E_loss / step (J)", initial_value="—")
+            self.gui_e_inj = self.server.gui.add_text(
+                "E_modal inj / step (J)", initial_value="—")
             self.gui_n_contacts = self.server.gui.add_text(
                 "contacts", initial_value="0")
             self.gui_n_patches = self.server.gui.add_text(
@@ -515,6 +552,10 @@ class AVBDDCRViewer:
         self.gui_eta.on_update(self._eta_changed)
         self.gui_modal_gamma.on_update(self._mgamma_changed)
         self.gui_causal.on_update(self._causal_changed)
+        self.gui_prescribed.on_update(self._prescribed_changed)
+        self.gui_reservoir.on_update(self._reservoir_changed)
+        self.gui_impulse_source.on_update(self._impulse_source_changed)
+        self.gui_prescribed_mu.on_update(self._prescribed_mu_changed)
         self.gui_phase_b.on_update(self._phase_b_changed)
         self.gui_ms_beta.on_update(self._ms_beta_changed)
         self.gui_use_bj.on_update(self._use_bj_changed)
@@ -545,6 +586,19 @@ class AVBDDCRViewer:
 
     def _causal_changed(self, _evt):
         self.coupler.causal_gating = bool(self.gui_causal.value)
+
+    def _prescribed_changed(self, _evt):
+        self.coupler.injection_scaling = (
+            "prescribed" if bool(self.gui_prescribed.value) else "passive")
+
+    def _reservoir_changed(self, _evt):
+        self.coupler.use_impact_reservoir = bool(self.gui_reservoir.value)
+
+    def _impulse_source_changed(self, _evt):
+        self.coupler.impulse_source = str(self.gui_impulse_source.value)
+
+    def _prescribed_mu_changed(self, _evt):
+        self.coupler.prescribed_mu = float(self.gui_prescribed_mu.value)
 
     def _phase_b_changed(self, _evt):
         self.world.enable_moving_support_pass = bool(self.gui_phase_b.value)
@@ -656,6 +710,7 @@ class AVBDDCRViewer:
         self.gui_e_rigid.value = f"{e_rigid:.4f}"
         self.gui_e_modal.value = f"{e_modal:.4f}"
         self.gui_e_loss.value = f"{w.last_E_loss:.4f}"
+        self.gui_e_inj.value = f"{self.coupler.last_E_modal_injected:.4f}"
         self.gui_n_contacts.value = str(len(w.last_contacts))
         n_p = (len(self.coupler.last_patch_kicks)
                if self.coupler.last_patch_kicks else 0)
@@ -696,6 +751,11 @@ def main():
                     help="energy_response_beta for the patch coupler.")
     ap.add_argument("--causal-gating", action="store_true")
     ap.add_argument("--modal-decay-gamma", type=float, default=1.0)
+    ap.add_argument(
+        "--legacy-coupling", action="store_true",
+        help="Start with the pre-§12 coupling (passive scaling, no reservoir, "
+             "lambda_only) instead of the recommended reservoir+delta_p+"
+             "prescribed combo. Either way, toggle live in the DCR GUI folder.")
     # ---- Phase B (spec §7 / §12 / §13) ----
     ap.add_argument(
         "--phase-b", action="store_true",

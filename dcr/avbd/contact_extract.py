@@ -72,7 +72,13 @@ def extract_contacts(
     prev_contact_keys: set | None = None,
     dt: float | None = None,
     avbd_to_dcr: dict[int, int] | None = None,
-) -> tuple[list[Contact], NDArray[np.float64], list[AVBDContactRecord], set]:
+) -> tuple[
+    list[Contact],
+    NDArray[np.float64],
+    NDArray[np.float64],
+    list[AVBDContactRecord],
+    set,
+]:
     """Walk solver rows, build DCR-shaped contacts + lam triples.
 
     Args:
@@ -101,6 +107,10 @@ def extract_contacts(
         contacts:      list[Contact], one per normal row that has λ_n > 0.
         lam:           (3*n_contacts,) flat array, normal+t1+t2 magnitudes
                        in DCR's tangent basis.
+        k_normal:      (n_contacts,) per-contact normal-row penalty stiffness
+                       k_N (c_penalty), parallel to `contacts`. Feeds the
+                       coupler's 'augmented' effective-impulse source
+                       J_eff = lam + h·k_N·C⁺·n (realtime-coupling-fix §2.2).
         records:       list[AVBDContactRecord], parallel to contacts.
         current_keys:  set of keys for next step's `prev_contact_keys`.
     """
@@ -120,12 +130,13 @@ def extract_contacts(
         else len(rows)
     )
     if n_active == 0:
-        return [], np.zeros(0, dtype=np.float64), [], set()
+        return [], np.zeros(0, dtype=np.float64), np.zeros(0, dtype=np.float64), [], set()
 
     # ---- Pull state from GPU ------------------------------------------------
     positions = solver.positions()          # (n_b, 3)
     orientations = solver.orientations()    # (n_b, 4) xyzw
     lambdas = solver.lambdas()              # (n_rows,)
+    penalties = solver.penalties()          # (n_rows,) per-row stiffness k
     types = solver.c_type.numpy()           # (n_rows,)
     body_a = solver.c_body_a.numpy()
     body_b = solver.c_body_b.numpy()
@@ -156,6 +167,7 @@ def extract_contacts(
     contacts: list[Contact] = []
     records: list[AVBDContactRecord] = []
     triples: list[float] = []
+    k_normals: list[float] = []   # per-contact normal-row penalty k_N
     current_keys: set = set()
 
     for i in range(n_active):
@@ -276,6 +288,11 @@ def extract_contacts(
             j_world=j_world.copy(),
         ))
         triples.extend([lam_normal_dcr, lam_t1_dcr, lam_t2_dcr])
+        # Normal-row penalty k_N, parallel to `contacts` (i is the normal row).
+        k_normals.append(float(penalties[i]))
 
     lam_flat = np.asarray(triples, dtype=np.float64)
-    return contacts, lam_flat, records, current_keys
+    k_normal = np.asarray(k_normals, dtype=np.float64)
+    assert len(k_normal) == len(contacts), (
+        "k_normal must be parallel to contacts")
+    return contacts, lam_flat, k_normal, records, current_keys

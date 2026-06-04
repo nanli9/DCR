@@ -265,3 +265,53 @@ def passive_alpha(
 
     alpha_star = (-b + np.sqrt(max(0.0, discr))) / a
     return float(np.clip(alpha_star, 0.0, 1.0))
+
+
+def prescribed_alpha(
+    s: NDArray[np.float64],
+    qdot: NDArray[np.float64],
+    E_target: float,
+    alpha_max: float = 100.0,
+) -> float:
+    """Energy-PRESCRIBED scaling coefficient (foundation §6/§15).
+
+    Where passive_alpha BOUNDS the injection (α ∈ [0, 1], scale down only),
+    this TARGETS it: return the α ≥ 0 making
+
+        dE_modal(alpha) = alpha * b + 0.5 * alpha^2 * a = E_target,
+            a = s^T s,  b = qdot^T s
+
+    i.e. scale the kick DIRECTION s up OR down so the deposited modal energy is
+    exactly E_target (clamped to [0, alpha_max]). This decouples the injected
+    MAGNITUDE (from the energy budget E_target) from the raw kick magnitude ‖s‖,
+    which a soft low-iteration solve makes tiny and iteration-sensitive, while
+    keeping s's DIRECTION (the modal/spectral distribution set by the contact
+    geometry).
+
+    # DEVIATION (foundation §15): this treats the passivity inequality
+    # dE_modal <= eta * E_rigid_loss as a TARGET, not a ceiling — it synthesizes
+    # modal energy the literal contact impulse did not carry, re-sharpening the
+    # smeared low-iteration impulse. Global passivity is still enforced upstream:
+    # E_target is a fraction of the available budget (η·E_loss, accumulated in the
+    # impact reservoir), and the realized dE is debited from that budget, so
+    # Σ E_inj ≤ η·Σ E_loss still holds. The injected magnitude is no longer the
+    # impulse's literal modal projection (foundation §14: do not overclaim).
+
+    Args:
+        s: (n_modes,) raw modal velocity kick; only its direction is kept.
+        qdot: (n_modes,) current modal velocity.
+        E_target: Modal energy to inject (>= 0; = mu * available budget).
+        alpha_max: Upper clamp guarding against amplifying a near-zero (noisy)
+            direction into a large kick.
+
+    Returns:
+        alpha: Scaling coefficient in [0, alpha_max].
+    """
+    a = float(np.dot(s, s))
+    b = float(np.dot(qdot, s))
+    if a < _EPS_TINY or E_target <= 0.0:
+        return 0.0
+    # Positive root of alpha*b + 0.5*alpha^2*a = E_target (>= 0 for E_target >= 0).
+    discr = b * b + 2.0 * a * E_target
+    alpha_star = (-b + np.sqrt(max(0.0, discr))) / a
+    return float(np.clip(alpha_star, 0.0, alpha_max))

@@ -410,8 +410,14 @@ class AVBDDCRWorld:
         import time as _t
         t0 = _t.perf_counter()
 
-        # (1) snapshot rigid KE.
+        # (1) snapshot rigid KE + pre-solve linear velocities. The latter
+        #     feeds the measured-Δp impulse source:
+        #         dp = m·(v_post − v_pre) − h·m·g   (realtime-coupling-fix §2.3).
         E_rigid_pre = rigid_kinetic_energy([d.dcr_body for d in self._descs])
+        v_pre_lin = [
+            np.asarray(d.dcr_body.velocity[0:3], dtype=np.float64).copy()
+            for d in self._descs
+        ]
 
         # (2) AVBD solve.
         t_solve_0 = _t.perf_counter()
@@ -423,7 +429,7 @@ class AVBDDCRWorld:
 
         # (4) extract contacts.
         t_extract_0 = _t.perf_counter()
-        contacts, lam, records, current_keys = extract_contacts(
+        contacts, lam, k_normal, records, current_keys = extract_contacts(
             self._solver,
             floor_body_idx=self._floor_body_idx,
             prev_contact_keys=self._prev_contact_keys,
@@ -434,6 +440,7 @@ class AVBDDCRWorld:
         self._prev_contact_keys = current_keys
         self.last_contacts = contacts
         self.last_lam = lam
+        self.last_k_normal = k_normal
 
         # (5) energy bookkeeping.
         E_rigid_post = rigid_kinetic_energy([d.dcr_body for d in self._descs])
@@ -441,13 +448,29 @@ class AVBDDCRWorld:
         self.last_E_max = self.eta * self.last_E_loss
         self.last_dcr_ke_injected = 0.0
 
+        # Measured per-body contact impulse Δp = m·(v_post−v_pre) − h·m·g
+        # (realtime-coupling-fix §2.3). The gravity impulse over the full
+        # rigid step is m·g·h regardless of substeps. This is the
+        # iteration-insensitive impulse source; static / infinite-mass bodies
+        # get no entry (the coupler falls back to λ for those).
+        g = np.asarray(self.gravity, dtype=np.float64)
+        body_dp: dict[int, NDArray[np.float64]] = {}
+        for i, d in enumerate(self._descs):
+            b = d.dcr_body
+            if b.is_static or b.mass <= 0.0 or not np.isfinite(b.mass):
+                continue
+            v_post = np.asarray(b.velocity[0:3], dtype=np.float64)
+            body_dp[i] = b.mass * (v_post - v_pre_lin[i]) - self.h * b.mass * g
+        self.last_body_dp = body_dp
+
         # (6/7) coupler dispatch + apply patch impulses.
         t_coupler_0 = _t.perf_counter()
         bodies = [d.dcr_body for d in self._descs]
         kicked_any = False
         for coupler in self.passive_couplers:
             coupler.process_step(
-                contacts, lam, self.h, self.last_E_max, bodies=bodies)
+                contacts, lam, self.h, self.last_E_max, bodies=bodies,
+                k_normal=k_normal, body_dp=body_dp)
             patch_kicks = getattr(coupler, "last_patch_kicks", None)
             if patch_kicks:
                 self._apply_patch_kicks(patch_kicks, bodies)

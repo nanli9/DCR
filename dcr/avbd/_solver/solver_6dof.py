@@ -1572,6 +1572,16 @@ class Solver6DOF:
             return np.zeros(len(self._rows), dtype=np.float32)
         return self.c_lambda.numpy()
 
+    def penalties(self) -> np.ndarray:
+        """Per-row penalty stiffness k (c_penalty), same row layout as
+        lambdas(). Used by the DCR coupler's 'augmented' effective-impulse
+        source J_eff = (lambda + k*C+)*n (prompts/avbd_dcr_realtime_coupling_fix
+        §2.2). For HARD contact rows the stored lambda is a lagging AL dual,
+        so k*C carries the low-iteration response the dual misses."""
+        if self.c_penalty is None:
+            return np.zeros(len(self._rows), dtype=np.float32)
+        return self.c_penalty.numpy()
+
     def active(self) -> np.ndarray:
         if self.c_active is None:
             return np.ones(len(self._rows), dtype=np.int32)

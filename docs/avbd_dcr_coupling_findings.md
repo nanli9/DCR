@@ -245,3 +245,229 @@ not by this guard.
 
 > The `scripts/_diag_*.py` files are throwaway diagnostic harnesses kept to
 > back the numbers above and allow re-runs; safe to delete once consumed.
+
+---
+
+## 9. Effective-impulse source does **not** fix the §2 starvation (tested)
+
+§8 closed by hoping the effective-impulse source from
+`prompts/avbd_dcr_realtime_coupling_fix.md` §2 would cure the §2 low-iteration
+starvation. **It does not.** Implemented all three sources behind a coupler
+flag `impulse_source ∈ {lambda_only, augmented, delta_p}` and measured them
+(`scripts/_diag_injection_iter_sensitivity.py`, shelf scene, 8 kg drop):
+
+| source | iters=4 | 8 | 16 | 32 | CV(capped inj) |
+|--------|-------:|----:|----:|----:|---:|
+| lambda_only | 0.0 | 5.79 | 12.55 | 13.59 J | 0.689 |
+| augmented   | 0.0 | 5.79 | 12.55 | 13.59 J | 0.689 |
+| delta_p     | 0.0 | 5.79 | 12.55 | 13.59 J | 0.688 |
+
+All three are **identical** and equally iteration-sensitive. Why:
+
+1. **The cap, not the kick, sets the injection.** `passive_alpha` caps each
+   step at `E_max = η·E_loss`; measured `α ≈ 0.3 < 1` whenever injection fires,
+   so the cap is always binding. `delta_p`'s raw `‖s‖` is 5–7× smaller than
+   `lambda_only`'s, yet the capped injection is the same — magnitude is moot.
+2. **λ *is* under-grown at low iters** (probe: `max|λ_n|` = 0.16 @iters=4 vs
+   4.16 @iters=8, ~25×) — the prompt's premise is literally true — **but it is
+   harmless**, because the cap limits the injection before the under-grown
+   magnitude could.
+3. **The real lever is timing, as §2 said.** Total `E_loss` is
+   iteration-*insensitive* (~45 J at every iter count); what collapses at low
+   iters is the number of `is_new` steps that coincide with that `E_loss`
+   (`n_inj` = 0 / 4 / 4 / 10 across iters=4/8/16/32). The injection is gated to
+   `is_new` steps, and at low iters the impacting contact is never flagged
+   `is_new` inside the high-`E_max` window.
+
+**Decision:** default stays `impulse_source="lambda_only"` (zero behaviour
+change; 263-test regression intact). `augmented`/`delta_p` kept as opt-in
+ablations. The actual fix for §2 must target the **`is_new` × `E_max` timing
+gate** (e.g. fund injection from an impact-window `E_loss` budget rather than
+the single `is_new` step), not the impulse source. Plumbing added:
+`solver.penalties()`, `extract_contacts` returns per-contact `k_N`, world
+computes per-body `Δp`. Guard test: `tests/avbd/test_injection_impulse_source.py`.
+
+---
+
+## 10. Impact-window energy reservoir — partial fix (implemented + tested)
+
+The reservoir from `prompts/avbd_dcr_impact_reservoir_fix.md` targets the §9 root
+cause directly: deposit `η·E_loss` every step into a short-lived
+per-(rigid,support) budget (key = `(rigid_body, elastic_body_idx)`, window W=4,
+ρ_B=0.65), and let the E1 injection spend it on any *near* contact — dropping the
+brittle `is_new` gate. Wired behind `use_impact_reservoir` (default OFF;
+bit-identical fallback). The patch channel, `passive_alpha` cap, and back-reaction
+guard are untouched. No `world.py` change (the coupler already gets `E_max` and
+`contacts`). Diagnostic: `scripts/_diag_impact_reservoir_iter_sensitivity.py`.
+
+**Result (shelf, eta=0.5, cum injected modal energy J):**
+
+| config | iters=4 | 8 | 16 | 32 | CV |
+|--------|-------:|----:|----:|----:|---:|
+| is_new (OFF), lambda_only | 0.0 | 5.79 | 12.55 | 13.59 | 0.689 |
+| reservoir ON, lambda_only | 1.25 | 6.48 | 14.47 | 15.49 | 0.623 |
+| reservoir ON, **delta_p** | 1.43 | 7.95 | **22.62** | **22.59** | 0.678 |
+
+**What it fixes (acceptance §14.1/§14.4/§14.7 — PASS):**
+- **Kills the zero-injection at iters=4** (0 → 1.4 J; `n_inj` 0 → 97). The timing
+  starvation is gone.
+- **delta_p + reservoir nearly doubles** mid/high-iter injection and reaches
+  `fill = 0.997` (budget fully utilized) at iters=16/32.
+- Globally passive: `Σ E_inj ≤ η·Σ E_loss` holds in every config.
+- η=0 ⇒ no injection; flag OFF ⇒ reservoir inert. Test:
+  `tests/avbd/test_impact_reservoir_passivity.py` (4 pass; 59 avbd + 27 stageE green).
+
+**What it does NOT fix (acceptance §14.2 — FAIL): iteration-insensitivity.**
+CV only moves 0.689 → 0.62–0.68 (target < 0.34). The spread stays huge
+(iters=4: 1.4 J vs iters=32: 22.6 J). Root cause — measured, not the reservoir's
+fault: at iters=4 the budget IS deposited (~23 J, iteration-insensitive) but only
+**5–6 % is spent** (`fill≈0.05`); the rest decays. The injection is
+**magnitude-limited, not budget-limited**: a soft low-iteration solve smears the
+impact across ~97 small-impulse frames, and the injectable modal energy `½‖s‖²` is
+**quadratic** in the per-frame impulse, so the same total Δp spread thin yields far
+less vibration energy (Cauchy–Schwarz). This holds for `delta_p` too — its
+per-frame `s` is also small when the impact is smeared. `passive_alpha` only
+scales *down*, so a large reservoir budget cannot rescue a small `s`.
+
+This residual is arguably **physical**: a mushy solve genuinely transfers less
+energy to vibration than a sharp strike, the way a soft landing rings a bell less.
+The reservoir removes the *artifact* (zero from timing); it cannot manufacture
+vibration the soft solve never imparted.
+
+**Decision:** keep `use_impact_reservoir=False` default (doesn't meet the CV bar,
+changes behaviour), but it is the best low-iter option available and is
+passivity-safe — recommend enabling it **with `impulse_source="delta_p"`** for
+low-iteration interactive use. A true iteration-insensitive fix would need
+*coherent impulse accumulation* (bank the impulse VECTOR `s` over the window and
+inject `½‖Σsᵢ‖²`, whose positive cross-terms recover the energy that per-frame
+projection loses), capped by the banked energy budget — a formulation beyond the
+current spec. **§11 tests exactly this prediction — and refutes it.**
+
+## 11. Coherent impact impulse bank — refuted (implemented + tested)
+
+`prompts/coherent_impact_impulse_bank_fix.md` formalizes the §10 prediction: bank
+each event's per-frame modal impulses into `S = Σsᵢ` over a short causal window
+and inject the event-level `½‖S‖²` once, recovering the cross terms
+`Σ_{i<j} sᵢᵀsⱼ` that per-frame `Σ½‖sᵢ‖²` discards. Implemented as a standalone
+module `dcr/dcr/impact_bank.py` (`ImpactKey`/`ImpactEvent`/`ImpactBank`) wired
+behind `use_coherent_impulse_bank` (default OFF). The bank **subsumes the
+reservoir** — it owns the `η·E_loss` deposit so the budget is counted once (the
+spec §15 config turns both on, which would double-count; the runtime dispatches
+the bank branch first and the `__post_init__` guard forces the reservoir off).
+`passive_alpha`, the patch channel, and the back-reaction guard are reused
+unchanged. Diagnostic: `scripts/_diag_impact_bank_iter_sensitivity.py`.
+
+**Result (shelf, eta=0.5, cum injected modal energy J, `delta_p`):**
+
+| config | iters=4 | 8 | 16 | 32 | CV | util@16 |
+|--------|-------:|----:|----:|----:|---:|---:|
+| reservoir ON (per-frame) | 1.43 | 7.95 | **22.62** | 22.59 | 0.678 | **0.997** |
+| **bank ON** (end_of_window) | 0.35 | 2.13 | 4.55 | 4.12 | 0.602 | **0.203** |
+
+**The bank injects LESS than the reservoir at every iteration count, and leaves
+~80 % of the budget unspent** (utilization 0.203 vs the reservoir's 0.997). Three
+findings, all from the diagnostic:
+
+1. **Coherent deferral is strictly worse than per-frame spending.** Switching the
+   bank to `inject_policy="every_frame"` (no coherent accumulation — `S` is reset
+   each frame, degenerating to per-frame injection) *raises* iters=16 from 4.55 →
+   14.46 J. The deferred `end_of_window` injection loses passive budget to the
+   `λ_B` decay between deposit and the (later) spend; the reservoir spends each
+   frame and stays ahead of the decay. **The cross-term gain (factor `R`) does not
+   compensate for the budget lost by waiting.** Removing decay (`λ_B=1`) recovers
+   more (every_frame → 19.65 J @16) but still trails the reservoir and stays
+   capped at `fill≈0.05` (~1.1 J) at iters=4.
+
+2. **A longer window makes it worse, not better.** Sweeping window ∈ {4,8,16,32}
+   *decreases* injection at iters=16 (4.55 → 0.01 J): a longer accumulation defers
+   the spend further, so more budget decays before it is used.
+
+3. **`R_coherence ≈ 3.9 is flat across all iteration counts** (4/8/16/32). If
+   low-iter AVBD were smearing one sharp impact, `R` would be large at iters=4 and
+   ≈1 at iters=32. It is not — `R ≈` the window size at every iter count, i.e. the
+   per-window coherence is an artifact of summing ~4 roughly-parallel samples, not
+   a recoverable iteration-dependent smear. **The premise that a sharp impact is
+   being smeared is not supported by the data.**
+
+**Conclusion (spec §13/§18 — the honest outcome).** At iters=4 the injection
+stays ~1 J no matter the policy, window, decay, or coherent summing. Low-iteration
+AVBD produces a genuinely *softer* collision trajectory whose contact impulses —
+even summed coherently over a window — carry intrinsically less vibration energy,
+and there is no hidden coherence for banking to recover. Extraction from the
+smeared solver output has reached its ceiling. The honest next step is the spec
+**§14 sharp-impulse estimator**: reconstruct a sharp normal collision impulse
+`Jₙ = −(1+e)·v_rel,n / Kₙ` from the *pre-impact* relative velocity and contact
+effective mass, project it onto the modes, and still cap it by `η·E_loss`. That
+synthesizes the impact the soft solve never resolved, rather than mining a trace
+that does not contain it.
+
+**Decision:** keep `use_coherent_impulse_bank=False` default. The bank is a
+*refuted* ablation (like §9's `impulse_source`) — passivity-safe and retained for
+the record, but it does **not** beat the reservoir. The reservoir + `delta_p`
+remains the best extraction-based low-iter option. Tests:
+`tests/avbd/test_coherent_impact_bank_passivity.py` (10 pass — cross-term
+recovery, antiparallel rejection, passivity/depletion, expiry, η=0, flag-OFF
+inert, global passivity, no-double-count; 96 avbd+stageE3+stageE4 green).
+Honesty (foundation §14): we do **not** claim AVBD gives iteration-insensitive
+modal excitation, nor that banking closes the gap — neither is true.
+
+## 12. Energy-prescribed injection — the fix that works (implemented + tested)
+
+§9-§11 all failed for the same reason: they derive the kick MAGNITUDE from the
+contact impulse `s = Φ(x)ᵀJ`, which a soft low-iteration solve makes tiny, and
+`passive_alpha` can only scale **down** (α∈[0,1]) — so the (iteration-insensitive)
+`η·E_loss` budget sits unspent. The flaw is not the energy coupling; it is reading
+the *magnitude* off the smeared impulse.
+
+**Fix (option 1):** keep `s`'s **direction** (the spectral distribution from the
+contact geometry — robust across iters, the normal barely moves) but set the
+**magnitude** from the budget. `prescribed_alpha(s, q̇, E_target, α_max)`
+(`dcr/modal/passive_inject.py`) returns the α ≥ 0 with `α·b + ½α²·a = E_target`,
+scaling `s` **up or down** to deposit exactly `E_target = μ·(available budget)`.
+Wired behind `injection_scaling="prescribed"` (default `"passive"` — bit-identical
+fallback); pair with the impact reservoir so the budget is available every frame
+(timing) and `prescribed_alpha` spends it (magnitude). One-line branch at the α
+step in `process_step`, covering both the is_new and reservoir paths.
+
+**Result (shelf, eta=0.5, E_rigid lost → E_modal injected, J):**
+
+| iters | E_rigid lost | η·budget | is_new λ passive | reservoir δp passive | **reservoir δp PRESCRIBED** |
+|------:|----:|----:|----:|----:|----:|
+| 4  | 46.5 | 23.3 | 0.00 (fill 0.00) | 1.43 (0.06) | **23.8 (1.00)** |
+| 8  | 44.7 | 22.4 | 5.79 (0.26) | 7.95 (0.35) | **22.8 (1.00)** |
+| 16 | 45.2 | 22.6 | 12.55 (0.56) | 22.6 (1.00) | **22.7 (1.00)** |
+| 32 | 45.3 | 22.6 | 13.59 (0.60) | 22.6 (1.00) | **22.6 (1.00)** |
+| **CV** | | | **0.689** | **0.678** | **0.022** |
+
+- **Iteration-insensitive:** CV(E_modal) across iters drops **0.69 → 0.022**;
+  iters=4 rises **0 → 23.8 J** (full budget). The modal excitation at iters=4 now
+  matches iters=32.
+- **Still globally passive:** `fill = 1.000` at every iter count means it deposits
+  exactly `η·E_loss` (the §15 bound) and never exceeds it. The realized ΔE is
+  debited from the reservoir, which is bounded by `η·Σ E_loss`. Verified
+  `cum_E_inj ≤ η·cum_E_loss` at iters ∈ {4,8,16}.
+- **No noise amplification:** the `α_max` guard fired **0** times — the upscale was
+  modest and finite (≈4× at iters=4, not unbounded), because `impulse_threshold`
+  already rejects near-zero directions.
+- Diagnostic: `scripts/_diag_prescribed_injection_iter_sensitivity.py`. Tests:
+  `tests/avbd/test_prescribed_injection.py` (9 pass — prescribed_alpha hits the
+  target / scales up where passive clamps / α_max clamp; scene passivity,
+  iteration-insensitivity, η=0, passive-default-unchanged). 105 avbd+stageE3+E4 green.
+
+**Honesty (foundation §14, the DEVIATION).** This uses the §15 inequality
+`ΔE_modal ≤ η·E_rigid_loss` as a **target**, not a ceiling — it *synthesizes*
+modal energy the literal contact impulse did not carry, re-sharpening the soft
+low-iteration response. We do **not** claim this is the impulse's true modal
+projection. The claim we *can* make: an **energy-bounded** modal excitation whose
+magnitude is prescribed from the rigid energy loss and whose direction is the
+contact-geometry mode mix — globally passive, iteration-insensitive, real-time.
+This is the same "empirical, energy-budgeted" footing the spatial-attenuation /
+patch channel already stands on (CLAUDE.md scope note).
+
+**Decision / recommendation.** `injection_scaling="passive"` stays the default
+(unchanged behavior, the strict §15 bound). For **low-iteration interactive use**,
+enable `use_impact_reservoir=True, impulse_source="delta_p",
+injection_scaling="prescribed"` — the timing fix (reservoir) + the magnitude fix
+(prescribed) together give iteration-insensitive, passivity-safe modal coupling at
+iters=4. `prescribed_mu ∈ (0,1]` dials the fraction of the budget spent (1.0 =
+hit the η·E_loss bound; lower for a gentler response).
