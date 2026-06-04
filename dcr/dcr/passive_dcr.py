@@ -238,6 +238,11 @@ class PassiveDCRCoupler:
     last_E_modal_pre_kick: float = 0.0
     last_E_modal_post_kick: float = 0.0
     last_alpha: float = 0.0
+    # Smallest passivity scale applied to a patch back-reaction this step
+    # (foundation §15 extraction dual). 1.0 = every kick was already
+    # dissipative; < 1.0 means the runaway-guard clamped at least one kick;
+    # 0.0 = a kick was rejected (could not be funded without adding energy).
+    last_backreaction_gamma_min: float = 1.0
     last_q_history_transient: NDArray[np.float64] | None = None
     # Modal energy removed by end-of-step γ-decay (foundation §16). Always
     # >= 0, exactly zero when modal_decay_gamma == 1.0. Logged as
@@ -860,6 +865,7 @@ class PassiveDCRCoupler:
         qdot_drive = self._qdot_just_after_kick
 
         kicks: list[PatchKick] = []
+        gamma_min = 1.0  # smallest dissipativity-guard scale this step
         for patch, recv_idx, r_bar, push_dir in valid:
             recv = bodies[recv_idx]
             # §9.3 — deformed normal at the patch centroid x̄. Reuses
@@ -970,6 +976,38 @@ class PassiveDCRCoupler:
                 lam_proj, v_p, K, E_per_patch)
             lam_final = s * lam_proj
 
+            # ----------------------------------------------------------
+            # DISSIPATIVITY GUARD (foundation §15 extraction dual; one-shot
+            # γ per prompts/avbd_dcr_realtime_coupling_fix.md §9).
+            #
+            # The §9.4 identity ΔE_total = −½ λᵀ K_total λ ≤ 0 holds ONLY for
+            # the raw λ = K_total⁻¹·Δv_des; the §9.5 cone projection and §9.6
+            # scaling change the impulse, so the back-reaction below can ADD
+            # modal energy (its self-term +½‖Φᵀλ‖²) → the runaway leak (see
+            # docs/avbd_dcr_coupling_findings §5/§6). Bound the back-reaction's
+            # OWN modal-energy change, measured on the ACTUAL q̇ it mutates
+            # (= the post-step_n self._stepper.qdot, NOT Δv_des / v_f which are
+            # built from the pre-step_n _qdot_just_after_kick):
+            #     ΔE_modal(γ) = −γ·c_m + ½ γ² a_m,
+            #     j = Φ(x̄)ᵀ·lam_final,  c_m = q̇ᵀj = (Φq̇)·lam_final,
+            #                            a_m = ‖j‖² = lam_finalᵀ ΦΦᵀ lam_final ≥ 0.
+            # Largest γ∈[0,1] with ΔE_modal(γ) ≤ 0, applied to BOTH the rigid
+            # kick and the back-reaction (transpose-consistent). γ=1 when the
+            # kick already drains (a_m ≤ 2c_m) → well-behaved scenes unchanged;
+            # γ<1 clamps the runaway; γ=0 rejects a kick that can only add
+            # modal energy. Guarantees the reservoir can only drain.
+            j_back = Phi_x.T @ lam_final
+            c_m = float(self._stepper.qdot @ j_back)
+            a_m = float(j_back @ j_back)
+            if c_m <= 0.0:
+                gamma_br = 0.0
+            elif a_m <= 1e-30:
+                gamma_br = 1.0
+            else:
+                gamma_br = min(1.0, 2.0 * c_m / a_m)
+            lam_final = gamma_br * lam_final
+            gamma_min = min(gamma_min, gamma_br)
+
             kicks.append(PatchKick(
                 body_idx=recv_idx,
                 lam=lam_final,
@@ -1004,6 +1042,7 @@ class PassiveDCRCoupler:
             # reaction together with the §9.6 passivity scaling
             # enforces both directions.
             self._stepper.qdot -= Phi_x.T @ lam_final
+        self.last_backreaction_gamma_min = gamma_min
         return kicks
 
     # ------------------------------------------------------------------

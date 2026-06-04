@@ -201,14 +201,47 @@ viewer launches clean (viser, no errors).
 
 ---
 
-## 8. Open item / recommended fix
+## 8. Phase-A back-reaction fix (applied)
 
-Wrap the line-1006 patch back-reaction in the **same `passivity_scale_gamma`
-budget Phase B uses**, so the patch path can only ever drain the reservoir
-(`ΔE_modal ≤ 0`, work ≤ a reservoir budget) and is self-correcting even with
-Phase B off. Would carry the required `# DEVIATION:` / foundation-§15 cites.
-Also add a §15-style ledger assertion on the *extraction* direction — nothing
-currently tests it, which is why the leak stayed green.
+Fixed the line-1006 leak with a **dissipativity guard** (one-shot γ, the
+spec's §9 / Phase B's §12 pattern with budget 0). The §9.4 identity
+`ΔE_total = −½λᵀK_totalλ ≤ 0` only holds for the raw `λ = K_total⁻¹·Δv_des`;
+§9.5 cone projection + §9.6 scaling break it. The guard bounds the
+back-reaction's **own** modal-energy change, measured on the **actual**
+post-`step_n` `q̇` it mutates (not `Δv_des`/`v_f`, which are built from the
+pre-`step_n` `_qdot_just_after_kick` — using those was a first wrong attempt
+that came out γ≈1, a no-op):
+
+```
+j = Φ(x̄)ᵀ·lam_final
+ΔE_modal(γ) = −γ·(q̇ᵀj) + ½γ²‖j‖²        # c_m = q̇ᵀj, a_m = ‖j‖² ≥ 0
+γ = 0            if c_m ≤ 0              # kick can only add energy → reject
+  = min(1, 2c_m/a_m)  otherwise
+```
+
+`γ` scales **both** the rigid kick and the back-reaction (transpose-
+consistent). γ=1 when the kick already drains → well-behaved scenes
+unchanged; γ<1 clamps the runaway. Carries `# DEVIATION:` / §15 cites in
+`passive_dcr.py`. Diagnostic: `coupler.last_backreaction_gamma_min`.
+
+**Verified** (`scripts/_diag_three_scenes.py`, `_diag_truck_backreaction.py`):
+
+| scene | peak E_modal before | peak E_modal after | slab disp before→after |
+|-------|--------------------:|-------------------:|------------------------|
+| truck            | 1.96e5 J | **6.7e2 J** | 186 → 8.9 mm, decays to flat |
+| ledge (light FEM)| 7.2e4 J  | **2.1e0 J** | runaway → flat |
+| shelf            | 6.9e0 J  | 6.5e0 J     | unchanged (guard is a no-op) |
+
+Stock (fixed) now matches the back-reaction-disabled baseline (~666 J peak,
+→0 final). Shelf injection preserved (13.0 J; books move ~6.8 mm — slightly
+less than the old 10.2 mm because that included leaked energy). Regression
+test: `tests/avbd/test_patch_backreaction_passive.py`. 79 avbd+stageE tests
+still pass.
+
+Still open: the **shelf low-iteration injection starvation** (§2) — separate
+bug (the `is_new`/`λ`/`E_max` sampling misalignment), addressed by the
+effective-impulse source in `prompts/avbd_dcr_realtime_coupling_fix.md`,
+not by this guard.
 
 > The `scripts/_diag_*.py` files are throwaway diagnostic harnesses kept to
 > back the numbers above and allow re-runs; safe to delete once consumed.
