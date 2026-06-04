@@ -240,13 +240,18 @@ def build_ledge_scene(
 
     mesh = make_slab_tet_mesh(
         length=1.2, width=0.8, height=0.08, nx=12, ny=8, nz=2)
-    mat = Material(E=10.0e9, nu=0.3, rho=2500.0)
+    # FEM parameters matched to the truck scene: stiff-but-light wood
+    # (E=10 GPa, ρ=500), α0=2.0 Rayleigh, 15 modes. Was ρ=2500, α0=1.0,
+    # 12 modes — the heavier slab gave a weak modal projection (Φᵀλ tiny)
+    # so the patch back-reaction could not pump. With the truck's light
+    # material the ledge couples strongly, exposing the same runaway.
+    mat = Material(E=10.0e9, nu=0.3, rho=500.0)
     fem = FEMModel(
         mesh=mesh, material=mat,
         fixed_nodes=_fix_one_edge(mesh),
-        alpha0=1.0, alpha1=1e-5,
+        alpha0=2.0, alpha1=1e-5,
     )
-    modal = ModalAnalysis(fem=fem, num_modes=12)
+    modal = ModalAnalysis(fem=fem, num_modes=15)
     coupler = PassiveDCRCoupler(
         modal=modal,
         elastic_body_idx=ledge_idx,
