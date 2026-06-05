@@ -234,6 +234,19 @@ class ReducedSupportViewer:
                 initial_value=float(c0.cooldown_dv_threshold),
                 hint="Δv below this doesn't arm the cooldown.")
             self.gui_cd_thr.on_update(self._cd_thr_changed)
+            self.gui_fcap_on = self.server.gui.add_checkbox(
+                "physical F_n cap (per body)",
+                initial_value=bool(c0.physical_force_cap_enabled),
+                hint="Caps total F_n per tracked body at "
+                     "K·(m·|v_pre|/h + m·g). Tames λ overshoot at low N.")
+            self.gui_fcap_on.on_update(self._fcap_on_changed)
+            self.gui_fcap_K = self.server.gui.add_slider(
+                "F_n cap K_safety",
+                min=1.0, max=10.0, step=0.5,
+                initial_value=float(c0.physical_force_cap_K_safety),
+                hint="Multiplier on m·|v_pre|/h + m·g. 1 = strict, "
+                     "3 = default, 10 = effectively off.")
+            self.gui_fcap_K.on_update(self._fcap_K_changed)
 
         with self.server.gui.add_folder("Status"):
             self.gui_t = self.server.gui.add_text("t [s]", initial_value="0.000")
@@ -324,6 +337,18 @@ class ReducedSupportViewer:
             c = self.world.reduced_support_coupler
             if c is not None:
                 c.cooldown_dv_threshold = float(self.gui_cd_thr.value)
+
+    def _fcap_on_changed(self, _evt):
+        with self._world_lock:
+            c = self.world.reduced_support_coupler
+            if c is not None:
+                c.physical_force_cap_enabled = bool(self.gui_fcap_on.value)
+
+    def _fcap_K_changed(self, _evt):
+        with self._world_lock:
+            c = self.world.reduced_support_coupler
+            if c is not None:
+                c.physical_force_cap_K_safety = float(self.gui_fcap_K.value)
 
     def _reset_scene(self):
         with self._world_lock:

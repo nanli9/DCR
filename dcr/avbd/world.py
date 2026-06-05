@@ -311,6 +311,19 @@ class AVBDDCRWorld:
         """
         if self._solver is None:
             raise RuntimeError("AVBDDCRWorld._solver is not initialized")
+        # Pre-populate body_mass from the descriptor list so the
+        # physical F_n cap (in _assemble_r_tilde) can clamp each row's
+        # contribution by m·|v|/h + m·g. Mass is constant; safe to
+        # cache once. Bodies absent from this dict get v_pre = 0 ⇒
+        # F_max = 0 in the cap, which is intentional (means "we don't
+        # know the body's mass, fall through without inflation").
+        body_mass = {}
+        for d in self._descs:
+            if d.avbd_body is None:
+                continue
+            i = int(d.avbd_body.index)
+            if i in tracked_body_indices:
+                body_mass[i] = float(d.dcr_body.mass)
         coupler = ReducedSupportCoupler(
             rs=rs,
             tracked_body_indices=list(tracked_body_indices),
@@ -321,6 +334,7 @@ class AVBDDCRWorld:
             n_grid_z=int(n_grid_z),
             h_macro=float(self.h),
             h_substep=float(self.h) / float(self.avbd_substeps),
+            body_mass=body_mass,
         )
         self.reduced_support = rs
         self.reduced_support_coupler = coupler
@@ -483,6 +497,18 @@ class AVBDDCRWorld:
             for d in self._descs
         ]
 
+        # Stage pre-step y-velocities for the reduced-support coupler's
+        # physical F_n cap BEFORE the solver runs — the iteration_hook
+        # fires inside solver.step() and reads `_body_v_pre_y` when it
+        # assembles the q-block's contact forcing.
+        if self.reduced_support_coupler is not None:
+            body_v_pre_y: dict[int, float] = {}
+            for di, desc in enumerate(self._descs):
+                if desc.avbd_body is None:
+                    continue
+                body_v_pre_y[int(desc.avbd_body.index)] = float(v_pre_lin[di][1])
+            self.reduced_support_coupler.prepare_step(body_v_pre_y)
+
         # (2) AVBD solve.
         t_solve_0 = _t.perf_counter()
         self._solver.step()
@@ -571,11 +597,17 @@ class AVBDDCRWorld:
             # max(0, KE_pre − KE_post) — a slight underestimate of the
             # contact-dissipated energy when gravity is positive-working
             # (conservative in the safe direction: less injection budget).
+            #
+            # Pre-step y-velocities were already staged via prepare_step
+            # before the solver ran (the iteration_hook needed them).
+            # post_step re-passes the cached dict so the r_tilde
+            # assembly uses the same values as the q-block did.
             self.reduced_support_coupler.post_step(
                 self._solver,
                 rigid_kinetic_energy_fn=rigid_kinetic_energy,
                 descs=self._descs,
                 E_src_step=float(self.last_E_loss),
+                body_v_pre_y=self.reduced_support_coupler._body_v_pre_y,
             )
             # Mirror selected diagnostics into the world log so callers
             # can poll without reaching into the coupler.

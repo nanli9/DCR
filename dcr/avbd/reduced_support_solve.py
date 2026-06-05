@@ -143,6 +143,32 @@ class ReducedSupportCoupler:
     cooldown_steps:         int   = 2
     cooldown_dv_threshold:  float = 0.10   # m/s; below this, no cooldown trigger.
 
+    # Physical F_n cap on each tracked body's contribution to r_tilde.
+    # At low AVBD iteration counts, AVBD's λ overshoots the converged
+    # contact force by 10–100× on fast impacts because the primal/dual
+    # hasn't had time to resolve. That inflated λ enters r_tilde
+    # linearly, which means the overlay's distant Δv is iteration-
+    # sensitive — a 5 g probe gets launched 16 cm at N=4 and barely
+    # moves at N=32. We cap each tracked body's total contribution at
+    #     F_max = K_safety · (m_body · |v_body_pre| / h_macro
+    #                          +  m_body · |g|)
+    # i.e. K_safety times the impulsive force that would fully
+    # decelerate the body over one macro step plus its weight.
+    # K_safety > 1 allows for the elastic peak force during a real
+    # contact transient (~3 is a typical compliance factor); above
+    # that, AVBD is over-correcting. Default cap ON with K_safety = 3.
+    physical_force_cap_enabled: bool = True
+    physical_force_cap_K_safety: float = 3.0
+
+    # Set once at attach time by the world: mass of each tracked AVBD
+    # body. r_tilde assembly uses it for the physical F_n cap.
+    body_mass: dict[int, float] = field(default_factory=dict)
+
+    # Pre-step linear velocity per tracked body, supplied by world.step
+    # to post_step. Used by the physical F_n cap.
+    _body_v_pre_y: dict[int, float] = field(
+        default_factory=dict, init=False, repr=False)
+
     # Per-step storage of the previous macro-step's r_tilde for the
     # high-pass differencing. Reset to None on detach / reset.
     _r_tilde_prev: NDArray[np.float64] | None = field(
@@ -186,6 +212,14 @@ class ReducedSupportCoupler:
     last_n_cooldown_active:    int   = 0
 
     # ---- hook plumbing --------------------------------------------------
+
+    def prepare_step(self, body_v_pre_y: dict[int, float] | None) -> None:
+        """Cache pre-step y-velocities BEFORE solver.step() runs so the
+        iteration_hook's q-block sees the same physical F_n cap as the
+        post_step's r_tilde assembly. World calls this before
+        `solver.step()`; post_step also receives the dict and reuses it.
+        """
+        self._body_v_pre_y = dict(body_v_pre_y) if body_v_pre_y else {}
 
     def substep_begin_hook(self, solver) -> None:
         """Identify tracked floor-contact rows for this substep and
@@ -314,7 +348,13 @@ class ReducedSupportCoupler:
         # explicit form 1/h · D_q as a numerical regulariser).
         H_q = (1.0 / (h * h)) * Mq + Kq + (1.0 / h) * Dq
 
-        # Contact contributions: walk tracked rows.
+        # Contact contributions: walk tracked rows. The q-block is the
+        # AL gradient (∇L w.r.t. q) and should NOT be capped — capping
+        # would distort the optimality conditions and prevent q from
+        # absorbing impact energy. Iteration sensitivity of q at low N
+        # is fundamental to AVBD's iterative scheme; we accept it here
+        # and cap downstream (in r_tilde) where it propagates into the
+        # distant Δv that drives user-visible probe motion.
         for row_idx in rows:
             ba = self._row_body_a[row_idx]
             off = self._row_off_a[row_idx]
@@ -330,19 +370,11 @@ class ReducedSupportCoupler:
             C_pen = max(0.0, -C_avbd)
 
             lam_avbd = float(lam_np[row_idx])   # ≤ 0 for FLOOR, in force units
-
-            # f_c in force units (see file docstring `# DEVIATION:`):
-            #   F_n = -λ_avbd + ρ_q · C_pen
-            # Positive scalar = upward force magnitude on the body.
             F_n = -lam_avbd + self.rho_q * C_pen
-            # Numerical safety: separated contacts can have stale λ; clip.
             if F_n < 0.0:
                 F_n = 0.0
 
-            # Reduced Jacobian: contact normal on the BODY is +ŷ for a
-            # FLOOR_CONTACT, so J_q = U_y (the y-row of U at this point).
             U_y_row = self._U_at_row[row_idx][1]    # (r,)
-            # Gradient += F_n · J_q; Hessian += ρ_q · J_q J_q^T  (§7).
             g_q = g_q + F_n * U_y_row
             H_q = H_q + self.rho_q * np.outer(U_y_row, U_y_row)
 
@@ -395,6 +427,7 @@ class ReducedSupportCoupler:
         rigid_kinetic_energy_fn,
         descs,
         E_src_step: float = 0.0,
+        body_v_pre_y: dict[int, float] | None = None,
     ) -> None:
         """Run the transient overlay (§9.3) and inject Δv at probes
         (§9.4). Called once per macro-step from `AVBDDCRWorld.step()`.
@@ -410,6 +443,13 @@ class ReducedSupportCoupler:
         let the cap default to "no budget" → α=0 → no injection (safe
         sentinel for tests that don't thread the world's KE).
         """
+        # Cache pre-step body y-velocities for the physical F_n cap.
+        # Empty dict ⇒ cap degrades to v_pre = 0 ⇒ F_max = m·g (weight
+        # only), which is the right answer for any body that wasn't
+        # moving — exactly the limit we want when callers don't thread
+        # body_v_pre_y in (e.g. older tests).
+        self._body_v_pre_y = dict(body_v_pre_y) if body_v_pre_y else {}
+
         # Item (4) — decrement cooldown counters at the start of each
         # macro step so the kick that triggered the cooldown is *not*
         # counted toward the cooldown window's first step.
@@ -541,11 +581,15 @@ class ReducedSupportCoupler:
                 d_overlay_peak = np.maximum(d_overlay_peak, d_per_probe)
                 q_prev2 = q_prev
                 q_prev = q_new
-            # The overlay's distant response uses the larger of the
-            # quasi-static value (already captured in d_bare) and the
-            # sub-stepped peak — they capture different parts of the
-            # response and either could dominate at a given probe.
-            probe_d_max = np.maximum(d_bare, d_overlay_peak)
+            # Probe sees the quasi-static shelf sag (d_bare = |U·q| at
+            # end-of-macro-step) PLUS the sub-stepped IIR transient peak
+            # (d_overlay_peak). With restart_overlay_each_step=True the
+            # IIR starts from zero, so it captures the transient on top
+            # of the rest baseline — not max(), but sum, is the right
+            # combiner. The bare arm (when overlay_enabled=False) skips
+            # this block and uses d_bare alone, so the A/B comparison
+            # cleanly isolates what the overlay adds.
+            probe_d_max = d_bare + d_overlay_peak
 
         # ---- Compute candidate Δv at each probe (§9.4) ----
         probe_dv_candidate = probe_d_max / max(h_macro, 1e-12)
@@ -674,15 +718,15 @@ class ReducedSupportCoupler:
         orientations = solver.orientations()
 
         anchor_np = solver.c_world_anchor.numpy()
-        r_tilde = np.zeros(self.rs.r, dtype=np.float64)
+        g_mag = float(np.linalg.norm(np.asarray(solver.gravity, dtype=np.float64)))
+        h = float(self.h_macro)
+
+        # ---- Pass 1: compute per-row F_n (uncapped) ----
+        # Skip cooldown'd probes here too.
+        row_data: list[tuple[int, int, float, NDArray[np.float64]]] = []
+        F_n_per_body: dict[int, float] = {}
         for row_idx in rows:
             ba = self._row_body_a[row_idx]
-            # Item (4) — cooldown: a probe that just received an overlay
-            # Δv has its contact rows excluded from r_tilde for the next
-            # `cooldown_steps` macro steps. Suppresses the probe →
-            # r_tilde → probe self-feedback loop without resorting to a
-            # hard identity mask. The q-block COUPLING path still uses
-            # this row, so static deformation propagation is preserved.
             if self._probe_cooldown.get(ba, 0) > 0:
                 continue
             off = self._row_off_a[row_idx]
@@ -694,7 +738,38 @@ class ReducedSupportCoupler:
             if F_n < 0.0:
                 F_n = 0.0
             U_y_row = self._U_at_row[row_idx][1]
-            r_tilde = r_tilde + F_n * U_y_row
+            row_data.append((row_idx, ba, F_n, U_y_row))
+            F_n_per_body[ba] = F_n_per_body.get(ba, 0.0) + F_n
+
+        # ---- Pass 2: per-body physical F_n cap ----
+        # A row's F_n contribution can be huge at low AVBD iter counts
+        # because lam_avbd has overshot the converged contact force
+        # (the primal/dual hasn't resolved the impact). The overlay
+        # then propagates that overshoot linearly into r_tilde and the
+        # distant Δv is iteration-sensitive (5g probe launched 16 cm
+        # at N=4, barely moves at N=32).
+        #
+        # Cap the TOTAL F_n over a body's rows at
+        #     F_body_max = m_body · |v_body_pre| / h_macro + m_body · |g|
+        # i.e. the impulsive force that would fully decelerate the body
+        # over one macro step plus its weight. Box has up to 4 active
+        # corners; capping per body (not per row) avoids 4× inflation.
+        scale_per_body: dict[int, float] = {}
+        if self.physical_force_cap_enabled:
+            K = float(self.physical_force_cap_K_safety)
+            for ba, F_total in F_n_per_body.items():
+                m = self.body_mass.get(ba, 0.0)
+                v_pre = abs(self._body_v_pre_y.get(ba, 0.0))
+                if m > 0.0 and h > 0.0:
+                    F_max = K * (m * v_pre / h + m * g_mag)
+                    if F_total > F_max and F_total > 0.0:
+                        scale_per_body[ba] = F_max / F_total
+
+        # ---- Pass 3: accumulate r_tilde with scaled F_n ----
+        r_tilde = np.zeros(self.rs.r, dtype=np.float64)
+        for (_row, ba, F_n, U_y_row) in row_data:
+            s = scale_per_body.get(ba, 1.0)
+            r_tilde = r_tilde + (s * F_n) * U_y_row
         return r_tilde
 
 

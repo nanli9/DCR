@@ -51,28 +51,44 @@ uv run python scripts/run_reduced_support_shelf.py --no-overlay --frames 60
 Headline results (h = 1/120, single-mode shelf at ω ≈ 838 rad/s, 87
 tests green):
 
-* **Iteration-invariant overlay/bare ratio**: 8.55× → 7.64× across
-  iter ∈ {4, 8, 16, 32}, CV ≈ 5 %. Matches the spec's `ω·h ≈ 7` Section
-  8 prediction.
 * **Physical static sag**: q deflects 5.9 mm under the impactor at
   iter=4; the same probe sitting at distance feels that deflection
   through `U` — post-fix DCR sees a rigid shelf and gives 0.
-* **Energy cap (item 3) + receiver cooldown (item 4)** keep the
-  cumulative injected KE under `η · E_src` (η = 0.95) across the full
-  run; rest-impactor pump test injects < 0.2 % of the drop-case
-  cumulative.
+* **Energy cap (item 3) + receiver cooldown (item 4) + per-body
+  physical F_n cap** keep the cumulative injected KE under `η · E_src`
+  (η = 0.95) and the per-step Δv physically bounded. Probe jump
+  heights drop from 16 cm (unbounded, iter=4) to < 1 cm with the cap,
+  matching what a 5 g probe sitting on a thin shelf should plausibly
+  experience under a 0.5 kg impactor hit.
+* **Overlay/bare ratio approaches `ω·h ≈ 7` at converged AVBD**:
+  ratio = 2.05 → 7.64 across iter ∈ {4, 8, 16, 32}. The spec's
+  Section 8 prediction is only recoverable once AVBD itself has
+  converged (high iter); at low iter, the F_n cap dominates the
+  overlay magnitude.
+* **Iteration sensitivity is fundamental, not removed**: at low N,
+  AVBD's λ overshoots the converged contact force on fast impacts;
+  the inside-AVBD q-block reflects this overshoot (`d_bare` of 5.9 mm
+  at N=4 vs 0.35 mm at N=32). The cap bounds the overlay-driven
+  distant Δv to a physical range, but the bare q magnitude still
+  tracks AVBD's residual.
 * **Step-time regression** from disabling CUDA-graph capture when the
-  iteration hook is wired: 2.5× (1.53 → 3.80 ms/step at iter=4).
+  iteration hook is wired: ~3–6× (1.94 → 11.16 ms/step at iter=4).
 
-Soft spot, surfaced and documented:
+Soft spots, surfaced and documented:
 
 * The overlay is a bolted-on injection layer. A self-feedback loop
   (probe lands → r̃ → probe kicked again) is suppressed by the
-  high-pass + cooldown + energy cap but not absent by construction.
-  The Path-B 1-D toy in `scripts/path_b_1d_toy.py` shows the loop and
-  the energy pump vanish if you instead sub-step the *coupled* contact
-  solve against `x_s(q)` — 0 injection events across 5 s, energy bounded
-  by modal damping alone.
+  high-pass + cooldown + energy cap + per-body F_n cap but not absent
+  by construction. The Path-B 1-D toy in `scripts/path_b_1d_toy.py`
+  shows the loop and the energy pump vanish if you instead sub-step
+  the *coupled* contact solve against `x_s(q)` — 0 injection events
+  across 5 s, energy bounded by modal damping alone.
+* Iteration sensitivity from AVBD's own un-convergedness at low N
+  propagates into the inside-AVBD q-block's `d_bare`. We don't cap
+  the q-block (would distort the AL gradient and break coupling), so
+  `q_max` itself remains iteration-sensitive. The downstream overlay
+  Δv is bounded by the per-body F_n cap so the user-visible probe
+  motion stays physical regardless of N.
 
 Six follow-up gates, all closed:
 
