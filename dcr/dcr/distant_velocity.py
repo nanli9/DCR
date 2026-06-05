@@ -169,6 +169,18 @@ class PatchKick:
     v_p_pre: NDArray[np.float64]
     s_passivity: float = 1.0
     cone_clipped: bool = False
+    # When set, dcr_world's apply path uses this 6D [Δv; Δω] increment to
+    # update body.velocity DIRECTLY instead of the L · λ centroid-impulse
+    # form. Populated by `_compute_distant_response_patch` when the
+    # contact-compatible null-space projection (fix-doc §6-8, 6D form)
+    # fires — the projection only modifies the angular component, so Δv
+    # is preserved unchanged. The modal back-reaction still uses λ
+    # (Newton's 3rd law from the modes' intended impulse); the difference
+    # in body kinetic energy between `½·λᵀ·K_body·λ` (what the modes
+    # paid) and `½·Δu_overrideᵀ·M·Δu_override` (what the body received)
+    # is dissipated by the projection, which keeps the foundation §15
+    # passivity bound intact.
+    du_override: NDArray[np.float64] | None = None
 
 
 # ----------------------------------------------------------------------

@@ -563,8 +563,17 @@ class DCRWorld:
             ke_before += 0.5 * float(
                 body.velocity[3:6] @ (body.inertia_world() @ body.velocity[3:6]))
             I_inv = body.inertia_world_inv()
-            body.velocity[0:3] += kk.lam / body.mass
-            body.velocity[3:6] += I_inv @ np.cross(kk.r_bar, kk.lam)
+            if kk.du_override is not None:
+                # 6D contact-compatible Δu from the null-space projection
+                # (fix-doc §6-8): bypass the centroid-impulse formula
+                # because Δu carries an angular component (yaw) that no
+                # single point impulse at r̄ could produce on a thin body
+                # with r̄ ∥ −n. The projection guarantees Δv is unchanged
+                # vs L·λ; the difference in angular energy was dissipated.
+                body.velocity += kk.du_override
+            else:
+                body.velocity[0:3] += kk.lam / body.mass
+                body.velocity[3:6] += I_inv @ np.cross(kk.r_bar, kk.lam)
             ke_after = 0.5 * body.mass * float(
                 body.velocity[:3] @ body.velocity[:3])
             ke_after += 0.5 * float(

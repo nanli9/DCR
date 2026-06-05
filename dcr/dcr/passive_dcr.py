@@ -49,6 +49,11 @@ from .contact_patch import (
     patch_passive_scaling,
     solve_patch_impulse,
 )
+from .contact_projection import (
+    project_du_contact_compatible,
+    project_patch_impulse_contact_compatible,  # kept for ablation only
+    should_project_patch,
+)
 from .deformed_normal import SurfaceTangentFrames, compute_deformed_normal
 from .deformed_normal_bj import (
     BarbicJamesCache,
@@ -362,6 +367,52 @@ class PassiveDCRCoupler:
     geodesic_beta: float = 0.5
     geodesic_r0: float = 0.0   # 0 → auto from mean surface edge length
 
+    # ----- Contact-compatible null-space projection ---------------------
+    # See `prompts/dcr_patch_kick_nullspace_projection_fix.md` and
+    # `dcr/dcr/contact_projection.py`. The §9 patch kick applies the
+    # modal velocity as a single point impulse at the patch centroid;
+    # for a thin body in flat resting contact the lever arm × tangential
+    # impulse becomes torque the body cannot resist (visible as fork
+    # roll/pitch on the dinner_table scene). The projection zeroes the
+    # differential normal velocity across patch sample points before
+    # the §9.6 passivity cascade runs, removing the contact-incompatible
+    # component of the kick while preserving DCR energy transfer and
+    # the foundation §15 passivity bound.
+    # # DEVIATION (DCR paper §9): replaces the single-centroid kick with
+    # # a null-space-projected version — see fix doc §6-9. Reduces to a
+    # # no-op on thick / tall / non-resting bodies via the gate (§11).
+    projection_enabled: bool = True
+    projection_use_tangent_rows: bool = False
+    projection_tangent_weight: float = 0.25
+    projection_thin_ratio: float = 0.25
+    projection_v_n_thresh: float = 0.05   # m/s
+    projection_v_t_thresh: float = 0.10   # m/s
+    projection_eps: float = 1e-7
+
+    # ----- COM-shadow modal sampling (one Φ per body, kick at COM) -------
+    # When True, replace the per-patch loop in `_compute_distant_response_patch`
+    # with a per-body loop:
+    #   * Φ ← eval_basis_at_point(body.position, …)   — one KD lookup / body
+    #     instead of one / patch. The KD-tree's closest-triangle search
+    #     finds the slab vertex closest to the body's COM, which IS the
+    #     COM-shadow on the support for body-on-floor scenes.
+    #   * v_p = body.v_lin   (no lever arm because the kick is at the COM)
+    #   * λ = K_total⁻¹·(v_f − v_p) with K_body = (1/m)·I (the cross terms
+    #     vanish at r̄ = 0).
+    #   * Body: Δv_lin = λ/m, Δω = 0 — by construction the lever-arm
+    #     Δω = I⁻¹·(r̄ × λ) the projection was built to clean up does not
+    #     exist here. The projection becomes a no-op.
+    # # DEVIATION (DCR paper §9, foundation §15): the paper samples Φ at the
+    # # patch centroid. This mode collapses to one Φ per body. Valid when
+    # # body extent ≪ modal wavelength (≈ all dinner_table bodies). The
+    # # passivity scaling and modal back-reaction still use the same K_total
+    # # and Φᵀ·λ machinery — only the sample location and application point
+    # # change.
+    com_shadow_mode: bool = False
+    # Diagnostics (reset each call to _compute_distant_response_patch).
+    last_com_shadow_kicks_fired: int = 0
+    last_com_shadow_kd_lookups: int = 0
+
     # Internals.
     _stepper: HomogeneousStepper = field(init=False, repr=False)
     _surface: TriMesh = field(init=False, repr=False)
@@ -449,6 +500,16 @@ class PassiveDCRCoupler:
     # → no E_target → kicks skipped).
     last_patches: list[ContactPatch] | None = None
     last_patch_kicks: list[PatchKick] | None = None
+    # Per-patch projection retention ratio rho = √(½·λ_projᵀKλ_proj / ½·λᵀKλ).
+    # Populated only on patches that pass the §11 gate; empty list when the
+    # projection is disabled or no patches qualified this step.
+    last_projection_rho: list[float] = field(default_factory=list)
+    last_projection_fired: int = 0
+    last_projection_skipped: int = 0
+    # Modal kinetic energy removed by the projection this step (joules).
+    # Equal to Σ ½·(λ²·K)_raw − ½·(λ²·K)_proj over fired patches; ≥ 0 by
+    # K-metric non-increase.
+    last_E_projection_removed: float = 0.0
 
     # ----- Contact-causal gating diagnostics (proposal §1-§3) -----------
     # Per-step gate-fire counters (reset in process_step). Cumulative
@@ -1628,6 +1689,16 @@ class PassiveDCRCoupler:
         # qdot underestimates v_f by the Rayleigh-damping factor over h
         # — a noticeable difference when α₁·h is non-negligible.
         """
+        # Reset per-step null-space projection diagnostics. Set at the top
+        # so values always reflect the CURRENT call (incl. early-out paths).
+        self.last_projection_rho = []
+        self.last_projection_fired = 0
+        self.last_projection_skipped = 0
+        self.last_E_projection_removed = 0.0
+        # COM-shadow diagnostics (no-op when com_shadow_mode is False).
+        self.last_com_shadow_kicks_fired = 0
+        self.last_com_shadow_kd_lookups = 0
+
         if not patches:
             return []
 
@@ -1701,6 +1772,19 @@ class PassiveDCRCoupler:
             geo_field = heat_geodesic_cached(
                 self._surface, self._geodesic_cache,
                 int(self._last_impact_vert))
+
+        # COM-shadow mode: collapse to one kick per receiver body at its
+        # COM, with Φ sampled once at the COM-shadow on the support. See
+        # the dataclass field's DEVIATION block.
+        if self.com_shadow_mode:
+            return self._dispatch_com_shadow_kicks(
+                valid=valid,
+                bodies=bodies,
+                resting_contacts=resting_contacts,
+                qdot_drive=qdot_drive,
+                geo_field=geo_field,
+                E_target_patch=E_target_patch,
+            )
 
         kicks: list[PatchKick] = []
         gamma_min = 1.0  # smallest dissipativity-guard scale this step
@@ -1858,6 +1942,86 @@ class PassiveDCRCoupler:
             lam_final = gamma_br * lam_final
             gamma_min = min(gamma_min, gamma_br)
 
+            # ----------------------------------------------------------
+            # CONTACT-COMPATIBLE NULL-SPACE PROJECTION (fix-doc §6-8,
+            # 6D Δu form — preserves yaw).
+            #
+            # # DEVIATION (DCR paper §9 single-centroid patch kick): the
+            # # §9 formulation applies a single point impulse at the
+            # # patch centroid; for a thin body in flat resting contact
+            # # the lever × tangential impulse becomes torque the body
+            # # cannot resist (visible as fork roll/pitch on the
+            # # dinner_table scene). We zero the DIFFERENTIAL normal
+            # # velocity across patch sample points in 6D velocity-
+            # # increment space — the constraint depends only on Δω, so
+            # # Δv stays unchanged and the body still receives a full
+            # # linear push from the kick; only the angular component
+            # # is constrained. Yaw (Δω ∥ n) lies in the constraint
+            # # null-space and is allowed; only roll/pitch (Δω in the
+            # # contact plane) gets suppressed. The §15 passivity bound
+            # # is preserved because M-metric projection is energy-
+            # # non-increasing and the modal back-reaction continues to
+            # # use the original lam_final (the "intended" impulse).
+            # # See prompts/dcr_patch_kick_nullspace_projection_fix.md.
+            du_override = None
+            if self.projection_enabled:
+                project, use_t = should_project_patch(
+                    body_shape=recv.shape,
+                    rotation_matrix=recv.rotation_matrix(),
+                    n_contact_points=len(patch.contact_indices),
+                    v_p_at_centroid=v_p,
+                    normal=n_cone,
+                    thin_ratio=self.projection_thin_ratio,
+                    v_n_thresh=self.projection_v_n_thresh,
+                    v_t_thresh=self.projection_v_t_thresh,
+                    use_tangent_rows=self.projection_use_tangent_rows,
+                )
+                if project:
+                    pts = np.stack(
+                        [resting_contacts[ci].point
+                         for ci in patch.contact_indices],
+                        axis=0,
+                    )
+                    tangents = (
+                        _pick_friction_dirs(n_cone) if use_t else None
+                    )
+                    # Δu_raw = L · lam_final (centroid-impulse → body
+                    # velocity increment if applied via §9).
+                    inv_m = 1.0 / recv.mass
+                    omega_raw = recv.inertia_world_inv() @ np.cross(
+                        r_bar, lam_final)
+                    du_raw = np.empty(6, dtype=np.float64)
+                    du_raw[0:3] = inv_m * lam_final
+                    du_raw[3:6] = omega_raw
+                    du_proj, rho = project_du_contact_compatible(
+                        du_raw=du_raw,
+                        patch_points=pts,
+                        com_world=recv.position,
+                        normal=n_cone,
+                        tangents=tangents,
+                        mass=recv.mass,
+                        inertia_world=recv.inertia_world(),
+                        tangent_weight=self.projection_tangent_weight,
+                        eps=self.projection_eps,
+                    )
+                    du_override = du_proj
+                    # Energy bookkeeping: ½·Δuᵀ·M·Δu is the body's
+                    # kinetic-energy increment under Δu.
+                    m_body = recv.mass
+                    I_w = recv.inertia_world()
+                    e_pre = 0.5 * (
+                        m_body * float(du_raw[0:3] @ du_raw[0:3])
+                        + float(du_raw[3:6] @ I_w @ du_raw[3:6]))
+                    e_post = 0.5 * (
+                        m_body * float(du_proj[0:3] @ du_proj[0:3])
+                        + float(du_proj[3:6] @ I_w @ du_proj[3:6]))
+                    self.last_projection_rho.append(rho)
+                    self.last_projection_fired += 1
+                    self.last_E_projection_removed += max(
+                        0.0, e_pre - e_post)
+                else:
+                    self.last_projection_skipped += 1
+
             kicks.append(PatchKick(
                 body_idx=recv_idx,
                 lam=lam_final,
@@ -1868,6 +2032,7 @@ class PassiveDCRCoupler:
                 v_p_pre=v_p.copy(),
                 s_passivity=s,
                 cone_clipped=cone_clipped,
+                du_override=du_override,
             ))
 
             # ----------------------------------------------------------
@@ -1892,6 +2057,164 @@ class PassiveDCRCoupler:
             # reaction together with the §9.6 passivity scaling
             # enforces both directions.
             self._stepper.qdot -= Phi_x.T @ lam_final
+        self.last_backreaction_gamma_min = gamma_min
+        return kicks
+
+    # ------------------------------------------------------------------
+    # COM-shadow modal sampling — per-body collapse of the patch loop.
+    # See `com_shadow_mode` dataclass field for the DEVIATION block.
+    # ------------------------------------------------------------------
+
+    def _dispatch_com_shadow_kicks(
+        self,
+        valid: list[
+            tuple[ContactPatch, int, NDArray[np.float64], NDArray[np.float64]]
+        ],
+        bodies: list[RigidBody],
+        resting_contacts: list[Contact],
+        qdot_drive: NDArray[np.float64],
+        geo_field: NDArray[np.float64] | None,
+        E_target_patch: float,
+    ) -> list[PatchKick]:
+        """One kick per receiver body at its COM; Φ sampled once at the
+        body's COM-shadow on the support.
+
+        Mirrors `_compute_distant_response_patch`'s inner loop with three
+        structural simplifications:
+            1. r̄ = 0  →  K_body collapses to (1/m)·I; the lever-arm
+               Δω = I⁻¹·(r̄ × λ) is identically zero, so the projection
+               step is a no-op and we skip it entirely.
+            2. One Φ evaluation per body (KD lookup at body.position)
+               instead of one per patch — reduces KD calls from
+               O(N_patches) to O(N_bodies).
+            3. E_target split across receivers instead of patches.
+               Receivers, not patches, are the per-step demand unit.
+
+        Per receiver: aggregate the body's patches (union contact_indices
+        for the contact-shell gate; pick push_dir from the first patch —
+        for a body resting on the slab they are all world-up).
+        """
+        # Group valid entries by receiver body.
+        by_body: dict[
+            int, list[tuple[ContactPatch, NDArray[np.float64]]]
+        ] = {}
+        push_dirs: dict[int, NDArray[np.float64]] = {}
+        for patch, recv_idx, _r_bar_unused, push_dir in valid:
+            by_body.setdefault(recv_idx, []).append((patch, push_dir))
+            push_dirs.setdefault(recv_idx, push_dir)
+
+        n_receivers = len(by_body)
+        E_per_receiver = (
+            E_target_patch / n_receivers if E_target_patch > 0.0 else 0.0
+        )
+
+        kicks: list[PatchKick] = []
+        gamma_min = 1.0
+        for recv_idx, patch_list in by_body.items():
+            recv = bodies[recv_idx]
+            push_dir = push_dirs[recv_idx]
+            n_axis = push_dir / max(float(np.linalg.norm(push_dir)), 1e-30)
+
+            # ---- Φ at body's COM-shadow (one KD lookup per body) ------
+            # eval_basis_at_point's KD-tree closest-triangle search picks
+            # the slab surface point closest to body.position; for a body
+            # resting on the slab that IS the COM-shadow. The location's
+            # name `x_shadow` records the geometric meaning.
+            x_shadow = recv.position
+            Phi_x = eval_basis_at_point(
+                x_shadow, self._surface, self.modal.U_surf,
+                self.modal.surface_vertex_indices, self._vert_to_surf_idx,
+            )
+            self.last_com_shadow_kd_lookups += 1
+            v_f = Phi_x @ qdot_drive
+
+            # §4.5 geodesic-distance attenuation (matches per-patch path).
+            if geo_field is not None:
+                rv = self._closest_surface_vertex(x_shadow)
+                d_geo = float(geo_field[rv])
+                if np.isfinite(d_geo):
+                    v_f = self._geodesic_alpha(d_geo) * v_f
+
+            # r̄ = 0 ⇒ v_p = v_lin (no ω × r̄ term).
+            v_p = recv.velocity[0:3].copy()
+
+            # ---- Contact-causal gates (aggregated over the body's
+            # patches). The shell gate uses min over the union of
+            # contact indices; the closing gate uses (v_f - v_p)·n̂.
+            if self.causal_gating:
+                all_ci = []
+                for patch, _pd in patch_list:
+                    all_ci.extend(patch.contact_indices)
+                min_gap = min(
+                    -resting_contacts[ci].penetration for ci in all_ci
+                )
+                if min_gap > self.contact_shell_delta:
+                    self.last_patch_gated_no_contact += len(patch_list)
+                    continue
+                closing = float((v_f - v_p) @ n_axis)
+                if closing <= self.v_min_closing:
+                    self.last_patch_gated_low_closing += len(patch_list)
+                    continue
+
+            dv_des = v_f - v_p
+
+            # §9.4 — K_total = K_body + Φ·Φᵀ with K_body = (1/m)·I.
+            # The cross terms in patch_effective_mass_matrix vanish at
+            # r̄ = 0; the closed form is (1/m)·I exactly. We construct
+            # it directly to avoid a wasted call.
+            inv_m = 1.0 / recv.mass
+            K_body = inv_m * np.eye(3)
+            K_modal_eff = Phi_x @ Phi_x.T
+            K_total = K_body + K_modal_eff
+            lam = solve_patch_impulse(K_total, dv_des)
+            K = K_total
+
+            # §9.5 Coulomb cone projection around the rest normal.
+            mu = float(min(
+                bodies[patch_list[0][0].body_a].friction,
+                bodies[patch_list[0][0].body_b].friction,
+            ))
+            lam_proj, cone_clipped = cone_project_impulse(lam, n_axis, mu)
+
+            # §9.6 passivity scaling (per-receiver E budget).
+            s, _a_pass, _b_pass = patch_passive_scaling(
+                lam_proj, v_p, K, E_per_receiver)
+            lam_final = s * lam_proj
+
+            # Dissipativity guard (same logic as per-patch path).
+            j_back = Phi_x.T @ lam_final
+            c_m = float(self._stepper.qdot @ j_back)
+            a_m = float(j_back @ j_back)
+            if c_m <= 0.0:
+                gamma_br = 0.0
+            elif a_m <= 1e-30:
+                gamma_br = 1.0
+            else:
+                gamma_br = min(1.0, 2.0 * c_m / a_m)
+            lam_final = gamma_br * lam_final
+            gamma_min = min(gamma_min, gamma_br)
+
+            # PatchKick with r̄ = 0 — the existing apply path computes
+            # Δω = I⁻¹·(r̄ × λ) = 0 from this without further changes.
+            # x_bar is recorded as x_shadow for diagnostics; no kinematic
+            # role because the impulse acts at the COM, not at x_shadow.
+            kicks.append(PatchKick(
+                body_idx=recv_idx,
+                lam=lam_final,
+                x_bar=x_shadow.copy(),
+                r_bar=np.zeros(3, dtype=np.float64),
+                n_def=n_axis.copy(),
+                v_f=v_f.copy(),
+                v_p_pre=v_p.copy(),
+                s_passivity=s,
+                cone_clipped=cone_clipped,
+                du_override=None,
+            ))
+            self.last_com_shadow_kicks_fired += 1
+
+            # Modal back-reaction at the same sample location.
+            self._stepper.qdot -= Phi_x.T @ lam_final
+
         self.last_backreaction_gamma_min = gamma_min
         return kicks
 

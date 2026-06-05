@@ -24,6 +24,7 @@ import argparse
 import threading
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -41,11 +42,24 @@ from dcr.modal.energy import modal_energy
 
 @dataclass
 class SceneBox:
-    """Per-body viewer metadata."""
+    """Per-body viewer metadata.
+
+    `render_kind` picks the visual skin over the box collision proxy.
+    Physics always treats the body as an axis-aligned box of the given
+    half_extents — render_kind only swaps the rendered template at draw
+    time (DCR-paper style: simple collision proxy, decorated render). The
+    viewer groups bodies by render_kind and issues one batched-mesh node
+    per group.
+        "box"    → unit cube template (default; preserves prior behavior)
+        "plate"  → thin cylinder along +Y (radius=hx=hz, half-height=hy)
+        "pot"    → cylinder along +Y, taller proportion
+        "candle" → slim cylinder along +Y
+    """
     name: str
     body_idx: int
     half_extents: tuple[float, float, float]
     color: tuple[float, float, float]
+    render_kind: str = "box"
 
 
 def _fix_corners(mesh) -> np.ndarray:
@@ -335,6 +349,8 @@ def build_dinner_table_scene(
     enable_phase_b: bool = False, ms_beta: float = 0.1,
     use_bj: bool = False,
     mesh_resolution: str = "medium",
+    util_mass: float = 0.06,
+    util_half_y: float = 0.005,
 ) -> tuple[AVBDDCRWorld, PassiveDCRCoupler, list[SceneBox], object, str]:
     """Pot drops on a wooden dinner table; plates rattle and topple.
 
@@ -365,6 +381,16 @@ def build_dinner_table_scene(
         alpha0=2.0, alpha1=1e-5,
     )
     modal = ModalAnalysis(fem=fem, num_modes=15)
+    # Per-scene cap on modal_decay_gamma. The energy-prescribed patch kick
+    # produces Δω = (lever × Δv) / ℓ² at each receiver body (mass-independent
+    # — heavier utensils don't help). With γ=0.99, the modal field stays
+    # alive long enough that 60g forks/knives wobble for ~2 seconds after
+    # the pot lands. γ=0.95 drops modal energy 5% per step (~150×/s) so the
+    # initial impact bump retains amplitude but trailing vibration settles
+    # in ~100 ms. Measured: peak utensil tilt 1.32° → 0.25° at η=0.6.
+    # The CLI --modal-decay-gamma still affects every other scene; this
+    # only kicks in if the user passes a looser value.
+    scene_gamma = min(modal_decay_gamma, 0.95)
     coupler = PassiveDCRCoupler(
         modal=modal,
         elastic_body_idx=table_idx,
@@ -372,52 +398,118 @@ def build_dinner_table_scene(
         energy_response_beta=beta,
         deformed_normal_method=("barbic_james" if use_bj else "patch_fit"),
         causal_gating=causal_gating,
-        modal_decay_gamma=modal_decay_gamma,
+        modal_decay_gamma=scene_gamma,
     )
     world.add_passive_coupler(coupler)
 
     boxes: list[SceneBox] = []
 
-    # Plate primitive: shallow, wide base (17 cm across, 2 cm thick) so it
-    # reads as a plate and stays stable until the table rings. 5 columns
-    # along the table's long axis × 3 rows across, center slot vacated for
-    # the pot drop → 14 plates.
-    plate_h = (0.085, 0.010, 0.085)
+    # Four place settings, one per "seat" on the long sides of the table.
+    # Each setting is a plate flanked by a fork on the diner's left and a
+    # knife on their right (real-life Western place-setting convention).
+    # Diners on the +z side face -z (their left = +x, right = -x); diners
+    # on the -z side face +z (their left = -x, right = +x).
+    #
+    # Utensil collision proxy half_extents are body-local. The body is
+    # rotated 90° around +Y at construction so the loaded mesh's long
+    # axis (mesh +x) maps to world +z — i.e., the utensil lies "with the
+    # plate" in the diner's depth direction, not horizontally across.
+    plate_h = (0.085, 0.010, 0.085)        # 17 cm × 2 cm × 17 cm
     plate_palette = [
         (0.95, 0.92, 0.85),  # off-white porcelain
         (0.85, 0.65, 0.55),  # terracotta
         (0.55, 0.70, 0.85),  # pale blue glaze
         (0.80, 0.80, 0.70),  # bone
     ]
-    xs = [-0.40, -0.20, 0.0, 0.20, 0.40]
-    zs = [-0.30, 0.0, 0.30]
-    plate_count = 0
-    for xi, x in enumerate(xs):
-        for zi, z in enumerate(zs):
-            # Reserve the center slot for the pot.
-            if xi == 2 and zi == 1:
-                continue
-            name = f"plate_{plate_count}"
-            color = plate_palette[plate_count % len(plate_palette)]
-            idx = world.add_box(
-                mass=0.4, half_extents=plate_h,
-                position=(x, table_top + plate_h[1] + 0.001, z),
-                friction=0.4, name=name,
-            )
-            boxes.append(SceneBox(name=name, body_idx=idx,
-                                  half_extents=plate_h, color=color))
-            plate_count += 1
+    plate_spots = [(-0.32, -0.28), (-0.32, 0.28),
+                   (0.32, -0.28), (0.32, 0.28)]
+    # Utensil geometry: long-thin boxes. half_y is the thickness above the
+    # bottom contact face — the lever arm that turns tangential modal kicks
+    # into angular impulses. Bumped from 5 mm → 8 mm so the contact-to-COM
+    # lever is shorter than half the body's other axes (less twist per kick).
+    fork_h = (0.10, util_half_y, 0.012)
+    knife_h = (0.10, util_half_y, 0.013)
+    util_color = (0.78, 0.80, 0.85)        # brushed steel
+    util_offset = 0.13                     # plate-to-utensil center distance
+    # 90° rotation around +Y: wxyz = (cos(45°), 0, sin(45°), 0).
+    util_q = (0.70710678, 0.0, 0.70710678, 0.0)
+    for pi, (px, pz) in enumerate(plate_spots):
+        plate_name = f"plate_{pi}"
+        plate_color = plate_palette[pi % len(plate_palette)]
+        idx = world.add_box(
+            mass=0.4, half_extents=plate_h,
+            position=(px, table_top + plate_h[1] + 0.001, pz),
+            friction=0.4, name=plate_name,
+        )
+        boxes.append(SceneBox(name=plate_name, body_idx=idx,
+                              half_extents=plate_h, color=plate_color,
+                              render_kind="plate"))
+        # Diner on +z side faces -z, so their LEFT is +x; -z-side diner's
+        # left is -x. sign_z picks which side of the plate is the diner's
+        # left for this seat.
+        sign_z = 1.0 if pz > 0 else -1.0
+        fork_x = px + sign_z * util_offset        # fork → diner's left
+        knife_x = px - sign_z * util_offset       # knife → diner's right
+        idx = world.add_box(
+            mass=util_mass, half_extents=fork_h,
+            position=(fork_x, table_top + fork_h[1] + 0.001, pz),
+            orientation_wxyz=util_q,
+            friction=0.4, name=f"fork_{pi}",
+        )
+        boxes.append(SceneBox(name=f"fork_{pi}", body_idx=idx,
+                              half_extents=fork_h, color=util_color,
+                              render_kind="fork"))
+        idx = world.add_box(
+            mass=util_mass, half_extents=knife_h,
+            position=(knife_x, table_top + knife_h[1] + 0.001, pz),
+            orientation_wxyz=util_q,
+            friction=0.4, name=f"knife_{pi}",
+        )
+        boxes.append(SceneBox(name=f"knife_{pi}", body_idx=idx,
+                              half_extents=knife_h, color=util_color,
+                              render_kind="knife"))
+
+    # Candles: slim pillars between the plate columns. Four of them, two
+    # along each long edge — they sit close to the table edge so the modal
+    # vibration from the pot drop visibly wobbles them. Aspect ratio ~1:3
+    # (squat enough to stay upright at rest, tall enough to read as a
+    # candle and to topple if the ring is strong). Mass deliberately small
+    # so the modal coupling can move them.
+    candle_h = (0.015, 0.045, 0.015)
+    candle_palette = [
+        (0.94, 0.88, 0.74),  # ivory
+        (0.78, 0.20, 0.18),  # burgundy
+        (0.92, 0.86, 0.50),  # gold
+        (0.30, 0.45, 0.55),  # slate blue
+    ]
+    candle_spots = [(-0.50, -0.45), (-0.50, 0.45), (0.50, -0.45), (0.50, 0.45)]
+    for ci, (cx, cz) in enumerate(candle_spots):
+        name = f"candle_{ci}"
+        idx = world.add_box(
+            mass=0.18, half_extents=candle_h,
+            position=(cx, table_top + candle_h[1] + 0.001, cz),
+            friction=0.45, name=name,
+        )
+        boxes.append(SceneBox(
+            name=name, body_idx=idx,
+            half_extents=candle_h,
+            color=candle_palette[ci % len(candle_palette)],
+            render_kind="candle"))
 
     # The pot: heavy cast-iron-style box, drops from ~0.5 m above center
-    # so it hits with ~3 m/s. Square base, modestly tall.
-    pot_h = (0.08, 0.10, 0.08)
+    # so it hits with ~3 m/s. half_extents match the LeCreuset dutch oven
+    # mesh's natural aspect ratio (1.00:0.50:0.63, x:y:z — wide, short,
+    # deep) so the per-axis unit-cube normalization doesn't distort it.
+    # Pot is 26 cm × 13 cm × 16.4 cm — realistic dutch oven dimensions.
+    pot_h = (0.13, 0.065, 0.082)
     idx = world.add_box(
         mass=8.0, half_extents=pot_h,
         position=(0.0, table_top + pot_h[1] + 0.5, 0.0),
         friction=0.5, name="pot",
     )
     boxes.append(SceneBox(name="pot", body_idx=idx,
-                          half_extents=pot_h, color=(0.20, 0.18, 0.16)))
+                          half_extents=pot_h, color=(0.20, 0.18, 0.16),
+                          render_kind="pot"))
 
     return world, coupler, boxes, mesh, "Dinner Table (AVBD + patch DCR)"
 
@@ -543,6 +635,131 @@ _CUBE_F = np.array([
     [0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
     [2, 3, 7], [2, 7, 6], [1, 2, 6], [1, 6, 5], [0, 4, 7], [0, 7, 3],
 ], dtype=np.uint32)
+
+
+def _make_cyl_y_template(sections: int) -> tuple[np.ndarray, np.ndarray]:
+    """Unit cylinder template centered at origin, axis along +Y, fit in the
+    unit cube [-0.5, 0.5]^3 so `scale=2*half_extents` per-instance recovers
+    the real body (same convention as `_CUBE_V`). Side + top cap + bottom
+    cap, all wound CCW from outside so flat shading lights correctly.
+    """
+    theta = 2.0 * np.pi * np.arange(sections, dtype=np.float64) / sections
+    cx = 0.5 * np.cos(theta)
+    cz = 0.5 * np.sin(theta)
+    top = np.column_stack([cx, np.full(sections, 0.5), cz])
+    bot = np.column_stack([cx, np.full(sections, -0.5), cz])
+    tc = np.array([[0.0, 0.5, 0.0]])
+    bc = np.array([[0.0, -0.5, 0.0]])
+    V = np.vstack([top, bot, tc, bc]).astype(np.float32)
+    tc_idx = 2 * sections
+    bc_idx = 2 * sections + 1
+    faces = []
+    for i in range(sections):
+        j = (i + 1) % sections
+        # Side: two triangles, outward normal radially.
+        faces.append([i, j, sections + i])
+        faces.append([j, sections + j, sections + i])
+        # Top cap fan, outward +Y.
+        faces.append([tc_idx, j, i])
+        # Bottom cap fan, outward -Y.
+        faces.append([bc_idx, sections + i, sections + j])
+    return V, np.array(faces, dtype=np.uint32)
+
+
+# Procedural fallback templates per render_kind — used when no asset file is
+# found in `model/`. Built lazily by `_resolve_kind_template` so the module
+# loads even in envs without trimesh.
+_FALLBACK_SECTIONS = {"plate": 28, "pot": 22, "candle": 12}
+
+# Render-asset folder. Drop {kind}.obj / .glb / .gltf / .ply / .stl here to
+# override the procedural template for that kind. See model/README.md.
+_RENDER_MODEL_DIR = Path(__file__).resolve().parent.parent / "model"
+_SUPPORTED_MESH_EXTS = (".obj", ".glb", ".gltf", ".ply", ".stl")
+
+# Resolved-template cache keyed by render_kind. None entry = "tried and
+# failed to load; falling back". Populated by `_resolve_kind_template`.
+_KIND_TEMPLATE_CACHE: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+_KIND_TEMPLATE_SOURCE: dict[str, str] = {}  # for the startup log line
+
+
+def _normalize_to_unit_cube(v: np.ndarray) -> np.ndarray:
+    """Recenter at bbox centroid + per-axis normalize so bbox = [-0.5, 0.5]^3.
+
+    Matches the unit-cube convention so the same `scale = 2 * half_extents`
+    mapping the viewer applies to `_CUBE_V` instances also recovers the
+    rendered asset at the right size. Axes are normalized independently —
+    the box collision proxy's aspect ratio is the rendered aspect ratio,
+    so pick half_extents in the scene builder to match the loaded mesh's
+    natural proportions.
+    """
+    v = np.asarray(v, dtype=np.float32)
+    lo = v.min(axis=0)
+    hi = v.max(axis=0)
+    extent = np.maximum(hi - lo, 1e-12).astype(np.float32)
+    center = (0.5 * (lo + hi)).astype(np.float32)
+    return ((v - center) / extent).astype(np.float32)
+
+
+def _try_load_asset(kind: str) -> tuple[np.ndarray, np.ndarray, str] | None:
+    """Look for a render asset for `kind`. Search order:
+        model/{kind}/{kind}.{ext}   — per-kind subdir (preferred; isolates
+                                       companion .bin/textures across kinds)
+        model/{kind}.{ext}          — flat single-file asset (self-contained .glb)
+    First match wins, priority by extension (.glb > .gltf > .obj > .ply > .stl).
+    Returns (V, F, src_label) or None.
+    """
+    if not _RENDER_MODEL_DIR.exists():
+        return None
+    candidates: list[Path] = []
+    for ext in _SUPPORTED_MESH_EXTS:
+        candidates.append(_RENDER_MODEL_DIR / kind / f"{kind}{ext}")
+    for ext in _SUPPORTED_MESH_EXTS:
+        candidates.append(_RENDER_MODEL_DIR / f"{kind}{ext}")
+    for p in candidates:
+        if not p.exists():
+            continue
+        try:
+            import trimesh
+            m = trimesh.load(str(p), force="mesh", process=False)
+        except Exception as e:
+            print(f"[viewer] failed to load {p}: {e}")
+            continue
+        v = _normalize_to_unit_cube(np.asarray(m.vertices))
+        f = np.asarray(m.faces, dtype=np.uint32)
+        return v, f, str(p.relative_to(_RENDER_MODEL_DIR))
+    return None
+
+
+def _resolve_kind_template(kind: str) -> tuple[np.ndarray, np.ndarray]:
+    """Return the (V, F) template for `kind`, asset-loaded if available, else
+    the procedural fallback. Cached so each kind is resolved + logged once.
+    """
+    if kind in _KIND_TEMPLATE_CACHE:
+        return _KIND_TEMPLATE_CACHE[kind]
+    if kind == "box":
+        _KIND_TEMPLATE_CACHE[kind] = (_CUBE_V, _CUBE_F)
+        _KIND_TEMPLATE_SOURCE[kind] = "builtin cube"
+        return _KIND_TEMPLATE_CACHE[kind]
+    loaded = _try_load_asset(kind)
+    if loaded is not None:
+        v, f, src = loaded
+        _KIND_TEMPLATE_CACHE[kind] = (v, f)
+        _KIND_TEMPLATE_SOURCE[kind] = src
+        print(f"[viewer] loaded render template for '{kind}' from {src} "
+              f"({v.shape[0]} verts, {f.shape[0]} faces)")
+        return v, f
+    sections = _FALLBACK_SECTIONS.get(kind)
+    if sections is None:
+        # Unknown kind we don't have a cylinder for — fall back to cube.
+        v, f = _CUBE_V, _CUBE_F
+        _KIND_TEMPLATE_SOURCE[kind] = "fallback cube (unknown kind)"
+    else:
+        v, f = _make_cyl_y_template(sections=sections)
+        _KIND_TEMPLATE_SOURCE[kind] = f"fallback cylinder ({sections} sides)"
+    _KIND_TEMPLATE_CACHE[kind] = (v, f)
+    print(f"[viewer] no render asset for '{kind}' — using "
+          f"{_KIND_TEMPLATE_SOURCE[kind]}")
+    return v, f
 
 
 def _thermal_uint8(alpha: np.ndarray) -> np.ndarray:
@@ -734,44 +951,84 @@ class AVBDDCRViewer:
         self._frame = 0
         self._hud_interval = 3   # 100 Hz tick → ~33 Hz HUD
 
-        # Instanced body rendering (upstream avbd3d viewer perf pass):
-        # ONE viser node for the entire body set; per-tick updates are two
-        # array writes (batched_positions + batched_wxyzs). Per-instance
-        # `batched_scales = 2 * half_extents` recovers the real box from the
-        # unit-cube template. Kills the per-handle message stutter on
-        # multi-body scenes (was the dominant tick cost on dinner_table /
-        # long_slab).
-        n_bodies = len(scene_boxes)
-        self._body_idxs = np.array(
-            [sb.body_idx for sb in scene_boxes], dtype=np.int64)
-        scales = np.array(
-            [(2.0 * sb.half_extents[0], 2.0 * sb.half_extents[1],
-              2.0 * sb.half_extents[2]) for sb in scene_boxes],
-            dtype=np.float32)
-        colors = np.array(
-            [(int(np.clip(sb.color[0], 0, 1) * 255),
-              int(np.clip(sb.color[1], 0, 1) * 255),
-              int(np.clip(sb.color[2], 0, 1) * 255)) for sb in scene_boxes],
-            dtype=np.uint8)
-        # Initial poses (matched to the snapshot taken just above).
-        bp_init = np.array(
-            [world._descs[i].dcr_body.position for i in self._body_idxs],
-            dtype=np.float32)
-        bw_init = np.array(
-            [world._descs[i].dcr_body.orientation for i in self._body_idxs],
-            dtype=np.float32)
-        self._batched_bodies = self.server.scene.add_batched_meshes_simple(
-            "/bodies_batched",
-            _CUBE_V, _CUBE_F,
-            batched_wxyzs=bw_init,
-            batched_positions=bp_init,
-            batched_scales=scales,
-            batched_colors=colors,
-            flat_shading=True, side="double",
-        )
-        # Pre-allocated update buffers — refilled per tick, written twice.
-        self._bp_buf = bp_init.copy()
-        self._bw_buf = bw_init.copy()
+        # Instanced body rendering. ONE decorated batched-mesh node per
+        # render_kind group + (for non-box kinds) one proxy cube node sharing
+        # the same poses, toggled by the "show collision proxies" GUI
+        # checkbox. Per-tick updates are two array writes per *visible*
+        # node. Per-instance `batched_scales = 2 * half_extents` recovers
+        # the real body from each unit template.
+        # Stable kind order so the node tree is deterministic across runs;
+        # unknown kinds (not in this list) appended in encounter order.
+        ordered_kinds: list[str] = []
+        kind_to_sbs: dict[str, list] = {}
+        for k in ("box", "plate", "pot", "candle", "fork", "knife", "spoon"):
+            kind_to_sbs[k] = []
+        for sb in scene_boxes:
+            if sb.render_kind not in kind_to_sbs:
+                kind_to_sbs[sb.render_kind] = []
+            kind_to_sbs[sb.render_kind].append(sb)
+        ordered_kinds = list(kind_to_sbs.keys())
+
+        # Per-group runtime state. Each entry:
+        #   dict(kind, handle, proxy_handle?, body_idxs, bp_buf, bw_buf)
+        # `proxy_handle` is None for kind == "box" (the decorated node IS a
+        # cube already — no second copy needed).
+        self._body_groups: list[dict] = []
+        for kind in ordered_kinds:
+            sbs = kind_to_sbs.get(kind, [])
+            if not sbs:
+                continue
+            v_dec, f_dec = _resolve_kind_template(kind)
+            body_idxs = np.array([sb.body_idx for sb in sbs], dtype=np.int64)
+            scales = np.array(
+                [(2.0 * sb.half_extents[0], 2.0 * sb.half_extents[1],
+                  2.0 * sb.half_extents[2]) for sb in sbs],
+                dtype=np.float32)
+            colors = np.array(
+                [(int(np.clip(sb.color[0], 0, 1) * 255),
+                  int(np.clip(sb.color[1], 0, 1) * 255),
+                  int(np.clip(sb.color[2], 0, 1) * 255)) for sb in sbs],
+                dtype=np.uint8)
+            bp_init = np.array(
+                [world._descs[i].dcr_body.position for i in body_idxs],
+                dtype=np.float32)
+            bw_init = np.array(
+                [world._descs[i].dcr_body.orientation for i in body_idxs],
+                dtype=np.float32)
+            handle = self.server.scene.add_batched_meshes_simple(
+                f"/bodies_{kind}",
+                v_dec, f_dec,
+                batched_wxyzs=bw_init,
+                batched_positions=bp_init,
+                batched_scales=scales,
+                batched_colors=colors,
+                flat_shading=True, side="double",
+            )
+            proxy_handle = None
+            if kind != "box":
+                # Cube proxy node, hidden by default — flipped on by the
+                # "show collision proxies" GUI toggle to debug-view the
+                # AABB the physics actually sees.
+                proxy_colors = (colors.astype(np.int32) * 6 // 10).astype(
+                    np.uint8)  # dimmer tint so they read as "debug overlay"
+                proxy_handle = self.server.scene.add_batched_meshes_simple(
+                    f"/bodies_{kind}_proxy",
+                    _CUBE_V, _CUBE_F,
+                    batched_wxyzs=bw_init,
+                    batched_positions=bp_init,
+                    batched_scales=scales,
+                    batched_colors=proxy_colors,
+                    flat_shading=True, side="double",
+                )
+                proxy_handle.visible = False
+            self._body_groups.append(dict(
+                kind=kind,
+                handle=handle,
+                proxy_handle=proxy_handle,
+                body_idxs=body_idxs,
+                bp_buf=bp_init.copy(),
+                bw_buf=bw_init.copy(),
+            ))
 
         # GUI.
         with self.server.gui.add_folder("Visualization"):
@@ -786,6 +1043,13 @@ class AVBDDCRViewer:
                 hint="Draw the slab as a tet-mesh wireframe (the FEM surface "
                      "triangulation) instead of a solid surface. Off "
                      "(default): plain solid slab.")
+            self.gui_show_collision_proxies = self.server.gui.add_checkbox(
+                "show collision proxies", initial_value=False,
+                hint="Render the AABB box that physics actually sees instead "
+                     "of the decorated asset (loaded from model/). Off "
+                     "(default): real plates / pot / candles. On: dimmer "
+                     "cubes — useful for verifying that the loaded mesh fits "
+                     "the proxy half_extents.")
             self.gui_show_heatmap = self.server.gui.add_checkbox(
                 "show attenuation heatmap", initial_value=False,
                 hint="Visualize α(d_geo) from the most recent impact (paper "
@@ -915,6 +1179,33 @@ class AVBDDCRViewer:
                 hint="Attenuation amplitude. C·(r/r0)^{-β} is clipped to "
                      "[0, 1] for passivity, so values > 1 only widen the "
                      "near-source plateau.")
+            self.gui_projection = self.server.gui.add_checkbox(
+                "null-space projection (thin bodies)",
+                initial_value=bool(coupler.projection_enabled),
+                hint="Project the §9 patch kick into the null-space of "
+                     "stable-contact differential motion so the centroid "
+                     "impulse cannot generate fake area-contact twist on "
+                     "thin resting bodies. Gated to thin (h_n / h_lat < "
+                     "0.25), multi-point (≥3), near-resting patches; tall "
+                     "bodies still tip. K-metric energy non-increasing → "
+                     "foundation §15 passivity preserved.")
+            self.gui_projection_tangent = self.server.gui.add_checkbox(
+                "  └ also suppress yaw (tangent rows)",
+                initial_value=bool(coupler.projection_use_tangent_rows),
+                hint="Add weighted (w_t=0.25) tangent differential rows on "
+                     "top of the normal rows so spurious yaw drift is "
+                     "also constrained for near-sticking patches. Off by "
+                     "default — only flip on if yaw artifacts remain.")
+            self.gui_com_shadow = self.server.gui.add_checkbox(
+                "COM-shadow modal sampling (one Φ / body)",
+                initial_value=bool(coupler.com_shadow_mode),
+                hint="Collapse the per-patch loop to one kick per receiver "
+                     "at its COM, sampling Φ once at the body's COM-shadow "
+                     "on the support. Drops KD lookups from O(patches) to "
+                     "O(bodies); since the kick is at the COM, r̄ = 0 and "
+                     "the lever-arm Δω the projection cleans up vanishes "
+                     "by construction (projection becomes a no-op). Valid "
+                     "when body extent ≪ modal wavelength.")
         with self.server.gui.add_folder("Phase B (moving support, spec §7/§12)"):
             self.gui_phase_b = self.server.gui.add_checkbox(
                 "enable_moving_support_pass",
@@ -988,6 +1279,7 @@ class AVBDDCRViewer:
         self.gui_phase_b.on_update(self._phase_b_changed)
         self.gui_ms_beta.on_update(self._ms_beta_changed)
         self.gui_use_bj.on_update(self._use_bj_changed)
+        self.gui_show_collision_proxies.on_update(self._proxy_toggle_changed)
         self.gui_show_vibration.on_update(self._vis_changed)
         self.gui_tet_style.on_update(self._vis_changed)
         self.gui_show_heatmap.on_update(self._vis_changed)
@@ -999,6 +1291,9 @@ class AVBDDCRViewer:
         self.gui_use_geodesic.on_update(self._geo_changed)
         self.gui_geo_beta.on_update(self._geo_beta_changed)
         self.gui_geo_C.on_update(self._geo_C_changed)
+        self.gui_projection.on_update(self._projection_changed)
+        self.gui_projection_tangent.on_update(self._projection_tangent_changed)
+        self.gui_com_shadow.on_update(self._com_shadow_changed)
 
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -1231,10 +1526,32 @@ class AVBDDCRViewer:
         self._heatmap_dirty = True
         self._apply_surface_vis()
 
+    def _projection_changed(self, _evt):
+        self.coupler.projection_enabled = bool(self.gui_projection.value)
+
+    def _projection_tangent_changed(self, _evt):
+        self.coupler.projection_use_tangent_rows = bool(
+            self.gui_projection_tangent.value)
+
+    def _com_shadow_changed(self, _evt):
+        self.coupler.com_shadow_mode = bool(self.gui_com_shadow.value)
+
     def _heat_bump_changed(self, _evt):
         self._heatmap_bump_m = float(self.gui_heat_bump_cm.value) / 100.0
         self._heatmap_dirty = True
         self._apply_surface_vis()
+
+    def _proxy_toggle_changed(self, _evt):
+        """Swap each non-box render group between its decorated node and its
+        proxy cube node. Both nodes share poses; only visibility flips, so
+        the toggle is instant (no batched-mesh rebuild)."""
+        show_proxy = bool(self.gui_show_collision_proxies.value)
+        with self.server.atomic():
+            for grp in self._body_groups:
+                if grp.get("proxy_handle") is None:
+                    continue   # kind=="box" — only one node
+                grp["handle"].visible = not show_proxy
+                grp["proxy_handle"].visible = show_proxy
 
     def _wave_changed(self, _evt):
         # Pull wave knobs back into instance state; envelope rebuild runs on
@@ -1306,18 +1623,28 @@ class AVBDDCRViewer:
 
     def _render_tick(self):
         w = self.world
-        # Instanced body update: fill the pre-allocated buffers and push
-        # to the BatchedMesh in two array writes (regardless of N bodies).
+        # Instanced body update: fill each render-kind group's pre-allocated
+        # buffers, then push all of them inside one server.atomic() so the
+        # browser applies all the pose updates as a single transaction (no
+        # inter-frame teleport between, e.g., plates and pot).
         descs = w._descs
-        for k, bi in enumerate(self._body_idxs):
-            db = descs[int(bi)].dcr_body
-            self._bp_buf[k] = db.position
-            self._bw_buf[k] = db.orientation
-        # Wrap the two writes in server.atomic() so the browser applies
-        # them as a single transaction (no inter-frame teleport).
+        for grp in self._body_groups:
+            bp = grp["bp_buf"]
+            bw = grp["bw_buf"]
+            for k, bi in enumerate(grp["body_idxs"]):
+                db = descs[int(bi)].dcr_body
+                bp[k] = db.position
+                bw[k] = db.orientation
         with self.server.atomic():
-            self._batched_bodies.batched_positions = self._bp_buf
-            self._batched_bodies.batched_wxyzs = self._bw_buf
+            for grp in self._body_groups:
+                grp["handle"].batched_positions = grp["bp_buf"]
+                grp["handle"].batched_wxyzs = grp["bw_buf"]
+                # Keep the proxy node in sync so the toggle never shows a
+                # stale pose. Cost: one extra array write per non-box group;
+                # the (presumably hidden) proxy node still does no draw work.
+                if grp.get("proxy_handle") is not None:
+                    grp["proxy_handle"].batched_positions = grp["bp_buf"]
+                    grp["proxy_handle"].batched_wxyzs = grp["bw_buf"]
         # Elastic surface — honors the Visualization checkboxes (render
         # FEM vibration, FEM tet-mesh style, show attenuation heatmap).
         # Default: flat solid slab, so the road/shelf reads as a plain
