@@ -378,6 +378,11 @@ class PassiveDCRCoupler:
     # Per-global-vertex attenuation α in [0, 1]; off-surface vertices = 0.
     # Recomputed when a new impact updates _last_impact_vert.
     last_attenuation_field: NDArray[np.float64] | None = None
+    # Raw heat-method geodesic distance from the latest impact's source vertex
+    # to every surface vertex (off-surface entries = +inf). Used by the viewer
+    # to animate a traveling pulse along d (paper-style ripple visualization);
+    # NOT consumed by the injection cascade itself (which uses α from above).
+    last_geodesic_distance_field: NDArray[np.float64] | None = None
     # Lazy: created on first Version-B step.
     _tangent_frames: SurfaceTangentFrames | None = field(
         default=None, init=False, repr=False)
@@ -884,18 +889,22 @@ class PassiveDCRCoupler:
         n_v = int(self.modal.fem.mesh.num_vertices)
         if self._last_impact_vert is None:
             self.last_attenuation_field = None
+            self.last_geodesic_distance_field = None
             return
         geo = heat_geodesic_cached(
             self._surface, self._geodesic_cache,
             int(self._last_impact_vert))
         field = np.zeros(n_v, dtype=np.float64)
+        dist_field = np.full(n_v, np.inf, dtype=np.float64)
         surf_global = self.modal.surface_vertex_indices
         for vi in surf_global:
             d = geo[vi]
             if not np.isfinite(d):
                 continue
             field[vi] = self._geodesic_alpha(d)
+            dist_field[vi] = float(d)
         self.last_attenuation_field = field
+        self.last_geodesic_distance_field = dist_field
 
     def _update_impact_source(
         self,

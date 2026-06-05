@@ -704,17 +704,28 @@ class AVBDDCRViewer:
         self._heatmap_last_field_id = -1   # id() of last_attenuation_field
         self._heatmap_last_time = -1.0     # world.time at last build
         self._heatmap_dirty = True         # force first build (toggle/init)
+        # Wave-propagation animation state. Re-anchored whenever the impact
+        # *source vertex* changes (NOT just when last_attenuation_field gets
+        # rebuilt — the coupler refreshes that array every contact step even
+        # for a stable resting contact, which would pin dt_since at 0 and
+        # kill the propagation). Tracking the vert id instead lets the same
+        # contact spot keep its anchor across many steps, so the pulse
+        # actually travels. Re-anchors also fire when the field arrives for
+        # the very first time (vert goes None → int) and when a min hold-off
+        # has elapsed since the last anchor (so a fresh impact at the same
+        # vert after the wave fades does replay).
+        self._wave_t_impact = -1.0         # world.time when the latest impact landed
+        self._wave_last_impact_vert = None  # last anchored coupler._last_impact_vert
+        # Tuned defaults: c=2 m/s + sigma=15cm covers a 2.5m slab in ~1.2s with
+        # a clearly localized leading edge; cycles=0 = clean single pulse.
+        self._wave_speed_mps = 2.0
+        self._wave_sigma_m = 0.15
+        self._wave_ringdown_cycles = 0.0   # trailing-wake oscillations
         # 3D-bump extrusion of the heatmap surface — the field also raises
         # the surface vertices by alpha * bump_height. Default 1.5 cm (≈
         # 1× plate thickness) so the dome is visible from any angle without
         # crashing into resting bodies. Settable live in the GUI.
         self._heatmap_bump_m = 0.015
-        # Source marker: a bright icosphere placed at the most recent
-        # impact xyz, scaled to a few r0 so the eye anchors on "where the
-        # field comes from". Lazy-created on first heatmap show.
-        self._source_marker = None
-        self._source_marker_last_xyz = None
-
         # Frame counter for HUD throttling. HUD text writes are 15 separate
         # websocket messages per tick — at ~100 Hz that's the second-biggest
         # source of render-thread chatter after the body updates. Pushing
@@ -793,6 +804,31 @@ class AVBDDCRViewer:
                      "flat colored slab; 1.5 cm (default) = clearly visible "
                      "from any angle. Pure visualization — does not affect "
                      "the simulation.")
+            self.gui_wave_prop = self.server.gui.add_checkbox(
+                "wave propagation",
+                initial_value=True,
+                hint="Animate the heatmap as a ring expanding outward from "
+                     "the most recent impact (DCR paper §4.5 figure look). "
+                     "Off = static α(d) field; On = a Gaussian pulse rides "
+                     "the wavefront at 'wave speed' so the slab visibly "
+                     "ripples on each new impact. Pure visualization — does "
+                     "not affect the simulation.")
+            self.gui_wave_speed = self.server.gui.add_slider(
+                "wave speed (m/s)", 0.2, 8.0, step=0.1,
+                initial_value=self._wave_speed_mps,
+                hint="Outward propagation speed of the visualized wavefront. "
+                     "2 m/s (default) traverses the long-slab in ~1 s.")
+            self.gui_wave_width_cm = self.server.gui.add_slider(
+                "wave width (cm)", 2.0, 60.0, step=1.0,
+                initial_value=100.0 * self._wave_sigma_m,
+                hint="Gaussian pulse width σ. Smaller = sharper, more "
+                     "localized ring; larger = broader, more diffuse glow.")
+            self.gui_wave_cycles = self.server.gui.add_slider(
+                "wave ringdown cycles", 0.0, 6.0, step=0.5,
+                initial_value=self._wave_ringdown_cycles,
+                hint="Trailing oscillations behind the front (0 = clean "
+                     "single pulse; 2-4 = visible ripple wake like the "
+                     "paper's multi-ring figure).")
             # Read-only display of the active FEM resolution. Resolution is
             # baked at scene-build time (the FEM/modal pipeline depends on it),
             # so this label is informational — relaunch with a different
@@ -809,6 +845,12 @@ class AVBDDCRViewer:
                 "pause", initial_value=False)
             self.gui_speed = self.server.gui.add_slider(
                 "speed (× real-time)", 0.05, 4.0, step=0.05, initial_value=1.0)
+            # Default 4 iterations: the recommended low-iter setting for the
+            # §12 prescribed/reservoir coupling — fast enough to feel real-time
+            # in the browser, slow enough for the DCR coupling to drive the
+            # visible response. Push the value into the live solver too so
+            # the initial steps already run at 4.
+            world._solver.iterations = 4
             self.gui_iters = self.server.gui.add_slider(
                 "AVBD iterations", 1, 40, step=1,
                 initial_value=int(world._solver.iterations))
@@ -950,6 +992,10 @@ class AVBDDCRViewer:
         self.gui_tet_style.on_update(self._vis_changed)
         self.gui_show_heatmap.on_update(self._vis_changed)
         self.gui_heat_bump_cm.on_update(self._heat_bump_changed)
+        self.gui_wave_prop.on_update(self._wave_changed)
+        self.gui_wave_speed.on_update(self._wave_changed)
+        self.gui_wave_width_cm.on_update(self._wave_changed)
+        self.gui_wave_cycles.on_update(self._wave_changed)
         self.gui_use_geodesic.on_update(self._geo_changed)
         self.gui_geo_beta.on_update(self._geo_beta_changed)
         self.gui_geo_C.on_update(self._geo_C_changed)
@@ -1034,23 +1080,54 @@ class AVBDDCRViewer:
                 pass
 
         if show_heatmap:
-            # Gate the trimesh rebuild — it's a full glTF re-encode +
-            # websocket upload on every call. Rebuild only when something
-            # actually changed since the last build:
-            #   * dirty flag (toggle/bump/β/C/init)
-            #   * the attenuation field object swapped (new impact)
-            #   * vibration is on AND world.time advanced (verts moved)
+            # Two paths:
+            #   wave_on  → outward-traveling Gaussian pulse riding on α(d).
+            #              Rebuild every tick (the pulse moves).
+            #   wave_off → static α(d) field, rebuild only when something
+            #              actually changed (dirty flag, new impact via
+            #              field-id swap, or vibration advanced world.time).
             field = self.coupler.last_attenuation_field
+            d_field = self.coupler.last_geodesic_distance_field
             field_id = id(field) if field is not None else 0
             t_now = float(getattr(self.world, "time", 0.0))
+            wave_on = bool(self.gui_wave_prop.value)
+
+            # Re-anchor the wave clock when:
+            #   (a) the impact source VERTEX changed (new spot, or first
+            #       impact after None) — NOT when only the field ndarray id
+            #       flipped (the coupler rebuilds that every contact step,
+            #       which would pin dt_since at 0); OR
+            #   (b) the previous wave has had time to traverse the slab —
+            #       a long-held contact at the same vertex still replays a
+            #       fresh pulse once the prior one fades.
+            cur_vert = getattr(self.coupler, "_last_impact_vert", None)
+            if cur_vert is not None and field is not None:
+                vert_changed = cur_vert != self._wave_last_impact_vert
+                # Re-anchor cooldown: half the time it takes the front to
+                # cross 1.5× the longest geodesic distance currently in the
+                # field (bounded to >= 0.5 s so we don't replay constantly).
+                wave_dur = max(0.5, 1.5 * float(np.nanmax(
+                    np.where(np.isfinite(d_field), d_field, 0.0)))
+                    / max(0.1, float(self._wave_speed_mps))
+                ) if d_field is not None else 1.0
+                cooldown_done = (
+                    self._wave_t_impact < 0.0
+                    or (t_now - self._wave_t_impact) > wave_dur
+                )
+                if vert_changed or cooldown_done:
+                    self._wave_t_impact = t_now
+                    self._wave_last_impact_vert = int(cur_vert)
+
             need_rebuild = (
                 self._heatmap_handle is None
                 or self._heatmap_dirty
                 or field_id != self._heatmap_last_field_id
                 or (show_vibration and t_now != self._heatmap_last_time)
+                or (wave_on and field is not None
+                    and t_now != self._heatmap_last_time)
             )
             if need_rebuild:
-                # Per-vertex thermal colors + 3D bump (verts lift by α·bump
+                # Per-vertex thermal colors + 3D bump (verts lift by env·bump
                 # along +y) — three signals stacked so the field is hard to
                 # miss: color, dome shape, and the source marker below.
                 n_v = verts.shape[0]
@@ -1059,14 +1136,51 @@ class AVBDDCRViewer:
                 if field is not None and len(field) >= n_v:
                     surf_global = self.coupler.modal.surface_vertex_indices
                     surf_alpha = field[surf_global].astype(np.float32)
-                    ramp = _thermal_uint8(surf_alpha)
+                    if (wave_on and d_field is not None
+                            and len(d_field) >= n_v
+                            and self._wave_t_impact >= 0.0):
+                        # DCR-paper figure look: Gaussian pulse centered at
+                        # the wavefront position c·Δt, riding on the static
+                        # α(d) envelope so the ring fades as it expands.
+                        # phase > 0 → vertex ahead of front (not reached yet)
+                        # phase < 0 → wavefront has already passed
+                        surf_d = d_field[surf_global].astype(np.float32)
+                        # Guard +inf entries (off-surface neighbors that
+                        # heat-method left disconnected) so the exp doesn't
+                        # warn — they end up at envelope=0 anyway.
+                        surf_d = np.where(
+                            np.isfinite(surf_d), surf_d, 1e6).astype(np.float32)
+                        dt_since = max(0.0, t_now - self._wave_t_impact)
+                        front = float(self._wave_speed_mps) * dt_since
+                        sigma = max(1e-3, float(self._wave_sigma_m))
+                        phase = surf_d - front
+                        # Leading Gaussian pulse on the wavefront.
+                        pulse = np.exp(-(phase / sigma) ** 2)
+                        # Optional trailing ringdown (only behind the front,
+                        # phase < 0). Envelope decays over ~3σ; oscillation
+                        # period = sigma / cycles.
+                        cycles = float(self._wave_ringdown_cycles)
+                        if cycles > 0.0:
+                            behind = np.maximum(-phase, 0.0)
+                            decay = np.exp(-behind / (3.0 * sigma))
+                            osc = 0.5 + 0.5 * np.cos(
+                                2.0 * np.pi * cycles * behind / sigma)
+                            ring = decay * osc
+                            pulse = np.clip(pulse + 0.6 * ring, 0.0, 1.0)
+                        # α(d) attenuates the pulse with distance — passivity
+                        # is preserved in spirit (envelope ≤ α).
+                        envelope = (surf_alpha * pulse).astype(np.float32)
+                    else:
+                        # Wave off (or no impact yet) → static α field.
+                        envelope = surf_alpha
+                    ramp = _thermal_uint8(envelope)
                     colors[surf_global] = ramp
-                    # 3D dome: lift each surface vertex by alpha * bump.
+                    # 3D dome: lift each surface vertex by envelope * bump.
                     # Off-surface verts (interior nodes) stay at rest height.
                     if self._heatmap_bump_m > 0.0:
                         bumped[surf_global, 1] = (
                             bumped[surf_global, 1]
-                            + self._heatmap_bump_m * surf_alpha)
+                            + self._heatmap_bump_m * envelope)
                 if self._heatmap_handle is not None:
                     try:
                         self._heatmap_handle.remove()
@@ -1087,44 +1201,15 @@ class AVBDDCRViewer:
                 self._heatmap_dirty = False
             self.surface_handle.visible = False
             self.surface_handle_wire.visible = False
-            # Source marker: bright icosphere at the most recent impact xyz,
-            # lifted slightly above the slab so it isn't z-fighting with the
-            # bumped dome. Radius scaled to ~3·r0 for visibility. Created
-            # lazily; pose updates each tick the marker is shown.
-            src = self.coupler.last_geodesic_source_xyz
-            if src is not None:
-                src_y = float(src[1]) + max(self._heatmap_bump_m, 0.005) + 0.01
-                pos = (float(src[0]), src_y, float(src[2]))
-                if self._source_marker is None:
-                    # 3·r0 (visible vs the source's natural plateau) but
-                    # capped at 4cm so it doesn't dominate a small slab.
-                    marker_r = max(0.01, min(0.04, 3.0 * float(self.coupler.geodesic_r0)))
-                    self._source_marker = self.server.scene.add_icosphere(
-                        "/geodesic_source_marker",
-                        radius=marker_r,
-                        color=(255, 240, 100),
-                        flat_shading=False,
-                        position=pos,
-                    )
-                else:
-                    self._source_marker.position = pos
-                    self._source_marker.visible = True
-                self._source_marker_last_xyz = src
         else:
-            # Heatmap off: tear down the trimesh handle if it exists, hide
-            # the source marker, and restore the solid/wire visibility per
-            # tet_style.
+            # Heatmap off: tear down the trimesh handle if it exists, and
+            # restore the solid/wire visibility per tet_style.
             if self._heatmap_handle is not None:
                 try:
                     self._heatmap_handle.remove()
                 except Exception:
                     pass
                 self._heatmap_handle = None
-            if self._source_marker is not None:
-                try:
-                    self._source_marker.visible = False
-                except Exception:
-                    pass
             self.surface_handle.visible = not tet_style
             self.surface_handle_wire.visible = tet_style
 
@@ -1151,6 +1236,16 @@ class AVBDDCRViewer:
         self._heatmap_dirty = True
         self._apply_surface_vis()
 
+    def _wave_changed(self, _evt):
+        # Pull wave knobs back into instance state; envelope rebuild runs on
+        # the next tick. Setting _heatmap_dirty forces an immediate refresh
+        # so the user sees the change without waiting for the next impact.
+        self._wave_speed_mps = float(self.gui_wave_speed.value)
+        self._wave_sigma_m = float(self.gui_wave_width_cm.value) / 100.0
+        self._wave_ringdown_cycles = float(self.gui_wave_cycles.value)
+        self._heatmap_dirty = True
+        self._apply_surface_vis()
+
     def _use_bj_changed(self, _evt):
         # Only takes effect if the coupler was built with the BJ cache
         # (deformed_normal_method='barbic_james'). When the cache is
@@ -1168,6 +1263,11 @@ class AVBDDCRViewer:
         """
         with self._world_lock:
             self.world.restore(self._initial_snapshot)
+        # Clear the wave anchor so the post-reset boulder counts as a fresh
+        # impact and re-anchors on first contact (otherwise dt_since would
+        # carry over from the pre-reset run).
+        self._wave_t_impact = -1.0
+        self._wave_last_impact_vert = None
         self._render_tick()
 
     # ---- Loop ------------------------------------------------------------
