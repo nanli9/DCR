@@ -295,3 +295,142 @@ def test_overlay_vs_bare_shelf_smoke():
     assert dv_overlay > 1.5 * max(dv_bare, 1e-12), (
         f"Overlay |Δv|={dv_overlay:.4g} must dominate bare "
         f"|Δv|={dv_bare:.4g} by ≥1.5×.")
+
+
+# ---------------------------------------------------------------------------
+# 7. Item (3): energy cap respects α²·E_inj_candidate ≤ η · E_src.
+# ---------------------------------------------------------------------------
+
+def test_energy_cap_bounds_injection():
+    """Cumulative realised injection ≤ η × cumulative source loss + ε.
+
+    Build the drop scene, run 90 frames (~0.75 s at h=1/120), accumulate
+    `E_inj_realised` and `E_src` from the energy log. Items (3) + (4)
+    together must keep the bound across the full run, not just sampled.
+    """
+    pytest.importorskip("warp")
+    import sys
+    from pathlib import Path
+    ROOT = Path(__file__).resolve().parents[2]
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from scenes.reduced_support_shelf import build_reduced_support_shelf
+
+    h_handle = build_reduced_support_shelf(
+        h=1.0 / 120.0,
+        device="cpu",
+        iterations=4,
+        impactor_drop_height=0.10,
+        impactor_v0=(0.0, -2.0, 0.0),
+        overlay_enabled=True,
+        restart_overlay_each_step=True,
+        reduced_support_enabled=True,
+    )
+    w = h_handle.world
+    c = w.reduced_support_coupler
+    assert c is not None
+    assert c.energy_cap_enabled
+    eta = c.eta_overlay
+
+    cum_inj = 0.0
+    cum_src = 0.0
+    for _ in range(90):
+        w.step()
+        # E_inj_realised = how much KE the injection actually added.
+        # On a step where the cap clamps to α=0 (E_src=0), the realised
+        # injection is identically zero. Use the abs so a probe pushed
+        # downward through a probe-normal counts too.
+        cum_inj += abs(c.last_E_inj_realised)
+        cum_src += c.last_E_src
+
+    # Allow a small ε for the BDF1 sync precision and the slight
+    # underestimate from ignoring gravity work in E_src.
+    eps = 5e-3   # 5 mJ
+    bound = eta * cum_src + eps
+    assert cum_inj <= bound, (
+        f"Cumulative injection {cum_inj:.4e} J exceeds η·E_src + ε = "
+        f"{bound:.4e} J (η={eta}, E_src_cum={cum_src:.4e}).")
+
+
+def test_cooldown_blocks_probe_self_excitation():
+    """A probe that just received a Δv > threshold has its own contact
+    rows excluded from r_tilde for `cooldown_steps` macro steps.
+    """
+    pytest.importorskip("warp")
+    import sys
+    from pathlib import Path
+    ROOT = Path(__file__).resolve().parents[2]
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from scenes.reduced_support_shelf import build_reduced_support_shelf
+
+    h_handle = build_reduced_support_shelf(
+        h=1.0 / 120.0,
+        device="cpu",
+        iterations=4,
+        impactor_drop_height=0.10,
+        impactor_v0=(0.0, -2.0, 0.0),
+        overlay_enabled=True,
+        restart_overlay_each_step=True,
+        reduced_support_enabled=True,
+    )
+    w = h_handle.world
+    c = w.reduced_support_coupler
+    assert c is not None
+    c.cooldown_steps = 3
+    c.cooldown_dv_threshold = 0.05
+
+    # Run until at least one probe sees a real kick (>threshold).
+    triggered = False
+    for _ in range(40):
+        w.step()
+        if c.last_n_cooldown_active > 0:
+            triggered = True
+            break
+    assert triggered, "Cooldown never armed — no probe Δv exceeded threshold."
+
+    # While cooldown is active, c._probe_cooldown should be non-empty
+    # AND match cooldown_steps minus the number of macro steps since
+    # arming.
+    assert len(c._probe_cooldown) >= 1
+    max_remaining = max(c._probe_cooldown.values())
+    assert 1 <= max_remaining <= c.cooldown_steps
+
+
+def test_cap_disabled_falls_back_to_raw_injection():
+    """Setting `energy_cap_enabled = False` reproduces the unbounded
+    behaviour — used to A/B against the disciplined version.
+    """
+    pytest.importorskip("warp")
+    import sys
+    from pathlib import Path
+    ROOT = Path(__file__).resolve().parents[2]
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from scenes.reduced_support_shelf import build_reduced_support_shelf
+
+    def cum_inj(cap_on: bool) -> float:
+        h_handle = build_reduced_support_shelf(
+            h=1.0 / 120.0,
+            device="cpu",
+            iterations=4,
+            impactor_drop_height=0.10,
+            impactor_v0=(0.0, -2.0, 0.0),
+            overlay_enabled=True,
+            restart_overlay_each_step=True,
+            reduced_support_enabled=True,
+        )
+        c = h_handle.world.reduced_support_coupler
+        c.energy_cap_enabled = cap_on
+        c.cooldown_steps = 0   # isolate the cap from the cooldown
+        total = 0.0
+        for _ in range(40):
+            h_handle.world.step()
+            total += abs(c.last_E_inj_realised)
+        return total
+
+    with_cap = cum_inj(True)
+    without_cap = cum_inj(False)
+    assert without_cap >= with_cap - 1e-9, (
+        "Disabling the cap should produce ≥ injection KE than with it on; "
+        f"got with={with_cap:.4e} without={without_cap:.4e}.")

@@ -18,11 +18,72 @@ uv sync
 
 ## Run
 
-Run all tests (67 tests):
+Run all tests:
 
 ```bash
-uv run pytest tests/ -v
+uv run pytest tests/ -v          # Stage tests + AVBD tests (87 in tests/avbd/)
 ```
+
+## Reduced-Coordinate AVBD Support Contact (v1)
+
+> Branch: `AVBD-Native`. Build plan in `prompts/reduced_coordinate_avbd_support_dcr_extension.md`.
+> Combined audit + benchmarks in [`docs/reduced_support_v1.md`](docs/reduced_support_v1.md).
+
+A native, inside-iteration coupling of a reduced support coordinate `q`
+into AVBD: the shelf surface deflects as `x_s(q) = x_s⁰ + U·q` and the
+AVBD floor anchor is rewritten between every primal/dual launch. A
+two-rate transient overlay then sub-steps a modal IIR to recover the
+distant peak that the implicit macro step otherwise smears.
+
+```bash
+# Decisive A/B (Section 20.1 of the spec): overlay vs bare, iter sweep.
+uv run python scripts/run_reduced_support_benchmark.py --frames 120
+
+# Realtime viewer (viser):  drop the impactor, watch the probes get
+# kicked, toggle overlay / restart / rho_q sliders.
+uv run python scripts/run_reduced_support_shelf_viser.py
+
+# Headless CLI driver:
+uv run python scripts/run_reduced_support_shelf.py --overlay --frames 60
+uv run python scripts/run_reduced_support_shelf.py --no-overlay --frames 60
+```
+
+Headline results (h = 1/120, single-mode shelf at ω ≈ 838 rad/s, 87
+tests green):
+
+* **Iteration-invariant overlay/bare ratio**: 8.55× → 7.64× across
+  iter ∈ {4, 8, 16, 32}, CV ≈ 5 %. Matches the spec's `ω·h ≈ 7` Section
+  8 prediction.
+* **Physical static sag**: q deflects 5.9 mm under the impactor at
+  iter=4; the same probe sitting at distance feels that deflection
+  through `U` — post-fix DCR sees a rigid shelf and gives 0.
+* **Energy cap (item 3) + receiver cooldown (item 4)** keep the
+  cumulative injected KE under `η · E_src` (η = 0.95) across the full
+  run; rest-impactor pump test injects < 0.2 % of the drop-case
+  cumulative.
+* **Step-time regression** from disabling CUDA-graph capture when the
+  iteration hook is wired: 2.5× (1.53 → 3.80 ms/step at iter=4).
+
+Soft spot, surfaced and documented:
+
+* The overlay is a bolted-on injection layer. A self-feedback loop
+  (probe lands → r̃ → probe kicked again) is suppressed by the
+  high-pass + cooldown + energy cap but not absent by construction.
+  The Path-B 1-D toy in `scripts/path_b_1d_toy.py` shows the loop and
+  the energy pump vanish if you instead sub-step the *coupled* contact
+  solve against `x_s(q)` — 0 injection events across 5 s, energy bounded
+  by modal damping alone.
+
+Six follow-up gates, all closed:
+
+| # | item | script | result |
+|---|------|--------|--------|
+| 1 | h/T unit-chain audit | `scripts/audit_overlay_h_t.py` | 0.00 % closed-form error |
+| 2 | rest-impactor pump | `scripts/run_rest_impactor_pump_test.py` | < 0.2 % of drop case |
+| 3 | energy cap | in `reduced_support_solve.py` (`# Item (3)`) | invariant test green |
+| 4 | receiver cooldown | in `reduced_support_solve.py` (`# Item (4)`) | dedicated test green |
+| 5 | ρ_q principled sweep | `scripts/run_rho_q_sweep.py` | auto = sweet spot |
+| 6 | Path-B 1-D toy probe | `scripts/path_b_1d_toy.py` | 0 injection, E bounded |
 
 ## Demo Scenes (Passive DCR)
 

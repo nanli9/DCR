@@ -566,10 +566,16 @@ class AVBDDCRWorld:
         # augmented contact response, so the no-event-gate property of
         # the coupled solve is preserved (§9.2 / §11.2).
         if self.reduced_support_coupler is not None:
+            # Item (3): pass the macro-step rigid KE loss as the source
+            # budget for the overlay's energy cap. `last_E_loss` is
+            # max(0, KE_pre − KE_post) — a slight underestimate of the
+            # contact-dissipated energy when gravity is positive-working
+            # (conservative in the safe direction: less injection budget).
             self.reduced_support_coupler.post_step(
                 self._solver,
                 rigid_kinetic_energy_fn=rigid_kinetic_energy,
                 descs=self._descs,
+                E_src_step=float(self.last_E_loss),
             )
             # Mirror selected diagnostics into the world log so callers
             # can poll without reaching into the coupler.
@@ -584,8 +590,15 @@ class AVBDDCRWorld:
                 "q_max_disp": float(c.last_q_max_disp),
                 "probe_d_max": c.last_probe_d_max.copy(),
                 "probe_dv": c.last_probe_dv.copy(),
+                "probe_dv_candidate": c.last_probe_dv_candidate.copy(),
                 "n_tracked_rows": int(c.last_n_tracked_rows),
                 "n_iter_solves": int(c.last_n_iter_solves),
+                # Items (3)+(4) bookkeeping.
+                "alpha_cap": float(c.last_alpha_cap),
+                "E_src": float(c.last_E_src),
+                "E_inj_candidate": float(c.last_E_inj_candidate),
+                "E_inj_realised": float(c.last_E_inj_realised),
+                "n_cooldown_active": int(c.last_n_cooldown_active),
             })
 
         self.time += self.h

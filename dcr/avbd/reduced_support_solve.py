@@ -125,10 +125,34 @@ class ReducedSupportCoupler:
     # behave; set False to reproduce the raw spec §9.2 formulation.
     overlay_high_pass: bool = True
 
+    # ---- Items (3) + (4): bounded overlay injection ------------------
+    # Energy cap on the overlay's distant Δv injection: the candidate
+    # injection KE
+    #     E_inj = Σ_i ½ m_i ||Δv_i||²
+    # is scaled by α = min(1, √(η·E_src / (E_inj+ε))) so the realised
+    # injection cannot exceed η times the source rigid-KE loss this
+    # macro step. Defaults: cap ON, η = 0.95. See `docs/reduced_support_v1.md`.
+    energy_cap_enabled: bool = True
+    eta_overlay:        float = 0.95
+
+    # Short receiver cooldown: a probe that just received a Δv kick
+    # has its OWN floor-contact rows excluded from r_tilde for the next
+    # `cooldown_steps` macro steps. Not a hard identity mask — a temporal
+    # gate against the probe→r_tilde→probe self-feedback loop. Default 2
+    # macro steps; 0 disables.
+    cooldown_steps:         int   = 2
+    cooldown_dv_threshold:  float = 0.10   # m/s; below this, no cooldown trigger.
+
     # Per-step storage of the previous macro-step's r_tilde for the
     # high-pass differencing. Reset to None on detach / reset.
     _r_tilde_prev: NDArray[np.float64] | None = field(
         default=None, init=False, repr=False)
+
+    # Probe-body-index → remaining cooldown count (decremented each macro
+    # step). When > 0, that probe's contact rows are skipped in r_tilde
+    # assembly. Empty dict ⇒ no probe in cooldown.
+    _probe_cooldown: dict[int, int] = field(
+        default_factory=dict, init=False, repr=False)
 
     # Cached U at each tracked row (row_idx → (3, r) sample of basis).
     # Filled in substep_begin_hook; consumed by iteration_hook.
@@ -152,7 +176,14 @@ class ReducedSupportCoupler:
         default_factory=lambda: np.zeros(0))
     last_probe_dv:             NDArray[np.float64] = field(
         default_factory=lambda: np.zeros(0))
+    last_probe_dv_candidate:   NDArray[np.float64] = field(
+        default_factory=lambda: np.zeros(0))
     last_q_max_disp:           float = 0.0
+    last_alpha_cap:            float = 1.0
+    last_E_src:                float = 0.0
+    last_E_inj_candidate:      float = 0.0
+    last_E_inj_realised:       float = 0.0
+    last_n_cooldown_active:    int   = 0
 
     # ---- hook plumbing --------------------------------------------------
 
@@ -363,6 +394,7 @@ class ReducedSupportCoupler:
         *,
         rigid_kinetic_energy_fn,
         descs,
+        E_src_step: float = 0.0,
     ) -> None:
         """Run the transient overlay (§9.3) and inject Δv at probes
         (§9.4). Called once per macro-step from `AVBDDCRWorld.step()`.
@@ -372,7 +404,22 @@ class ReducedSupportCoupler:
         `dcr.rigid.energy`.
         `descs` is `world._descs`, used to find probe DCR-side bodies
         for energy logging.
+        `E_src_step` is the rigid-KE loss over the macro step
+        (max(0, KE_pre − KE_post)). When `energy_cap_enabled`, the
+        overlay's injection KE is capped at η · E_src_step. Pass 0 to
+        let the cap default to "no budget" → α=0 → no injection (safe
+        sentinel for tests that don't thread the world's KE).
         """
+        # Item (4) — decrement cooldown counters at the start of each
+        # macro step so the kick that triggered the cooldown is *not*
+        # counted toward the cooldown window's first step.
+        if self._probe_cooldown:
+            for k in list(self._probe_cooldown.keys()):
+                self._probe_cooldown[k] = max(0, self._probe_cooldown[k] - 1)
+                if self._probe_cooldown[k] == 0:
+                    del self._probe_cooldown[k]
+        self.last_n_cooldown_active = len(self._probe_cooldown)
+
         if not self.rs.enabled:
             self.last_probe_d_max = np.zeros(0)
             self.last_probe_dv = np.zeros(0)
@@ -500,9 +547,42 @@ class ReducedSupportCoupler:
             # response and either could dominate at a given probe.
             probe_d_max = np.maximum(d_bare, d_overlay_peak)
 
-        # ---- Compute Δv at each probe (§9.4) ----
-        probe_dv = probe_d_max / max(h_macro, 1e-12)
+        # ---- Compute candidate Δv at each probe (§9.4) ----
+        probe_dv_candidate = probe_d_max / max(h_macro, 1e-12)
         self.last_probe_d_max = probe_d_max
+        self.last_probe_dv_candidate = probe_dv_candidate
+
+        # ---- Item (3) — energy cap ----
+        # E_inj_candidate = Σ ½ m_i · ||Δv_i||²   (m_i = probe rigid mass).
+        # α = min(1, √(η · E_src / (E_inj_candidate + ε)))
+        # so the realised injection KE α²·E_inj_candidate ≤ η · E_src.
+        # When the cap is disabled OR E_src ≤ 0 with cap on, behaviour
+        # falls back to "no injection" for safety: the spec calls for
+        # passivity, and unbounded injection without a measured source
+        # is exactly the failure mode the critique flagged.
+        self.last_E_src = float(max(0.0, E_src_step))
+        if self.energy_cap_enabled:
+            probe_masses = np.array(
+                [self._probe_mass(b_idx, descs)
+                 for b_idx in self.rs.probe_body_indices],
+                dtype=np.float64)
+            E_inj_candidate = 0.5 * float(np.sum(
+                probe_masses * probe_dv_candidate * probe_dv_candidate))
+            self.last_E_inj_candidate = E_inj_candidate
+            budget = float(self.eta_overlay) * self.last_E_src
+            eps = 1e-18
+            if E_inj_candidate <= eps:
+                alpha = 1.0
+            elif budget <= 0.0:
+                alpha = 0.0
+            else:
+                alpha = float(min(1.0, np.sqrt(budget / E_inj_candidate)))
+            probe_dv = alpha * probe_dv_candidate
+            self.last_alpha_cap = alpha
+        else:
+            probe_dv = probe_dv_candidate
+            self.last_alpha_cap = 1.0
+            self.last_E_inj_candidate = 0.0
         self.last_probe_dv = probe_dv
 
         # ---- Inject Δv into rigid body linear velocity. ----
@@ -551,9 +631,34 @@ class ReducedSupportCoupler:
             [d.dcr_body for d in descs]))
         self.last_E_rigid_post_overlay = E_rigid_post
         self.last_E_overlay_injected = E_rigid_post - E_rigid_pre
+        self.last_E_inj_realised = self.last_E_overlay_injected
         self.last_E_total = E_rigid_post + E_q
 
+        # ---- Item (4) — arm cooldown for probes that just took a kick.
+        # Threshold prevents micro-noise from constantly arming/blocking;
+        # only meaningful kicks (above `cooldown_dv_threshold`) gate the
+        # probe's own contact rows out of the NEXT step's r_tilde.
+        if self.cooldown_steps > 0:
+            for i, body_idx in enumerate(self.rs.probe_body_indices):
+                if body_idx is None or body_idx < 0:
+                    continue
+                if abs(float(probe_dv[i])) > self.cooldown_dv_threshold:
+                    self._probe_cooldown[int(body_idx)] = int(self.cooldown_steps)
+
     # ---- helpers --------------------------------------------------------
+
+    def _probe_mass(self, body_idx: int, descs) -> float:
+        """Return the rigid mass of the AVBD body with the given index,
+        looking it up via the AVBDBodyDescriptor list. Returns 1.0 as a
+        defensive fallback so the cap never divides by zero — but in
+        the happy path every probe is a registered rigid box.
+        """
+        for d in descs:
+            if d.avbd_body is None:
+                continue
+            if int(d.avbd_body.index) == int(body_idx):
+                return float(d.dcr_body.mass)
+        return 1.0
 
     def _assemble_r_tilde(self, solver) -> NDArray[np.float64]:
         """Σ_c (−λ_c + k_c · C_pen_c) · J_q,c — in force units, the
@@ -572,6 +677,14 @@ class ReducedSupportCoupler:
         r_tilde = np.zeros(self.rs.r, dtype=np.float64)
         for row_idx in rows:
             ba = self._row_body_a[row_idx]
+            # Item (4) — cooldown: a probe that just received an overlay
+            # Δv has its contact rows excluded from r_tilde for the next
+            # `cooldown_steps` macro steps. Suppresses the probe →
+            # r_tilde → probe self-feedback loop without resorting to a
+            # hard identity mask. The q-block COUPLING path still uses
+            # this row, so static deformation propagation is preserved.
+            if self._probe_cooldown.get(ba, 0) > 0:
+                continue
             off = self._row_off_a[row_idx]
             corner_w = positions[ba] + _quat_rotate_xyzw(orientations[ba], off)
             anchor_y_now = float(anchor_np[row_idx, 1])
