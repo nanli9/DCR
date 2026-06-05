@@ -202,6 +202,39 @@ class ReducedSupportViewer:
                      "(1/h^2)·M_q[0,0] on first step; drag to retune.")
             self.gui_rho_q.on_update(self._rho_q_changed)
 
+        # ---- Items (3) + (4): bounded overlay discipline ----
+        with self.server.gui.add_folder("Overlay discipline (3+4)"):
+            c0 = self.world.reduced_support_coupler
+            self.gui_cap_on = self.server.gui.add_checkbox(
+                "energy cap (item 3)",
+                initial_value=bool(c0.energy_cap_enabled),
+                hint="α=min(1,√(η·E_src/E_inj)). Off ⇒ raw injection.")
+            self.gui_cap_on.on_update(self._cap_changed)
+            self.gui_eta = self.server.gui.add_slider(
+                "η_overlay", min=0.0, max=1.0, step=0.05,
+                initial_value=float(c0.eta_overlay),
+                hint="Fraction of source rigid-KE loss available to the "
+                     "overlay's distant Δv injection.")
+            self.gui_eta.on_update(self._eta_changed)
+            self.gui_hp = self.server.gui.add_checkbox(
+                "high-pass r̃ (overlay HP)",
+                initial_value=bool(c0.overlay_high_pass),
+                hint="r̃[n] − r̃[n−1] so steady loads don't re-excite the "
+                     "IIR. Off ⇒ raw spec §9.2 formulation.")
+            self.gui_hp.on_update(self._hp_changed)
+            self.gui_cd_steps = self.server.gui.add_slider(
+                "cooldown (item 4) steps", min=0, max=6, step=1,
+                initial_value=int(c0.cooldown_steps),
+                hint="Probe receivers' OWN contact rows are gated out of "
+                     "r̃ for N macro steps after a kick. 0 ⇒ disabled.")
+            self.gui_cd_steps.on_update(self._cd_steps_changed)
+            self.gui_cd_thr = self.server.gui.add_slider(
+                "cooldown |Δv| trigger [m/s]",
+                min=0.01, max=2.0, step=0.01,
+                initial_value=float(c0.cooldown_dv_threshold),
+                hint="Δv below this doesn't arm the cooldown.")
+            self.gui_cd_thr.on_update(self._cd_thr_changed)
+
         with self.server.gui.add_folder("Status"):
             self.gui_t = self.server.gui.add_text("t [s]", initial_value="0.000")
             self.gui_step_ms = self.server.gui.add_text(
@@ -220,6 +253,17 @@ class ReducedSupportViewer:
                 "max probe |Δv| [m/s]", initial_value="0.0")
             self.gui_n_tracked = self.server.gui.add_text(
                 "tracked rows", initial_value="0")
+            # Items (3) + (4) live diagnostics.
+            self.gui_alpha = self.server.gui.add_text(
+                "α (cap)", initial_value="1.000")
+            self.gui_e_src = self.server.gui.add_text(
+                "E_src [J]", initial_value="0.0")
+            self.gui_e_inj_cand = self.server.gui.add_text(
+                "E_inj_candidate [J]", initial_value="0.0")
+            self.gui_e_inj_real = self.server.gui.add_text(
+                "E_inj_realised [J]", initial_value="0.0")
+            self.gui_n_cooldown = self.server.gui.add_text(
+                "probes in cooldown", initial_value="0")
 
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
 
@@ -248,6 +292,38 @@ class ReducedSupportViewer:
             c = self.world.reduced_support_coupler
             if c is not None:
                 c.rho_q = float(10.0 ** float(self.gui_rho_q.value))
+
+    def _cap_changed(self, _evt):
+        with self._world_lock:
+            c = self.world.reduced_support_coupler
+            if c is not None:
+                c.energy_cap_enabled = bool(self.gui_cap_on.value)
+
+    def _eta_changed(self, _evt):
+        with self._world_lock:
+            c = self.world.reduced_support_coupler
+            if c is not None:
+                c.eta_overlay = float(self.gui_eta.value)
+
+    def _hp_changed(self, _evt):
+        with self._world_lock:
+            c = self.world.reduced_support_coupler
+            if c is not None:
+                c.overlay_high_pass = bool(self.gui_hp.value)
+
+    def _cd_steps_changed(self, _evt):
+        with self._world_lock:
+            c = self.world.reduced_support_coupler
+            if c is not None:
+                c.cooldown_steps = int(self.gui_cd_steps.value)
+                if c.cooldown_steps == 0:
+                    c._probe_cooldown.clear()
+
+    def _cd_thr_changed(self, _evt):
+        with self._world_lock:
+            c = self.world.reduced_support_coupler
+            if c is not None:
+                c.cooldown_dv_threshold = float(self.gui_cd_thr.value)
 
     def _reset_scene(self):
         with self._world_lock:
@@ -330,9 +406,17 @@ class ReducedSupportViewer:
             E_inj = coupler.last_E_overlay_injected
             q_max = coupler.last_q_max_disp
             n_tracked = coupler.last_n_tracked_rows
+            alpha_cap = coupler.last_alpha_cap
+            E_src = coupler.last_E_src
+            E_inj_cand = coupler.last_E_inj_candidate
+            E_inj_real = coupler.last_E_inj_realised
+            n_cooldown = coupler.last_n_cooldown_active
         else:
             d_max = dv_max = E_q = E_inj = q_max = 0.0
             n_tracked = 0
+            alpha_cap = 1.0
+            E_src = E_inj_cand = E_inj_real = 0.0
+            n_cooldown = 0
 
         with self.server.atomic():
             self.gui_t.value = f"{self.world.time:.3f}"
@@ -344,6 +428,11 @@ class ReducedSupportViewer:
             self.gui_d_max.value = f"{d_max:.4g}"
             self.gui_dv.value = f"{dv_max:.4g}"
             self.gui_n_tracked.value = str(n_tracked)
+            self.gui_alpha.value = f"{alpha_cap:.3f}"
+            self.gui_e_src.value = f"{E_src:.4g}"
+            self.gui_e_inj_cand.value = f"{E_inj_cand:.4g}"
+            self.gui_e_inj_real.value = f"{E_inj_real:+.4g}"
+            self.gui_n_cooldown.value = str(n_cooldown)
 
 
 def main(argv=None) -> int:
