@@ -698,7 +698,7 @@ def main():
             flag_value_args.add(sys.argv[i + 1])
     args = [a for a in args if a not in flag_value_args]
 
-    velocity_mode = _parse_kv_flag("--mode", "dcr")
+    velocity_mode = _parse_kv_flag("--mode", "energy_prescribed_patch")
     if velocity_mode not in _VALID_VELOCITY_MODES:
         print(f"Unknown --mode: {velocity_mode!r}")
         print(f"Valid: {sorted(_VALID_VELOCITY_MODES)}")

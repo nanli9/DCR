@@ -10,24 +10,53 @@ produced headless on CPU via the `scripts/_diag_*.py` harnesses noted below.
 
 ## 1. Vendored AVBD solver re-synced to upstream
 
-Re-synced `dcr/avbd/_solver/` from upstream <https://github.com/nanli9/AVBD>
-at commit **`52d2483`** ("Default to paper-faithful 'jacobi' graph coloring").
+Re-synced `dcr/avbd/_solver/` from upstream <https://github.com/nanli9/AVBD>.
+Sync point now **`5bd6eac`** ("Fully GPU-resident solver + fused primal +
+instanced viewer render", 2026-06-04). Two intermediate commits are picked
+up on top of the previous `52d2483` sync:
+
+- **`33b0303`** — warp-per-body primal solve (cooperative shuffle-reduction
+  across G lanes per body, 2.8–5.1× on GPU). New `Solver6DOF` ctor kwargs
+  `primal_group_size`, `primal_shuffle`, `primal_fused`.
+- **`5bd6eac`** — fully GPU-resident hot loop: zero per-substep host
+  readbacks via double-buffered fused primal + recolor-at-flush +
+  fixed-capacity pools. New ctor kwargs `gpu_resident`,
+  `recolor_every_substep`, `unsafe_fixed_capacity`. Also flips
+  `wp.set_module_options({"enable_backward": False})` (the
+  `__shfl_down_sync` `func_native` has no adjoint — forward-only solver).
+
+**All new ctor kwargs gate on CUDA via `_resident_on(dev)` / `str(dev).startswith("cuda")`.**
+On CPU the path is unchanged: the original `primal_update_6dof` serial
+kernel + readback path. No DCR call site needs to change (only
+`world.py:156` constructs `Solver6DOF`, and only with standard kwargs).
+
 Changes were confined to the 6-DOF rigid path:
 
-- `solver_6dof.py`, `kernels_6dof.py` — copied verbatim from upstream.
-- `__init__.py` — kept the DCR-customized one (it re-exports the contact-type
+- `solver_6dof.py`, `kernels_6dof.py` — copied verbatim from upstream,
+  except `solver_6dof.py` carries one DCR-local addition: a
+  `Solver6DOF.penalties()` accessor that returns the per-row penalty
+  stiffness `k` (`c_penalty`). Used by the DCR patch coupler's *augmented*
+  effective-impulse source `J_eff = (λ + k·C⁺)·n`
+  (`prompts/avbd_dcr_realtime_coupling_fix.md` §2.2). At HARD contact rows
+  the stored `λ` is a lagging AL dual, so the `k·C` term carries the
+  low-iteration response that the dual misses.
+- `__init__.py` — kept the DCR-customized one (re-exports the contact-type
   constants `FLOOR_CONTACT_6DOF` etc. that upstream's package init drops);
-  only updated the provenance note.
+  provenance note updated to `5bd6eac` and the DCR-local `penalties()`
+  callout.
 - `coloring.py`, `kernels.py`, `solver.py`, `deformable.py`, `scene.py` were
   already byte-identical to upstream → untouched.
 
-What the perf pass brings: achieved-color-count primal bound (A0/A1),
-speculative "jacobi" coloring now default (A2), stable-graph recolor skip
-(A4), static half-extent re-upload skip (A5), the captured-graph `set_*()`
-`.assign()` correctness fix, and `read_state_batched(include_rows=)` (B1).
+What the cumulative perf pass brings: achieved-color-count primal bound
+(A0/A1), speculative "jacobi" coloring now default (A2), stable-graph
+recolor skip (A4), static half-extent re-upload skip (A5), the
+captured-graph `set_*()` `.assign()` correctness fix,
+`read_state_batched(include_rows=)` (B1), warp-per-body primal solve, and
+the GPU-resident hot loop (CUDA only — see above).
 
-Verification: 52/52 `tests/avbd/` pass; `jacobi` vs `jones_plassmann` give
-bit-identical solves (only the partition differs, the AVBD solve is the same).
+Verification: 78/78 `tests/avbd/` pass on CPU after the `5bd6eac` re-sync;
+`jacobi` vs `jones_plassmann` give bit-identical solves (only the
+partition differs, the AVBD solve is the same).
 
 ---
 
@@ -123,15 +152,19 @@ treating the slab as deformable?
 
 - The exact modal stepper (`homogeneous_stepper.py`) has spectral radius
   `e^{−ζωT} ≤ 1` → cannot create energy. The only other write to `q̇` is the
-  **patch-mode modal back-reaction** at `passive_dcr.py:1006`:
-  `self._stepper.qdot -= Phi_x.T @ lam_final`.
+  **patch-mode modal back-reaction**:
+  `self._stepper.qdot -= Phi_x.T @ lam_final`. (At the time this leak was
+  diagnosed the line was at `passive_dcr.py:1006`; after the §8 guard
+  landed, the mutating write itself moved to `passive_dcr.py:1720`,
+  wrapped by the dissipativity guard at `:1675–1684`. The leak description
+  below describes the pre-guard behaviour.)
 
 - That step is **not energy-conservative**: `ΔE = −q̇·(Φᵀλ) + ½‖Φᵀλ‖²`. The
   self-term `½‖Φᵀλ‖²` is always positive, and the patch impulse `λ` is
   geometric (not aligned to `q̇`), so it *pumps* instead of *drains*.
 
 **Decisive test** (`scripts/_diag_truck_backreaction.py`) — disabling only
-line 1006:
+the back-reaction write:
 
 | config | peak E_modal | final E_modal | peak slab disp | final disp |
 |--------|-------------:|--------------:|---------------:|-----------:|
@@ -203,8 +236,11 @@ viewer launches clean (viser, no errors).
 
 ## 8. Phase-A back-reaction fix (applied)
 
-Fixed the line-1006 leak with a **dissipativity guard** (one-shot γ, the
-spec's §9 / Phase B's §12 pattern with budget 0). The §9.4 identity
+Fixed the §5 leak with a **dissipativity guard** (one-shot γ, the
+spec's §9 / Phase B's §12 pattern with budget 0) at
+`passive_dcr.py:1675–1684`; the mutating back-reaction write itself
+is at `passive_dcr.py:1720` and is scaled by the guard's γ via
+`lam_final = gamma_br * lam_final`. The §9.4 identity
 `ΔE_total = −½λᵀK_totalλ ≤ 0` only holds for the raw `λ = K_total⁻¹·Δv_des`;
 §9.5 cone projection + §9.6 scaling break it. The guard bounds the
 back-reaction's **own** modal-energy change, measured on the **actual**

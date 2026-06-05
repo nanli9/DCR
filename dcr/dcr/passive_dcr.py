@@ -64,6 +64,7 @@ from .distant_velocity import (
     impulse_from_energy_point,
 )
 from .impact_bank import ImpactBank, ImpactKey
+from .geodesic import heat_geodesic_cached
 
 
 _EPS_TINY = 1e-12
@@ -344,10 +345,39 @@ class PassiveDCRCoupler:
     # (last_E_modal_attenuation_diss) and never refunded to the reservoir.
     modal_decay_gamma: float = 1.0
 
+    # Geodesic-distance attenuation (paper §4.5 / Eq. 14, dropped into the
+    # patch-mode dispatch). When ON, the support's modal velocity reaching
+    # each receiver patch is multiplied by
+    #     α(d) = min(1, geodesic_C · (max(d, r0) / r0)^{-geodesic_beta})
+    # where d is the heat-method geodesic distance from the most recent
+    # impact's surface vertex to the receiver patch's surface vertex.
+    # α ∈ [0, 1] strictly, so it cascades safely through K⁻¹/cone/§9.6/
+    # dissipativity guard — passivity is preserved.
+    #
+    # Defaults match the paper's "shells" tuning (C=1, β=0.5); for thicker
+    # volumes use β=1.0. r0=0 → auto-set to mean surface edge length in
+    # __post_init__. Default OFF — bit-identical to today when not enabled.
+    use_geodesic_attenuation: bool = False
+    geodesic_C: float = 1.0
+    geodesic_beta: float = 0.5
+    geodesic_r0: float = 0.0   # 0 → auto from mean surface edge length
+
     # Internals.
     _stepper: HomogeneousStepper = field(init=False, repr=False)
     _surface: TriMesh = field(init=False, repr=False)
     _vert_to_surf_idx: NDArray[np.int32] = field(init=False, repr=False)
+    # Geodesic state. _geodesic_cache: source-vertex-keyed distance fields,
+    # lazily populated by heat_geodesic_cached. _last_impact_vert is the
+    # source the next patch dispatch will read from; updated each step to
+    # the largest admitted impact's closest surface vertex (and held across
+    # quiet steps so the propagating vibration keeps its attribution).
+    _geodesic_cache: dict = field(default_factory=dict, init=False, repr=False)
+    _last_impact_vert: int | None = field(default=None, init=False, repr=False)
+    # Viewer-facing — None until the first impact lands.
+    last_geodesic_source_xyz: NDArray[np.float64] | None = None
+    # Per-global-vertex attenuation α in [0, 1]; off-surface vertices = 0.
+    # Recomputed when a new impact updates _last_impact_vert.
+    last_attenuation_field: NDArray[np.float64] | None = None
     # Lazy: created on first Version-B step.
     _tangent_frames: SurfaceTangentFrames | None = field(
         default=None, init=False, repr=False)
@@ -492,6 +522,23 @@ class PassiveDCRCoupler:
         self._vert_to_surf_idx = np.full(max_vert, -1, dtype=np.int32)
         for si, vi in enumerate(self.modal.surface_vertex_indices):
             self._vert_to_surf_idx[vi] = si
+
+        # Geodesic attenuation: auto-set r0 = mean surface edge length
+        # (paper §4.5 — element size). Done unconditionally so toggling
+        # use_geodesic_attenuation at runtime works without reinit.
+        if self.geodesic_r0 <= 0.0:
+            V = self._surface.vertices
+            F = self._surface.faces
+            if F.shape[0] > 0:
+                edges = np.concatenate([
+                    V[F[:, 1]] - V[F[:, 0]],
+                    V[F[:, 2]] - V[F[:, 1]],
+                    V[F[:, 0]] - V[F[:, 2]],
+                ])
+                self.geodesic_r0 = float(
+                    np.mean(np.linalg.norm(edges, axis=1)))
+            else:
+                self.geodesic_r0 = 1e-3  # fallback, should never hit
 
         # Build the Barbič-James cache up-front if that method is selected.
         # Lazy validation matches dcr_velocity_mode / energy_budget_source.
@@ -798,6 +845,96 @@ class PassiveDCRCoupler:
         )
 
     # ------------------------------------------------------------------
+    # Geodesic-distance attenuation (paper §4.5 / Eq. 14)
+    # ------------------------------------------------------------------
+
+    def _closest_surface_vertex(
+        self, world_point: NDArray[np.float64]
+    ) -> int:
+        """Return the GLOBAL index of the surface vertex nearest `world_point`.
+
+        Searches only the modal surface (so off-surface vertices in the
+        full tet mesh are never returned — they have no defined geodesic).
+        """
+        surf_global = self.modal.surface_vertex_indices
+        verts = self._surface.vertices[surf_global]
+        d2 = np.sum((verts - world_point) ** 2, axis=1)
+        return int(surf_global[int(np.argmin(d2))])
+
+    def _geodesic_alpha(self, geodesic_dist: float) -> float:
+        """Paper Eq. 14 with passivity clamp.
+
+        α(d) = clip(C · (max(d, r0) / r0)^{-β}, 0, 1)
+        """
+        r0 = max(self.geodesic_r0, _EPS_TINY)
+        r = max(float(geodesic_dist), r0)
+        alpha = self.geodesic_C * (r / r0) ** (-self.geodesic_beta)
+        if not np.isfinite(alpha) or alpha < 0.0:
+            return 0.0
+        return min(1.0, alpha)
+
+    def _refresh_attenuation_field(self) -> None:
+        """Rebuild `last_attenuation_field` from `_last_impact_vert`.
+
+        Output is sized to the FULL FEM mesh's vertex count (so the viewer
+        can index by global vertex id from `mesh.vertices`). Off-surface
+        vertices get α = 0; the source vertex itself gets α = 1 (after the
+        r0 clamp).
+        """
+        n_v = int(self.modal.fem.mesh.num_vertices)
+        if self._last_impact_vert is None:
+            self.last_attenuation_field = None
+            return
+        geo = heat_geodesic_cached(
+            self._surface, self._geodesic_cache,
+            int(self._last_impact_vert))
+        field = np.zeros(n_v, dtype=np.float64)
+        surf_global = self.modal.surface_vertex_indices
+        for vi in surf_global:
+            d = geo[vi]
+            if not np.isfinite(d):
+                continue
+            field[vi] = self._geodesic_alpha(d)
+        self.last_attenuation_field = field
+
+    def _update_impact_source(
+        self,
+        contact_point: NDArray[np.float64],
+        impulse_norm: float,
+        running_best: dict,
+    ) -> None:
+        """Track the largest impulse this step for the geodesic source.
+
+        `running_best` is a step-scoped dict {"norm": float, "vert": int,
+        "xyz": np.ndarray} that the injection loop seeds with `norm=-inf`;
+        only the impact with the largest `‖j‖` wins. Called from the
+        injection loop; final commit (cache update + field rebuild)
+        happens after the loop in `_commit_impact_source`.
+        """
+        if not self.use_geodesic_attenuation:
+            return
+        if impulse_norm <= running_best.get("norm", -np.inf):
+            return
+        running_best["norm"] = float(impulse_norm)
+        running_best["vert"] = self._closest_surface_vertex(contact_point)
+        running_best["xyz"] = np.asarray(contact_point, dtype=np.float64).copy()
+
+    def _commit_impact_source(self, running_best: dict) -> None:
+        """Commit the step's winning impact source + refresh the field.
+
+        No-op if no impact was admitted this step (the dominant impact
+        from a prior step is retained so the propagating modal vibration
+        keeps its attribution).
+        """
+        if not self.use_geodesic_attenuation:
+            return
+        if "vert" not in running_best:
+            return
+        self._last_impact_vert = int(running_best["vert"])
+        self.last_geodesic_source_xyz = running_best["xyz"]
+        self._refresh_attenuation_field()
+
+    # ------------------------------------------------------------------
     # Contact-impulse source dispatch (realtime-coupling-fix §2)
     # ------------------------------------------------------------------
 
@@ -981,12 +1118,17 @@ class PassiveDCRCoupler:
 
         # --- Project new contact impulses → s_total (E1, foundation §4, §8) ---
         kicks_modal: list[NDArray[np.float64]] = []
+        # Geodesic source tracking (paper §4.5): pick the largest admitted
+        # impact's surface vertex as the source for this step's attenuation
+        # field. Held across quiet steps in _commit_impact_source.
+        impact_best: dict = {}
         for contact, ci in injection_data:
             j_world = self._impulse_for_contact(
                 contact, ci, lam, h, k_normal, body_dp, partner_lamN_sum)
             if j_world is None:
                 continue
-            if np.linalg.norm(j_world) < self.impulse_threshold:
+            j_norm = float(np.linalg.norm(j_world))
+            if j_norm < self.impulse_threshold:
                 continue
             Phi_x = eval_basis_at_point(
                 contact.point, self._surface, self.modal.U_surf,
@@ -994,6 +1136,8 @@ class PassiveDCRCoupler:
             )
             s_c = project_impulse(Phi_x, j_world)
             kicks_modal.append(s_c)
+            self._update_impact_source(contact.point, j_norm, impact_best)
+        self._commit_impact_source(impact_best)
 
         n_substeps = max(1, int(np.ceil(h / self._stepper.T)))
 
@@ -1540,6 +1684,15 @@ class PassiveDCRCoupler:
         # step_n decays the modal state through h substeps.
         qdot_drive = self._qdot_just_after_kick
 
+        # Geodesic field for this step's source (paper §4.5). Computed
+        # once outside the loop and shared across all patches.
+        geo_field = None
+        if (self.use_geodesic_attenuation
+                and self._last_impact_vert is not None):
+            geo_field = heat_geodesic_cached(
+                self._surface, self._geodesic_cache,
+                int(self._last_impact_vert))
+
         kicks: list[PatchKick] = []
         gamma_min = 1.0  # smallest dissipativity-guard scale this step
         for patch, recv_idx, r_bar, push_dir in valid:
@@ -1560,6 +1713,18 @@ class PassiveDCRCoupler:
                 self.modal.surface_vertex_indices, self._vert_to_surf_idx,
             )
             v_f = Phi_x @ qdot_drive
+
+            # ---- Geodesic-distance attenuation (paper §4.5, Eq. 14) -----
+            # Scale the SUPPORT-driven velocity v_f by α ∈ [0, 1]; leave v_p
+            # (receiver's own motion) intact. α cascades safely through K⁻¹
+            # (linear), cone projection (direction-preserving), §9.6 scaling
+            # (positive scalar) and the §9.7 dissipativity guard — passivity
+            # is preserved because α ≤ 1.
+            if geo_field is not None:
+                rv = self._closest_surface_vertex(patch.x_bar)
+                d_geo = float(geo_field[rv])
+                if np.isfinite(d_geo):
+                    v_f = self._geodesic_alpha(d_geo) * v_f
 
             # Receiver contact-point velocity v_p = v + ω × r̄.
             v_lin = recv.velocity[0:3]

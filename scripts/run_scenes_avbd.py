@@ -69,6 +69,31 @@ def _fix_one_edge(mesh) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# Mesh resolution selector
+# ---------------------------------------------------------------------------
+# `medium` matches the per-scene defaults baked in pre-resolution-selector;
+# `coarse` ~halves the in-plane subdivisions for a fast preview; `fine` 1.5×
+# the in-plane subdivisions and doubles the through-thickness layer count
+# (so the bending modes get a real second through-the-depth row). The modal
+# eigenproblem scales roughly with node count, so `fine` on `ledge`/`truck`
+# adds a few seconds to scene startup.
+MESH_RESOLUTIONS = ("coarse", "medium", "fine")
+_MESH_SCALE = {"coarse": 0.55, "medium": 1.0, "fine": 1.5}
+
+
+def _scaled_subdiv(
+    nx: int, ny: int, nz: int, level: str
+) -> tuple[int, int, int]:
+    s = _MESH_SCALE[level]
+    nx_s = max(4, int(round(nx * s)))
+    ny_s = max(3, int(round(ny * s)))
+    # nz stays >= 2 (need at least one through-thickness layer for bending);
+    # only `fine` doubles it, otherwise we keep the baseline.
+    nz_s = max(2, nz * 2 if level == "fine" else nz)
+    return nx_s, ny_s, nz_s
+
+
+# ---------------------------------------------------------------------------
 # Scene builders
 # ---------------------------------------------------------------------------
 
@@ -77,6 +102,7 @@ def build_truck_scene(
     causal_gating: bool, modal_decay_gamma: float,
     enable_phase_b: bool = False, ms_beta: float = 0.1,
     use_bj: bool = False,
+    mesh_resolution: str = "medium",
 ) -> tuple[AVBDDCRWorld, PassiveDCRCoupler, list[SceneBox], object, str]:
     """Heavy objects dropped sequentially on a wood-like 'road'."""
     world = AVBDDCRWorld(
@@ -90,8 +116,9 @@ def build_truck_scene(
     floor_idx = world.add_floor(floor_y=ground_top, friction=0.6, name="road")
 
     # FEM ground for the modal coupler (E=10 GPa, ρ=500 kg/m^3 wood).
+    nx, ny, nz = _scaled_subdiv(16, 10, 2, mesh_resolution)
     mesh = make_slab_tet_mesh(
-        length=2.5, width=1.5, height=0.06, nx=16, ny=10, nz=2)
+        length=2.5, width=1.5, height=0.06, nx=nx, ny=ny, nz=nz)
     mat = Material(E=10.0e9, nu=0.3, rho=500.0)
     fem = FEMModel(
         mesh=mesh, material=mat,
@@ -158,6 +185,7 @@ def build_shelf_scene(
     causal_gating: bool, modal_decay_gamma: float,
     enable_phase_b: bool = False, ms_beta: float = 0.1,
     use_bj: bool = False,
+    mesh_resolution: str = "medium",
 ) -> tuple[AVBDDCRWorld, PassiveDCRCoupler, list[SceneBox], object, str]:
     """Heavy box drops on a soft cantilever shelf; books topple."""
     world = AVBDDCRWorld(
@@ -171,8 +199,9 @@ def build_shelf_scene(
     shelf_idx = world.add_floor(
         floor_y=shelf_top, friction=0.5, name="shelf")
 
+    nx, ny, nz = _scaled_subdiv(12, 5, 2, mesh_resolution)
     mesh = make_slab_tet_mesh(
-        length=0.8, width=0.3, height=0.03, nx=12, ny=5, nz=2)
+        length=0.8, width=0.3, height=0.03, nx=nx, ny=ny, nz=nz)
     mat = Material(E=0.5e9, nu=0.3, rho=600.0)
     fem = FEMModel(
         mesh=mesh, material=mat,
@@ -225,6 +254,7 @@ def build_ledge_scene(
     causal_gating: bool, modal_decay_gamma: float,
     enable_phase_b: bool = False, ms_beta: float = 0.1,
     use_bj: bool = False,
+    mesh_resolution: str = "medium",
 ) -> tuple[AVBDDCRWorld, PassiveDCRCoupler, list[SceneBox], object, str]:
     """Boulder hits a stone cantilever ledge; balanced pillars fall."""
     world = AVBDDCRWorld(
@@ -238,8 +268,9 @@ def build_ledge_scene(
     ledge_idx = world.add_floor(
         floor_y=ledge_top, friction=0.5, name="ledge")
 
+    nx, ny, nz = _scaled_subdiv(12, 8, 2, mesh_resolution)
     mesh = make_slab_tet_mesh(
-        length=1.2, width=0.8, height=0.08, nx=12, ny=8, nz=2)
+        length=1.2, width=0.8, height=0.08, nx=nx, ny=ny, nz=nz)
     # FEM parameters matched to the truck scene: stiff-but-light wood
     # (E=10 GPa, ρ=500), α0=2.0 Rayleigh, 15 modes. Was ρ=2500, α0=1.0,
     # 12 modes — the heavier slab gave a weak modal projection (Φᵀλ tiny)
@@ -298,10 +329,201 @@ def build_ledge_scene(
     return world, coupler, boxes, mesh, "Cliff Ledge Rockfall (AVBD + patch DCR)"
 
 
+def build_dinner_table_scene(
+    device: str, h: float, eta: float, beta: float,
+    causal_gating: bool, modal_decay_gamma: float,
+    enable_phase_b: bool = False, ms_beta: float = 0.1,
+    use_bj: bool = False,
+    mesh_resolution: str = "medium",
+) -> tuple[AVBDDCRWorld, PassiveDCRCoupler, list[SceneBox], object, str]:
+    """Pot drops on a wooden dinner table; plates rattle and topple.
+
+    Modeled on the DCR paper's distant-response demo: a heavy object lands
+    on the elastic surface at the center, and the modal coupling rocks
+    nearby small objects through the support's vibration. The table is a
+    corner-pinned wood slab (four legs at the corners — `_fix_corners`),
+    matching the truck scene's stiff-but-light FEM (E=10 GPa, ρ=500 kg/m³).
+    """
+    world = AVBDDCRWorld(
+        h=h, eta=eta, device=device,
+        avbd_iterations=10, avbd_substeps=4,
+        enable_moving_support_pass=enable_phase_b,
+        moving_support_beta=ms_beta,
+        moving_support_use_bj=use_bj,
+    )
+    table_top = 0.03
+    table_idx = world.add_floor(
+        floor_y=table_top, friction=0.5, name="table")
+
+    nx, ny, nz = _scaled_subdiv(14, 12, 2, mesh_resolution)
+    mesh = make_slab_tet_mesh(
+        length=1.2, width=1.0, height=0.04, nx=nx, ny=ny, nz=nz)
+    mat = Material(E=10.0e9, nu=0.3, rho=500.0)
+    fem = FEMModel(
+        mesh=mesh, material=mat,
+        fixed_nodes=_fix_corners(mesh),
+        alpha0=2.0, alpha1=1e-5,
+    )
+    modal = ModalAnalysis(fem=fem, num_modes=15)
+    coupler = PassiveDCRCoupler(
+        modal=modal,
+        elastic_body_idx=table_idx,
+        dcr_velocity_mode="energy_prescribed_patch",
+        energy_response_beta=beta,
+        deformed_normal_method=("barbic_james" if use_bj else "patch_fit"),
+        causal_gating=causal_gating,
+        modal_decay_gamma=modal_decay_gamma,
+    )
+    world.add_passive_coupler(coupler)
+
+    boxes: list[SceneBox] = []
+
+    # Plate primitive: shallow, wide base (17 cm across, 2 cm thick) so it
+    # reads as a plate and stays stable until the table rings. 5 columns
+    # along the table's long axis × 3 rows across, center slot vacated for
+    # the pot drop → 14 plates.
+    plate_h = (0.085, 0.010, 0.085)
+    plate_palette = [
+        (0.95, 0.92, 0.85),  # off-white porcelain
+        (0.85, 0.65, 0.55),  # terracotta
+        (0.55, 0.70, 0.85),  # pale blue glaze
+        (0.80, 0.80, 0.70),  # bone
+    ]
+    xs = [-0.40, -0.20, 0.0, 0.20, 0.40]
+    zs = [-0.30, 0.0, 0.30]
+    plate_count = 0
+    for xi, x in enumerate(xs):
+        for zi, z in enumerate(zs):
+            # Reserve the center slot for the pot.
+            if xi == 2 and zi == 1:
+                continue
+            name = f"plate_{plate_count}"
+            color = plate_palette[plate_count % len(plate_palette)]
+            idx = world.add_box(
+                mass=0.4, half_extents=plate_h,
+                position=(x, table_top + plate_h[1] + 0.001, z),
+                friction=0.4, name=name,
+            )
+            boxes.append(SceneBox(name=name, body_idx=idx,
+                                  half_extents=plate_h, color=color))
+            plate_count += 1
+
+    # The pot: heavy cast-iron-style box, drops from ~0.5 m above center
+    # so it hits with ~3 m/s. Square base, modestly tall.
+    pot_h = (0.08, 0.10, 0.08)
+    idx = world.add_box(
+        mass=8.0, half_extents=pot_h,
+        position=(0.0, table_top + pot_h[1] + 0.5, 0.0),
+        friction=0.5, name="pot",
+    )
+    boxes.append(SceneBox(name="pot", body_idx=idx,
+                          half_extents=pot_h, color=(0.20, 0.18, 0.16)))
+
+    return world, coupler, boxes, mesh, "Dinner Table (AVBD + patch DCR)"
+
+
+def build_long_slab_scene(
+    device: str, h: float, eta: float, beta: float,
+    causal_gating: bool, modal_decay_gamma: float,
+    enable_phase_b: bool = False, ms_beta: float = 0.1,
+    use_bj: bool = False,
+    mesh_resolution: str = "medium",
+) -> tuple[AVBDDCRWorld, PassiveDCRCoupler, list[SceneBox], object, str]:
+    """Long thin slab; heavy box drops at one end, plate targets along the
+    length so the geodesic-distance attenuation is visually obvious.
+
+    Use with ``--use-geodesic`` and the 'show attenuation heatmap' viewer
+    toggle: the slab is colored by α(d_geo) from the most recent impact,
+    and the plate response should fall off along the length.
+
+    Slab: 2.5 m × 0.4 m × 0.04 m wood (E=10 GPa, ρ=500); cantilever-pinned
+    at the -x edge to match the impact at the *other* (+x) end — that
+    fixed end keeps the impact-end free to ring.
+    """
+    world = AVBDDCRWorld(
+        h=h, eta=eta, device=device,
+        avbd_iterations=10, avbd_substeps=4,
+        enable_moving_support_pass=enable_phase_b,
+        moving_support_beta=ms_beta,
+        moving_support_use_bj=use_bj,
+    )
+    slab_top = 0.04
+    slab_idx = world.add_floor(
+        floor_y=slab_top, friction=0.5, name="long_slab")
+
+    # Long aspect-ratio slab — enough length for the geodesic decay to be
+    # visually distinguishable from a Euclidean falloff. Through-thickness
+    # subdivisions stay 2 at every resolution so the slab doesn't get
+    # absurdly heavy at 'fine'.
+    nx, ny, nz = _scaled_subdiv(36, 6, 2, mesh_resolution)
+    mesh = make_slab_tet_mesh(
+        length=2.5, width=0.4, height=0.04, nx=nx, ny=ny, nz=nz)
+    mat = Material(E=10.0e9, nu=0.3, rho=500.0)
+    fem = FEMModel(
+        mesh=mesh, material=mat,
+        fixed_nodes=_fix_one_edge(mesh),
+        alpha0=2.0, alpha1=1e-5,
+    )
+    modal = ModalAnalysis(fem=fem, num_modes=20)
+    coupler = PassiveDCRCoupler(
+        modal=modal,
+        elastic_body_idx=slab_idx,
+        dcr_velocity_mode="energy_prescribed_patch",
+        energy_response_beta=beta,
+        deformed_normal_method=("barbic_james" if use_bj else "patch_fit"),
+        causal_gating=causal_gating,
+        modal_decay_gamma=modal_decay_gamma,
+        use_geodesic_attenuation=True,  # this is the showcase scene
+    )
+    world.add_passive_coupler(coupler)
+
+    boxes: list[SceneBox] = []
+
+    # Plate targets along the length (impact at +x end). 8 plates spread
+    # from x ≈ +0.95 m (closest to impact, still off the strike point)
+    # down to x ≈ -1.05 m (cantilever end). Coloring by index so the
+    # falloff is read by both visible motion AND the colored attenuation
+    # heatmap underneath each plate.
+    plate_h = (0.06, 0.010, 0.06)
+    plate_xs = [0.95, 0.65, 0.35, 0.05, -0.25, -0.55, -0.85, -1.05]
+    palette = [
+        (0.95, 0.92, 0.85),
+        (0.85, 0.65, 0.55),
+        (0.55, 0.70, 0.85),
+        (0.80, 0.80, 0.70),
+    ]
+    for i, x in enumerate(plate_xs):
+        name = f"plate_{i}"
+        idx = world.add_box(
+            mass=0.4, half_extents=plate_h,
+            position=(x, slab_top + plate_h[1] + 0.001, 0.0),
+            friction=0.4, name=name,
+        )
+        boxes.append(SceneBox(name=name, body_idx=idx,
+                              half_extents=plate_h, color=palette[i % len(palette)]))
+
+    # Heavy impactor at the +x (free) end, dropped from 0.6 m above. The
+    # cantilever-fixed -x end keeps the impact-end ringing rather than
+    # absorbing the impulse into the support.
+    impactor_h = (0.07, 0.07, 0.07)
+    impactor_x = 1.15
+    idx = world.add_box(
+        mass=10.0, half_extents=impactor_h,
+        position=(impactor_x, slab_top + impactor_h[1] + 0.6, 0.0),
+        friction=0.5, name="impactor",
+    )
+    boxes.append(SceneBox(name="impactor", body_idx=idx,
+                          half_extents=impactor_h, color=(0.20, 0.18, 0.16)))
+
+    return world, coupler, boxes, mesh, "Long Slab (geodesic attenuation showcase)"
+
+
 SCENES = {
     "truck": build_truck_scene,
     "shelf": build_shelf_scene,
     "ledge": build_ledge_scene,
+    "dinner_table": build_dinner_table_scene,
+    "long_slab": build_long_slab_scene,
 }
 
 
@@ -309,9 +531,52 @@ SCENES = {
 # Viser viewer
 # ---------------------------------------------------------------------------
 
-def _wxyz_for_box(world: AVBDDCRWorld, body_idx: int) -> tuple[float, ...]:
-    q = world._descs[body_idx].dcr_body.orientation  # wxyz
-    return (float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+# Unit cube template (half-extents 0.5 → multiply by 2*half_extents per
+# instance to recover the real box). Drives the instanced-render path so the
+# whole body set lives in one viser node (kills the per-handle message
+# stutter — see upstream avbd3d/examples/viewer.py:75-88).
+_CUBE_V = np.array([
+    [-0.5, -0.5, -0.5], [0.5, -0.5, -0.5], [0.5, 0.5, -0.5], [-0.5, 0.5, -0.5],
+    [-0.5, -0.5, 0.5], [0.5, -0.5, 0.5], [0.5, 0.5, 0.5], [-0.5, 0.5, 0.5],
+], dtype=np.float32)
+_CUBE_F = np.array([
+    [0, 2, 1], [0, 3, 2], [4, 5, 6], [4, 6, 7], [0, 1, 5], [0, 5, 4],
+    [2, 3, 7], [2, 7, 6], [1, 2, 6], [1, 6, 5], [0, 4, 7], [0, 7, 3],
+], dtype=np.uint32)
+
+
+def _thermal_uint8(alpha: np.ndarray) -> np.ndarray:
+    """Vectorized 5-stop thermal ramp on alpha ∈ [0, 1].
+
+    Designed for high contrast against the warm beige slab base color, so
+    the falloff reads clearly at a glance.
+
+    α=0.00 → deep navy   ( 10,  20,  70)   "cold / far"
+    α=0.25 → blue        ( 20, 100, 230)
+    α=0.50 → cyan-green  ( 40, 220, 200)
+    α=0.75 → orange      (255, 160,  30)
+    α=1.00 → fire red    (240,  30,  20)   "hot / near"
+
+    Returns (N, 4) uint8 RGBA suitable for trimesh.visual.vertex_colors.
+    """
+    a = np.clip(alpha.astype(np.float32), 0.0, 1.0)
+    # 5 stops at α = 0, 0.25, 0.5, 0.75, 1.0
+    stops = np.array(
+        [[ 10,  20,  70],
+         [ 20, 100, 230],
+         [ 40, 220, 200],
+         [255, 160,  30],
+         [240,  30,  20]], dtype=np.float32)
+    # Bucket each α into the 4 segments and lerp within.
+    seg = np.minimum((a * 4.0).astype(np.int32), 3)
+    t = (a * 4.0 - seg)[:, None]
+    c_lo = stops[seg]
+    c_hi = stops[seg + 1]
+    rgb = c_lo * (1.0 - t) + c_hi * t
+    out = np.zeros((a.size, 4), dtype=np.uint8)
+    out[:, :3] = np.clip(rgb, 0, 255).astype(np.uint8)
+    out[:, 3] = 255
+    return out
 
 
 def _surface_vertex_world_positions(
@@ -329,13 +594,17 @@ def _surface_vertex_world_positions(
     U_surf = coupler.modal.U_surf  # (3*n_surf_free, m)
     q = coupler._stepper.q         # (m,)
     surf_disp_flat = U_surf @ q    # (3*n_surf_free,)
-    # Each surface vertex's index into surf_disp_flat:
+    # Vectorized gather: build a (n_v, 3) displacement buffer addressed by
+    # global vertex idx; rows for non-surface verts stay zero (kept from the
+    # initial zero-init). 100x faster than the per-vertex Python loop on
+    # 1000-vert slabs — was the main vibration-on tick cost.
     surf_idx_map = coupler._vert_to_surf_idx  # vertex -> surf-row (-1 = fixed)
-    for vi in range(verts.shape[0]):
-        si = surf_idx_map[vi]
-        if si >= 0:
-            base = 3 * si
-            verts[vi] += surf_disp_flat[base:base + 3]
+    mask = surf_idx_map >= 0
+    if mask.any():
+        # Per-vertex disp = U_surf rows reshaped (n_surf, 3) gathered by
+        # surf-row id.
+        surf_disp = surf_disp_flat.reshape(-1, 3)  # (n_surf, 3)
+        verts[mask] = verts[mask] + surf_disp[surf_idx_map[mask]]
     return verts
 
 
@@ -358,6 +627,14 @@ class AVBDDCRViewer:
         self.scene_boxes = scene_boxes
         self.slab_mesh = slab_mesh
         self.title = title
+        # Human-readable mesh-resolution label for the read-only GUI display.
+        # Baked at scene-build time; only --mesh-resolution at startup
+        # changes it.
+        self.mesh_resolution_label = (
+            f"{getattr(args, 'mesh_resolution', 'medium')} "
+            f"({int(slab_mesh.tets.shape[0])} tets, "
+            f"{int(slab_mesh.vertices.shape[0])} nodes)"
+        )
 
         # Recommended low-iteration coupling (docs §12 — the "reservoir δp
         # PRESCRIBED" column): impact reservoir (timing) + delta_p impulse
@@ -410,21 +687,80 @@ class AVBDDCRViewer:
             wireframe=True,
             visible=False,
         )
+        # Geodesic-attenuation heatmap (paper §4.5). Lazy: created the first
+        # time "show attenuation heatmap" is enabled. The trimesh handle has
+        # no live setter, so a rebuild is `remove + re-add` — a full glTF
+        # re-encode every time. To kill the per-tick cost we only rebuild
+        # when the inputs actually changed: (a) a new impact updated the
+        # attenuation field (id(field) differs), or (b) the displayed
+        # vertices changed (vibration on AND a new solver tick → check by
+        # comparing the q vector's id) or (c) the user changed visibility
+        # state (handled by setting _heatmap_dirty in _vis_changed).
+        self._heatmap_handle = None
+        # Off-surface vertices (or "no impact yet" fallback) use a neutral
+        # cool gray-blue so the thermal ramp pops. RGBA uint8.
+        self._heatmap_base_color = np.array(
+            [55, 65, 85, 255], dtype=np.uint8)
+        self._heatmap_last_field_id = -1   # id() of last_attenuation_field
+        self._heatmap_last_time = -1.0     # world.time at last build
+        self._heatmap_dirty = True         # force first build (toggle/init)
+        # 3D-bump extrusion of the heatmap surface — the field also raises
+        # the surface vertices by alpha * bump_height. Default 1.5 cm (≈
+        # 1× plate thickness) so the dome is visible from any angle without
+        # crashing into resting bodies. Settable live in the GUI.
+        self._heatmap_bump_m = 0.015
+        # Source marker: a bright icosphere placed at the most recent
+        # impact xyz, scaled to a few r0 so the eye anchors on "where the
+        # field comes from". Lazy-created on first heatmap show.
+        self._source_marker = None
+        self._source_marker_last_xyz = None
 
-        # Body handles.
-        self.body_handles: list = []
-        for sb in scene_boxes:
-            ex = sb.half_extents
-            pos = tuple(world._descs[sb.body_idx].dcr_body.position)
-            wxyz = _wxyz_for_box(world, sb.body_idx)
-            h = self.server.scene.add_box(
-                f"/bodies/{sb.name}",
-                dimensions=(2 * ex[0], 2 * ex[1], 2 * ex[2]),
-                position=pos,
-                wxyz=wxyz,
-                color=sb.color,
-            )
-            self.body_handles.append(h)
+        # Frame counter for HUD throttling. HUD text writes are 15 separate
+        # websocket messages per tick — at ~100 Hz that's the second-biggest
+        # source of render-thread chatter after the body updates. Pushing
+        # them every Nth frame still gives the user a comfortable refresh
+        # rate (~30 Hz) without saturating the websocket.
+        self._frame = 0
+        self._hud_interval = 3   # 100 Hz tick → ~33 Hz HUD
+
+        # Instanced body rendering (upstream avbd3d viewer perf pass):
+        # ONE viser node for the entire body set; per-tick updates are two
+        # array writes (batched_positions + batched_wxyzs). Per-instance
+        # `batched_scales = 2 * half_extents` recovers the real box from the
+        # unit-cube template. Kills the per-handle message stutter on
+        # multi-body scenes (was the dominant tick cost on dinner_table /
+        # long_slab).
+        n_bodies = len(scene_boxes)
+        self._body_idxs = np.array(
+            [sb.body_idx for sb in scene_boxes], dtype=np.int64)
+        scales = np.array(
+            [(2.0 * sb.half_extents[0], 2.0 * sb.half_extents[1],
+              2.0 * sb.half_extents[2]) for sb in scene_boxes],
+            dtype=np.float32)
+        colors = np.array(
+            [(int(np.clip(sb.color[0], 0, 1) * 255),
+              int(np.clip(sb.color[1], 0, 1) * 255),
+              int(np.clip(sb.color[2], 0, 1) * 255)) for sb in scene_boxes],
+            dtype=np.uint8)
+        # Initial poses (matched to the snapshot taken just above).
+        bp_init = np.array(
+            [world._descs[i].dcr_body.position for i in self._body_idxs],
+            dtype=np.float32)
+        bw_init = np.array(
+            [world._descs[i].dcr_body.orientation for i in self._body_idxs],
+            dtype=np.float32)
+        self._batched_bodies = self.server.scene.add_batched_meshes_simple(
+            "/bodies_batched",
+            _CUBE_V, _CUBE_F,
+            batched_wxyzs=bw_init,
+            batched_positions=bp_init,
+            batched_scales=scales,
+            batched_colors=colors,
+            flat_shading=True, side="double",
+        )
+        # Pre-allocated update buffers — refilled per tick, written twice.
+        self._bp_buf = bp_init.copy()
+        self._bw_buf = bw_init.copy()
 
         # GUI.
         with self.server.gui.add_folder("Visualization"):
@@ -439,6 +775,35 @@ class AVBDDCRViewer:
                 hint="Draw the slab as a tet-mesh wireframe (the FEM surface "
                      "triangulation) instead of a solid surface. Off "
                      "(default): plain solid slab.")
+            self.gui_show_heatmap = self.server.gui.add_checkbox(
+                "show attenuation heatmap", initial_value=False,
+                hint="Visualize α(d_geo) from the most recent impact (paper "
+                     "§4.5). Combines three signals so the field is hard to "
+                     "miss: (1) thermal colormap (deep navy=far, fire-red="
+                     "near); (2) 3D dome — the slab surface rises by "
+                     "α·bump near the source; (3) a bright source marker "
+                     "sphere at the impact xyz. Only meaningful when 'use "
+                     "geodesic attenuation' is also ON in the DCR folder; "
+                     "otherwise the slab still draws but α is not applied "
+                     "to the kicks. Updates on each new impact.")
+            self.gui_heat_bump_cm = self.server.gui.add_slider(
+                "heatmap bump (cm)", 0.0, 8.0, step=0.1,
+                initial_value=100.0 * self._heatmap_bump_m,
+                hint="Vertical extrusion scale for the heatmap dome. 0 = "
+                     "flat colored slab; 1.5 cm (default) = clearly visible "
+                     "from any angle. Pure visualization — does not affect "
+                     "the simulation.")
+            # Read-only display of the active FEM resolution. Resolution is
+            # baked at scene-build time (the FEM/modal pipeline depends on it),
+            # so this label is informational — relaunch with a different
+            # --mesh-resolution to change it.
+            self.server.gui.add_text(
+                "FEM resolution",
+                initial_value=self.mesh_resolution_label,
+                hint="Slab FEM mesh subdivision level chosen at startup via "
+                     "--mesh-resolution {coarse, medium, fine}. The number "
+                     "in parens is the tet count. Relaunch to change.",
+            ).disabled = True
         with self.server.gui.add_folder("Simulation"):
             self.gui_pause = self.server.gui.add_checkbox(
                 "pause", initial_value=False)
@@ -486,6 +851,28 @@ class AVBDDCRViewer:
                 initial_value=float(coupler.prescribed_mu),
                 hint="Fraction of the η·E_loss budget the prescribed kick "
                      "deposits per step. 1.0 = hit the passivity bound.")
+            self.gui_use_geodesic = self.server.gui.add_checkbox(
+                "use geodesic attenuation (paper §4.5)",
+                initial_value=bool(coupler.use_geodesic_attenuation),
+                hint="Multiply the patch-mode v_f at each receiver by "
+                     "α = clip(C·(max(d,r0)/r0)^{-β}, 0, 1) where d is the "
+                     "heat-method geodesic distance from the most recent "
+                     "impact. α∈[0,1] so passivity is preserved. Enable "
+                     "'show attenuation heatmap' in Visualization to "
+                     "see α colored on the slab.")
+            self.gui_geo_beta = self.server.gui.add_slider(
+                "geodesic_beta", 0.1, 2.0, step=0.05,
+                initial_value=float(coupler.geodesic_beta),
+                hint="Falloff exponent. 0.5 = paper's shells default; 1.0 "
+                     "= volume default; higher = sharper drop with "
+                     "distance. Only used when 'use geodesic attenuation' "
+                     "is on.")
+            self.gui_geo_C = self.server.gui.add_slider(
+                "geodesic_C", 0.1, 2.0, step=0.05,
+                initial_value=float(coupler.geodesic_C),
+                hint="Attenuation amplitude. C·(r/r0)^{-β} is clipped to "
+                     "[0, 1] for passivity, so values > 1 only widen the "
+                     "near-source plateau.")
         with self.server.gui.add_folder("Phase B (moving support, spec §7/§12)"):
             self.gui_phase_b = self.server.gui.add_checkbox(
                 "enable_moving_support_pass",
@@ -561,6 +948,11 @@ class AVBDDCRViewer:
         self.gui_use_bj.on_update(self._use_bj_changed)
         self.gui_show_vibration.on_update(self._vis_changed)
         self.gui_tet_style.on_update(self._vis_changed)
+        self.gui_show_heatmap.on_update(self._vis_changed)
+        self.gui_heat_bump_cm.on_update(self._heat_bump_changed)
+        self.gui_use_geodesic.on_update(self._geo_changed)
+        self.gui_geo_beta.on_update(self._geo_beta_changed)
+        self.gui_geo_C.on_update(self._geo_C_changed)
 
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run_loop, daemon=True)
@@ -609,26 +1001,155 @@ class AVBDDCRViewer:
     def _vis_changed(self, _evt):
         # Apply immediately (responds even when paused), then let
         # _render_tick keep it in sync each frame.
+        self._heatmap_dirty = True
         self._apply_surface_vis()
 
     def _apply_surface_vis(self):
-        """Update the slab's rendered vertices + which handle is visible,
-        per the two Visualization checkboxes. Off/off (default) = a flat,
-        solid, rigid-looking slab; vibration on = rest + Φ·q; tet-mesh
-        style swaps the solid handle for the wireframe twin."""
-        if bool(self.gui_show_vibration.value):
+        """Update the slab's rendered vertices, color, and which handle is
+        visible, per the three Visualization checkboxes.
+
+        Off/off/off (default) = flat, solid, rigid-looking slab.
+        vibration on → rest + Φ·q drives all three handles' vertices.
+        tet-mesh style → wireframe twin replaces the solid handle.
+        heatmap on → trimesh handle with per-vertex α colors (paper §4.5
+        ramp) replaces both other handles. The trimesh handle has no
+        live setter, so we remove + re-add on each call.
+        """
+        show_vibration = bool(self.gui_show_vibration.value)
+        tet_style = bool(self.gui_tet_style.value)
+        show_heatmap = bool(self.gui_show_heatmap.value)
+
+        if show_vibration:
             verts = _surface_vertex_world_positions(
                 self.coupler, self.slab_mesh).astype(np.float32)
         else:
             verts = self._surf_rest_verts            # flat / rigid look
-        tet_style = bool(self.gui_tet_style.value)
+
+        # Keep the solid and wire handles' vertices in sync so toggling
+        # heatmap off restores them without a stale geometry frame.
         for handle in (self.surface_handle, self.surface_handle_wire):
             try:
                 handle.vertices = verts
             except Exception:
                 pass
-        self.surface_handle.visible = not tet_style
-        self.surface_handle_wire.visible = tet_style
+
+        if show_heatmap:
+            # Gate the trimesh rebuild — it's a full glTF re-encode +
+            # websocket upload on every call. Rebuild only when something
+            # actually changed since the last build:
+            #   * dirty flag (toggle/bump/β/C/init)
+            #   * the attenuation field object swapped (new impact)
+            #   * vibration is on AND world.time advanced (verts moved)
+            field = self.coupler.last_attenuation_field
+            field_id = id(field) if field is not None else 0
+            t_now = float(getattr(self.world, "time", 0.0))
+            need_rebuild = (
+                self._heatmap_handle is None
+                or self._heatmap_dirty
+                or field_id != self._heatmap_last_field_id
+                or (show_vibration and t_now != self._heatmap_last_time)
+            )
+            if need_rebuild:
+                # Per-vertex thermal colors + 3D bump (verts lift by α·bump
+                # along +y) — three signals stacked so the field is hard to
+                # miss: color, dome shape, and the source marker below.
+                n_v = verts.shape[0]
+                colors = np.tile(self._heatmap_base_color, (n_v, 1))
+                bumped = verts.copy().astype(np.float32)
+                if field is not None and len(field) >= n_v:
+                    surf_global = self.coupler.modal.surface_vertex_indices
+                    surf_alpha = field[surf_global].astype(np.float32)
+                    ramp = _thermal_uint8(surf_alpha)
+                    colors[surf_global] = ramp
+                    # 3D dome: lift each surface vertex by alpha * bump.
+                    # Off-surface verts (interior nodes) stay at rest height.
+                    if self._heatmap_bump_m > 0.0:
+                        bumped[surf_global, 1] = (
+                            bumped[surf_global, 1]
+                            + self._heatmap_bump_m * surf_alpha)
+                if self._heatmap_handle is not None:
+                    try:
+                        self._heatmap_handle.remove()
+                    except Exception:
+                        pass
+                    self._heatmap_handle = None
+                import trimesh
+                tm = trimesh.Trimesh(
+                    vertices=bumped,
+                    faces=self._surf_faces,
+                    process=False,
+                )
+                tm.visual.vertex_colors = colors
+                self._heatmap_handle = self.server.scene.add_mesh_trimesh(
+                    "/elastic_surface_heatmap", tm)
+                self._heatmap_last_field_id = field_id
+                self._heatmap_last_time = t_now
+                self._heatmap_dirty = False
+            self.surface_handle.visible = False
+            self.surface_handle_wire.visible = False
+            # Source marker: bright icosphere at the most recent impact xyz,
+            # lifted slightly above the slab so it isn't z-fighting with the
+            # bumped dome. Radius scaled to ~3·r0 for visibility. Created
+            # lazily; pose updates each tick the marker is shown.
+            src = self.coupler.last_geodesic_source_xyz
+            if src is not None:
+                src_y = float(src[1]) + max(self._heatmap_bump_m, 0.005) + 0.01
+                pos = (float(src[0]), src_y, float(src[2]))
+                if self._source_marker is None:
+                    # 3·r0 (visible vs the source's natural plateau) but
+                    # capped at 4cm so it doesn't dominate a small slab.
+                    marker_r = max(0.01, min(0.04, 3.0 * float(self.coupler.geodesic_r0)))
+                    self._source_marker = self.server.scene.add_icosphere(
+                        "/geodesic_source_marker",
+                        radius=marker_r,
+                        color=(255, 240, 100),
+                        flat_shading=False,
+                        position=pos,
+                    )
+                else:
+                    self._source_marker.position = pos
+                    self._source_marker.visible = True
+                self._source_marker_last_xyz = src
+        else:
+            # Heatmap off: tear down the trimesh handle if it exists, hide
+            # the source marker, and restore the solid/wire visibility per
+            # tet_style.
+            if self._heatmap_handle is not None:
+                try:
+                    self._heatmap_handle.remove()
+                except Exception:
+                    pass
+                self._heatmap_handle = None
+            if self._source_marker is not None:
+                try:
+                    self._source_marker.visible = False
+                except Exception:
+                    pass
+            self.surface_handle.visible = not tet_style
+            self.surface_handle_wire.visible = tet_style
+
+    def _geo_changed(self, _evt):
+        self.coupler.use_geodesic_attenuation = bool(self.gui_use_geodesic.value)
+        # Force a heatmap refresh so toggling shows immediate effect.
+        self._apply_surface_vis()
+
+    def _geo_beta_changed(self, _evt):
+        self.coupler.geodesic_beta = float(self.gui_geo_beta.value)
+        # Field uses the new β at next refresh; trigger one now.
+        self.coupler._refresh_attenuation_field()
+        self._heatmap_dirty = True
+        self._apply_surface_vis()
+
+    def _geo_C_changed(self, _evt):
+        self.coupler.geodesic_C = float(self.gui_geo_C.value)
+        self.coupler._refresh_attenuation_field()
+        self._heatmap_dirty = True
+        self._apply_surface_vis()
+
+    def _heat_bump_changed(self, _evt):
+        self._heatmap_bump_m = float(self.gui_heat_bump_cm.value) / 100.0
+        self._heatmap_dirty = True
+        self._apply_surface_vis()
 
     def _use_bj_changed(self, _evt):
         # Only takes effect if the coupler was built with the BJ cache
@@ -685,52 +1206,64 @@ class AVBDDCRViewer:
 
     def _render_tick(self):
         w = self.world
-        # body handles.
-        for sb, handle in zip(self.scene_boxes, self.body_handles):
-            pos = w._descs[sb.body_idx].dcr_body.position
-            q_wxyz = w._descs[sb.body_idx].dcr_body.orientation
-            handle.position = (float(pos[0]), float(pos[1]), float(pos[2]))
-            handle.wxyz = (
-                float(q_wxyz[0]), float(q_wxyz[1]),
-                float(q_wxyz[2]), float(q_wxyz[3]))
-        # elastic surface — honours the two Visualization checkboxes
-        # (render FEM vibration on/off, solid vs tet-mesh wireframe).
+        # Instanced body update: fill the pre-allocated buffers and push
+        # to the BatchedMesh in two array writes (regardless of N bodies).
+        descs = w._descs
+        for k, bi in enumerate(self._body_idxs):
+            db = descs[int(bi)].dcr_body
+            self._bp_buf[k] = db.position
+            self._bw_buf[k] = db.orientation
+        # Wrap the two writes in server.atomic() so the browser applies
+        # them as a single transaction (no inter-frame teleport).
+        with self.server.atomic():
+            self._batched_bodies.batched_positions = self._bp_buf
+            self._batched_bodies.batched_wxyzs = self._bw_buf
+        # Elastic surface — honors the Visualization checkboxes (render
+        # FEM vibration, FEM tet-mesh style, show attenuation heatmap).
         # Default: flat solid slab, so the road/shelf reads as a plain
         # rigid body and the Φ·q compute is skipped entirely.
         self._apply_surface_vis()
-        # status text.
+
+        # HUD throttle: text fields don't need to update at solver rate.
+        # ~33 Hz refresh feels live to the eye and slashes per-tick
+        # websocket chatter. All 15 writes wrapped in server.atomic() so
+        # they hit the browser as a single transaction.
+        self._frame += 1
+        if (self._frame % self._hud_interval) != 0:
+            return
         from dcr.rigid.energy import rigid_kinetic_energy
         bodies = [d.dcr_body for d in w._descs]
         e_rigid = rigid_kinetic_energy(bodies)
         e_modal = float(modal_energy(
             self.coupler._stepper.q, self.coupler._stepper.qdot,
             self.coupler.modal.frequencies))
-        self.gui_t.value = f"{w.time:.3f}"
-        self.gui_step_ms.value = f"{w.last_step_ms:.2f}"
-        self.gui_e_rigid.value = f"{e_rigid:.4f}"
-        self.gui_e_modal.value = f"{e_modal:.4f}"
-        self.gui_e_loss.value = f"{w.last_E_loss:.4f}"
-        self.gui_e_inj.value = f"{self.coupler.last_E_modal_injected:.4f}"
-        self.gui_n_contacts.value = str(len(w.last_contacts))
-        n_p = (len(self.coupler.last_patch_kicks)
-               if self.coupler.last_patch_kicks else 0)
-        self.gui_n_patches.value = str(n_p)
-        # Phase B status — meaningful only when the moving-support pass
-        # actually fired this step.
-        self.gui_ms_active.value = str(w.last_n_moving_support)
-        self.gui_ms_gated.value = str(w.last_n_moving_support_gated)
-        if w.last_n_moving_support > 0:
-            self.gui_W_support.value = f"{w.last_W_support:.4e}"
-            self.gui_E_budget.value = f"{w.last_E_support_budget:.4e}"
-            self.gui_gamma_min.value = f"{w.last_gamma_support_min:.4f}"
-        else:
-            self.gui_W_support.value = "—"
-            self.gui_E_budget.value = "—"
-            self.gui_gamma_min.value = "—"
-        self.gui_bj_angle.value = (
-            f"{w.last_bj_angle_deg_max:.4f}"
-            if w.last_bj_angle_deg_max > 0.0 else "—")
-        self.gui_ms_ms.value = f"{w.last_moving_support_ms:.2f}"
+        with self.server.atomic():
+            self.gui_t.value = f"{w.time:.3f}"
+            self.gui_step_ms.value = f"{w.last_step_ms:.2f}"
+            self.gui_e_rigid.value = f"{e_rigid:.4f}"
+            self.gui_e_modal.value = f"{e_modal:.4f}"
+            self.gui_e_loss.value = f"{w.last_E_loss:.4f}"
+            self.gui_e_inj.value = f"{self.coupler.last_E_modal_injected:.4f}"
+            self.gui_n_contacts.value = str(len(w.last_contacts))
+            n_p = (len(self.coupler.last_patch_kicks)
+                   if self.coupler.last_patch_kicks else 0)
+            self.gui_n_patches.value = str(n_p)
+            # Phase B status — meaningful only when the moving-support pass
+            # actually fired this step.
+            self.gui_ms_active.value = str(w.last_n_moving_support)
+            self.gui_ms_gated.value = str(w.last_n_moving_support_gated)
+            if w.last_n_moving_support > 0:
+                self.gui_W_support.value = f"{w.last_W_support:.4e}"
+                self.gui_E_budget.value = f"{w.last_E_support_budget:.4e}"
+                self.gui_gamma_min.value = f"{w.last_gamma_support_min:.4f}"
+            else:
+                self.gui_W_support.value = "—"
+                self.gui_E_budget.value = "—"
+                self.gui_gamma_min.value = "—"
+            self.gui_bj_angle.value = (
+                f"{w.last_bj_angle_deg_max:.4f}"
+                if w.last_bj_angle_deg_max > 0.0 else "—")
+            self.gui_ms_ms.value = f"{w.last_moving_support_ms:.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -771,6 +1304,13 @@ def main():
              "and enable the BJ-normal path in the moving-support pass. "
              "Without this flag the coupler caches no BJ basis and the "
              "viewer's 'use_bj_normal' toggle silently falls back to rest.")
+    ap.add_argument(
+        "--mesh-resolution", choices=MESH_RESOLUTIONS, default="medium",
+        help="Slab FEM mesh subdivision level. 'medium' (default) matches the "
+             "baseline (nx,ny,nz); 'coarse' ~halves the in-plane subdivisions "
+             "for fast iteration; 'fine' 1.5x in-plane and 2x through-thickness "
+             "(adds a few seconds to scene startup — modal eigenproblem scales "
+             "with node count). Baked at scene build time (no live switching).")
     args = ap.parse_args()
 
     builder = SCENES[args.scene]
@@ -781,9 +1321,14 @@ def main():
         enable_phase_b=args.phase_b,
         ms_beta=args.ms_beta,
         use_bj=args.use_bj,
+        mesh_resolution=args.mesh_resolution,
     )
+    n_tets = int(mesh.tets.shape[0])
+    n_nodes = int(mesh.vertices.shape[0])
     print(f"\n{title}")
     print(f"  bodies={len(world._descs)}  modes={coupler.modal.U.shape[1]}")
+    print(f"  mesh resolution={args.mesh_resolution}  "
+          f"tets={n_tets}  nodes={n_nodes}")
     print(f"  device={args.device}  h={args.h:g}  beta={args.beta}  eta={args.eta}")
     print(f"  viser: http://localhost:{args.port}\n")
     viewer = AVBDDCRViewer(args, world, coupler, boxes, mesh, title)
