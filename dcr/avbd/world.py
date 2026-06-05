@@ -49,6 +49,11 @@ from .moving_support_solve import MovingSupportResult, solve_one_contact
 from ..modal.passive_inject import eval_basis_at_point
 from ..dcr.deformed_normal_bj import compute_deformed_normal_barbic_james
 
+# Reduced-coordinate AVBD support (v1). The classes are pure-Python /
+# numpy and free of GPU state; importing here is cheap.
+from .reduced_support import ReducedSupport
+from .reduced_support_solve import ReducedSupportCoupler
+
 
 # ---------------------------------------------------------------------------
 # Body descriptor
@@ -151,6 +156,21 @@ class AVBDDCRWorld:
     last_moving_support_ms: float = field(default=0.0, init=False)
     # Cumulative running max of E_modal for §14.3 modal cutoff gate.
     _E_modal_peak_running: float = field(default=0.0, init=False)
+
+    # ---- Reduced-coordinate AVBD support (v1) ---------------------------
+    # When attached via `attach_reduced_support`, the Solver6DOF runs in
+    # uncaptured mode and the coupler interposes a CPU q-block solve
+    # between every AVBD iteration. Off by default — `reduced_support` is
+    # None and zero overhead. See
+    # `prompts/reduced_coordinate_avbd_support_dcr_extension.md` and the
+    # build plan at
+    # `~/.claude/plans/you-are-working-inside-prancy-turtle.md`.
+    reduced_support: ReducedSupport | None = field(
+        default=None, init=False, repr=False)
+    reduced_support_coupler: ReducedSupportCoupler | None = field(
+        default=None, init=False, repr=False)
+    reduced_support_energy_log: list[dict] = field(
+        default_factory=list, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._solver = Solver6DOF(
@@ -267,6 +287,50 @@ class AVBDDCRWorld:
         self._descs.append(AVBDBodyDescriptor(
             dcr_body=rb, avbd_body=avbd_body, name=name))
         return idx
+
+    def attach_reduced_support(
+        self,
+        rs: ReducedSupport,
+        *,
+        tracked_body_indices: list[int],
+        shelf_length: float,
+        shelf_width: float,
+        shelf_y_rest: float,
+        n_grid_x: int,
+        n_grid_z: int,
+    ) -> ReducedSupportCoupler:
+        """Wire a ReducedSupport into the AVBD substep loop (v1).
+
+        `tracked_body_indices` are the AVBD-side body indices whose
+        FLOOR_CONTACT rows participate in the q-block (i.e. the bodies
+        riding on the shelf). The remaining args describe the synthetic
+        shelf basis grid so the coupler can bilinear-interpolate U at
+        arbitrary contact points.
+
+        Returns the bound coupler. Idempotent: attaching twice replaces.
+        """
+        if self._solver is None:
+            raise RuntimeError("AVBDDCRWorld._solver is not initialized")
+        coupler = ReducedSupportCoupler(
+            rs=rs,
+            tracked_body_indices=list(tracked_body_indices),
+            shelf_length=float(shelf_length),
+            shelf_width=float(shelf_width),
+            shelf_y_rest=float(shelf_y_rest),
+            n_grid_x=int(n_grid_x),
+            n_grid_z=int(n_grid_z),
+            h_macro=float(self.h),
+            h_substep=float(self.h) / float(self.avbd_substeps),
+        )
+        self.reduced_support = rs
+        self.reduced_support_coupler = coupler
+        # Wire solver hooks. These force the solver out of CUDA-graph
+        # capture mode (see solver_6dof._step_one), so existing tests
+        # that never call this method are unaffected.
+        self._solver.substep_begin_hook = coupler.substep_begin_hook
+        self._solver.iteration_hook = coupler.iteration_hook
+        self._solver.substep_end_hook = coupler.substep_end_hook
+        return coupler
 
     def add_passive_coupler(self, coupler: PassiveDCRCoupler) -> None:
         if coupler.dcr_velocity_mode != "energy_prescribed_patch":
@@ -495,6 +559,34 @@ class AVBDDCRWorld:
         else:
             self.last_sync_n = 0
         self.last_sync_ms = (_t.perf_counter() - t_sync_0) * 1000.0
+
+        # Reduced-support post-step: assemble r_tilde, run two-rate
+        # overlay (§9), inject Δv at probe rigid bodies, log energies.
+        # No-op when not attached. Sourced from the AVBD-converged
+        # augmented contact response, so the no-event-gate property of
+        # the coupled solve is preserved (§9.2 / §11.2).
+        if self.reduced_support_coupler is not None:
+            self.reduced_support_coupler.post_step(
+                self._solver,
+                rigid_kinetic_energy_fn=rigid_kinetic_energy,
+                descs=self._descs,
+            )
+            # Mirror selected diagnostics into the world log so callers
+            # can poll without reaching into the coupler.
+            c = self.reduced_support_coupler
+            self.reduced_support_energy_log.append({
+                "t": float(self.time),
+                "E_rigid_pre_overlay": float(c.last_E_rigid_pre_overlay),
+                "E_rigid_post_overlay": float(c.last_E_rigid_post_overlay),
+                "E_overlay_injected": float(c.last_E_overlay_injected),
+                "E_q": float(c.last_E_q),
+                "E_total": float(c.last_E_total),
+                "q_max_disp": float(c.last_q_max_disp),
+                "probe_d_max": c.last_probe_d_max.copy(),
+                "probe_dv": c.last_probe_dv.copy(),
+                "n_tracked_rows": int(c.last_n_tracked_rows),
+                "n_iter_solves": int(c.last_n_iter_solves),
+            })
 
         self.time += self.h
         self.last_step_ms = (_t.perf_counter() - t0) * 1000.0

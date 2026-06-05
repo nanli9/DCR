@@ -441,6 +441,16 @@ class Solver6DOF:
         # Cached probe: does this Warp build expose graph capture?
         self._graph_supported: bool | None = None
 
+        # Reduced-coordinate AVBD support hooks (see
+        # `dcr/avbd/reduced_support_solve.py`). Both default None →
+        # zero overhead, all existing tests unchanged. When either is
+        # set the substep loop is run in eager (uncaptured) mode so
+        # Python can interpose a CPU q-block solve between AVBD
+        # iterations.
+        self.substep_begin_hook = None     # fn(self) — once per substep
+        self.iteration_hook = None         # fn(self, iter_idx) — after each it
+        self.substep_end_hook = None       # fn(self) — once per substep
+
     # ---- Scene building -----------------------------------------------------
 
     def add_box(
@@ -1434,9 +1444,22 @@ class Solver6DOF:
             self._graph = None
             self._graph_signature = sig
 
+        # Reduced-support hooks (see reduced_support_solve.py):
+        #   - substep_begin_hook fires AFTER row emission, BEFORE the
+        #     iteration loop (so it can identify FLOOR rows and seed
+        #     anchor displacements from q_hat).
+        #   - iteration_hook fires after every iteration body (inside
+        #     _run_iter_loop) — incompatible with CUDA-graph capture, so
+        #     graph capture is disabled whenever the hook is set.
+        if self.substep_begin_hook is not None:
+            wp.synchronize_device(dev)
+            self.substep_begin_hook(self)
+
         use_graph = (n_active > 0
                      and str(dev).startswith("cuda")
-                     and self._graph_cuda_supported())
+                     and self._graph_cuda_supported()
+                     and self.iteration_hook is None
+                     and self.substep_end_hook is None)
         if use_graph:
             if self._graph is None:
                 with wp.ScopedCapture(device=dev) as cap:
@@ -1445,6 +1468,10 @@ class Solver6DOF:
             wp.capture_launch(self._graph)
         else:
             self._run_iter_loop(total_iters, row_dim, n_b, dev)
+
+        if self.substep_end_hook is not None:
+            wp.synchronize_device(dev)
+            self.substep_end_hook(self)
 
         # ---- 7. Refresh pair hash for next-substep warm-start ----
         if self._self_collide and self._gpu_pool_hash_cap > 0:
@@ -1677,6 +1704,15 @@ class Solver6DOF:
                     outputs=[self.v, self.omega, self.prev_v, self.prev_omega],
                     device=dev,
                 )
+
+            # Reduced-support per-iteration hook: see
+            # `dcr/avbd/reduced_support_solve.py:iteration_hook`. When
+            # set, the loop runs uncaptured (see `_step_one`) so this
+            # Python interpose can write into c_world_anchor between
+            # primal/dual rounds.
+            if self.iteration_hook is not None:
+                wp.synchronize_device(dev)
+                self.iteration_hook(self, it)
 
     def _ensure_pair_buffers(self, cap: int) -> None:
         """Allocate or grow the broadphase pair-buffer set to at least `cap`.
