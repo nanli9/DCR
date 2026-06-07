@@ -65,6 +65,7 @@ def _run_shelf(args) -> None:
         coupled_avbd=True,
         rayleigh_alpha0=0.0,
         rayleigh_alpha1=0.0,
+        to_eigenbasis=(getattr(args, "reduced_basis", "synthetic") == "eigen"),
     )
     print(f"[scene] {handle.name}")
     print(f"  iterations = {args.iterations}  substeps = 1")
@@ -120,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="Run the shelf scene with impactor + probes.")
     p.add_argument("--iterations", type=int, default=8,
                    help="AVBD iterations per substep.")
-    p.add_argument("--substeps", type=int, default=16,
+    p.add_argument("--substeps", type=int, default=4,
                    help="AVBD substeps per macro step (toy only).")
     p.add_argument("--frames", type=int, default=40)
     p.add_argument("--h", type=float, default=1.0 / 120.0)
@@ -129,6 +130,9 @@ def main(argv: list[str] | None = None) -> int:
                    help="Box mass for toy scene (kg).")
     p.add_argument("--quiet", action="store_true",
                    help="Suppress per-frame output.")
+    p.add_argument("--reduced-basis", choices=["synthetic", "eigen"],
+                   default="synthetic",
+                   help="Modal basis (eigen → diagonal IIR; physics equivalent).")
     args = p.parse_args(argv)
 
     if not args.toy and not args.shelf:

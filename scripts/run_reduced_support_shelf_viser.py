@@ -251,7 +251,7 @@ class ReducedSupportViewer:
             self.gui_substeps = self.server.gui.add_slider(
                 "AVBD substeps", min=1, max=64, step=1,
                 initial_value=int(getattr(self.world._solver, "substeps", 1)),
-                hint="Substeps per macro step. 16 is the IIR default; "
+                hint="Substeps per macro step. 4 is the default; "
                      "higher = more numerical stability but slower.")
             self.gui_substeps.on_update(self._substeps_changed)
 
@@ -735,6 +735,8 @@ class ReducedSupportViewer:
                     dcr_postkick=(mode == "old_dcr_postkick"),
                     rayleigh_alpha0=0.0,
                     rayleigh_alpha1=5.0e-6,
+                    to_eigenbasis=(getattr(self.args, "reduced_basis",
+                                           "synthetic") == "eigen"),
                     **scene_kw,
                     **coupler_kw,
                 )
@@ -1055,12 +1057,22 @@ def main(argv=None) -> int:
                         "(default) → matches scene's shelf_thickness for a "
                         "honest 1:1 render. Physics is unaffected.")
 
+    # ---- Reduced basis choice ----
+    p.add_argument("--reduced-basis", choices=["synthetic", "eigen"],
+                   default="synthetic",
+                   help="Modal basis used for the reduced support. "
+                        "'synthetic' = sine bending + Gaussian bumps "
+                        "(coupled). 'eigen' = generalized eigenbasis "
+                        "(M̂=I, K̂=Ω²; diagonal per-mode IIR resonator). "
+                        "Physics is invariant; 'eigen' is slightly faster "
+                        "and matches the DCR paper framing.")
+
     # ---- Solver tuning (advanced) ----
     solver_grp = p.add_argument_group("Solver (advanced)")
-    solver_grp.add_argument("--substeps", type=int, default=16,
-                            help="AVBD substeps per macro step. 16 is the "
-                                 "default for IIR; lower (8) is fine for "
-                                 "non-stiff scenes.")
+    solver_grp.add_argument("--substeps", type=int, default=4,
+                            help="AVBD substeps per macro step. 4 is the "
+                                 "default; 16+ for stiff IIR scenes that "
+                                 "need to resolve high-frequency modes.")
     solver_grp.add_argument("--iterations", type=int, default=4,
                             help="AVBD primal/dual iterations per substep.")
 
@@ -1193,6 +1205,7 @@ def main(argv=None) -> int:
         dcr_postkick=(mode == "old_dcr_postkick"),
         rayleigh_alpha0=0.0,
         rayleigh_alpha1=5.0e-6,
+        to_eigenbasis=(getattr(args, "reduced_basis", "synthetic") == "eigen"),
         **scene_kw,
         **coupler_kw,
     )

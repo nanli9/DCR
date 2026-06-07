@@ -78,6 +78,7 @@ def build_reduced_support_shelf(
     modal_energy_cap_fraction: float | None = None,
     modal_jump_gain: float = 1.0,
     modal_jump_max_height: float = 0.01,
+    to_eigenbasis: bool = False,
 ) -> ShelfSceneHandle:
     """Construct the shelf scene + attach (or not) the reduced support.
 
@@ -170,6 +171,7 @@ def build_reduced_support_shelf(
         rayleigh_alpha1=rayleigh_alpha1,
         modal_impedance_scale=modal_impedance_scale,
         modal_damping_scale=modal_damping_scale,
+        to_eigenbasis=to_eigenbasis,
     )
 
     # AVBDDCRWorld assigns a static "floor" body at DCR index 0 ahead

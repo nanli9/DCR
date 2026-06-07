@@ -78,6 +78,20 @@ class ReducedSupport:
     tracked_row_indices:  list[int] = field(default_factory=list)
     tracked_row_to_pt:    dict[int, int] = field(default_factory=dict)
 
+    # ---- Eigenbasis projection (spec §16) -------------------------------
+    # When `is_eigenbasis = True`, the reduced coordinates `q` ARE the true
+    # vibration modes (M̂ = I, K̂ = Ω²). Then `eigen_omegas[i]² = K̂[i,i]`
+    # and `eigen_zetas[i] = D̂[i,i] / (2·ω_i)` decouple per-mode, and the
+    # IIR coupler can use the closed-form per-mode resonator instead of a
+    # dense matrix exponential. `eigen_V` is the (r, r) generalized
+    # eigenvector matrix s.t. `q_synthetic = eigen_V · q_eigen`. Length-r
+    # variants of `modal_omega`/`modal_zeta` (the old r_modal-length ones
+    # stay for v1 BCD back-compat).
+    is_eigenbasis:  bool = False
+    eigen_V:        NDArray[np.float64] | None = None   # (r, r) or None
+    eigen_omegas:   NDArray[np.float64] | None = None   # (r,)   or None
+    eigen_zetas:    NDArray[np.float64] | None = None   # (r,)   or None
+
     # ---- Flags ----------------------------------------------------------
     enabled: bool = True
     overlay_enabled: bool = True
@@ -198,6 +212,7 @@ def make_synthetic_modal_basis_for_shelf(
     rayleigh_alpha1: float = 5.0e-6,
     modal_impedance_scale: float = 1.0,
     modal_damping_scale: float = 1.0,
+    to_eigenbasis: bool = False,
 ) -> tuple[
     NDArray[np.float64],   # point_positions_rest (n_pts, 3)
     NDArray[np.float64],   # point_normals_rest   (n_pts, 3)
@@ -208,6 +223,11 @@ def make_synthetic_modal_basis_for_shelf(
     int,                   # r_modal (first r_modal columns are oscillators)
     NDArray[np.float64],   # modal_omega          (r_modal,)
     NDArray[np.float64],   # modal_zeta           (r_modal,)
+    list[tuple[float, float]],   # bump_zones    (for probe basis eval)
+    bool,                  # is_eigenbasis
+    NDArray[np.float64],   # eigen_V              (r, r)  — I if not projected
+    NDArray[np.float64],   # eigen_omegas         (r,)
+    NDArray[np.float64],   # eigen_zetas          (r,)
 ]:
     """Build a deterministic plate-bending + Gaussian-bump basis (§13).
 
@@ -346,12 +366,78 @@ def make_synthetic_modal_basis_for_shelf(
         zeta = zeta * float(modal_damping_scale)
     zeta = np.clip(zeta, 0.0, 0.9999)
 
+    # ---- Eigenbasis projection (foundation §16 of the eigenbasis
+    # spec). Solve K_q V = M_q V Ω² with V^T M_q V = I, then transform
+    # U_y_grid, M_q, K_q, D_q into the eigen-coordinates. Each reduced
+    # coordinate becomes an independent damped oscillator. The
+    # synthetic basis is preserved when to_eigenbasis=False so the
+    # legacy path is bit-exact.
+    if to_eigenbasis:
+        from scipy.linalg import eigh
+        Mq_sym = 0.5 * (Mq + Mq.T)
+        Kq_sym = 0.5 * (Kq + Kq.T)
+        evals, V = eigh(Kq_sym, Mq_sym)
+        omega_sq_full = np.maximum(evals, 0.0)
+        eigen_omegas = np.sqrt(omega_sq_full)
+        # Project the surface basis into eigen-coords:  Û = U · V.
+        U_y_grid = U_y_grid @ V
+        # Replace dense matrices with their diagonal eigen forms.
+        Mq_proj = np.eye(r_total)
+        Kq_proj = np.diag(omega_sq_full)
+        # Rayleigh damping closed form (spec §5):
+        #   D̂_i = α₀ + α₁ · ω_i²  ⇒  ζ_i = (α₀/ω_i + α₁·ω_i)/2
+        damp_diag = (rayleigh_alpha0
+                     + rayleigh_alpha1 * omega_sq_full)
+        # Modal impedance scale was ALREADY applied to (Mq, Kq, Dq)
+        # uniformly above (one-shot divide by s = 1/modal_impedance_scale).
+        # That uniform scale survives projection: V^T (Mq/s) V = I/s,
+        # V^T (Kq/s) V = Ω²/s. So bake it in here.
+        s = (1.0 / float(modal_impedance_scale)
+             if modal_impedance_scale != 1.0 else 1.0)
+        Mq_proj = Mq_proj * s
+        Kq_proj = Kq_proj * s
+        damp_diag = damp_diag * s
+        # Modal damping scale (already applied as a one-shot * scale on
+        # Dq above; the diagonal damp_diag matches the same intent).
+        if modal_damping_scale != 1.0:
+            damp_diag = damp_diag * float(modal_damping_scale)
+        Dq_proj = np.diag(damp_diag)
+        # Re-derive zetas in the eigen basis (all r modes now).
+        eigen_zetas = np.zeros(r_total, dtype=np.float64)
+        for i in range(r_total):
+            if eigen_omegas[i] > 1e-12:
+                # ζ_i = D̂_i / (2 · m̂_i · ω_i) with m̂_i = 1 after impedance scale.
+                eigen_zetas[i] = damp_diag[i] / (2.0 * Mq_proj[i, i] * eigen_omegas[i])
+        eigen_zetas = np.clip(eigen_zetas, 0.0, 0.9999)
+        # Sanity: V^T M_q V ≈ I/s.
+        ortho_err = np.linalg.norm(V.T @ Mq_sym @ V - np.eye(r_total))
+        if ortho_err > 1e-7:
+            raise RuntimeError(
+                f"Eigenbasis projection failed mass-orthonormality "
+                f"check: ‖V^T M_q V − I‖ = {ortho_err:.3e}")
+        Mq = Mq_proj
+        Kq = Kq_proj
+        Dq = Dq_proj
+        is_eigenbasis = True
+        eigen_V = V
+    else:
+        is_eigenbasis = False
+        eigen_V = np.eye(r_total)
+        # In the synthetic basis the per-mode ω/ζ are only well-defined
+        # for the first r_modal columns. Pad with zeros for the rest so
+        # the dataclass field has consistent shape (r,).
+        eigen_omegas = np.zeros(r_total, dtype=np.float64)
+        eigen_omegas[:r_modal] = omega_global
+        eigen_zetas = np.zeros(r_total, dtype=np.float64)
+        eigen_zetas[:r_modal] = zeta
+
     # U_points: (n_pts, 3, r). Only the y-row is populated.
     U_points = np.zeros((n_pts, 3, r_total), dtype=np.float64)
     U_points[:, 1, :] = U_y_grid
 
     return (pos, normals, U_points, Mq, Kq, Dq,
-            r_modal, omega_global, zeta, bump_zones)
+            r_modal, omega_global, zeta, bump_zones,
+            is_eigenbasis, eigen_V, eigen_omegas, eigen_zetas)
 
 
 def make_debug_reduced_shelf_support(
@@ -373,6 +459,7 @@ def make_debug_reduced_shelf_support(
     rayleigh_alpha1: float = 5.0e-6,
     modal_impedance_scale: float = 1.0,
     modal_damping_scale: float = 1.0,
+    to_eigenbasis: bool = False,
 ) -> ReducedSupport:
     """Convenience: synthetic shelf + probe placement → ReducedSupport.
 
@@ -381,7 +468,9 @@ def make_debug_reduced_shelf_support(
     by the scene script (set `rs.probe_body_indices` after `add_box`).
     """
     (pos, normals, U_points, Mq, Kq, Dq,
-     r_modal, omega, zeta, bump_zones) = make_synthetic_modal_basis_for_shelf(
+     r_modal, omega, zeta, bump_zones,
+     is_eigenbasis, eigen_V, eigen_omegas, eigen_zetas
+     ) = make_synthetic_modal_basis_for_shelf(
         length=length, width=width, thickness=thickness,
         youngs=youngs, density=density, poisson=poisson,
         n_modes_global=n_modes_global, n_modes_local=n_modes_local,
@@ -389,6 +478,7 @@ def make_debug_reduced_shelf_support(
         rayleigh_alpha0=rayleigh_alpha0, rayleigh_alpha1=rayleigh_alpha1,
         modal_impedance_scale=modal_impedance_scale,
         modal_damping_scale=modal_damping_scale,
+        to_eigenbasis=to_eigenbasis,
     )
     r_total = U_points.shape[2]
 
@@ -419,6 +509,13 @@ def make_debug_reduced_shelf_support(
                 r2 = (xp - xc) ** 2 + (zp - zc) ** 2
                 probe_U[i, 1, n_modes_global + j] = np.exp(-0.5 * r2 / (sigma * sigma))
 
+    # probe_U above was built in the SYNTHETIC basis. If the support is
+    # in the eigenbasis, project it through V too:  Û_probe = Φ_probe·V.
+    # That keeps overlay/jump-gain diagnostics that read U_y·q invariant
+    # under the basis change (foundation §7 of the eigenbasis spec).
+    if is_eigenbasis:
+        probe_U[:, 1, :] = probe_U[:, 1, :] @ eigen_V
+
     rs = ReducedSupport(
         point_positions_rest=pos,
         point_normals_rest=normals,
@@ -435,6 +532,10 @@ def make_debug_reduced_shelf_support(
         probe_normals=probe_normals,
         probe_U=probe_U,
         probe_body_indices=[],   # caller fills this after add_box
+        is_eigenbasis=is_eigenbasis,
+        eigen_V=eigen_V,
+        eigen_omegas=eigen_omegas,
+        eigen_zetas=eigen_zetas,
         overlay_enabled=overlay_enabled,
         restart_overlay_each_step=restart_overlay_each_step,
     )

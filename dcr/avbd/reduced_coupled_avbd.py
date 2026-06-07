@@ -50,7 +50,10 @@ from numpy.typing import NDArray
 
 from .reduced_support import ReducedSupport, evaluate_basis_at_point
 from .reduced_support_solve import _quat_rotate_xyzw
-from ..modal.exact_resonator import dynamic_compliance_step_precompute
+from ..modal.exact_resonator import (
+    dynamic_compliance_step_precompute,
+    exact_modal_step_precompute,
+)
 
 
 FLOOR_CONTACT_6DOF = 0
@@ -441,25 +444,46 @@ class ReducedCoupledAVBDCoupler:
 
         if self.dynamic_q:
             if self.q_integrator == "iir":
-                # Precompute the full r×r exact damped-oscillator
-                # response over this substep (paper Eq. 10 in
-                # state-space matrix-exponential form). Handles
-                # non-diagonal Mq/Kq/Dq natively.
-                q_free, qdot_free, S_h, T_h = (
-                    dynamic_compliance_step_precompute(
+                if getattr(self.rs, "is_eigenbasis", False):
+                    # Eigenbasis fast path (foundation §10–11). Per-mode
+                    # closed-form damped-oscillator over this substep.
+                    # S_h and T_h are DIAGONAL (length-r vectors); we
+                    # keep dense (np.diag(...)) aliases so the rest of
+                    # this file's hot paths don't need branch-points.
+                    mass_diag = np.diag(self.rs.Mq)   # = ones(r) here
+                    (q_free, qdot_free, S_diag, T_diag
+                     ) = exact_modal_step_precompute(
                         self.rs.q, self.rs.qdot,
-                        self.rs.Mq, self.rs.Kq, self.rs.Dq,
-                        self.h_substep))
-                # S_h is r×r dense; invert once per substep, cache.
-                S_h_inv = np.linalg.inv(S_h)
+                        self.rs.eigen_omegas, self.rs.eigen_zetas,
+                        mass_diag, self.h_substep)
+                    # Guard against tiny / zero S (rigid limit guard
+                    # inside exact_modal_step_precompute already
+                    # returns ≥ 1e-18, so safe to invert).
+                    S_h_inv_diag = 1.0 / S_diag
+                    S_h     = np.diag(S_diag)
+                    T_h     = np.diag(T_diag)
+                    S_h_inv = np.diag(S_h_inv_diag)
+                    self.last_min_S_h = float(S_diag.min())
+                    self.last_max_S_h = float(S_diag.max())
+                else:
+                    # Dense fallback: full 3r×3r matrix-exponential
+                    # (paper Eq. 10 in state-space form). Handles
+                    # arbitrary non-diagonal Mq/Kq/Dq natively.
+                    q_free, qdot_free, S_h, T_h = (
+                        dynamic_compliance_step_precompute(
+                            self.rs.q, self.rs.qdot,
+                            self.rs.Mq, self.rs.Kq, self.rs.Dq,
+                            self.h_substep))
+                    # S_h is r×r dense; invert once per substep, cache.
+                    S_h_inv = np.linalg.inv(S_h)
+                    diag_S = np.diag(S_h)
+                    self.last_min_S_h = float(diag_S.min())
+                    self.last_max_S_h = float(diag_S.max())
                 self.q_free   = q_free
                 self.qdot_free = qdot_free
                 self.S_h      = S_h
                 self.T_h      = T_h
                 self.S_h_inv  = S_h_inv
-                diag_S = np.diag(S_h)
-                self.last_min_S_h = float(diag_S.min())
-                self.last_max_S_h = float(diag_S.max())
                 # Warm-start the Newton iterations from the free response.
                 self.rs.q       = q_free.copy()
                 self.rs.q_hat   = q_free.copy()

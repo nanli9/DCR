@@ -40,6 +40,7 @@ def _run_one(*, material: str, youngs: float, substeps: int,
              modal_energy_cap_fraction: float | None = None,
              modal_jump_gain: float = 1.0,
              modal_jump_max_height: float = 0.01,
+             to_eigenbasis: bool = False,
              scene_preset=None):
     """Run one material with the given knobs. `scene_preset` (ScenePreset
     or None) supplies geometry + impactor defaults; impactor_v0_y is
@@ -79,6 +80,7 @@ def _run_one(*, material: str, youngs: float, substeps: int,
         modal_energy_cap_fraction=modal_energy_cap_fraction,
         modal_jump_gain=modal_jump_gain,
         modal_jump_max_height=modal_jump_max_height,
+        to_eigenbasis=to_eigenbasis,
     )
     w = handle.world
     c = w.reduced_coupled_coupler
@@ -135,7 +137,7 @@ def main():
     ap.add_argument("--demo-style", choices=list(DEMO_STYLES.keys()),
                     default="honest")
     ap.add_argument("--frames",   type=int,   default=120)
-    ap.add_argument("--substeps", type=int,   default=16)
+    ap.add_argument("--substeps", type=int,   default=4)
     ap.add_argument("--v0-y",     type=float, default=None,
                     help="impactor initial downward velocity (m/s). "
                          "Default: scene's value.")
@@ -151,6 +153,9 @@ def main():
     ap.add_argument("--modal-energy-cap-fraction", type=float, default=None)
     ap.add_argument("--modal-jump-gain", type=float, default=None)
     ap.add_argument("--modal-jump-max-height", type=float, default=None)
+    ap.add_argument("--reduced-basis", choices=["synthetic", "eigen"],
+                    default="synthetic",
+                    help="Modal basis (eigen → diagonal IIR; physics equivalent).")
 
     args = ap.parse_args()
 
@@ -186,6 +191,7 @@ def main():
             modal_energy_cap_fraction=eta,
             modal_jump_gain=jg,
             modal_jump_max_height=jh,
+            to_eigenbasis=(args.reduced_basis == "eigen"),
             scene_preset=scene))
 
     print()

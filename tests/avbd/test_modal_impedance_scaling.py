@@ -94,8 +94,8 @@ def test_gain_preserves_omega_zeta():
     exactly invariant. Build at g=1 and g=4 and assert match within
     machine precision.
     """
-    (_, _, _, Mq_a, Kq_a, Dq_a, _, omega_a, zeta_a, _) = _build_basis(gain=1.0)
-    (_, _, _, Mq_b, Kq_b, Dq_b, _, omega_b, zeta_b, _) = _build_basis(gain=4.0)
+    (_, _, _, Mq_a, Kq_a, Dq_a, _, omega_a, zeta_a, *_) = _build_basis(gain=1.0)
+    (_, _, _, Mq_b, Kq_b, Dq_b, _, omega_b, zeta_b, *_) = _build_basis(gain=4.0)
 
     # The synthetic basis's modal_omega / modal_zeta are computed from
     # Rayleigh + analytic Euler-Bernoulli, not from Mq / Kq directly, so
@@ -119,8 +119,8 @@ def test_gain_scales_S_h():
     coupler relies on)."""
     from dcr.modal.exact_resonator import dynamic_compliance_step_precompute
 
-    (_, _, _, Mq_a, Kq_a, Dq_a, r_modal, _, _, _) = _build_basis(gain=1.0)
-    (_, _, _, Mq_b, Kq_b, Dq_b, _,       _, _, _) = _build_basis(gain=4.0)
+    (_, _, _, Mq_a, Kq_a, Dq_a, r_modal, _, _, *_) = _build_basis(gain=1.0)
+    (_, _, _, Mq_b, Kq_b, Dq_b, _,       _, _, *_) = _build_basis(gain=4.0)
 
     r = Mq_a.shape[0]
     q0 = np.zeros(r, dtype=np.float64)
@@ -169,8 +169,8 @@ def test_gain_amplifies_static_deflection():
 def test_damping_scale_changes_zeta():
     """At c_zeta = 0.5, modal_zeta should be exactly halved (subject to
     the [0, 0.9999] clamp). modal_omega is unchanged."""
-    (_, _, _, _, _, _, _, omega_a, zeta_a, _) = _build_basis(c_zeta=1.0)
-    (_, _, _, _, _, _, _, omega_b, zeta_b, _) = _build_basis(c_zeta=0.5)
+    (_, _, _, _, _, _, _, omega_a, zeta_a, *_) = _build_basis(c_zeta=1.0)
+    (_, _, _, _, _, _, _, omega_b, zeta_b, *_) = _build_basis(c_zeta=0.5)
 
     np.testing.assert_allclose(omega_a, omega_b, atol=0.0, rtol=0.0)
     # Each zeta scales by 0.5 unless it was already at the clamp.

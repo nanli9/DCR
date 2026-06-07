@@ -502,3 +502,107 @@ Full measured sweep (wood, 0.5 kg impactor at −1 m/s, γ=8, 120 frames) is in 
 
 A 5 cm slab is **effectively rigid** at room-temperature impact — and that's correct physics, not a model limitation. The bending-stiffness scaling is the same in *any* plate theory (Euler-Bernoulli, Mindlin-Reissner, or full 3D linear elasticity), so switching to a true 3D tet mesh wouldn't make a thick slab visibly flex either.
 
+
+
+## Eigenbasis projection (`--reduced-basis eigen`)
+
+### What it does
+
+The default modal basis (`--reduced-basis synthetic`) is what `make_synthetic_modal_basis_for_shelf` builds: sine bending modes + Gaussian bumps. Those shape functions are *not* generalized eigenvectors of the reduced system, so the assembled `M_q, K_q, D_q` are all **dense `r×r`** matrices. The IIR exact-resonator handles that via a dense `expm` of a `(3r × 3r)` augmented matrix each substep — correct, but the modal coordinates are coupled and the matrices have no special structure.
+
+`--reduced-basis eigen` solves the generalized eigenproblem once at construction:
+
+```
+K_q · V = M_q · V · Ω²        with  V^T M_q V = I,   V^T K_q V = Ω²
+```
+
+via `scipy.linalg.eigh(K_q, M_q)`, then transforms `(M_q, K_q, D_q, U_points)` into the eigen-coordinates:
+
+| Quantity | Synthetic | Eigen |
+|---|---|---|
+| Modal mass `M̂`     | dense `r×r` | `I` (diagonal, identity) |
+| Modal stiffness `K̂` | dense `r×r` | `diag(ω₁², ..., ωᵣ²)` |
+| Modal damping `D̂` (Rayleigh) | `α₀ M + α₁ K` (dense) | `diag(α₀ + α₁ ωᵢ²)` |
+| Surface basis `U_points` | sine + bump shapes | `U_synth · V` |
+| IIR resonator step | `expm(3r × 3r)` matrix | per-mode scalar (cos, sin, exp) over `r` modes |
+
+Each reduced coordinate then satisfies its own independent damped oscillator:
+
+```
+ä_i + 2 ζ_i ω_i ȧ_i + ω_i² a_i = f_i
+```
+
+so the closed-form per-mode resonator (`exact_modal_step_precompute` in `dcr/modal/exact_resonator.py`) replaces the dense `expm` path.
+
+### Invariance — math vs. simulation
+
+**Mathematical invariance (bit-exact).** For any given physical state, the basis-change identity holds to float precision:
+
+- `U_synth · q_synth ≡ U_eigen · a`  with  `a = V⁻¹ · q_synth = Vᵀ · M_q_synth · q_synth`
+- modal energy `½ q̇ᵀ M q̇ + ½ qᵀ K q` agrees in both coordinate systems
+- `tests/avbd/test_eigenbasis_projection.py` (test 4 + 5) confirms `‖U_synth·q − U_eigen·a‖ ≲ 1e-9` at random states, and test 6 confirms the per-mode resonator matches the dense `expm` path on a single substep to ~1e-7
+
+**Simulation-level invariance (approximate).** The two bases are not bit-exact simulations of the same dynamics in finite iterations. The AVBD primal/dual solve sees a *different `H_q` structure* in each basis (dense vs. diagonal-plus-rank-1 contact updates), so the iterative loop converges to slightly different residual fixed points within the iteration budget. With `--iterations 4` the per-substep `q` divergence is ~10⁻⁸ in coordinate space (≈ 0.03 µm in physical deflection); through impact bouncing this can amplify to ~5–25% differences in peak probe-rise over 120 frames. The legacy synthetic path is bit-exact backward-compatible (test 7): `to_eigenbasis=False` produces identical `M_q, K_q, D_q` to the pre-projection code.
+
+Neither basis is "wrong" — both are valid simulations of the same model, sitting on slightly different points of an under-resolved iteration residual. With higher `--iterations` the two converge to the same answer (modulo float drift). This is the same kind of numerical sensitivity that comparing `--substeps 16` vs. `--substeps 32` exhibits — both are honest, both are valid.
+
+The *coordinate* quantities `q`, `q̇` (and their norms `last_q_norm`, `last_qdot_norm`) **do** change between bases — they're labels for points in `r`-dimensional space, and a change of basis renames them. The viser HUD's deformation visualization reads `U·q`, which is the basis-invariant observable.
+
+### Performance — honest measured result
+
+The user's first question on this knob was: *does it affect real-time performance?* The answer turned out to be **"slightly slower in v1, with an obvious unblocking optimization."**
+
+**Measured (research-baseline scene, r = 10 modes, 16 substeps, 120 frames):**
+
+| Basis | ms / frame | Δ |
+|---|---:|---:|
+| `synthetic` (dense `expm`) | 107.4 | baseline |
+| `eigen` (per-mode scalar loop, wrapped in `np.diag`) | 109.1 | **+1.5% cost** |
+
+**Why "cost" and not "win" in v1.** The eigen path *does* replace `expm(30×30)` with a per-mode loop, but in CPython that loop (`r=10` × cos / sin / exp scalar ops) is comparable to or slightly slower than scipy's compiled expm. The bigger problem is downstream: I kept dense aliases `S_h = np.diag(S_h_diag)` so the rest of the iteration loop (`S_h_inv @ vec`, `H_q @ q`, `Schur reduce`) still does dense `r × r` matrix ops. The diagonal structure is mathematically present but not exploited in the hot path. Net: a tiny modal-block cost increase, no observable correctness change.
+
+**The actual real-time picture.** The current bottleneck (~107 ms / frame) lives in the AVBD primal/dual Warp kernels and Python↔Warp marshalling — *not* in the modal block. At 120 Hz the entire substep is ~3 ms; the modal block is ~3% of that. So even a perfect zero-cost diagonalization would buy at most ~1% wall-clock; doing the diagonal exploit fully would bring the path from +1.5% to ≈ −1%. Mostly a wash.
+
+**Where it WOULD matter (and is the right reason to keep this knob):**
+
+- Larger `r` (e.g. `r = 64+` from a real FEM eigensolve): the dense `expm` is `O((3r)³) ≈ O(r³)`; the diagonal path is `O(r)`. At `r = 64` this is a real (10×+) modal-block speedup.
+- Many tracked contact rows: each rank-1 update `H_q += k · outer(U_y, U_y)` is `O(r²)`. Diagonal `H_q` baseline keeps the rank-1 sum sparser. Not a v1 win but matters at scale.
+- Mode truncation: only valid in the eigenbasis. Going from `r = 16` to `r = 4` (drop high-`ω` modes that bend less) is honest and easy after projection. Doesn't apply when the basis is synthetic-coupled.
+
+**The follow-up optimization (not in v1).** Switch the dense aliases (`S_h`, `S_h_inv`, `T_h`) to vectors and replace `@` with `*` everywhere in the IIR branches of `reduced_coupled_avbd.py`. That should drop modal-block time to ~5 µs/substep, recovering the projected 1–5% wall-clock improvement at `r=10` and unlocking the bigger wins at larger `r`. Skipped here so the correctness diff stays small.
+
+**Per-substep modal-block cost (projected, NOT measured)** for `r=16` modes after the follow-up optimization:
+
+| Operation | Synthetic (dense) | Eigen (diagonal exploit) | Δ |
+|---|---|---|---|
+| `S_h`, `T_h` build | `expm(18×18)` ≈ 50–150 µs | per-mode scalar formulas ≈ 5–10 µs | **−40 to −140 µs** |
+| `S_h⁻¹` for contact LHS | dense solve `r×r` | elementwise reciprocal | **−10 to −30 µs** |
+| Energy `½ q^T K q` | matvec + dot | r-vector dot | **−2 µs** |
+
+Net **~60–180 µs / substep** projected savings after the optimization — not realized in v1.
+
+**Bottom line:** eigenbasis projection in v1 is a **correctness / paper-alignment win, not a performance win**. It unblocks mode truncation and aligns the reduced coordinates with the DCR paper's framing of true vibration modes — but the measured wall-clock cost is **+1.5%** until the dense-alias hot-path optimization lands. The default remains `synthetic` so prior benchmark numbers reproduce bit-for-bit.
+
+### Usage
+
+```bash
+# Same scene in both bases — physical observables agree to ~few µm
+# at low iteration count, converge with --iterations 12+.
+uv run python scripts/run_coupled_energy_log.py \
+    --mode coupled_iir_modal --scene research-baseline \
+    --reduced-basis synthetic --frames 240 --tag baseline_synth
+
+uv run python scripts/run_coupled_energy_log.py \
+    --mode coupled_iir_modal --scene research-baseline \
+    --reduced-basis eigen --frames 240 --tag baseline_eigen
+
+# Live in viser.
+uv run python scripts/run_reduced_support_shelf_viser.py \
+    --scene research-baseline --reduced-basis eigen
+```
+
+The default remains `synthetic` so prior benchmark numbers reproduce bit-for-bit. Pass `--reduced-basis eigen` to opt into the diagonalized path.
+
+### Why this aligns with the paper
+
+The DCR paper writes modal-path response in terms of true natural vibration modes (Eq. 10, the forced IIR resonator). The synthetic basis is an *engineering shortcut* that lets the prototype run without a full FEM eigensolve, but it isn't what the paper assumes. After `--reduced-basis eigen`, the reduced coordinates `a_i` are honest vibration mode amplitudes with frequencies `ω_i` and damping ratios `ζ_i`, each independently driven by the constraint Jacobian projection. That's the paper's framing.

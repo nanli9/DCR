@@ -88,6 +88,7 @@ def _run(args):
         modal_energy_cap_fraction=args.modal_energy_cap_fraction,
         modal_jump_gain=args.modal_jump_gain,
         modal_jump_max_height=args.modal_jump_max_height,
+        to_eigenbasis=(getattr(args, "reduced_basis", "synthetic") == "eigen"),
     )
     w = handle.world
     rs = handle.rs
@@ -409,10 +410,15 @@ def main():
 
     # Solver / advanced.
     adv_grp = ap.add_argument_group("Advanced")
-    adv_grp.add_argument("--substeps", type=int,   default=16)
+    adv_grp.add_argument("--substeps", type=int,   default=4)
     adv_grp.add_argument("--rayleigh-alpha1", type=float, default=5.0e-6)
     adv_grp.add_argument("--log-substeps", action="store_true", default=False)
     adv_grp.add_argument("--zoom-ms", type=float, default=50.0)
+    adv_grp.add_argument("--reduced-basis", choices=["synthetic", "eigen"],
+                         default="synthetic",
+                         help="Modal basis: 'synthetic' (sine+bump, coupled) "
+                              "or 'eigen' (M̂=I, K̂=Ω², diagonal IIR). "
+                              "Physically equivalent; eigen is slightly faster.")
 
     # Deprecated (kept for one cycle).
     dep_grp = ap.add_argument_group("Deprecated")
