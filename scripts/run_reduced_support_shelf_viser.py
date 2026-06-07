@@ -899,10 +899,17 @@ class ReducedSupportViewer:
             render_thickness=self._render_thickness,
             exaggerate=float(self.gui_q_exaggerate.value))
 
-        with self.server.atomic():
-            self._batched_bodies.batched_positions = self._bp_buf
-            self._batched_bodies.batched_wxyzs = self._bw_buf
-            self.shelf_handle.vertices = deformed
+        # Defensive: rebuild thread may swap shelf_handle / _batched_bodies
+        # mid-tick. If that happens, the old handle has been removed and
+        # any assignment raises RuntimeError. Skip the frame — the next
+        # tick will see the new handles and render correctly.
+        try:
+            with self.server.atomic():
+                self._batched_bodies.batched_positions = self._bp_buf
+                self._batched_bodies.batched_wxyzs = self._bw_buf
+                self.shelf_handle.vertices = deformed
+        except RuntimeError:
+            return
 
         # HUD throttle.
         self._frame += 1
@@ -1059,7 +1066,7 @@ def main(argv=None) -> int:
 
     # ---- Reduced basis choice ----
     p.add_argument("--reduced-basis", choices=["synthetic", "eigen"],
-                   default="synthetic",
+                   default="eigen",
                    help="Modal basis used for the reduced support. "
                         "'synthetic' = sine bending + Gaussian bumps "
                         "(coupled). 'eigen' = generalized eigenbasis "

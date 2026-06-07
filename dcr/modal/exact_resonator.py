@@ -116,86 +116,85 @@ def exact_modal_step_precompute(
     if h <= 0.0:
         raise ValueError(f"h must be positive, got {h}")
 
-    q_free    = np.empty(r, dtype=np.float64)
-    qdot_free = np.empty(r, dtype=np.float64)
-    S         = np.empty(r, dtype=np.float64)
-    T         = np.empty(r, dtype=np.float64)
+    # P0 (perf): vectorized over modes. Five branches (frozen, rigid,
+    # critical, over, under) are computed in parallel and selected via
+    # np.where. Math is bit-identical to the per-mode loop in the normal
+    # underdamped path; the only cost is that unused branches are also
+    # computed then discarded. For r ≤ 20 this is much faster than the
+    # Python for-loop because each np.exp/cos/sin call has ~1–3 µs of
+    # dispatch overhead that doesn't amortize at small r.
+    safe_mass  = np.where(mass > 0.0, mass, 1.0)
+    safe_omega = np.where(omega > 1.0e-12, omega, 1.0)
 
-    # Per-mode loop. r is small (typically ≤ 20); Python overhead is
-    # negligible vs the math. Branches are clearest written explicitly.
-    for i in range(r):
-        wi  = float(omega[i])
-        zi  = float(zeta[i])
-        mi  = float(mass[i])
-        qi  = float(q[i])
-        qdi = float(qdot[i])
+    frozen = ~(np.isfinite(mass) & (mass > 0.0))
+    rigid  = (~frozen) & ((omega * h < 1.0e-6) | (omega < 1.0e-12))
+    crit   = (~frozen) & (~rigid) & (np.abs(zeta - 1.0) < 1.0e-6)
+    over   = (~frozen) & (~rigid) & (~crit) & (zeta > 1.0)
+    # under = remaining; not materialized — used only as fall-through.
 
-        # Guard: non-finite or non-positive mass → frozen DoF.
-        if not np.isfinite(mi) or mi <= 0.0:
-            q_free[i]    = qi
-            qdot_free[i] = qdi
-            S[i]         = 1.0e-18
-            T[i]         = 0.0
-            continue
+    ai      = zeta * safe_omega
+    ki      = safe_mass * safe_omega * safe_omega
+    safe_ki = np.maximum(ki, 1.0e-40)
+    E       = np.exp(-ai * h)
 
-        ki = mi * wi * wi
+    # ---- Underdamped (hot path).  0 ≤ ζ < 1 − 1e-6 ----
+    wd_u  = safe_omega * np.sqrt(np.maximum(1.0 - zeta * zeta, 1.0e-30))
+    c_u   = np.cos(wd_u * h)
+    s_u   = np.sin(wd_u * h)
+    aow_u = ai / wd_u
+    qf_u  = E * ((c_u + aow_u * s_u) * q + (s_u / wd_u) * qdot)
+    qdf_u = E * (-(safe_omega * safe_omega / wd_u) * s_u * q
+                  + (c_u - aow_u * s_u) * qdot)
+    S_u   = (1.0 - E * (c_u + aow_u * s_u)) / safe_ki
+    T_u   = E * s_u / (safe_mass * wd_u)
 
-        # ---- Rigid limit: ω·h ≪ 1 ----
-        # Pure-inertia integration over the substep with constant F:
-        #   q(h)    = q + h·qdot + (h²/2m)·F
-        #   qdot(h) = qdot + (h/m)·F
-        # DEVIATION: closed-form damped-oscillator formulas above
-        # become numerically unstable as ω·h → 0; switch to the rigid
-        # limit explicitly. Triggered only by very-low-ω modes which
-        # this repo does not produce (modal_omega starts at the first
-        # bending eigenfrequency).
-        if wi * h < 1.0e-6 or wi < 1.0e-12:
-            q_free[i]    = qi + h * qdi
-            qdot_free[i] = qdi
-            S[i]         = (h * h) / (2.0 * mi)
-            T[i]         = h / mi
-            continue
+    # ---- Critical-damped: |ζ − 1| < 1e-6 ----
+    wh    = safe_omega * h
+    qf_c  = E * ((1.0 + wh) * q + h * qdot)
+    qdf_c = E * (-(safe_omega * safe_omega) * h * q + (1.0 - wh) * qdot)
+    S_c   = (1.0 - E * (1.0 + wh)) / safe_ki
+    T_c   = E * h / safe_mass
 
-        ai = zi * wi
-        E  = float(np.exp(-ai * h))
+    # ---- Overdamped: ζ > 1 ----
+    wd_o  = safe_omega * np.sqrt(np.maximum(zeta * zeta - 1.0, 1.0e-30))
+    ch_o  = np.cosh(wd_o * h)
+    sh_o  = np.sinh(wd_o * h)
+    aow_o = ai / wd_o
+    qf_o  = E * ((ch_o + aow_o * sh_o) * q + (sh_o / wd_o) * qdot)
+    qdf_o = E * (-(safe_omega * safe_omega / wd_o) * sh_o * q
+                  + (ch_o - aow_o * sh_o) * qdot)
+    S_o   = (1.0 - E * (ch_o + aow_o * sh_o)) / safe_ki
+    T_o   = E * sh_o / (safe_mass * wd_o)
 
-        # ---- Critical-damped: |ζ − 1| < 1e-6 ----
-        # Repeated-root closed form; avoids the 1/ω_d singularity.
-        if abs(zi - 1.0) < 1.0e-6:
-            wh = wi * h
-            one_plus_wh  = 1.0 + wh
-            one_minus_wh = 1.0 - wh
-            q_free[i]    = E * (one_plus_wh * qi + h * qdi)
-            qdot_free[i] = E * (-(wi * wi) * h * qi + one_minus_wh * qdi)
-            S[i]         = (1.0 - E * one_plus_wh) / max(ki, 1.0e-40)
-            T[i]         = E * h / mi
-            continue
+    # ---- Rigid limit: ω·h ≪ 1 ----
+    # DEVIATION: damped-oscillator formulas are numerically unstable as
+    # ω·h → 0; switch to pure-inertia integration with constant F.
+    qf_r  = q + h * qdot
+    qdf_r = qdot
+    S_r   = np.full_like(omega, h * h) / (2.0 * safe_mass)
+    T_r   = np.full_like(omega, h) / safe_mass
 
-        # ---- Overdamped: ζ > 1 ----
-        # Same formulas with cos→cosh, sin→sinh, ω_d → i·ω_d_hyp.
-        if zi > 1.0:
-            wd_hyp = wi * float(np.sqrt(zi * zi - 1.0))
-            ch = float(np.cosh(wd_hyp * h))
-            sh = float(np.sinh(wd_hyp * h))
-            q_free[i] = E * ((ch + (ai / wd_hyp) * sh) * qi
-                              + (sh / wd_hyp) * qdi)
-            qdot_free[i] = E * (-(wi * wi / wd_hyp) * sh * qi
-                                 + (ch - (ai / wd_hyp) * sh) * qdi)
-            S[i] = (1.0 - E * (ch + (ai / wd_hyp) * sh)) / max(ki, 1.0e-40)
-            T[i] = E * sh / (mi * wd_hyp)
-            continue
+    # ---- Frozen: non-finite or non-positive mass ----
+    S_fr  = np.full_like(omega, 1.0e-18)
+    T_fr  = np.zeros_like(omega)
 
-        # ---- Underdamped: 0 ≤ ζ < 1 ----  (the hot path)
-        wd = wi * float(np.sqrt(max(1.0 - zi * zi, 1.0e-30)))
-        c  = float(np.cos(wd * h))
-        s  = float(np.sin(wd * h))
-
-        a_over_wd = ai / wd
-        q_free[i] = E * ((c + a_over_wd * s) * qi + (s / wd) * qdi)
-        qdot_free[i] = E * (-(wi * wi / wd) * s * qi
-                             + (c - a_over_wd * s) * qdi)
-        S[i] = (1.0 - E * (c + a_over_wd * s)) / max(ki, 1.0e-40)
-        T[i] = E * s / (mi * wd)
+    # Branch select via stacked np.where (under = fall-through).
+    q_free    = np.where(frozen, q,
+                np.where(rigid, qf_r,
+                np.where(crit,  qf_c,
+                np.where(over,  qf_o, qf_u))))
+    qdot_free = np.where(frozen, qdot,
+                np.where(rigid, qdf_r,
+                np.where(crit,  qdf_c,
+                np.where(over,  qdf_o, qdf_u))))
+    S         = np.where(frozen, S_fr,
+                np.where(rigid, S_r,
+                np.where(crit,  S_c,
+                np.where(over,  S_o, S_u))))
+    T         = np.where(frozen, T_fr,
+                np.where(rigid, T_r,
+                np.where(crit,  T_c,
+                np.where(over,  T_o, T_u))))
 
     # ---- Floor S to avoid Hessian blow-up ----
     # # DEVIATION: 1/S enters H_qq's diagonal. If S_i underflows the

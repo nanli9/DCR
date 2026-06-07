@@ -154,7 +154,7 @@ def main():
     ap.add_argument("--modal-jump-gain", type=float, default=None)
     ap.add_argument("--modal-jump-max-height", type=float, default=None)
     ap.add_argument("--reduced-basis", choices=["synthetic", "eigen"],
-                    default="synthetic",
+                    default="eigen",
                     help="Modal basis (eigen → diagonal IIR; physics equivalent).")
 
     args = ap.parse_args()

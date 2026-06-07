@@ -167,6 +167,32 @@ def _geom_stiffness_diag(n: NDArray[np.float64],
     return cols
 
 
+def _geom_stiffness_diag_batch(n: NDArray[np.float64],
+                               r: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Vectorized version of _geom_stiffness_diag over a batch of r vectors.
+
+    Args:
+        n: contact normal, shape (3,) — fixed across the batch.
+        r: per-row offset-rotated vectors, shape (n_rows, 3).
+    Returns:
+        g_diag stacked, shape (n_rows, 3).
+
+    The math is bit-identical to calling _geom_stiffness_diag(n, r[i]) per row;
+    only the Python-loop dispatch overhead is eliminated.
+    """
+    n_dot_r = r @ n   # (n_rows,)
+    out = np.empty_like(r)
+    for c in range(3):
+        col = np.empty_like(r)   # (n_rows, 3)
+        for i_ in range(3):
+            if i_ == c:
+                col[:, i_] = n[i_] * r[:, c] - n_dot_r
+            else:
+                col[:, i_] = 0.5 * (n[i_] * r[:, c] + r[:, i_] * n[c])
+        out[:, c] = np.linalg.norm(col, axis=1)
+    return out
+
+
 @dataclass
 class ReducedCoupledAVBDCoupler:
     """Monolithic Python-side coupled primal coupler for AVBD + reduced
@@ -276,6 +302,13 @@ class ReducedCoupledAVBDCoupler:
     T_h:         NDArray[np.float64] | None = None
     S_h_inv:     NDArray[np.float64] | None = None
     last_modal_F: NDArray[np.float64] | None = None
+    # Eigenbasis fast-path: diagonal aliases of S_h, S_h_inv, T_h as
+    # length-r vectors. Set in substep_begin_hook when rs.is_eigenbasis;
+    # None on the synthetic path. Used in iteration_hook and
+    # substep_end_hook to replace dense r×r matvec with elementwise ops.
+    S_h_diag:     NDArray[np.float64] | None = None
+    S_h_inv_diag: NDArray[np.float64] | None = None
+    T_h_diag:     NDArray[np.float64] | None = None
 
     # ---- Substep-resolution logging ----
     # When True, every substep_end_hook pushes a dict snapshot to
@@ -293,6 +326,36 @@ class ReducedCoupledAVBDCoupler:
     _row_off_a:  dict[int, NDArray[np.float64]] = field(default_factory=dict)
     _row_floor_y_rest: dict[int, float] = field(default_factory=dict)
     _rows_per_body: dict[int, list[int]] = field(default_factory=dict)
+
+    # Static-within-substep warp state, pulled once in substep_begin_hook
+    # and reused across all AVBD iterations of that substep. None until
+    # the first substep_begin_hook fires.
+    _mass_np:            NDArray[np.float64] | None = None
+    _inertia_local_np:   NDArray[np.float64] | None = None
+    _x_inertial_np:      NDArray[np.float64] | None = None
+    _q_inertial_np:      NDArray[np.float64] | None = None
+
+    # P4: vectorized anchor-update stack, built once per substep.
+    # _tracked_rows_arr   — (n_tracked,)   int row indices into c_world_anchor
+    # _U_y_stack          — (n_tracked, r) per-row basis y-vectors stacked
+    # _floor_y_rest_arr   — (n_tracked,)   rest floor heights
+    # _v_lift_arr         — (n_tracked,)   per-row upward lift velocity
+    # Allows `anchor[idx, 1] = floor_y + U_y_stack @ q + h * v_lift`
+    # as a single matvec + scatter, replacing a Python for over rows.
+    _tracked_rows_arr:   NDArray[np.int64]   | None = None
+    _U_y_stack:          NDArray[np.float64] | None = None
+    _floor_y_rest_arr:   NDArray[np.float64] | None = None
+    _v_lift_arr:         NDArray[np.float64] | None = None
+
+    # P1: per-body row-array caches, built once per substep, used by
+    # iteration_hook to replace the inner `for row in rows_on_body`
+    # Python loop with batched matmuls.
+    #   _row_idx_by_body[b]:  (n_rows_b,)     row indices into the *_np arrays
+    #   _row_off_by_body[b]:  (n_rows_b, 3)   corner offsets in body frame
+    #   _row_U_y_by_body[b]:  (n_rows_b, r)   basis y-vectors per row
+    _row_idx_by_body: dict[int, NDArray[np.int64]] = field(default_factory=dict)
+    _row_off_by_body: dict[int, NDArray[np.float64]] = field(default_factory=dict)
+    _row_U_y_by_body: dict[int, NDArray[np.float64]] = field(default_factory=dict)
 
     # Instrumentation (asserted by tests).
     last_q_norm: float = 0.0
@@ -465,6 +528,10 @@ class ReducedCoupledAVBDCoupler:
                     S_h_inv = np.diag(S_h_inv_diag)
                     self.last_min_S_h = float(S_diag.min())
                     self.last_max_S_h = float(S_diag.max())
+                    # Diagonal aliases for the elementwise hot path.
+                    self.S_h_diag     = S_diag
+                    self.S_h_inv_diag = S_h_inv_diag
+                    self.T_h_diag     = T_diag
                 else:
                     # Dense fallback: full 3r×3r matrix-exponential
                     # (paper Eq. 10 in state-space form). Handles
@@ -479,6 +546,10 @@ class ReducedCoupledAVBDCoupler:
                     diag_S = np.diag(S_h)
                     self.last_min_S_h = float(diag_S.min())
                     self.last_max_S_h = float(diag_S.max())
+                    # Synthetic path stays on the dense matvec route.
+                    self.S_h_diag     = None
+                    self.S_h_inv_diag = None
+                    self.T_h_diag     = None
                 self.q_free   = q_free
                 self.qdot_free = qdot_free
                 self.S_h      = S_h
@@ -497,11 +568,25 @@ class ReducedCoupledAVBDCoupler:
         body_a_np = solver.c_body_a.numpy()
         type_np = solver.c_type.numpy()
 
+        # P3: pull substep-static body state once per substep instead of
+        # once per AVBD iteration. mass / inertia_local are fixed; the
+        # inertial (predicted) state is set by AVBD's substep init and
+        # not mutated within the iteration loop. positions / orientations
+        # and the dual variables are still re-pulled every iteration.
+        self._mass_np          = solver.mass.numpy()
+        self._inertia_local_np = solver.inertia_local.numpy()
+        self._x_inertial_np    = solver.x_inertial.numpy()
+        self._q_inertial_np    = solver.q_inertial.numpy()
+
         self._U_at_row.clear()
         self._row_body_a.clear()
         self._row_off_a.clear()
         self._row_floor_y_rest.clear()
         self._rows_per_body.clear()
+        # P1: per-body row-array caches (rebuilt this substep).
+        self._row_idx_by_body.clear()
+        self._row_off_by_body.clear()
+        self._row_U_y_by_body.clear()
         tracked: list[int] = []
 
         for i, row in enumerate(solver._rows):
@@ -543,6 +628,16 @@ class ReducedCoupledAVBDCoupler:
                 n_grid_z=self.n_grid_z,
             )
             self._U_at_row[row_idx] = U_pt
+
+        # P1: build per-body row-array caches. One pass per substep
+        # replaces 16× Python-loop dispatch in iteration_hook.
+        for body_idx, rows_on_body in self._rows_per_body.items():
+            self._row_idx_by_body[body_idx] = np.asarray(
+                rows_on_body, dtype=np.int64)
+            self._row_off_by_body[body_idx] = np.stack(
+                [self._row_off_a[i] for i in rows_on_body], axis=0)
+            self._row_U_y_by_body[body_idx] = np.stack(
+                [self._U_at_row[i][1] for i in rows_on_body], axis=0)
 
         # Artistic jump-gain: compute per-row upward lift velocity.
         # No-op when γ = 1.0 (regression-safe default).
@@ -591,21 +686,34 @@ class ReducedCoupledAVBDCoupler:
             self.last_max_v_lift = 0.0
             self.last_max_v_hp = 0.0
 
+        # P4: build per-substep stacks for the vectorized anchor update.
+        # Replaces a Python `for row in tracked` loop (~64× per step in
+        # iteration_hook) with one matvec + one scatter.
+        n_tracked = len(tracked)
+        self._tracked_rows_arr = np.asarray(tracked, dtype=np.int64)
+        self._U_y_stack = np.stack(
+            [self._U_at_row[i][1] for i in tracked], axis=0)
+        self._floor_y_rest_arr = np.fromiter(
+            (self._row_floor_y_rest[i] for i in tracked),
+            dtype=np.float64, count=n_tracked)
+        if self._jump_v_lift:
+            self._v_lift_arr = np.fromiter(
+                (self._jump_v_lift.get(i, 0.0) for i in tracked),
+                dtype=np.float64, count=n_tracked)
+        else:
+            self._v_lift_arr = np.zeros(n_tracked, dtype=np.float64)
+
         # Seed anchors using the predictor (q_hat = q + h·qdot when
         # dynamic, q itself when quasi-static). AVBD's primal sees this
         # anchor as the "predicted" support position; subsequent
         # iteration_hook calls advance q toward the AL minimum and
         # rewrite the anchor each iter.
         anchor_new = anchor_np.copy()
-        q_seed = self.rs.q_hat
         h_sub_for_anchor = float(self.h_substep)
-        for row_idx in tracked:
-            U_y = self._U_at_row[row_idx][1]
-            dy = float(U_y @ q_seed)
-            v_lift = self._jump_v_lift.get(row_idx, 0.0)
-            anchor_new[row_idx, 1] = (
-                self._row_floor_y_rest[row_idx] + dy
-                + h_sub_for_anchor * v_lift)
+        dy_all = self._U_y_stack @ self.rs.q_hat
+        anchor_new[self._tracked_rows_arr, 1] = (
+            self._floor_y_rest_arr + dy_all
+            + h_sub_for_anchor * self._v_lift_arr)
         solver.c_world_anchor.assign(anchor_new.astype(np.float32))
 
     def iteration_hook(self, solver, iter_idx: int) -> None:
@@ -618,7 +726,10 @@ class ReducedCoupledAVBDCoupler:
         if not rows:
             return
 
-        # Pull state once per iteration.
+        # Pull state once per iteration. The four substep-static arrays
+        # (mass / inertia_local / x_inertial / q_inertial) are cached in
+        # substep_begin_hook (P3) — re-fetching them per iteration was
+        # ~4 × ~1 µs of pure Python overhead per iter and changed nothing.
         lam_np = solver.c_lambda.numpy()
         pen_np = solver.c_penalty.numpy()
         fmin_np = solver.c_fmin.numpy()
@@ -628,10 +739,10 @@ class ReducedCoupledAVBDCoupler:
         anchor_np = solver.c_world_anchor.numpy().copy()
         positions_np = solver.x.numpy().copy()
         orientations_np = solver.q.numpy().copy()      # (n_b, 4) XYZW
-        mass_np = solver.mass.numpy()
-        inertia_local_np = solver.inertia_local.numpy()
-        x_inertial_np = solver.x_inertial.numpy()
-        q_inertial_np = solver.q_inertial.numpy()
+        mass_np          = self._mass_np
+        inertia_local_np = self._inertia_local_np
+        x_inertial_np    = self._x_inertial_np
+        q_inertial_np    = self._q_inertial_np
 
         h = float(self.h_substep)
         inv_dt2 = 1.0 / (h * h)
@@ -662,8 +773,14 @@ class ReducedCoupledAVBDCoupler:
                     H_q = Kq.copy()
                     g_q = Kq @ self.rs.q
                 else:
+                    # H_q starts dense because per-contact rank-1
+                    # updates fill it; the win on the eigenbasis path
+                    # is elementwise g_q (O(r) vs O(r²) matvec).
                     H_q = self.S_h_inv.copy()
-                    g_q = self.S_h_inv @ (self.rs.q - self.q_free)
+                    if self.S_h_inv_diag is not None:
+                        g_q = self.S_h_inv_diag * (self.rs.q - self.q_free)
+                    else:
+                        g_q = self.S_h_inv @ (self.rs.q - self.q_free)
             else:  # bdf1
                 # # DEVIATION (audit-fix): qdot in g_q is the implicit
                 # (q_{n+1} − q_n)/h to match H_q = M/h² + K + D/h.
@@ -684,6 +801,14 @@ class ReducedCoupledAVBDCoupler:
         rho_hits = 0
 
         # Build per-body 6×6 H_x + 6-vec g_x + 6×r cross.
+        # P1 (perf): inner `for row in rows_on_body` Python loop is now
+        # batched — every row's scalars / Jacobians are arrays, every
+        # rank-1 outer-product accumulation is one matmul. Math is
+        # bit-identical (sum-of-outer-products = matmul); only the
+        # interpreter overhead is removed.
+        n_hat_const = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        rho_clip = self.rho_clip
+
         for body_idx, rows_on_body in self._rows_per_body.items():
             m = float(mass_np[body_idx])
             if m <= 0.0 or not np.isfinite(m):
@@ -710,87 +835,97 @@ class ReducedCoupledAVBDCoupler:
 
             cross_body = np.zeros((6, r), dtype=np.float64)
 
-            for row_idx in rows_on_body:
-                off = self._row_off_a[row_idx]
-                r_self_w = R @ off
-                n_hat = np.array([0.0, 1.0, 0.0], dtype=np.float64)
-                j_lin = n_hat
-                j_ang = np.cross(r_self_w, n_hat)
+            row_idx_arr = self._row_idx_by_body[body_idx]      # (n,)
+            off_arr     = self._row_off_by_body[body_idx]      # (n, 3)
+            U_y_arr     = self._row_U_y_by_body[body_idx]      # (n, r)
+            n_rows_b    = row_idx_arr.shape[0]
 
-                C = (x_curr[1] + r_self_w[1]) - float(anchor_np[row_idx, 1])
-                s_stiff = float(stiff_np[row_idx])
-                hard = np.isinf(s_stiff)
-                if hard:
-                    C = C - float(alpha_C0_np[row_idx])
+            # Per-row world-frame offset and Jacobian columns.
+            # r_self_w_arr[i] = R @ off_arr[i]   →   off_arr @ R.T.
+            r_self_w_arr = off_arr @ R.T                       # (n, 3)
+            # j_lin = n_hat is constant across rows; broadcast a (n,3).
+            j_lin_arr = np.broadcast_to(
+                n_hat_const, (n_rows_b, 3))                    # (n, 3)
+            # j_ang = cross(r_self_w, n_hat) where n_hat = [0,1,0]:
+            #   cross([a,b,c],[0,1,0]) = [-c, 0, a]
+            j_ang_arr = np.empty((n_rows_b, 3), dtype=np.float64)
+            j_ang_arr[:, 0] = -r_self_w_arr[:, 2]
+            j_ang_arr[:, 1] = 0.0
+            j_ang_arr[:, 2] =  r_self_w_arr[:, 0]
 
-                lam_eff = float(lam_np[row_idx]) if hard else 0.0
-                rho = float(pen_np[row_idx])
-                # Clamp the per-row penalty entering the cross block so
-                # the Schur correction (~ρ²) stays bounded.
-                rho_used = min(rho, self.rho_clip)
-                if rho >= self.rho_clip:
-                    rho_hits += 1
+            # Per-row constraint scalars.
+            C_arr        = (x_curr[1] + r_self_w_arr[:, 1]
+                            - anchor_np[row_idx_arr, 1])
+            s_stiff_arr  = stiff_np[row_idx_arr]
+            hard_arr     = np.isinf(s_stiff_arr)
+            C_arr        = np.where(
+                hard_arr, C_arr - alpha_C0_np[row_idx_arr], C_arr)
+            lam_eff_arr  = np.where(
+                hard_arr, lam_np[row_idx_arr], 0.0)
+            rho_arr      = pen_np[row_idx_arr]
+            rho_used_arr = np.minimum(rho_arr, rho_clip)
+            rho_hits    += int(np.sum(rho_arr >= rho_clip))
 
-                f_lo = float(fmin_np[row_idx])
-                f_hi = float(fmax_np[row_idx])
-                lam_plus = rho_used * C + lam_eff
-                f = float(np.clip(lam_plus, f_lo, f_hi))
+            f_lo_arr     = fmin_np[row_idx_arr]
+            f_hi_arr     = fmax_np[row_idx_arr]
+            lam_plus_arr = rho_used_arr * C_arr + lam_eff_arr
+            f_arr        = np.clip(lam_plus_arr, f_lo_arr, f_hi_arr)
 
-                # Eq.14 LHS rescale (mirror kernels_6dof.py:541-547).
-                k_for_lhs = rho_used
-                abs_C = abs(C)
-                if abs_C > 1.0e-12:
-                    if lam_plus < f_lo:
-                        k_for_lhs = abs(f_lo - lam_plus) / abs_C
-                    elif lam_plus > f_hi:
-                        k_for_lhs = abs(f_hi - lam_plus) / abs_C
+            # Eq.14 LHS rescale (mirror kernels_6dof.py:541-547).
+            abs_C_arr     = np.abs(C_arr)
+            below_mask    = (lam_plus_arr < f_lo_arr) & (abs_C_arr > 1.0e-12)
+            above_mask    = (lam_plus_arr > f_hi_arr) & (abs_C_arr > 1.0e-12)
+            safe_abs_C    = np.maximum(abs_C_arr, 1.0e-12)
+            k_for_lhs_arr = rho_used_arr.copy()
+            k_for_lhs_arr = np.where(
+                below_mask,
+                np.abs(f_lo_arr - lam_plus_arr) / safe_abs_C,
+                k_for_lhs_arr)
+            k_for_lhs_arr = np.where(
+                above_mask,
+                np.abs(f_hi_arr - lam_plus_arr) / safe_abs_C,
+                k_for_lhs_arr)
 
-                # LHS outer-product accumulations.
-                A = A + k_for_lhs * np.outer(j_lin, j_lin)
-                B = B + k_for_lhs * np.outer(j_ang, j_lin)
-                D = D + k_for_lhs * np.outer(j_ang, j_ang)
+            # LHS outer-product accumulations as matmuls:
+            #   Σ_i k_i · v_i ⊗ w_i  =  v.T @ (k[:,None] * w).
+            k_col      = k_for_lhs_arr[:, None]                # (n, 1)
+            k_j_lin    = k_col * j_lin_arr                     # (n, 3)
+            k_j_ang    = k_col * j_ang_arr                     # (n, 3)
+            k_U_y      = k_col * U_y_arr                       # (n, r)
 
-                # Geometric stiffness on D (only if f≠0).
-                f_mag = abs(f)
-                if f_mag > 0.0:
-                    g_diag = _geom_stiffness_diag(n_hat, r_self_w) * f_mag
-                    D = D + np.diag(g_diag)
+            A = A + j_lin_arr.T @ k_j_lin                      # (3, 3)
+            B = B + j_ang_arr.T @ k_j_lin                      # (3, 3)
+            D = D + j_ang_arr.T @ k_j_ang                      # (3, 3)
 
-                # RHS gradient contributions.
-                r_lin = r_lin + j_lin * f
-                r_ang = r_ang + j_ang * f
+            # Geometric stiffness on D: Σ_{i: |f_i|>0} diag(|f_i|·g_i).
+            # = diag(Σ_i mask_i · |f_i| · g_i). g_i depends on r_self_w_i.
+            f_mag_arr  = np.abs(f_arr)
+            geom_mask  = f_mag_arr > 0.0
+            if np.any(geom_mask):
+                g_diag_batch = _geom_stiffness_diag_batch(
+                    n_hat_const, r_self_w_arr)                 # (n, 3)
+                weights = (f_mag_arr * geom_mask)[:, None]     # (n, 1)
+                D = D + np.diag((g_diag_batch * weights).sum(axis=0))
 
-                # Reduced Jacobian and q-side contributions.
-                U_y_row = self._U_at_row[row_idx][1]
-                # Note: ∂C/∂q = −U_y_row (anchor moves DOWN by U_y·q).
-                # In our convention C = corner_y − anchor_y, so the q
-                # gradient enters g_q with a MINUS sign on f times the
-                # contact jacobian dC/dq = -U_y_row. With g_q being the
-                # AL gradient w.r.t. q, the contact term is +f · (dC/dq)·
-                # which yields g_q += -f·U_y_row. But the existing
-                # static-only coupler uses g_q += F_n·U_y_row where
-                # F_n = -lam + ρ·C+ — that's because dC/dq carries a
-                # sign flip absorbed into the F_n definition. We follow
-                # the explicit convention: g_q -= f · U_y_row to be
-                # self-consistent with the AVBD kernel's f sign.
-                # FLOOR rows have fmax = 0 → f ≤ 0 (compressive). The
-                # support is pushed DOWN by a downward-pointing q.
-                g_q = g_q - f * U_y_row
-                H_q = H_q + k_for_lhs * np.outer(U_y_row, U_y_row)
+            # RHS gradient contributions.
+            r_lin = r_lin + j_lin_arr.T @ f_arr                # (3,)
+            r_ang = r_ang + j_ang_arr.T @ f_arr                # (3,)
 
-                # Cross block: cross_body[:3,:] += k_for_lhs · j_lin · U_y^T
-                #              cross_body[3:,:] += k_for_lhs · j_ang · U_y^T
-                # The sign: ∂²L/∂x∂q = -ρ · J_x · U_y^T (since dC/dx = J_x,
-                # dC/dq = -U_y_row). In the [Δx;Δq] block, the off-diag
-                # entry is -ρ J_x U_y^T. We accumulate the magnitude and
-                # apply the sign at the global block assembly.
-                cross_body[:3, :] += k_for_lhs * np.outer(j_lin, U_y_row)
-                cross_body[3:, :] += k_for_lhs * np.outer(j_ang, U_y_row)
+            # Reduced-side contributions.
+            g_q = g_q - U_y_arr.T @ f_arr                      # (r,)
+            H_q = H_q + U_y_arr.T @ k_U_y                      # (r, r)
 
-                max_rho2_over_m = max(
-                    max_rho2_over_m,
-                    (rho_used ** 2) * float(j_lin @ j_lin + j_ang @ j_ang) / max(m, 1e-12),
-                )
+            # Cross blocks.
+            cross_body[:3, :] += j_lin_arr.T @ k_U_y           # (3, r)
+            cross_body[3:, :] += j_ang_arr.T @ k_U_y           # (3, r)
+
+            # max_rho²/m diagnostic. j_lin·j_lin = 1, j_ang·j_ang = |r_self_w|² (n,).
+            j_ang_sq_arr = (j_ang_arr * j_ang_arr).sum(axis=1) # (n,)
+            jjsum_arr    = 1.0 + j_ang_sq_arr                  # j_lin·j_lin + j_ang·j_ang
+            row_score    = (rho_used_arr ** 2) * jjsum_arr / max(m, 1e-12)
+            if n_rows_b > 0:
+                max_rho2_over_m = max(max_rho2_over_m,
+                                      float(row_score.max()))
 
             # Assemble per-body 6×6 H_x and 6-vec g_x.
             H_x = np.block([
@@ -901,15 +1036,14 @@ class ReducedCoupledAVBDCoupler:
         solver.q.assign(q_out)
 
         # Update anchors to reflect new q (for next iter's dual + primal).
+        # P4: vectorized over rows using the per-substep stacks built in
+        # substep_begin_hook (replaces a per-iteration Python loop).
         anchor_out = anchor_np.copy()
         h_sub_for_anchor = float(self.h_substep)
-        for row_idx in rows:
-            U_y = self._U_at_row[row_idx][1]
-            dy = float(U_y @ q_new)
-            v_lift = self._jump_v_lift.get(row_idx, 0.0)
-            anchor_out[row_idx, 1] = (
-                self._row_floor_y_rest[row_idx] + dy
-                + h_sub_for_anchor * v_lift)
+        dy_all = self._U_y_stack @ q_new
+        anchor_out[self._tracked_rows_arr, 1] = (
+            self._floor_y_rest_arr + dy_all
+            + h_sub_for_anchor * self._v_lift_arr)
         solver.c_world_anchor.assign(anchor_out.astype(np.float32))
 
         self.last_max_dx_norm = max_dx
@@ -941,8 +1075,12 @@ class ReducedCoupledAVBDCoupler:
                         and self.S_h_inv is not None
                         and self.T_h is not None):
                     # Implied modal force from this substep's q result.
-                    F_full = self.S_h_inv @ (self.rs.q - self.q_free)
-                    qdot_full = self.qdot_free + self.T_h @ F_full
+                    if self.S_h_inv_diag is not None:
+                        F_full = self.S_h_inv_diag * (self.rs.q - self.q_free)
+                        qdot_full = self.qdot_free + self.T_h_diag * F_full
+                    else:
+                        F_full = self.S_h_inv @ (self.rs.q - self.q_free)
+                        qdot_full = self.qdot_free + self.T_h @ F_full
                     q_full = self.rs.q.copy()
                     alpha = 1.0
                     Mq = self.rs.Mq

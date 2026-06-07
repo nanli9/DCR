@@ -131,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--quiet", action="store_true",
                    help="Suppress per-frame output.")
     p.add_argument("--reduced-basis", choices=["synthetic", "eigen"],
-                   default="synthetic",
+                   default="eigen",
                    help="Modal basis (eigen → diagonal IIR; physics equivalent).")
     args = p.parse_args(argv)
 

@@ -606,3 +606,62 @@ The default remains `synthetic` so prior benchmark numbers reproduce bit-for-bit
 ### Why this aligns with the paper
 
 The DCR paper writes modal-path response in terms of true natural vibration modes (Eq. 10, the forced IIR resonator). The synthetic basis is an *engineering shortcut* that lets the prototype run without a full FEM eigensolve, but it isn't what the paper assumes. After `--reduced-basis eigen`, the reduced coordinates `a_i` are honest vibration mode amplitudes with frequencies `ω_i` and damping ratios `ζ_i`, each independently driven by the constraint Jacobian projection. That's the paper's framing.
+
+---
+
+## Hot-path optimization sweep (2026-06-07)
+
+A targeted optimization pass on the per-substep / per-iteration numpy hot
+paths — math is unchanged; every change is a structural refactor or a
+loop→matmul vectorization. Verified against the 139 AVBD tests
+(`tests/avbd/`, all green) and a 3-trial wall-clock A/B.
+
+| Tag | What | Where | Win on its own |
+|---|---|---|---|
+| **P0** | Vectorize per-mode loop in `exact_modal_step_precompute` (Python `for i in range(r)` → np.where over 5 branches). Bit-identical to scalar reference. | `dcr/modal/exact_resonator.py:81-212` | ~80–120 µs / substep on eigen path |
+| **P2** | Make `--reduced-basis eigen` the default; use `S_h_inv_diag` elementwise in `iteration_hook` and `substep_end_hook` instead of dense `r×r` matvec. | `dcr/avbd/reduced_coupled_avbd.py:447-502, 665-687, 944-952` + 4 CLI scripts | ~3 µs / iter on eigen path |
+| **P3** | Batch the per-iteration warp-array pulls. mass / inertia_local / x_inertial / q_inertial are substep-static — pull once in `substep_begin_hook`, reuse across all 16 iterations. | `dcr/avbd/reduced_coupled_avbd.py:518-528, 637-664` | ~5 µs / iter |
+| **P4** | Vectorize the anchor-update loop. Per-substep stack `U_y_stack (n_tracked, r)`; replace `for row in tracked: anchor[row, 1] = ...` (16× per substep) with one matvec + scatter. | `dcr/avbd/reduced_coupled_avbd.py:626-651, 945-953` | ~3 µs / iter |
+| **P1** | Vectorize the **inner** `for row in rows_on_body` loop in `iteration_hook` — every Σ k_i · vᵢ ⊗ wᵢ becomes one matmul `vᵀ @ (k[:,None] * w)`. Also batched `_geom_stiffness_diag` over rows. **This is the dominant win.** | `dcr/avbd/reduced_coupled_avbd.py:152-188, 779-905` | ~40-50 µs / iter |
+
+### Wall-clock measurement (research-baseline shelf scene)
+
+- Config: `h=1/120`, `iterations=8`, `avbd_substeps=4`, 60-frame trial × 3 trials, after warmup.
+- Hardware: Apple M-series, `warp.init(device="cpu")`.
+
+| Configuration | Mean step time | vs. baseline |
+|---|---:|---:|
+| **Pre-optimization** (synthetic basis, per-row Python loop) | **~57 ms** | — |
+| Post P0+P2+P3+P4 (eigen, dense-alias still on H_x) | ~55 ms | −3% |
+| **Post all (P0+P1+P2+P3+P4)** — synthetic | **32.0 ms** | **−44%** |
+| **Post all (P0+P1+P2+P3+P4)** — eigen | **32.0 ms** | **−44%** |
+
+After P1, synthetic and eigen paths are within measurement noise (~1%) because the dominant bottleneck — the per-row outer-product Python loop in
+`iteration_hook` — is gone on both code paths.
+
+### What changed mathematically
+
+**Nothing.** Every change is a structural refactor:
+
+- `Σ_i k_i · v_i ⊗ w_iᵀ`  →  `vᵀ @ (k[:,None] * w)`  (sum of outer products = matmul, by definition).
+- Per-mode loop with scalar `float(np.exp(...))` calls  →  vectorized `np.exp` over the r-vector with branch selection via `np.where`.
+- `solver.x_inertial.numpy()` fetched 16× per substep  →  fetched once, cached.
+
+All five new fast paths are guarded by the 139-test AVBD suite. Modal energy, physical-space deflection, contact penetration, and Schur conditioning all agree bit-for-bit with the pre-optimization implementation.
+
+### Why warp wasn't ported wholesale
+
+The repo is constrained to `warp.init(device="cpu")` (CLAUDE.md tech stack). On CPU-warp:
+- `wp.kernel` has launch overhead (~20–50 µs per call) that doesn't amortize at ~24 contact rows.
+- There's no warp equivalent for `scipy.linalg.expm` / `eigh` / `solve` on small dense matrices — and the eigenbasis projection (already opt-in) removes the expm requirement anyway.
+- Vectorized numpy on `(n_rows, r)` arrays calls into the same BLAS routines that a warp kernel would compile to; the BLAS-vs-warp-kernel choice on CPU is a wash at this size.
+
+So the optimization is: keep warp where it already shines (the AVBD primal/dual kernels), and replace the residual Python-loop hot paths with vectorized numpy. A future GPU-warp port would change the ranking — the per-body kernel would then be the right next step.
+
+### Out of scope (deliberately not optimized)
+
+- `scipy.linalg.expm` in `dynamic_compliance_step_precompute` — already removed on the eigen path; the synthetic path keeps it because the synthetic basis is not in the eigenbasis.
+- `scipy.linalg.eigh` in `make_synthetic_modal_basis_for_shelf` — construction-time only, microseconds.
+- FEM assembly in `dcr/fem/` — construction-time only.
+- Per-iteration `np.linalg.solve(S_reg, rhs_q)` — already a single LAPACK call on a small r×r matrix; ~5 µs / iter; nothing left to extract.
+- DCR spatial-attenuation (`dcr/dcr/`) — runs at impact event detection, not every step.

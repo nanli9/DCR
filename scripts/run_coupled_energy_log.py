@@ -415,10 +415,10 @@ def main():
     adv_grp.add_argument("--log-substeps", action="store_true", default=False)
     adv_grp.add_argument("--zoom-ms", type=float, default=50.0)
     adv_grp.add_argument("--reduced-basis", choices=["synthetic", "eigen"],
-                         default="synthetic",
+                         default="eigen",
                          help="Modal basis: 'synthetic' (sine+bump, coupled) "
                               "or 'eigen' (M̂=I, K̂=Ω², diagonal IIR). "
-                              "Physically equivalent; eigen is slightly faster.")
+                              "Physically equivalent; eigen is the default.")
 
     # Deprecated (kept for one cycle).
     dep_grp = ap.add_argument_group("Deprecated")
