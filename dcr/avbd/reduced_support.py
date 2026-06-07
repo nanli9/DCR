@@ -196,6 +196,8 @@ def make_synthetic_modal_basis_for_shelf(
     y_rest: float = 0.0,
     rayleigh_alpha0: float = 0.0,
     rayleigh_alpha1: float = 5.0e-6,
+    modal_impedance_scale: float = 1.0,
+    modal_damping_scale: float = 1.0,
 ) -> tuple[
     NDArray[np.float64],   # point_positions_rest (n_pts, 3)
     NDArray[np.float64],   # point_normals_rest   (n_pts, 3)
@@ -318,12 +320,30 @@ def make_synthetic_modal_basis_for_shelf(
     # Rayleigh damping: D = α₀ M + α₁ K (§15).
     Dq = rayleigh_alpha0 * Mq + rayleigh_alpha1 * Kq
 
+    # Modal impedance scaling (demo knob).
+    #   (Mq, Kq, Dq) ← (Mq, Kq, Dq) / s   where s = 1/g
+    # ω_i = √(Kq[i,i] / Mq[i,i]) is exactly invariant (uniform divide
+    # cancels). ζ_i = Dq[i,i] / (2·√(Kq[i,i]·Mq[i,i])) is also invariant.
+    # Only the displacement-compliance S_h and velocity-gain T_h scale
+    # by g = 1/s. See tests/avbd/test_modal_impedance_scaling.py.
+    if modal_impedance_scale != 1.0:
+        inv_s = 1.0 / float(modal_impedance_scale)
+        Mq = Mq * inv_s
+        Kq = Kq * inv_s
+        Dq = Dq * inv_s
+    # Modal damping scaling (independent knob): scales Dq only, so ζ
+    # scales linearly while ω is unchanged.
+    if modal_damping_scale != 1.0:
+        Dq = Dq * float(modal_damping_scale)
+
     # ξ_j for the modal oscillators.
     zeta = np.zeros(r_modal, dtype=np.float64)
     for j in range(r_modal):
         if omega_global[j] > 1e-12:
             zeta[j] = 0.5 * (rayleigh_alpha0 / omega_global[j]
                              + rayleigh_alpha1 * omega_global[j])
+    if modal_damping_scale != 1.0:
+        zeta = zeta * float(modal_damping_scale)
     zeta = np.clip(zeta, 0.0, 0.9999)
 
     # U_points: (n_pts, 3, r). Only the y-row is populated.
@@ -351,6 +371,8 @@ def make_debug_reduced_shelf_support(
     restart_overlay_each_step: bool = True,
     rayleigh_alpha0: float = 0.0,
     rayleigh_alpha1: float = 5.0e-6,
+    modal_impedance_scale: float = 1.0,
+    modal_damping_scale: float = 1.0,
 ) -> ReducedSupport:
     """Convenience: synthetic shelf + probe placement → ReducedSupport.
 
@@ -365,6 +387,8 @@ def make_debug_reduced_shelf_support(
         n_modes_global=n_modes_global, n_modes_local=n_modes_local,
         contact_zone_centers=contact_zone_centers, y_rest=y_rest,
         rayleigh_alpha0=rayleigh_alpha0, rayleigh_alpha1=rayleigh_alpha1,
+        modal_impedance_scale=modal_impedance_scale,
+        modal_damping_scale=modal_damping_scale,
     )
     r_total = U_points.shape[2]
 

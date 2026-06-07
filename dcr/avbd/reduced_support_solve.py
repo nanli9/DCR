@@ -164,6 +164,18 @@ class ReducedSupportCoupler:
     # body. r_tilde assembly uses it for the physical F_n cap.
     body_mass: dict[int, float] = field(default_factory=dict)
 
+    # ---- Static-sag mode (cleaned secondary extension) -----------------
+    # When True the coupler runs ONLY the q-block solve and anchor
+    # writeback — no transient overlay, no probe Δv injection, no F_n
+    # cap, no cooldown, no high-pass. The q-state is persistent across
+    # macro steps and is driven solely by AVBD's converged augmented
+    # contact response. This is the static-compliant-support path; it
+    # does NOT model distant transient response, by design. Set via
+    # `--reduced-static-support` at the script layer or
+    # `coupler.static_only = True` in code. All other overlay-related
+    # fields above are ignored when this is True.
+    static_only: bool = False
+
     # Pre-step linear velocity per tracked body, supplied by world.step
     # to post_step. Used by the physical F_n cap.
     _body_v_pre_y: dict[int, float] = field(
@@ -210,6 +222,18 @@ class ReducedSupportCoupler:
     last_E_inj_candidate:      float = 0.0
     last_E_inj_realised:       float = 0.0
     last_n_cooldown_active:    int   = 0
+
+    # ---- Static-sag instrumentation (always logged) ---------------------
+    # `last_overlay_events_fired` counts macro-steps where the legacy
+    # overlay path executed AND injected a non-zero Δv into at least one
+    # probe. In `static_only` mode this MUST remain zero on every step;
+    # tests assert it. `last_q_norm` and `last_max_support_deflection`
+    # are derived from the current q state regardless of mode.
+    last_overlay_events_fired:    int   = 0
+    last_q_norm:                  float = 0.0
+    last_max_support_deflection:  float = 0.0
+    # Cumulative count over the run — easier for tests / reports.
+    cum_overlay_events_fired:     int   = 0
 
     # ---- hook plumbing --------------------------------------------------
 
@@ -472,18 +496,42 @@ class ReducedSupportCoupler:
         E_q = 0.5 * float(qdot @ (self.rs.Mq @ qdot)) + 0.5 * float(q @ (self.rs.Kq @ q))
         self.last_E_q = E_q
 
-        # q displacement diagnostic.
+        # q displacement diagnostic (also drives static-mode logging).
         if self.rs.U_points.shape[0] > 0:
             disp = np.einsum("kij,j->ki", self.rs.U_points, q)
-            self.last_q_max_disp = float(np.linalg.norm(disp, axis=1).max())
+            disp_norms = np.linalg.norm(disp, axis=1)
+            self.last_q_max_disp = float(disp_norms.max())
+            self.last_max_support_deflection = float(disp_norms.max())
         else:
             self.last_q_max_disp = 0.0
+            self.last_max_support_deflection = 0.0
+        self.last_q_norm = float(np.linalg.norm(q))
+
+        # ---- Static-sag mode: bypass ALL overlay/kick paths. ------------
+        # The q-block solve in iteration_hook is the static-compliant
+        # support response; nothing else to do here. Zero out everything
+        # that would normally be set by the overlay path and return.
+        if self.static_only:
+            self.last_probe_d_max = np.zeros(self.rs.n_probes)
+            self.last_probe_dv = np.zeros(self.rs.n_probes)
+            self.last_probe_dv_candidate = np.zeros(self.rs.n_probes)
+            self.last_E_overlay_injected = 0.0
+            self.last_E_inj_realised = 0.0
+            self.last_E_inj_candidate = 0.0
+            self.last_E_rigid_pre_overlay = 0.0
+            self.last_E_rigid_post_overlay = 0.0
+            self.last_alpha_cap = 0.0
+            self.last_n_cooldown_active = 0
+            self.last_overlay_events_fired = 0
+            self.last_E_total = E_q
+            return
 
         # No probes ⇒ nothing to inject regardless of overlay flag.
         if self.rs.n_probes == 0 or not self.rs.probe_body_indices:
             self.last_probe_d_max = np.zeros(self.rs.n_probes)
             self.last_probe_dv = np.zeros(self.rs.n_probes)
             self.last_E_overlay_injected = 0.0
+            self.last_overlay_events_fired = 0
             return
 
         # Per-probe `n · U` projection (used by both bare and overlay).
@@ -677,6 +725,13 @@ class ReducedSupportCoupler:
         self.last_E_overlay_injected = E_rigid_post - E_rigid_pre
         self.last_E_inj_realised = self.last_E_overlay_injected
         self.last_E_total = E_rigid_post + E_q
+
+        # Count this macro-step as an "overlay event" iff any probe
+        # actually received a non-zero Δv kick this step. Static-mode
+        # tests rely on this remaining 0 for every step.
+        fired_this_step = int(np.any(np.abs(probe_dv) > 1e-12))
+        self.last_overlay_events_fired = fired_this_step
+        self.cum_overlay_events_fired += fired_this_step
 
         # ---- Item (4) — arm cooldown for probes that just took a kick.
         # Threshold prevents micro-noise from constantly arming/blocking;

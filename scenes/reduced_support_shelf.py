@@ -48,6 +48,7 @@ def build_reduced_support_shelf(
     h: float = 1.0 / 120.0,
     device: str = "cpu",
     iterations: int = 4,
+    avbd_substeps: int = 1,
     shelf_length: float = 0.30,
     shelf_width: float = 0.15,
     shelf_thickness: float = 0.005,
@@ -67,8 +68,16 @@ def build_reduced_support_shelf(
     overlay_enabled: bool = True,
     restart_overlay_each_step: bool = True,
     reduced_support_enabled: bool = True,
+    reduced_static_support: bool = False,
+    coupled_avbd: bool = False,
+    dcr_postkick: bool = False,
     rayleigh_alpha0: float = 0.0,
     rayleigh_alpha1: float = 5.0e-6,
+    modal_impedance_scale: float = 1.0,
+    modal_damping_scale: float = 1.0,
+    modal_energy_cap_fraction: float | None = None,
+    modal_jump_gain: float = 1.0,
+    modal_jump_max_height: float = 0.01,
 ) -> ShelfSceneHandle:
     """Construct the shelf scene + attach (or not) the reduced support.
 
@@ -76,7 +85,25 @@ def build_reduced_support_shelf(
     coupler — useful for an apples-to-apples baseline against the
     existing rigid-only AVBD path. The shelf-as-floor AVBD path is
     identical in both cases.
+
+    `reduced_static_support=True` attaches the coupler in static-sag
+    mode: the q-block solve still runs every AVBD iteration and the
+    rigid contacts see the deformed support geometry, but the legacy
+    transient overlay path (high-pass r_tilde, two-rate IIR, probe Δv
+    injection, F_n cap, cooldown, energy cap) is bypassed entirely.
+    Implies `overlay_enabled=False`. This is the cleaned secondary
+    extension described in the static-sag refactor — it does NOT model
+    distant transient response.
     """
+    if reduced_static_support:
+        overlay_enabled = False
+        restart_overlay_each_step = False
+    if coupled_avbd:
+        overlay_enabled = False
+        restart_overlay_each_step = False
+    if coupled_avbd and reduced_static_support:
+        raise ValueError(
+            "coupled_avbd and reduced_static_support are mutually exclusive")
     if probe_xz is None:
         probe_xz = [
             (-0.40 * shelf_length, 0.0),
@@ -87,7 +114,7 @@ def build_reduced_support_shelf(
         h=h,
         device=device,
         avbd_iterations=iterations,
-        avbd_substeps=1,
+        avbd_substeps=int(avbd_substeps),
     )
 
     # Shelf-as-floor. AVBD's floor is +y up; bodies sitting on it
@@ -141,6 +168,8 @@ def build_reduced_support_shelf(
         restart_overlay_each_step=restart_overlay_each_step,
         rayleigh_alpha0=rayleigh_alpha0,
         rayleigh_alpha1=rayleigh_alpha1,
+        modal_impedance_scale=modal_impedance_scale,
+        modal_damping_scale=modal_damping_scale,
     )
 
     # AVBDDCRWorld assigns a static "floor" body at DCR index 0 ahead
@@ -166,15 +195,50 @@ def build_reduced_support_shelf(
         tracked_bodies = [b for b in avbd_probe_indices if b >= 0]
         if avbd_impactor_idx >= 0:
             tracked_bodies.append(avbd_impactor_idx)
-        world.attach_reduced_support(
-            rs,
-            tracked_body_indices=tracked_bodies,
-            shelf_length=shelf_length,
-            shelf_width=shelf_width,
-            shelf_y_rest=shelf_y_rest,
-            n_grid_x=N_GRID_X,
-            n_grid_z=N_GRID_Z,
-        )
+        if dcr_postkick:
+            # Legacy --mode old_dcr_postkick: rigid-floor AVBD + Δv kick.
+            # No reduced-coupled coupler attached; the support exists
+            # only so the modal basis is available for the post-step
+            # IIR + d_max sampling. AVBD treats the floor as rigid.
+            world.attach_reduced_dcr_postkick(
+                rs,
+                tracked_body_indices=tracked_bodies,
+                shelf_length=shelf_length,
+                shelf_width=shelf_width,
+                shelf_y_rest=shelf_y_rest,
+                n_grid_x=N_GRID_X,
+                n_grid_z=N_GRID_Z,
+            )
+        elif coupled_avbd:
+            world.attach_reduced_coupled_avbd(
+                rs,
+                tracked_body_indices=tracked_bodies,
+                shelf_length=shelf_length,
+                shelf_width=shelf_width,
+                shelf_y_rest=shelf_y_rest,
+                n_grid_x=N_GRID_X,
+                n_grid_z=N_GRID_Z,
+            )
+            if (modal_energy_cap_fraction is not None
+                    and world.reduced_coupled_coupler is not None):
+                world.reduced_coupled_coupler.modal_energy_cap_fraction = (
+                    float(modal_energy_cap_fraction))
+            if world.reduced_coupled_coupler is not None:
+                world.reduced_coupled_coupler.modal_jump_gain = (
+                    float(modal_jump_gain))
+                world.reduced_coupled_coupler.modal_jump_max_height = (
+                    float(modal_jump_max_height))
+        else:
+            world.attach_reduced_support(
+                rs,
+                tracked_body_indices=tracked_bodies,
+                shelf_length=shelf_length,
+                shelf_width=shelf_width,
+                shelf_y_rest=shelf_y_rest,
+                n_grid_x=N_GRID_X,
+                n_grid_z=N_GRID_Z,
+                static_only=reduced_static_support,
+            )
 
     return ShelfSceneHandle(
         world=world,

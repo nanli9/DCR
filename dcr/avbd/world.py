@@ -53,6 +53,8 @@ from ..dcr.deformed_normal_bj import compute_deformed_normal_barbic_james
 # numpy and free of GPU state; importing here is cheap.
 from .reduced_support import ReducedSupport
 from .reduced_support_solve import ReducedSupportCoupler
+from .reduced_coupled_avbd import ReducedCoupledAVBDCoupler
+from .reduced_dcr_postkick import ReducedSupportDCRPostkickCoupler
 
 
 # ---------------------------------------------------------------------------
@@ -171,6 +173,25 @@ class AVBDDCRWorld:
         default=None, init=False, repr=False)
     reduced_support_energy_log: list[dict] = field(
         default_factory=list, init=False, repr=False)
+    # ---- Coupled reduced AVBD (Python-side monolithic primal) ----------
+    # When attached via `attach_reduced_coupled_avbd`, this coupler takes
+    # over the per-iteration primal for tracked bodies: it solves the
+    # full monolithic Newton block [x; q] including the cross-coupling
+    # ρ·J_x·J_q^T inside iteration_hook. Mutually exclusive with the
+    # static-support coupler (`reduced_support_coupler`).
+    reduced_coupled_coupler: ReducedCoupledAVBDCoupler | None = field(
+        default=None, init=False, repr=False)
+    reduced_coupled_log: list[dict] = field(
+        default_factory=list, init=False, repr=False)
+    # ---- Legacy DCR post-step Δv kick (--mode old_dcr_postkick) -------
+    # Attached only when the user explicitly asks for the legacy
+    # ablation. The coupler reads contact impulses at end-of-step,
+    # drives a modal IIR transient on the reduced-support basis, and
+    # applies Δv = peak_deflection / h to tracked rigid bodies. This
+    # is the architecturally-rejected approach; kept solely for
+    # comparison against --mode coupled_iir_modal.
+    reduced_dcr_postkick_coupler: ReducedSupportDCRPostkickCoupler | None = field(
+        default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self._solver = Solver6DOF(
@@ -298,6 +319,7 @@ class AVBDDCRWorld:
         shelf_y_rest: float,
         n_grid_x: int,
         n_grid_z: int,
+        static_only: bool = False,
     ) -> ReducedSupportCoupler:
         """Wire a ReducedSupport into the AVBD substep loop (v1).
 
@@ -335,7 +357,16 @@ class AVBDDCRWorld:
             h_macro=float(self.h),
             h_substep=float(self.h) / float(self.avbd_substeps),
             body_mass=body_mass,
+            static_only=bool(static_only),
         )
+        # When in static-only mode the legacy ReducedSupport overlay
+        # flag is also forced off so any downstream code that peeks at
+        # rs.overlay_enabled (viewer, scene printout, etc.) reflects the
+        # real behaviour. This is the one place we touch rs.* from the
+        # world layer.
+        if static_only:
+            rs.overlay_enabled = False
+            rs.restart_overlay_each_step = False
         self.reduced_support = rs
         self.reduced_support_coupler = coupler
         # Wire solver hooks. These force the solver out of CUDA-graph
@@ -344,6 +375,123 @@ class AVBDDCRWorld:
         self._solver.substep_begin_hook = coupler.substep_begin_hook
         self._solver.iteration_hook = coupler.iteration_hook
         self._solver.substep_end_hook = coupler.substep_end_hook
+        return coupler
+
+    def attach_reduced_coupled_avbd(
+        self,
+        rs: ReducedSupport,
+        *,
+        tracked_body_indices: list[int],
+        shelf_length: float,
+        shelf_width: float,
+        shelf_y_rest: float,
+        n_grid_x: int,
+        n_grid_z: int,
+        rho_clip: float = 1.0e9,
+    ) -> ReducedCoupledAVBDCoupler:
+        """Wire a `ReducedCoupledAVBDCoupler` into the AVBD substep loop.
+
+        This installs the Python-side monolithic primal coupler — every
+        AVBD iteration's primal+dual is followed by a hook that solves
+        the full [Δx_i; Δq] Newton block (Schur-eliminated) including the
+        cross-coupling ρ·J_x·J_q^T, then writes both Δx_i and Δq back to
+        solver state. This is the strongest coupling tier; it is mutually
+        exclusive with `attach_reduced_support` (the BCD path).
+        """
+        if self._solver is None:
+            raise RuntimeError("AVBDDCRWorld._solver is not initialized")
+        if self.reduced_support_coupler is not None:
+            raise RuntimeError(
+                "Cannot attach reduced_coupled_avbd: "
+                "reduced_support_coupler is already attached. The two "
+                "modes are mutually exclusive.")
+        if self.reduced_coupled_coupler is not None:
+            raise RuntimeError("reduced_coupled_coupler already attached")
+        body_mass = {}
+        for d in self._descs:
+            if d.avbd_body is None:
+                continue
+            i = int(d.avbd_body.index)
+            if i in tracked_body_indices:
+                body_mass[i] = float(d.dcr_body.mass)
+        coupler = ReducedCoupledAVBDCoupler(
+            rs=rs,
+            tracked_body_indices=list(tracked_body_indices),
+            shelf_length=float(shelf_length),
+            shelf_width=float(shelf_width),
+            shelf_y_rest=float(shelf_y_rest),
+            n_grid_x=int(n_grid_x),
+            n_grid_z=int(n_grid_z),
+            h_macro=float(self.h),
+            h_substep=float(self.h) / float(self.avbd_substeps),
+            body_mass=body_mass,
+            rho_clip=float(rho_clip),
+        )
+        # Force overlay-related flags off — this coupler never reads them
+        # but downstream code (viewers, scene printouts) does.
+        rs.overlay_enabled = False
+        rs.restart_overlay_each_step = False
+        self.reduced_support = rs
+        self.reduced_coupled_coupler = coupler
+        self._solver.substep_begin_hook = coupler.substep_begin_hook
+        self._solver.iteration_hook = coupler.iteration_hook
+        self._solver.substep_end_hook = coupler.substep_end_hook
+        return coupler
+
+    def attach_reduced_dcr_postkick(
+        self,
+        rs: ReducedSupport,
+        *,
+        tracked_body_indices: list[int],
+        shelf_length: float,
+        shelf_width: float,
+        shelf_y_rest: float,
+        n_grid_x: int,
+        n_grid_z: int,
+        n_substeps: int = 32,
+    ) -> ReducedSupportDCRPostkickCoupler:
+        """Attach the legacy DCR post-step Δv kick coupler.
+
+        Used only by `--mode old_dcr_postkick` for ablation against
+        `--mode coupled_iir_modal`. The post-kick is computed in
+        `apply()`, called from `step()` after the AVBD solver finishes.
+
+        Mutually exclusive with `attach_reduced_coupled_avbd` and
+        `attach_reduced_support` (this is the rigid-floor + post-Δv
+        path; the support is purely diagnostic).
+        """
+        if self.reduced_coupled_coupler is not None:
+            raise RuntimeError(
+                "Cannot attach reduced_dcr_postkick: "
+                "reduced_coupled_coupler is already attached.")
+        if self.reduced_support_coupler is not None:
+            raise RuntimeError(
+                "Cannot attach reduced_dcr_postkick: "
+                "reduced_support_coupler is already attached.")
+        if self.reduced_dcr_postkick_coupler is not None:
+            raise RuntimeError("reduced_dcr_postkick already attached")
+        body_mass: dict[int, float] = {}
+        for d in self._descs:
+            if d.avbd_body is None:
+                continue
+            i = int(d.avbd_body.index)
+            if i in tracked_body_indices:
+                body_mass[i] = float(d.dcr_body.mass)
+        coupler = ReducedSupportDCRPostkickCoupler(
+            rs=rs,
+            tracked_body_indices=list(tracked_body_indices),
+            shelf_length=float(shelf_length),
+            shelf_width=float(shelf_width),
+            shelf_y_rest=float(shelf_y_rest),
+            n_grid_x=int(n_grid_x),
+            n_grid_z=int(n_grid_z),
+            h_macro=float(self.h),
+            n_substeps=int(n_substeps),
+            body_mass=body_mass,
+        )
+        rs.overlay_enabled = False
+        self.reduced_support = rs
+        self.reduced_dcr_postkick_coupler = coupler
         return coupler
 
     def add_passive_coupler(self, coupler: PassiveDCRCoupler) -> None:
@@ -631,6 +779,40 @@ class AVBDDCRWorld:
                 "E_inj_candidate": float(c.last_E_inj_candidate),
                 "E_inj_realised": float(c.last_E_inj_realised),
                 "n_cooldown_active": int(c.last_n_cooldown_active),
+                # Static-sag mode instrumentation.
+                "static_only": bool(c.static_only),
+                "q_norm": float(c.last_q_norm),
+                "max_support_deflection": float(c.last_max_support_deflection),
+                "overlay_events_fired": int(c.last_overlay_events_fired),
+                "cum_overlay_events_fired": int(c.cum_overlay_events_fired),
+            })
+
+        # Legacy DCR post-step Δv kick (--mode old_dcr_postkick).
+        # Mutually exclusive with reduced_coupled_coupler; invoked after
+        # AVBD finishes the macro step, before time advances. Modifies
+        # tracked-body velocities directly.
+        if self.reduced_dcr_postkick_coupler is not None:
+            self.reduced_dcr_postkick_coupler.apply(self)
+
+        # Reduced-coupled-AVBD: mirror its instrumentation into a step log
+        # (parallel to the reduced_support_energy_log).
+        if self.reduced_coupled_coupler is not None:
+            cc = self.reduced_coupled_coupler
+            self.reduced_coupled_log.append({
+                "t": float(self.time),
+                "q_norm": float(cc.last_q_norm),
+                "max_support_deflection": float(cc.last_max_support_deflection),
+                "contact_residual": float(cc.last_contact_residual),
+                "Schur_cond": float(cc.last_Schur_condition_estimate),
+                "n_iter_solves": int(cc.last_n_iter_solves),
+                "max_dx_norm": float(cc.last_max_dx_norm),
+                "max_dtheta_norm": float(cc.last_max_dtheta_norm),
+                "last_dq_norm": float(cc.last_dq_norm),
+                "n_tracked_rows": int(cc.last_n_tracked_rows),
+                "rho_clip_hits": int(cc.last_rho_clip_hits),
+                "overlay_events_fired": int(cc.last_overlay_events_fired),
+                "cum_overlay_events_fired": int(cc.cum_overlay_events_fired),
+                "iter_dq_history": list(cc.last_iter_dq_norms),
             })
 
         self.time += self.h

@@ -1,0 +1,21 @@
+     steel  E=2.0e+11 Pa  substeps=16  mode=coupled_iir_modal  g=1  jump γ=4 ...
+Warp 1.13.0 initialized:
+   CUDA not enabled in this build
+   Devices:
+     "cpu"      : "arm"
+   Kernel cache:
+     /Users/nan/Library/Caches/warp/1.13.0
+Module dcr.avbd._solver.kernels_6dof 0bb4611 load on device 'cpu' took 1.26 ms  (cached)
+      wood  E=1.0e+10 Pa  substeps=16  mode=coupled_iir_modal  g=1  jump γ=4 ...
+   plastic  E=1.0e+09 Pa  substeps=16  mode=coupled_iir_modal  g=1  jump γ=4 ...
+      soft  E=1.0e+08 Pa  substeps=16  mode=coupled_iir_modal  g=1  jump γ=4 ...
+
+# Material sweep — coupled_iir_modal  (g=1, c_ζ=1, η=None, jump γ=4)
+  frames=120, substeps=16, impactor v0_y=-1.0 m/s
+
+| Material |   E (Pa) | Step (ms) | Peak |q| (µm) | Peak |qdot| (mm/s) | Probe rise (µm) | Probe |vy| (mm/s) |
+|:---|---:|---:|---:|---:|---:|---:|
+|   steel | 2.0e+11 |  113.70 |     84.16 |     69.10 |   1443.36 |     80.02 |
+|    wood | 1.0e+10 |  112.80 |    447.82 |     77.56 |   5022.75 |    236.00 |
+| plastic | 1.0e+09 |  119.69 |   1723.34 |     89.00 |   1990.37 |    123.33 |
+|    soft | 1.0e+08 |  115.06 |   7601.52 |    126.74 |   3996.69 |    130.47 |

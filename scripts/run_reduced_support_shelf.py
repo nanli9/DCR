@@ -61,6 +61,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-reduced-support", dest="reduced_support",
                    action="store_false",
                    help="Run the scene with rigid-only AVBD (sanity).")
+    p.add_argument("--reduced-static-support", dest="static_only",
+                   action="store_true", default=False,
+                   help="Static-sag mode: q-block solve only, NO overlay/"
+                        "kick/cap/cooldown/high-pass. Implies --no-overlay.")
     p.add_argument("--restart-overlay", dest="restart_overlay",
                    action="store_true", default=True,
                    help="DCR §9.3 restart option (default ON).")
@@ -79,6 +83,10 @@ def main(argv: list[str] | None = None) -> int:
                    help="Don't print per-frame stats to stdout.")
     args = p.parse_args(argv)
 
+    if args.static_only:
+        # Static-sag mode forces overlay off — the whole point.
+        args.overlay = False
+
     handle = build_reduced_support_shelf(
         h=args.h,
         device=args.device,
@@ -88,12 +96,14 @@ def main(argv: list[str] | None = None) -> int:
         overlay_enabled=args.overlay,
         restart_overlay_each_step=args.restart_overlay,
         reduced_support_enabled=args.reduced_support,
+        reduced_static_support=args.static_only,
     )
     world = handle.world
     rs = handle.rs
 
     print(f"[scene] {handle.name}")
     print(f"  reduced_support_enabled = {args.reduced_support}")
+    print(f"  static_only             = {args.static_only}")
     print(f"  overlay_enabled         = {args.overlay}")
     print(f"  iterations              = {args.iterations}")
     print(f"  device                  = {args.device}")
@@ -123,6 +133,9 @@ def main(argv: list[str] | None = None) -> int:
             E_overlay = coupler.last_E_overlay_injected
             n_iter_solves = coupler.last_n_iter_solves
             n_tracked = coupler.last_n_tracked_rows
+            q_norm = coupler.last_q_norm
+            max_deflection = coupler.last_max_support_deflection
+            overlay_events = coupler.cum_overlay_events_fired
         else:
             d_max = [0.0] * n_probes
             dv = [0.0] * n_probes
@@ -131,6 +144,9 @@ def main(argv: list[str] | None = None) -> int:
             E_overlay = 0.0
             n_iter_solves = 0
             n_tracked = 0
+            q_norm = 0.0
+            max_deflection = 0.0
+            overlay_events = 0
 
         # Probe + impactor kinematics straight off the DCR-side bodies.
         probe_y = []
@@ -157,6 +173,9 @@ def main(argv: list[str] | None = None) -> int:
             "n_iter_solves": n_iter_solves,
             "n_tracked_rows": n_tracked,
             "step_ms": step_ms,
+            "q_norm": q_norm,
+            "max_support_deflection": max_deflection,
+            "cum_overlay_events": overlay_events,
         }
         for i in range(n_probes):
             row[f"probe{i}_y"] = probe_y[i]
@@ -166,16 +185,25 @@ def main(argv: list[str] | None = None) -> int:
         rows.append(row)
 
         if not args.quiet:
-            dv_str = " ".join(f"{v:+.4g}" for v in dv[:n_probes])
-            d_str = " ".join(f"{d:.4g}" for d in d_max[:n_probes])
-            print(
-                f"  f={frame:3d} t={world.time:.4f} "
-                f"impactor_y={impactor_y:+.4g} "
-                f"q_max={q_max_disp:.3g} "
-                f"d_max=[{d_str}] dv=[{dv_str}] "
-                f"E_q={E_q:.3g} E_inj={E_overlay:+.3g} "
-                f"({step_ms:.1f} ms)"
-            )
+            if args.static_only:
+                print(
+                    f"  f={frame:3d} t={world.time:.4f} "
+                    f"impactor_y={impactor_y:+.4g} "
+                    f"|q|={q_norm:.3g} max_defl={max_deflection:.3g} "
+                    f"E_q={E_q:.3g} overlay_events={overlay_events} "
+                    f"({step_ms:.1f} ms)"
+                )
+            else:
+                dv_str = " ".join(f"{v:+.4g}" for v in dv[:n_probes])
+                d_str = " ".join(f"{d:.4g}" for d in d_max[:n_probes])
+                print(
+                    f"  f={frame:3d} t={world.time:.4f} "
+                    f"impactor_y={impactor_y:+.4g} "
+                    f"q_max={q_max_disp:.3g} "
+                    f"d_max=[{d_str}] dv=[{dv_str}] "
+                    f"E_q={E_q:.3g} E_inj={E_overlay:+.3g} "
+                    f"({step_ms:.1f} ms)"
+                )
 
     # ---- CSV ----
     if args.csv:
@@ -200,6 +228,16 @@ def main(argv: list[str] | None = None) -> int:
           f"{[f'{dv_arr[:,i].max():.4g}' for i in range(n_probes)]}")
     print(f"  sum |overlay_injected| over run:  "
           f"{sum(abs(r['E_overlay_injected']) for r in rows):.4g}")
+    q_norms = [r['q_norm'] for r in rows]
+    defls = [r['max_support_deflection'] for r in rows]
+    final_overlay_events = rows[-1]['cum_overlay_events'] if rows else 0
+    mean_step = float(np.mean([r['step_ms'] for r in rows])) if rows else 0.0
+    print(f"  |q| (max / final):                {max(q_norms):.4g} / {q_norms[-1]:.4g}")
+    print(f"  max support deflection (max):     {max(defls):.4g} m")
+    print(f"  mean step time:                   {mean_step:.2f} ms")
+    print(f"  cumulative overlay events:        {final_overlay_events}")
+    if args.static_only and final_overlay_events != 0:
+        print("  WARNING: overlay events fired in static-only mode!")
 
     # ---- Plot ----
     if args.plot:

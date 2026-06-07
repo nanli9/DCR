@@ -101,6 +101,73 @@ Six follow-up gates, all closed:
 | 5 | ρ_q principled sweep | `scripts/run_rho_q_sweep.py` | auto = sweet spot |
 | 6 | Path-B 1-D toy probe | `scripts/path_b_1d_toy.py` | 0 injection, E bounded |
 
+## Reduced-Coordinate Coupled AVBD (IIR exact resonator + demo knobs)
+
+> Branch: `AVBD-Native`. Full design + benchmark in [`docs/reduced_coupled_avbd.md`](docs/reduced_coupled_avbd.md). Scene preset reference in [`docs/scenes.md`](docs/scenes.md).
+
+The successor to the v1 overlay: a **monolithic primal Newton block** over rigid `x` and modal `q` inside the AVBD iteration loop, with `q` as a first-class primal variable in the Schur complement. The modal step is the paper's **IIR exact resonator** (Eq. 10) lifted into a *dynamic compliance* form `q = q_free + S_h(q − q_free)` — no BDF1/Newmark inside Newton, no post-fix Δv kick. 132 AVBD tests green.
+
+### Two-knob recipe (most use cases)
+
+```bash
+# The 95% case: pick a scene, pick a demo style.
+uv run python scripts/run_reduced_support_shelf_viser.py \
+    --scene dining-table --demo-style visible
+
+# See what's available:
+uv run python scripts/run_reduced_support_shelf_viser.py --list-scenes
+uv run python scripts/run_reduced_support_shelf_viser.py --list-styles
+```
+
+Scenes bundle scene geometry + impactor params. Styles bundle the demo amplification knobs. Individual `--<flag>` overrides still work on top.
+
+| `--scene` | What | `--demo-style` | What |
+|---|---|---|---|
+| `research-baseline` | 5 mm shelf (current default) | `honest` | γ=1, no exaggeration |
+| `cutting-board` | 25 mm wood, knife impactor | `visible` | γ=4 (recommended demo) |
+| `pantry-shelf` | 15 mm shelf, spice jar | `aggressive` | γ=12, 4 cm hop ceiling |
+| `dining-table` | 30 mm hardwood (1 × 0.6 m) | `paper-figure` | γ=8 + 10× exaggeration |
+| `metal-plate` | 5 mm steel | | |
+
+Once viser is running, **all the live demo knobs are tunable in the browser GUI**: jump-gain, energy cap, substeps, render-thickness, plus a "Scene rebuild" panel that lets you swap material / shelf thickness / impactor parameters and click Apply to rebuild the world in place — no relaunch required.
+
+> **Note on `shelf_thickness`:** this is the single most sensitive parameter in the whole pipeline. Bending stiffness scales as `h³`, so going from 5 mm to 30 mm cuts the peak modal response ~10× and the visible probe rise 3–5× (the gentler factor is because the `v_max` clamp partially masks the difference for thin shelves). Full measured sweep + scaling math in [`docs/scenes.md` → "How slab thickness affects the result"](docs/scenes.md#how-slab-thickness-affects-the-result). The `shelf_thickness` (physical) and `render_thickness` (cosmetic) knobs are separate; you can have a 5 mm physical sheet that renders as a 25 mm slab.
+
+### Architecture modes
+
+```bash
+--mode coupled_iir_modal      # IIR exact resonator (default, paper Eq. 10)
+--mode coupled_modal_bdf1     # BDF1 ablation
+--mode coupled_modal_static   # Quasi-static q (no dynamics)
+--mode plain                  # Rigid AVBD, no reduced support
+--mode old_dcr_postkick       # Legacy DCR Δv kick (ablation)
+```
+
+Three demo knobs amplify the visible probe response without compromising the architecture:
+
+| Flag | What it does | Wood probe-rise vs baseline |
+|---|---|---:|
+| `--support-response-gain g` | Modal impedance scaling: `(Mq, Dq, Kq) ← /g`. ω, ζ invariant. | 1.23× at g=8 |
+| `--modal-damping-scale c_ζ` | Independent multiplier on Dq → ζ. Lower = longer ringdown. | extends ringing ~50% |
+| `--modal-energy-cap-fraction η` | Passivity: `ΔE_q ≤ η · max(ΔE_rigid_loss, 0)` per substep. | safety bound |
+| `--modal-jump-gain γ` | **Artistic upward-lift at contact rows** via velocity-derived anchor bias. | **5.3× at γ=8** |
+| `--modal-jump-max-height h_max` | Caps `v_lift ≤ √(2·g·h_max)` (1 cm ceiling default). | |
+
+`--modal-jump-gain` is the **visible knob** — it computes `v_lift = γ · max(U_y·qdot − v_bar, 0)` (one-pole-low-passed) and injects it as a contact-gap bias `anchor_y ← floor_y_rest + U_y·q + h·v_lift`. The body is lifted entirely through the AVBD contact multiplier; no post-fix Δv kick. **Peak |q| stays constant across γ** — the lift is on the rigid side, not the modal side.
+
+```bash
+# Most visible demo:
+uv run python scripts/run_reduced_support_shelf_viser.py \
+    --mode coupled_iir_modal --material wood --modal-jump-gain 8
+
+# Full sweeps:
+uv run python scripts/run_coupled_material_sweep.py --modal-jump-gain 8 --frames 120
+uv run python scripts/run_coupled_energy_log.py --mode coupled_iir_modal \
+    --modal-jump-gain 8 --frames 240 --tag jump_g8
+```
+
+Benchmark tables: [`docs/sweep_modal_impedance/RESULTS.md`](docs/sweep_modal_impedance/RESULTS.md) (impedance + damping + cap) and [`docs/sweep_jump_gain/RESULTS.md`](docs/sweep_jump_gain/RESULTS.md) (jump gain across γ ∈ {1, 4, 8, 12} on 4 materials).
+
 ## Demo Scenes (Passive DCR)
 
 Interactive polyscope playback. Each scene demonstrates how an impact on an elastic surface propagates vibrations to distant resting objects.

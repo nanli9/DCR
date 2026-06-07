@@ -38,6 +38,12 @@ from scenes.reduced_support_shelf import (
     N_GRID_X,
     N_GRID_Z,
 )
+from scenes.presets import (
+    PRESETS, DEMO_STYLES, MATERIAL_YOUNGS,
+    get_scene, get_style,
+    format_scene_table, format_style_table,
+    resolve_scene_kwargs, resolve_style_coupler_fields,
+)
 from dcr.rigid.energy import rigid_kinetic_energy
 
 
@@ -71,12 +77,105 @@ def _shelf_faces(n_grid_x: int, n_grid_z: int) -> np.ndarray:
     return np.asarray(faces, dtype=np.uint32)
 
 
-def _shelf_world_vertices(handle, q: np.ndarray) -> np.ndarray:
-    """rest + U · q at every sample point. Returns (n_pts, 3) float32."""
+def _shelf_world_vertices(handle, q: np.ndarray,
+                          exaggerate: float = 1.0) -> np.ndarray:
+    """rest + exaggerate · U · q at every sample point.
+
+    `exaggerate` is a *display-only* multiplier on the modal displacement
+    — it does NOT touch the physics. Useful when q is physically tiny
+    (130 µm) but we want to see the deformation in the browser. Use 1.0
+    for honest display; 100.0 makes a wood-shelf impact clearly visible.
+    """
     rs = handle.rs
     # einsum: (n_pts, 3, r) · (r,) → (n_pts, 3)
     disp = np.einsum("kij,j->ki", rs.U_points, q)
-    return (rs.point_positions_rest + disp).astype(np.float32)
+    return (rs.point_positions_rest + float(exaggerate) * disp
+            ).astype(np.float32)
+
+
+def _slab_faces(n_grid_x: int, n_grid_z: int) -> np.ndarray:
+    """Closed-box mesh: top sheet + bottom sheet + 4 side strips.
+
+    Vertex layout:
+      [0 .. n_pts−1]              top    (same order as _shelf_faces)
+      [n_pts .. 2·n_pts−1]        bottom (top with y -= render_thickness)
+
+    Returns (n_tris, 3) uint32. Used only when --render-thickness > 0
+    so the shelf is rendered as a thick slab without touching physics.
+    """
+    n_pts = n_grid_x * n_grid_z
+    faces = []
+    # Top sheet (CCW seen from +y, same as _shelf_faces).
+    for i in range(n_grid_x - 1):
+        for k in range(n_grid_z - 1):
+            v00 = i * n_grid_z + k
+            v10 = (i + 1) * n_grid_z + k
+            v01 = i * n_grid_z + (k + 1)
+            v11 = (i + 1) * n_grid_z + (k + 1)
+            faces.append([v00, v11, v10])
+            faces.append([v00, v01, v11])
+    # Bottom sheet (reversed winding so outward normal is −y).
+    for i in range(n_grid_x - 1):
+        for k in range(n_grid_z - 1):
+            v00 = n_pts + i * n_grid_z + k
+            v10 = n_pts + (i + 1) * n_grid_z + k
+            v01 = n_pts + i * n_grid_z + (k + 1)
+            v11 = n_pts + (i + 1) * n_grid_z + (k + 1)
+            faces.append([v00, v10, v11])
+            faces.append([v00, v11, v01])
+    # Side walls. Each connects a top edge segment (t0,t1) to its
+    # bottom counterpart (b0,b1) via two triangles. Windings chosen so
+    # outward normal points away from the slab interior.
+    nx, nz = n_grid_x, n_grid_z
+    # Edge i=0 (-x face, outward normal −x).
+    for k in range(nz - 1):
+        t0 = 0 * nz + k
+        t1 = 0 * nz + (k + 1)
+        b0 = n_pts + t0
+        b1 = n_pts + t1
+        faces.append([t0, b0, b1])
+        faces.append([t0, b1, t1])
+    # Edge i=nx-1 (+x face, outward normal +x).
+    for k in range(nz - 1):
+        t0 = (nx - 1) * nz + k
+        t1 = (nx - 1) * nz + (k + 1)
+        b0 = n_pts + t0
+        b1 = n_pts + t1
+        faces.append([t0, b1, b0])
+        faces.append([t0, t1, b1])
+    # Edge k=0 (-z face).
+    for i in range(nx - 1):
+        t0 = i * nz + 0
+        t1 = (i + 1) * nz + 0
+        b0 = n_pts + t0
+        b1 = n_pts + t1
+        faces.append([t0, b1, b0])
+        faces.append([t0, t1, b1])
+    # Edge k=nz-1 (+z face).
+    for i in range(nx - 1):
+        t0 = i * nz + (nz - 1)
+        t1 = (i + 1) * nz + (nz - 1)
+        b0 = n_pts + t0
+        b1 = n_pts + t1
+        faces.append([t0, b0, b1])
+        faces.append([t0, b1, t1])
+    return np.asarray(faces, dtype=np.uint32)
+
+
+def _slab_world_vertices(handle, q: np.ndarray, render_thickness: float,
+                         exaggerate: float = 1.0) -> np.ndarray:
+    """2·n_pts vertices: top sheet from `_shelf_world_vertices`, bottom
+    sheet = top shifted down by `render_thickness`.
+
+    The bottom moves with the top by a constant offset — consistent with
+    Kirchhoff plate kinematics (normals stay normal to the mid-surface).
+    `render_thickness` is purely cosmetic and decoupled from the basis-
+    build `shelf_thickness` parameter used for plate flexural rigidity.
+    """
+    top = _shelf_world_vertices(handle, q, exaggerate)
+    bottom = top.copy()
+    bottom[:, 1] -= float(render_thickness)
+    return np.vstack([top, bottom]).astype(np.float32)
 
 
 class ReducedSupportViewer:
@@ -93,6 +192,21 @@ class ReducedSupportViewer:
         self._frame = 0
         self._hud_interval = 3
 
+        # Mode detection — which coupler is live?
+        #   "overlay" — the v1 ReducedSupportCoupler in non-static_only mode
+        #   "static"  — ReducedSupportCoupler with static_only=True
+        #   "coupled" — ReducedCoupledAVBDCoupler (the monolithic primal)
+        #   "none"    — no coupler attached
+        if self.world.reduced_coupled_coupler is not None:
+            self.mode = "coupled"
+        elif self.world.reduced_support_coupler is not None:
+            self.mode = ("static"
+                         if self.world.reduced_support_coupler.static_only
+                         else "overlay")
+        else:
+            self.mode = "none"
+        print(f"[viser] live coupler mode = {self.mode}")
+
         # Snapshot taken AFTER attach_reduced_support but BEFORE first
         # step. The reset button restores from this.
         self._initial_snapshot = self.world.snapshot()
@@ -106,20 +220,307 @@ class ReducedSupportViewer:
             pass
 
         # ---- Reduced shelf surface mesh ----
-        self._shelf_faces = _shelf_faces(N_GRID_X, N_GRID_Z)
-        self._shelf_rest_verts = (
-            self.rs.point_positions_rest.astype(np.float32).copy())
+        # Always use the closed-slab mesh so the "render thickness"
+        # slider can sweep from 0 (degenerate, looks like a sheet) up
+        # to any positive value with no remesh. The PHYSICS uses the
+        # scene's shelf_thickness; this knob is cosmetic only.
+        self._render_thickness = float(getattr(args, "render_thickness", 0.0))
+        self._init_scene_mesh()
+
+        # ---- Batched bodies (impactor + probes) ----
+        self._init_batched_bodies()
+
+        # Probe normal arrows (visualise Δv injection direction). Skipped
+        # for v1 — viser arrow API would need an extra mesh handle. The
+        # HUD prints Δv numerically per probe.
+
+        # ---- GUI ----
+        with self.server.gui.add_folder("Playback"):
+            self.gui_pause = self.server.gui.add_checkbox(
+                "pause", initial_value=False)
+            self.gui_speed = self.server.gui.add_slider(
+                "speed", min=0.05, max=4.0, step=0.05, initial_value=1.0)
+            self.gui_reset = self.server.gui.add_button("reset scene")
+            self.gui_reset.on_click(lambda _: self._reset_scene())
+
+        with self.server.gui.add_folder("Solver"):
+            self.gui_iters = self.server.gui.add_slider(
+                "AVBD iterations", min=4, max=32, step=2,
+                initial_value=int(self.world.avbd_iterations))
+            self.gui_iters.on_update(self._iters_changed)
+            self.gui_substeps = self.server.gui.add_slider(
+                "AVBD substeps", min=1, max=64, step=1,
+                initial_value=int(getattr(self.world._solver, "substeps", 1)),
+                hint="Substeps per macro step. 16 is the IIR default; "
+                     "higher = more numerical stability but slower.")
+            self.gui_substeps.on_update(self._substeps_changed)
+
+        # ---- Live demo knobs (coupled-IIR mode only) ----
+        if (self.mode == "coupled"
+                and self.world.reduced_coupled_coupler is not None
+                and self.world.reduced_coupled_coupler.q_integrator == "iir"):
+            cc = self.world.reduced_coupled_coupler
+            with self.server.gui.add_folder("Demo knobs (live)"):
+                self.gui_jump_gain = self.server.gui.add_slider(
+                    "modal-jump-gain γ", min=1.0, max=20.0, step=0.5,
+                    initial_value=float(cc.modal_jump_gain),
+                    hint="Artistic upward-lift gain at contact rows. "
+                         "γ=1 honest. γ=4 visible. γ=8..12 demo. "
+                         "γ=20 max. (Live — no rebuild needed.)")
+                self.gui_jump_gain.on_update(self._jump_gain_changed)
+
+                self.gui_jump_max_height_mm = self.server.gui.add_slider(
+                    "jump max height [mm]", min=1.0, max=80.0, step=1.0,
+                    initial_value=float(cc.modal_jump_max_height * 1e3),
+                    hint="Cap on v_lift = √(2·g·h_max). 10 mm → v_max ≈ "
+                         "0.44 m/s. 40 mm → v_max ≈ 0.89 m/s.")
+                self.gui_jump_max_height_mm.on_update(
+                    self._jump_max_height_changed)
+
+                self.gui_jump_tau_ms = self.server.gui.add_slider(
+                    "jump filter τ [ms]", min=1.0, max=200.0, step=1.0,
+                    initial_value=float(cc.modal_jump_filter_tau * 1e3),
+                    hint="One-pole low-pass time constant. Shorter τ → "
+                         "shorter visible hop; longer τ → more sustained "
+                         "lift. Default 30 ms.")
+                self.gui_jump_tau_ms.on_update(self._jump_tau_changed)
+
+                cap_init = cc.modal_energy_cap_fraction
+                self.gui_cap_on_iir = self.server.gui.add_checkbox(
+                    "passivity cap (η enabled)",
+                    initial_value=(cap_init is not None),
+                    hint="When on: ΔE_q ≤ η · max(ΔE_rigid_loss, 0) per "
+                         "substep. Enforces passivity at high gain.")
+                self.gui_cap_on_iir.on_update(self._cap_on_iir_changed)
+
+                self.gui_eta_iir = self.server.gui.add_slider(
+                    "η (cap fraction)", min=0.0, max=2.0, step=0.05,
+                    initial_value=float(cap_init if cap_init is not None
+                                        else 0.5))
+                self.gui_eta_iir.on_update(self._eta_iir_changed)
+
+                self.gui_render_thickness_mm = self.server.gui.add_slider(
+                    "render thickness [mm]", min=0.0, max=80.0, step=1.0,
+                    initial_value=float(self._render_thickness * 1e3),
+                    hint="Cosmetic only: render the shelf as a slab of "
+                         "this thickness. 0 = single sheet. The PHYSICS "
+                         "still uses the scene's shelf_thickness.")
+                self.gui_render_thickness_mm.on_update(
+                    self._render_thickness_changed)
+
+        # ---- Scene rebuild (drops material, thickness, impactor in/out) ----
+        # Changing these triggers a world rebuild on Apply.
+        from scenes.presets import (
+            PRESETS as _PRESETS, MATERIAL_YOUNGS as _MAT_YOUNGS, get_scene)
+        cur_scene_name = getattr(args, "scene", "research-baseline")
+        cur_scene = get_scene(cur_scene_name)
+        cur_material = getattr(args, "material", None) or cur_scene.default_material
+        with self.server.gui.add_folder("Scene rebuild"):
+            self.gui_rb_scene = self.server.gui.add_dropdown(
+                "scene preset",
+                options=tuple(_PRESETS.keys()),
+                initial_value=cur_scene_name,
+                hint="Picking a preset PRE-FILLS the sliders below. Press "
+                     "Apply to rebuild the world with the chosen values.")
+            self.gui_rb_scene.on_update(self._rb_scene_changed)
+            self.gui_rb_mode = self.server.gui.add_dropdown(
+                "mode",
+                options=("plain", "coupled_modal_static",
+                         "coupled_modal_bdf1", "coupled_iir_modal",
+                         "old_dcr_postkick"),
+                initial_value=getattr(args, "mode", "coupled_iir_modal"))
+            self.gui_rb_material = self.server.gui.add_dropdown(
+                "material",
+                options=tuple(_MAT_YOUNGS.keys()),
+                initial_value=cur_material)
+            self.gui_rb_thickness_mm = self.server.gui.add_slider(
+                "shelf thickness [mm]", min=1.0, max=80.0, step=0.5,
+                initial_value=float(cur_scene.shelf_thickness * 1e3),
+                hint="Physical plate thickness. ω ∝ h, q_static ∝ 1/h³. "
+                     "Thicker → much stiffer → much smaller modal response.")
+            self.gui_rb_imp_mass = self.server.gui.add_slider(
+                "impactor mass [kg]", min=0.05, max=5.0, step=0.05,
+                initial_value=float(cur_scene.impactor_mass))
+            self.gui_rb_imp_v0 = self.server.gui.add_slider(
+                "impactor v0_y [m/s]", min=-5.0, max=0.0, step=0.05,
+                initial_value=float(cur_scene.impactor_v0_y))
+            self.gui_rb_drop = self.server.gui.add_slider(
+                "drop height [m]", min=0.0, max=0.30, step=0.005,
+                initial_value=float(cur_scene.impactor_drop_height))
+            self.gui_rb_apply = self.server.gui.add_button("Apply (rebuild)")
+            self.gui_rb_apply.on_click(lambda _: self._rebuild_from_gui())
+            self.gui_rb_status = self.server.gui.add_text(
+                "rebuild status",
+                initial_value=f"current: {cur_scene_name}/{cur_material}")
+
+        with self.server.gui.add_folder("Display"):
+            # Display-only multiplier on U·q for the rendered shelf
+            # mesh. Physics is unaffected — same q drives contact, this
+            # only scales what the browser shows.
+            self.gui_q_exaggerate = self.server.gui.add_slider(
+                "display q exaggerate",
+                min=1.0, max=500.0, step=1.0,
+                initial_value=float(args.display_q_exaggerate),
+                hint="Render-only multiplier on U·q for the shelf mesh. "
+                     "1 = honest; 100 = makes 130 µm look like 13 mm. "
+                     "Does NOT touch the physics.")
+
+        with self.server.gui.add_folder("Reduced support"):
+            self.gui_rs_enabled = self.server.gui.add_checkbox(
+                "reduced support enabled",
+                initial_value=bool(self.rs.enabled),
+                hint="Off ⇒ vanilla AVBD only (no q-block, no overlay).")
+            self.gui_rs_enabled.on_update(self._rs_enabled_changed)
+            self.gui_mode_label = self.server.gui.add_text(
+                "mode",
+                initial_value=self.mode,
+                hint="Live coupler mode: 'overlay' = v1 IIR; "
+                     "'static' = BCD; 'coupled' = monolithic Newton. "
+                     "Read-only.")
+            # Overlay knobs only meaningful in 'overlay' mode.
+            if self.mode == "overlay":
+                self.gui_overlay = self.server.gui.add_checkbox(
+                    "transient overlay (§9)",
+                    initial_value=bool(self.rs.overlay_enabled),
+                    hint="The decisive A/B. On = sub-stepped IIR peak. "
+                         "Off = bare quasi-static d_qs / h.")
+                self.gui_overlay.on_update(self._overlay_changed)
+                self.gui_restart = self.server.gui.add_checkbox(
+                    "restart overlay each step (§9.3)",
+                    initial_value=bool(self.rs.restart_overlay_each_step))
+                self.gui_restart.on_update(self._restart_changed)
+                rho_init = float(self.world.reduced_support_coupler.rho_q)
+                if rho_init <= 0:
+                    rho_init = 1.0e4
+                self.gui_rho_q = self.server.gui.add_slider(
+                    "rho_q (log10)", min=2.0, max=8.0, step=0.1,
+                    initial_value=float(np.log10(max(rho_init, 1.0))),
+                    hint="q-block AL penalty (force/length). Auto-sized to "
+                         "(1/h^2)·M_q[0,0] on first step; drag to retune.")
+                self.gui_rho_q.on_update(self._rho_q_changed)
+
+        # ---- Items (3) + (4): bounded overlay discipline ----
+        # Only relevant in 'overlay' mode; static/coupled bypass all this.
+        if self.mode == "overlay":
+            with self.server.gui.add_folder("Overlay discipline (3+4)"):
+                c0 = self.world.reduced_support_coupler
+                self.gui_cap_on = self.server.gui.add_checkbox(
+                    "energy cap (item 3)",
+                    initial_value=bool(c0.energy_cap_enabled),
+                    hint="α=min(1,√(η·E_src/E_inj)). Off ⇒ raw injection.")
+                self.gui_cap_on.on_update(self._cap_changed)
+                self.gui_eta = self.server.gui.add_slider(
+                    "η_overlay", min=0.0, max=1.0, step=0.05,
+                    initial_value=float(c0.eta_overlay),
+                    hint="Fraction of source rigid-KE loss available to the "
+                         "overlay's distant Δv injection.")
+                self.gui_eta.on_update(self._eta_changed)
+                self.gui_hp = self.server.gui.add_checkbox(
+                    "high-pass r̃ (overlay HP)",
+                    initial_value=bool(c0.overlay_high_pass),
+                    hint="r̃[n] − r̃[n−1] so steady loads don't re-excite the "
+                         "IIR. Off ⇒ raw spec §9.2 formulation.")
+                self.gui_hp.on_update(self._hp_changed)
+                self.gui_cd_steps = self.server.gui.add_slider(
+                    "cooldown (item 4) steps", min=0, max=6, step=1,
+                    initial_value=int(c0.cooldown_steps),
+                    hint="Probe receivers' OWN contact rows are gated out of "
+                         "r̃ for N macro steps after a kick. 0 ⇒ disabled.")
+                self.gui_cd_steps.on_update(self._cd_steps_changed)
+                self.gui_cd_thr = self.server.gui.add_slider(
+                    "cooldown |Δv| trigger [m/s]",
+                    min=0.01, max=2.0, step=0.01,
+                    initial_value=float(c0.cooldown_dv_threshold),
+                    hint="Δv below this doesn't arm the cooldown.")
+                self.gui_cd_thr.on_update(self._cd_thr_changed)
+                self.gui_fcap_on = self.server.gui.add_checkbox(
+                    "physical F_n cap (per body)",
+                    initial_value=bool(c0.physical_force_cap_enabled),
+                    hint="Caps total F_n per tracked body at "
+                         "K·(m·|v_pre|/h + m·g). Tames λ overshoot at low N.")
+                self.gui_fcap_on.on_update(self._fcap_on_changed)
+                self.gui_fcap_K = self.server.gui.add_slider(
+                    "F_n cap K_safety",
+                    min=1.0, max=10.0, step=0.5,
+                    initial_value=float(c0.physical_force_cap_K_safety),
+                    hint="Multiplier on m·|v_pre|/h + m·g. 1 = strict, "
+                         "3 = default, 10 = effectively off.")
+                self.gui_fcap_K.on_update(self._fcap_K_changed)
+
+        with self.server.gui.add_folder("Status"):
+            self.gui_t = self.server.gui.add_text("t [s]", initial_value="0.000")
+            self.gui_step_ms = self.server.gui.add_text(
+                "step time [ms]", initial_value="0.0")
+            self.gui_e_rigid = self.server.gui.add_text(
+                "E_rigid [J]", initial_value="0.0")
+            self.gui_q_max = self.server.gui.add_text(
+                "max support deflection [m]", initial_value="0.0")
+            self.gui_q_norm = self.server.gui.add_text(
+                "|q|", initial_value="0.0")
+            self.gui_n_tracked = self.server.gui.add_text(
+                "tracked rows", initial_value="0")
+            # Overlay-only diagnostics — only shown in 'overlay' mode.
+            if self.mode == "overlay":
+                self.gui_e_q = self.server.gui.add_text(
+                    "E_q [J]", initial_value="0.0")
+                self.gui_e_overlay = self.server.gui.add_text(
+                    "E_overlay_injected [J]", initial_value="0.0")
+                self.gui_d_max = self.server.gui.add_text(
+                    "max probe d_max [m]", initial_value="0.0")
+                self.gui_dv = self.server.gui.add_text(
+                    "max probe |Δv| [m/s]", initial_value="0.0")
+                self.gui_alpha = self.server.gui.add_text(
+                    "α (cap)", initial_value="1.000")
+                self.gui_e_src = self.server.gui.add_text(
+                    "E_src [J]", initial_value="0.0")
+                self.gui_e_inj_cand = self.server.gui.add_text(
+                    "E_inj_candidate [J]", initial_value="0.0")
+                self.gui_e_inj_real = self.server.gui.add_text(
+                    "E_inj_realised [J]", initial_value="0.0")
+                self.gui_n_cooldown = self.server.gui.add_text(
+                    "probes in cooldown", initial_value="0")
+            # Coupled-mode diagnostics.
+            if self.mode == "coupled":
+                self.gui_qdot = self.server.gui.add_text(
+                    "|qdot| [1/s]", initial_value="0.0")
+                self.gui_pen = self.server.gui.add_text(
+                    "penetration [m]", initial_value="0.0")
+                self.gui_cond = self.server.gui.add_text(
+                    "cond(S)", initial_value="0.0")
+                self.gui_dq = self.server.gui.add_text(
+                    "|Δq| last iter", initial_value="0.0")
+                self.gui_n_iter = self.server.gui.add_text(
+                    "n_iter_solves", initial_value="0")
+            # All modes: overlay events counter (must be 0 in static/coupled).
+            self.gui_overlay_events = self.server.gui.add_text(
+                "overlay events (cum)", initial_value="0")
+
+        self._thread = threading.Thread(target=self._run_loop, daemon=True)
+
+    # ---- GUI callbacks ---------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Scene-rebuild helpers (used by both __init__ and Apply button).
+    # ------------------------------------------------------------------
+
+    def _init_scene_mesh(self):
+        """Create the slab shelf mesh in viser. Call after self.rs is set."""
+        self._shelf_faces = _slab_faces(N_GRID_X, N_GRID_Z)
+        top0 = self.rs.point_positions_rest.astype(np.float32).copy()
+        bot0 = top0.copy()
+        bot0[:, 1] -= self._render_thickness
+        self._shelf_rest_verts = np.vstack([top0, bot0])
         self.shelf_handle = self.server.scene.add_mesh_simple(
             "/reduced_shelf",
             vertices=self._shelf_rest_verts,
             faces=self._shelf_faces,
             color=(0.55, 0.50, 0.40),
-            flat_shading=False,
-            side="double",
+            flat_shading=False, side="double",
         )
 
-        # ---- Batched bodies (impactor + probes) ----
-        # Walk world descs to find dynamic bodies and their sizes/colors.
+    def _init_batched_bodies(self):
+        """Build the batched-mesh handle for impactor + probes. Walks the
+        world's descriptor list, picks colors per role."""
         self._body_avbd_indices = []
         sizes_list = []
         colors_list = []
@@ -131,10 +532,9 @@ class ReducedSupportViewer:
             self._body_avbd_indices.append(int(desc.avbd_body.index))
             he = desc.avbd_body.half_extents
             sizes_list.append((2 * he[0], 2 * he[1], 2 * he[2]))
-            # Impactor = red, probes = green/blue, others = grey.
-            if di == handle.impactor_idx:
+            if di == self.handle.impactor_idx:
                 colors_list.append((220, 60, 60))
-            elif di in handle.probe_indices:
+            elif di in self.handle.probe_indices:
                 colors_list.append((60, 200, 120))
             else:
                 colors_list.append((150, 150, 150))
@@ -157,136 +557,201 @@ class ReducedSupportViewer:
         self._bp_buf = bp.copy()
         self._bw_buf = bw.copy()
 
-        # Probe normal arrows (visualise Δv injection direction). Skipped
-        # for v1 — viser arrow API would need an extra mesh handle. The
-        # HUD prints Δv numerically per probe.
+    def _swap_handle(self, new_handle):
+        """Replace the live world+handle with `new_handle` (which is a
+        freshly built ShelfSceneHandle). Tears down and rebuilds the
+        viser scene mesh + batched bodies. Resets the reset-snapshot to
+        the new world's initial state.
 
-        # ---- GUI ----
-        with self.server.gui.add_folder("Playback"):
-            self.gui_pause = self.server.gui.add_checkbox(
-                "pause", initial_value=False)
-            self.gui_speed = self.server.gui.add_slider(
-                "speed", min=0.05, max=4.0, step=0.05, initial_value=1.0)
-            self.gui_reset = self.server.gui.add_button("reset scene")
-            self.gui_reset.on_click(lambda _: self._reset_scene())
+        Must be called with `self._world_lock` held by the caller.
+        """
+        # Remove old viser elements (they retain their own scene state).
+        try:    self.shelf_handle.remove()
+        except Exception: pass
+        try:    self._batched_bodies.remove()
+        except Exception: pass
 
-        with self.server.gui.add_folder("Solver"):
-            self.gui_iters = self.server.gui.add_slider(
-                "AVBD iterations", min=4, max=32, step=2,
-                initial_value=int(self.world.avbd_iterations))
-            self.gui_iters.on_update(self._iters_changed)
+        # Swap references.
+        self.handle = new_handle
+        self.world  = new_handle.world
+        self.rs     = new_handle.rs
 
-        with self.server.gui.add_folder("Reduced support"):
-            self.gui_rs_enabled = self.server.gui.add_checkbox(
-                "reduced support enabled",
-                initial_value=bool(self.rs.enabled),
-                hint="Off ⇒ vanilla AVBD only (no q-block, no overlay).")
-            self.gui_rs_enabled.on_update(self._rs_enabled_changed)
-            self.gui_overlay = self.server.gui.add_checkbox(
-                "transient overlay (§9)",
-                initial_value=bool(self.rs.overlay_enabled),
-                hint="The decisive A/B. On = sub-stepped IIR peak. "
-                     "Off = bare quasi-static d_qs / h.")
-            self.gui_overlay.on_update(self._overlay_changed)
-            self.gui_restart = self.server.gui.add_checkbox(
-                "restart overlay each step (§9.3)",
-                initial_value=bool(self.rs.restart_overlay_each_step))
-            self.gui_restart.on_update(self._restart_changed)
-            rho_init = float(self.world.reduced_support_coupler.rho_q)
-            if rho_init <= 0:
-                rho_init = 1.0e4
-            self.gui_rho_q = self.server.gui.add_slider(
-                "rho_q (log10)", min=2.0, max=8.0, step=0.1,
-                initial_value=float(np.log10(max(rho_init, 1.0))),
-                hint="q-block AL penalty (force/length). Auto-sized to "
-                     "(1/h^2)·M_q[0,0] on first step; drag to retune.")
-            self.gui_rho_q.on_update(self._rho_q_changed)
+        # Detect new mode.
+        if self.world.reduced_coupled_coupler is not None:
+            self.mode = "coupled"
+        elif self.world.reduced_support_coupler is not None:
+            self.mode = ("static"
+                         if self.world.reduced_support_coupler.static_only
+                         else "overlay")
+        else:
+            self.mode = "none"
 
-        # ---- Items (3) + (4): bounded overlay discipline ----
-        with self.server.gui.add_folder("Overlay discipline (3+4)"):
-            c0 = self.world.reduced_support_coupler
-            self.gui_cap_on = self.server.gui.add_checkbox(
-                "energy cap (item 3)",
-                initial_value=bool(c0.energy_cap_enabled),
-                hint="α=min(1,√(η·E_src/E_inj)). Off ⇒ raw injection.")
-            self.gui_cap_on.on_update(self._cap_changed)
-            self.gui_eta = self.server.gui.add_slider(
-                "η_overlay", min=0.0, max=1.0, step=0.05,
-                initial_value=float(c0.eta_overlay),
-                hint="Fraction of source rigid-KE loss available to the "
-                     "overlay's distant Δv injection.")
-            self.gui_eta.on_update(self._eta_changed)
-            self.gui_hp = self.server.gui.add_checkbox(
-                "high-pass r̃ (overlay HP)",
-                initial_value=bool(c0.overlay_high_pass),
-                hint="r̃[n] − r̃[n−1] so steady loads don't re-excite the "
-                     "IIR. Off ⇒ raw spec §9.2 formulation.")
-            self.gui_hp.on_update(self._hp_changed)
-            self.gui_cd_steps = self.server.gui.add_slider(
-                "cooldown (item 4) steps", min=0, max=6, step=1,
-                initial_value=int(c0.cooldown_steps),
-                hint="Probe receivers' OWN contact rows are gated out of "
-                     "r̃ for N macro steps after a kick. 0 ⇒ disabled.")
-            self.gui_cd_steps.on_update(self._cd_steps_changed)
-            self.gui_cd_thr = self.server.gui.add_slider(
-                "cooldown |Δv| trigger [m/s]",
-                min=0.01, max=2.0, step=0.01,
-                initial_value=float(c0.cooldown_dv_threshold),
-                hint="Δv below this doesn't arm the cooldown.")
-            self.gui_cd_thr.on_update(self._cd_thr_changed)
-            self.gui_fcap_on = self.server.gui.add_checkbox(
-                "physical F_n cap (per body)",
-                initial_value=bool(c0.physical_force_cap_enabled),
-                hint="Caps total F_n per tracked body at "
-                     "K·(m·|v_pre|/h + m·g). Tames λ overshoot at low N.")
-            self.gui_fcap_on.on_update(self._fcap_on_changed)
-            self.gui_fcap_K = self.server.gui.add_slider(
-                "F_n cap K_safety",
-                min=1.0, max=10.0, step=0.5,
-                initial_value=float(c0.physical_force_cap_K_safety),
-                hint="Multiplier on m·|v_pre|/h + m·g. 1 = strict, "
-                     "3 = default, 10 = effectively off.")
-            self.gui_fcap_K.on_update(self._fcap_K_changed)
+        # Re-init viser elements.
+        self._init_scene_mesh()
+        self._init_batched_bodies()
 
-        with self.server.gui.add_folder("Status"):
-            self.gui_t = self.server.gui.add_text("t [s]", initial_value="0.000")
-            self.gui_step_ms = self.server.gui.add_text(
-                "step time [ms]", initial_value="0.0")
-            self.gui_e_rigid = self.server.gui.add_text(
-                "E_rigid [J]", initial_value="0.0")
-            self.gui_e_q = self.server.gui.add_text(
-                "E_q [J]", initial_value="0.0")
-            self.gui_e_overlay = self.server.gui.add_text(
-                "E_overlay_injected [J]", initial_value="0.0")
-            self.gui_q_max = self.server.gui.add_text(
-                "q_max_disp [m]", initial_value="0.0")
-            self.gui_d_max = self.server.gui.add_text(
-                "max probe d_max [m]", initial_value="0.0")
-            self.gui_dv = self.server.gui.add_text(
-                "max probe |Δv| [m/s]", initial_value="0.0")
-            self.gui_n_tracked = self.server.gui.add_text(
-                "tracked rows", initial_value="0")
-            # Items (3) + (4) live diagnostics.
-            self.gui_alpha = self.server.gui.add_text(
-                "α (cap)", initial_value="1.000")
-            self.gui_e_src = self.server.gui.add_text(
-                "E_src [J]", initial_value="0.0")
-            self.gui_e_inj_cand = self.server.gui.add_text(
-                "E_inj_candidate [J]", initial_value="0.0")
-            self.gui_e_inj_real = self.server.gui.add_text(
-                "E_inj_realised [J]", initial_value="0.0")
-            self.gui_n_cooldown = self.server.gui.add_text(
-                "probes in cooldown", initial_value="0")
-
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
-
-    # ---- GUI callbacks ---------------------------------------------------
+        # New snapshot for the reset button.
+        self._initial_snapshot = self.world.snapshot()
+        self._initial_q = self.rs.q.copy()
+        self._initial_qdot = self.rs.qdot.copy()
+        self._frame = 0
+        if hasattr(self, "gui_mode_label"):
+            try: self.gui_mode_label.value = self.mode
+            except Exception: pass
+        print(f"[rebuild] new scene attached  mode={self.mode}  "
+              f"h_t={self.rs.point_positions_rest.shape[0]} pts, "
+              f"jump_gain={getattr(self.world.reduced_coupled_coupler, 'modal_jump_gain', 'n/a')}")
 
     def _iters_changed(self, _evt):
         with self._world_lock:
             self.world.avbd_iterations = int(self.gui_iters.value)
             self.world._solver.iterations = int(self.gui_iters.value)
             self.world._solver._graph = None
+
+    def _substeps_changed(self, _evt):
+        with self._world_lock:
+            n = max(1, int(self.gui_substeps.value))
+            if hasattr(self.world, "avbd_substeps"):
+                self.world.avbd_substeps = n
+            self.world._solver.substeps = n
+            self.world._solver._graph = None
+
+    def _jump_gain_changed(self, _evt):
+        with self._world_lock:
+            cc = self.world.reduced_coupled_coupler
+            if cc is not None:
+                cc.modal_jump_gain = float(self.gui_jump_gain.value)
+
+    def _jump_max_height_changed(self, _evt):
+        with self._world_lock:
+            cc = self.world.reduced_coupled_coupler
+            if cc is not None:
+                cc.modal_jump_max_height = float(
+                    self.gui_jump_max_height_mm.value) * 1e-3
+
+    def _jump_tau_changed(self, _evt):
+        with self._world_lock:
+            cc = self.world.reduced_coupled_coupler
+            if cc is not None:
+                cc.modal_jump_filter_tau = float(
+                    self.gui_jump_tau_ms.value) * 1e-3
+
+    def _cap_on_iir_changed(self, _evt):
+        with self._world_lock:
+            cc = self.world.reduced_coupled_coupler
+            if cc is None:
+                return
+            if self.gui_cap_on_iir.value:
+                cc.modal_energy_cap_fraction = float(self.gui_eta_iir.value)
+            else:
+                cc.modal_energy_cap_fraction = None
+
+    def _eta_iir_changed(self, _evt):
+        with self._world_lock:
+            cc = self.world.reduced_coupled_coupler
+            if cc is not None and cc.modal_energy_cap_fraction is not None:
+                cc.modal_energy_cap_fraction = float(self.gui_eta_iir.value)
+
+    def _render_thickness_changed(self, _evt):
+        # No lock needed — only affects the next mesh update on the GUI
+        # thread; mesh updates happen in the GUI tick callback.
+        self._render_thickness = max(
+            0.0, float(self.gui_render_thickness_mm.value) * 1e-3)
+
+    def _rb_scene_changed(self, _evt):
+        """When the user picks a different scene preset in the rebuild
+        dropdown, pre-populate the other rebuild controls from that
+        preset's defaults. The user can then tweak and press Apply."""
+        from scenes.presets import get_scene
+        p = get_scene(self.gui_rb_scene.value)
+        # Push values into the other rebuild widgets.
+        try:
+            self.gui_rb_material.value     = p.default_material
+            self.gui_rb_thickness_mm.value = float(p.shelf_thickness * 1e3)
+            self.gui_rb_imp_mass.value     = float(p.impactor_mass)
+            self.gui_rb_imp_v0.value       = float(p.impactor_v0_y)
+            self.gui_rb_drop.value         = float(p.impactor_drop_height)
+            self.gui_rb_status.value = (
+                f"preset: {p.name} (h_t={p.shelf_thickness*1e3:.1f} mm, "
+                f"E={p.default_material}). Press Apply.")
+        except Exception as e:
+            self.gui_rb_status.value = f"preset update failed: {e}"
+
+    def _rebuild_from_gui(self):
+        """Read the rebuild widgets, build a fresh handle, swap it in."""
+        from scenes.presets import (
+            get_scene, get_style, MATERIAL_YOUNGS,
+            resolve_scene_kwargs, resolve_style_coupler_fields,
+        )
+        try:
+            scene_name = self.gui_rb_scene.value
+            preset = get_scene(scene_name)
+            style = get_style(getattr(self.args, "demo_style", "honest"))
+            material = self.gui_rb_material.value
+            mode = self.gui_rb_mode.value
+
+            # Carry the LIVE demo-knob values forward into the new world
+            # so the rebuild doesn't reset what the user was tuning.
+            cc_old = self.world.reduced_coupled_coupler
+            jump_gain = (float(cc_old.modal_jump_gain)
+                         if cc_old is not None else style.modal_jump_gain)
+            jump_max_h = (float(cc_old.modal_jump_max_height)
+                          if cc_old is not None else style.modal_jump_max_height)
+            cap_frac = (cc_old.modal_energy_cap_fraction
+                        if cc_old is not None
+                        else style.modal_energy_cap_fraction)
+
+            scene_kw = resolve_scene_kwargs(
+                preset,
+                material=material,
+                shelf_thickness=float(self.gui_rb_thickness_mm.value) * 1e-3,
+                impactor_mass=float(self.gui_rb_imp_mass.value),
+                impactor_drop_height=float(self.gui_rb_drop.value),
+                impactor_v0=(0.0, float(self.gui_rb_imp_v0.value), 0.0),
+            )
+            coupler_kw = resolve_style_coupler_fields(style, overrides={
+                "modal_impedance_scale": style.support_response_gain,
+                "modal_damping_scale":   style.modal_damping_scale,
+                "modal_energy_cap_fraction": cap_frac,
+                "modal_jump_gain":       jump_gain,
+                "modal_jump_max_height": jump_max_h,
+            })
+            with self._world_lock:
+                # Pause the sim thread briefly while we rebuild.
+                was_paused = self.gui_pause.value
+                self.gui_pause.value = True
+
+                new_handle = build_reduced_support_shelf(
+                    h=float(self.args.h),
+                    device=str(self.args.device),
+                    iterations=int(getattr(self.gui_iters, "value",
+                                          self.args.iterations)),
+                    avbd_substeps=int(getattr(self.gui_substeps, "value",
+                                              self.args.substeps)),
+                    reduced_support_enabled=(mode != "plain"),
+                    reduced_static_support=(mode == "coupled_modal_static"),
+                    coupled_avbd=(mode in ("coupled_modal_bdf1",
+                                           "coupled_iir_modal")),
+                    dcr_postkick=(mode == "old_dcr_postkick"),
+                    rayleigh_alpha0=0.0,
+                    rayleigh_alpha1=5.0e-6,
+                    **scene_kw,
+                    **coupler_kw,
+                )
+                # Apply mode-specific integrator choice.
+                cc_new = new_handle.world.reduced_coupled_coupler
+                if cc_new is not None:
+                    cc_new.q_integrator = (
+                        "bdf1" if mode == "coupled_modal_bdf1" else "iir")
+
+                self._swap_handle(new_handle)
+                self.gui_pause.value = was_paused
+            self.gui_rb_status.value = (
+                f"OK — {scene_name}/{material}, "
+                f"h_t={self.gui_rb_thickness_mm.value:.1f} mm")
+        except Exception as e:
+            self.gui_rb_status.value = f"REBUILD FAILED: {e}"
+            print(f"[rebuild] FAILED: {e!r}")
 
     def _rs_enabled_changed(self, _evt):
         with self._world_lock:
@@ -358,7 +823,22 @@ class ReducedSupportViewer:
             self.rs.q_hat[:] = self._initial_q
             self.rs.q_prev_macro[:] = self._initial_q
             self.world.reduced_support_energy_log.clear()
+            if hasattr(self.world, "reduced_coupled_log"):
+                self.world.reduced_coupled_log.clear()
+            # Reset overlay-event counter on whichever coupler is live.
+            cc = self._live_coupler()
+            if cc is not None and hasattr(cc, "cum_overlay_events_fired"):
+                cc.cum_overlay_events_fired = 0
         self._render_tick()
+
+    def _live_coupler(self):
+        """Return whichever reduced-support coupler is currently attached.
+        Mode-aware: returns the ReducedCoupledAVBDCoupler in coupled mode,
+        the ReducedSupportCoupler in overlay/static modes, or None.
+        """
+        if self.world.reduced_coupled_coupler is not None:
+            return self.world.reduced_coupled_coupler
+        return self.world.reduced_support_coupler
 
     # ---- Render + loop ---------------------------------------------------
 
@@ -408,7 +888,14 @@ class ReducedSupportViewer:
             self._bw_buf[slot] = desc.dcr_body.orientation
             slot += 1
         # Reduced shelf surface — recompute deformed vertices each tick.
-        deformed = _shelf_world_vertices(self.handle, self.rs.q)
+        # Display-only exaggeration (slider) does not touch physics.
+        # Always use the slab vertex layout (top + bottom) — at
+        # _render_thickness=0 it collapses to a degenerate sheet that
+        # the renderer handles fine.
+        deformed = _slab_world_vertices(
+            self.handle, self.rs.q,
+            render_thickness=self._render_thickness,
+            exaggerate=float(self.gui_q_exaggerate.value))
 
         with self.server.atomic():
             self._batched_bodies.batched_positions = self._bp_buf
@@ -419,76 +906,304 @@ class ReducedSupportViewer:
         self._frame += 1
         if (self._frame % self._hud_interval) != 0:
             return
-        coupler = self.world.reduced_support_coupler
         E_rigid = rigid_kinetic_energy(
             [d.dcr_body for d in self.world._descs])
+        coupler = self._live_coupler()
+
+        # Common diagnostics (every mode exposes these).
+        q_max = 0.0
+        q_norm = 0.0
+        n_tracked = 0
+        overlay_events_cum = 0
         if coupler is not None:
-            d_max_vec = coupler.last_probe_d_max
-            dv_vec = coupler.last_probe_dv
-            d_max = float(np.max(d_max_vec)) if d_max_vec.size > 0 else 0.0
-            dv_max = float(np.max(np.abs(dv_vec))) if dv_vec.size > 0 else 0.0
-            E_q = coupler.last_E_q
-            E_inj = coupler.last_E_overlay_injected
-            q_max = coupler.last_q_max_disp
-            n_tracked = coupler.last_n_tracked_rows
-            alpha_cap = coupler.last_alpha_cap
-            E_src = coupler.last_E_src
-            E_inj_cand = coupler.last_E_inj_candidate
-            E_inj_real = coupler.last_E_inj_realised
-            n_cooldown = coupler.last_n_cooldown_active
-        else:
-            d_max = dv_max = E_q = E_inj = q_max = 0.0
-            n_tracked = 0
-            alpha_cap = 1.0
-            E_src = E_inj_cand = E_inj_real = 0.0
-            n_cooldown = 0
+            q_max = float(getattr(coupler, "last_max_support_deflection",
+                                  getattr(coupler, "last_q_max_disp", 0.0)))
+            q_norm = float(getattr(coupler, "last_q_norm", 0.0))
+            if q_norm == 0.0 and hasattr(coupler, "rs"):
+                q_norm = float(np.linalg.norm(coupler.rs.q))
+            n_tracked = int(getattr(coupler, "last_n_tracked_rows", 0))
+            overlay_events_cum = int(getattr(
+                coupler, "cum_overlay_events_fired", 0))
 
         with self.server.atomic():
             self.gui_t.value = f"{self.world.time:.3f}"
             self.gui_step_ms.value = f"{self.world.last_step_ms:.2f}"
             self.gui_e_rigid.value = f"{E_rigid:.4f}"
-            self.gui_e_q.value = f"{E_q:.4g}"
-            self.gui_e_overlay.value = f"{E_inj:+.4g}"
             self.gui_q_max.value = f"{q_max:.4g}"
-            self.gui_d_max.value = f"{d_max:.4g}"
-            self.gui_dv.value = f"{dv_max:.4g}"
+            self.gui_q_norm.value = f"{q_norm:.4g}"
             self.gui_n_tracked.value = str(n_tracked)
-            self.gui_alpha.value = f"{alpha_cap:.3f}"
-            self.gui_e_src.value = f"{E_src:.4g}"
-            self.gui_e_inj_cand.value = f"{E_inj_cand:.4g}"
-            self.gui_e_inj_real.value = f"{E_inj_real:+.4g}"
-            self.gui_n_cooldown.value = str(n_cooldown)
+            self.gui_overlay_events.value = str(overlay_events_cum)
+
+            # See note on the "coupled" branch below — same torn-read
+            # protection: if a rebuild swapped to a different coupler,
+            # missing attrs are silently skipped this tick.
+            if (self.mode == "overlay" and coupler is not None
+                and hasattr(coupler, "last_probe_d_max")):
+                d_max_vec = coupler.last_probe_d_max
+                dv_vec = coupler.last_probe_dv
+                d_max = (float(np.max(d_max_vec))
+                         if d_max_vec.size > 0 else 0.0)
+                dv_max = (float(np.max(np.abs(dv_vec)))
+                          if dv_vec.size > 0 else 0.0)
+                self.gui_e_q.value = (
+                    f"{getattr(coupler, 'last_E_q', 0.0):.4g}")
+                self.gui_e_overlay.value = (
+                    f"{getattr(coupler, 'last_E_overlay_injected', 0.0):+.4g}")
+                self.gui_d_max.value = f"{d_max:.4g}"
+                self.gui_dv.value = f"{dv_max:.4g}"
+                self.gui_alpha.value = (
+                    f"{getattr(coupler, 'last_alpha_cap', 0.0):.3f}")
+                self.gui_e_src.value = (
+                    f"{getattr(coupler, 'last_E_src', 0.0):.4g}")
+                self.gui_e_inj_cand.value = (
+                    f"{getattr(coupler, 'last_E_inj_candidate', 0.0):.4g}")
+                self.gui_e_inj_real.value = (
+                    f"{getattr(coupler, 'last_E_inj_realised', 0.0):+.4g}")
+                self.gui_n_cooldown.value = str(
+                    getattr(coupler, 'last_n_cooldown_active', 0))
+
+            # Render-thread reads self.mode and self.world WITHOUT the
+            # world lock. A concurrent _swap_handle() can swap the live
+            # coupler before self.mode is updated — i.e. _live_coupler()
+            # may already return a ReducedSupportCoupler while
+            # self.mode == "coupled" is still the stale value. Hence
+            # every field access here is getattr-with-default; missing
+            # attrs are silently skipped until the next tick observes
+            # the updated self.mode. (Not a logic bug — just a torn read
+            # across a non-atomic rebuild.)
+            if self.mode == "coupled" and coupler is not None:
+                self.gui_qdot.value = (
+                    f"{getattr(coupler, 'last_qdot_norm', 0.0):.3e}")
+                self.gui_pen.value = (
+                    f"{getattr(coupler, 'last_contact_residual', 0.0):.3e}")
+                self.gui_cond.value = (
+                    f"{getattr(coupler, 'last_Schur_condition_estimate', 0.0):.2e}")
+                self.gui_dq.value = (
+                    f"{getattr(coupler, 'last_dq_norm', 0.0):.3e}")
+                self.gui_n_iter.value = str(
+                    getattr(coupler, 'last_n_iter_solves', 0))
 
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(
         description="Live viser viewer for the Reduced-Coordinate AVBD "
-                    "Support shelf scene.")
-    p.add_argument("--port", type=int, default=8181)
-    p.add_argument("--h", type=float, default=1.0 / 120.0)
-    p.add_argument("--device", default="cpu")
-    p.add_argument("--iterations", type=int, default=4)
-    p.add_argument("--overlay", dest="overlay", action="store_true",
-                   default=True)
-    p.add_argument("--no-overlay", dest="overlay", action="store_false")
-    p.add_argument("--r-modal", type=int, default=8)
-    p.add_argument("--r-local", type=int, default=8)
-    p.add_argument("--impactor-drop-height", type=float, default=0.30)
-    p.add_argument("--impactor-v0-y", type=float, default=-1.0)
+                    "Support shelf scene. Pick a --scene preset for "
+                    "scene parameters, --demo-style for visual amplification.")
+
+    # ---- Listing flags ----
+    p.add_argument("--list-scenes", action="store_true",
+                   help="Print available --scene presets and exit.")
+    p.add_argument("--list-styles", action="store_true",
+                   help="Print available --demo-style presets and exit.")
+
+    # ---- Top-level preset selectors ----
+    p.add_argument("--scene", choices=list(PRESETS.keys()),
+                   default="research-baseline",
+                   help="Scene preset (geometry + impactor). Default: "
+                        "research-baseline (current 5 mm shelf).")
+    p.add_argument("--demo-style", choices=list(DEMO_STYLES.keys()),
+                   default="honest",
+                   help="Demo-amplification preset. Default: honest "
+                        "(γ=1, no exaggeration).")
+
+    # ---- Architecture mode ----
+    p.add_argument("--mode",
+                   choices=["plain", "old_dcr_postkick",
+                            "coupled_modal_static", "coupled_modal_bdf1",
+                            "coupled_iir_modal"],
+                   default=None,
+                   help="Modal coupling architecture. Default: "
+                        "coupled_iir_modal (exact resonator inside AVBD).")
+
+    # ---- Scene overrides (None → use preset value) ----
+    scene_grp = p.add_argument_group("Scene overrides")
+    scene_grp.add_argument("--material",
+                           choices=list(MATERIAL_YOUNGS.keys()),
+                           default=None,
+                           help="Override preset's default material.")
+    scene_grp.add_argument("--shelf-thickness", type=float, default=None,
+                           help="Override preset's shelf thickness (m).")
+    scene_grp.add_argument("--shelf-length", type=float, default=None)
+    scene_grp.add_argument("--shelf-width", type=float, default=None)
+    scene_grp.add_argument("--impactor-mass", type=float, default=None)
+    scene_grp.add_argument("--impactor-drop-height", type=float, default=None)
+    scene_grp.add_argument("--impactor-v0-y", type=float, default=None)
+    scene_grp.add_argument("--probe-z-offset", type=float, default=None)
+
+    # ---- Demo-style overrides (None → use style value) ----
+    demo_grp = p.add_argument_group("Demo-style overrides")
+    demo_grp.add_argument("--support-response-gain", type=float, default=None,
+                          help="Modal impedance scaling. (Mq, Dq, Kq) ← /g; "
+                               "ω_i, ζ_i invariant. Weak effect (~1.2× at g=8).")
+    demo_grp.add_argument("--modal-damping-scale", type=float, default=None,
+                          help="Multiplier on Dq → ζ_i.")
+    demo_grp.add_argument("--modal-energy-cap-fraction", type=float, default=None,
+                          help="Passive cap: ΔE_q ≤ η · ΔE_rigid_loss.")
+    demo_grp.add_argument("--modal-jump-gain", type=float, default=None,
+                          help="Artistic upward-lift gain (γ). γ=1 honest, "
+                               "γ=4..12 demo. The actually-visible knob.")
+    demo_grp.add_argument("--modal-jump-max-height", type=float, default=None,
+                          help="Cap on v_lift = √(2·g·h_max).")
+    demo_grp.add_argument("--display-q-exaggerate", type=float, default=None,
+                          help="Render-only multiplier on U·q. Physics "
+                               "unaffected. 1=honest, 100=makes 130 µm look "
+                               "like 13 mm.")
+
+    # ---- Render-only ----
+    p.add_argument("--render-thickness", type=float, default=None,
+                   help="Cosmetic slab extrusion (m). 0=single sheet. None "
+                        "(default) → matches scene's shelf_thickness for a "
+                        "honest 1:1 render. Physics is unaffected.")
+
+    # ---- Solver tuning (advanced) ----
+    solver_grp = p.add_argument_group("Solver (advanced)")
+    solver_grp.add_argument("--substeps", type=int, default=16,
+                            help="AVBD substeps per macro step. 16 is the "
+                                 "default for IIR; lower (8) is fine for "
+                                 "non-stiff scenes.")
+    solver_grp.add_argument("--iterations", type=int, default=4,
+                            help="AVBD primal/dual iterations per substep.")
+
+    # ---- Infrastructure ----
+    infra_grp = p.add_argument_group("Infrastructure")
+    infra_grp.add_argument("--port", type=int, default=8181)
+    infra_grp.add_argument("--device", default="cpu")
+    infra_grp.add_argument("--h", type=float, default=1.0 / 120.0,
+                           help="Macro time step.")
+
+    # ---- Deprecated (kept for one cycle) ----
+    dep_grp = p.add_argument_group("Deprecated")
+    dep_grp.add_argument("--integrator", choices=["bdf1", "newmark", "iir"],
+                         default=None,
+                         help="DEPRECATED. Maps to --mode.")
+    dep_grp.add_argument("--reduced-static-support", dest="static_only",
+                         action="store_true", default=False,
+                         help="DEPRECATED: use --mode coupled_modal_static.")
+    dep_grp.add_argument("--reduced-coupled-avbd", dest="coupled_avbd",
+                         action="store_true", default=False,
+                         help="DEPRECATED: use --mode coupled_iir_modal.")
+    dep_grp.add_argument("--youngs", type=float, default=None,
+                         help="DEPRECATED: use --material.")
+    dep_grp.add_argument("--r-modal", type=int, default=None,
+                         help="DEPRECATED: per-scene preset.")
+    dep_grp.add_argument("--r-local", type=int, default=None,
+                         help="DEPRECATED: per-scene preset.")
+
     args = p.parse_args(argv)
+
+    # ---- Listing short-circuits ----
+    if args.list_scenes:
+        print("Available --scene presets:")
+        print(format_scene_table())
+        return 0
+    if args.list_styles:
+        print("Available --demo-style presets:")
+        print(format_style_table())
+        return 0
+
+    # Resolve mode from --mode (primary) or fall back to legacy flags.
+    if args.mode is not None:
+        mode = args.mode
+    elif args.static_only and args.coupled_avbd:
+        p.error("--reduced-static-support and --reduced-coupled-avbd "
+                "are mutually exclusive.")
+    elif args.static_only:
+        mode = "coupled_modal_static"
+    elif args.coupled_avbd:
+        legacy_int = args.integrator or "iir"
+        mode = ("coupled_modal_bdf1" if legacy_int == "bdf1"
+                else "coupled_iir_modal")
+    elif args.integrator is not None:
+        mode = ("coupled_modal_bdf1" if args.integrator == "bdf1"
+                else "coupled_iir_modal")
+    else:
+        mode = "coupled_iir_modal"   # safe default
+    args.mode = mode
+
+    # Resolve preset + style + overrides.
+    scene = get_scene(args.scene)
+    style = get_style(args.demo_style)
+
+    # Render thickness: None → match the scene's render thickness, which
+    # itself defaults to shelf_thickness if the preset doesn't override.
+    render_thickness = args.render_thickness
+    if render_thickness is None:
+        render_thickness = (scene.default_render_thickness
+                            if scene.default_render_thickness is not None
+                            else scene.shelf_thickness)
+    args.render_thickness = float(render_thickness)
+
+    # Resolve display_q_exaggerate (style → CLI override).
+    args.display_q_exaggerate = (
+        args.display_q_exaggerate
+        if args.display_q_exaggerate is not None
+        else style.display_q_exaggerate)
+
+    # Build scene kwargs from preset + overrides.
+    scene_kw = resolve_scene_kwargs(
+        scene,
+        material=args.material,
+        shelf_thickness=args.shelf_thickness,
+        shelf_length=args.shelf_length,
+        shelf_width=args.shelf_width,
+        impactor_mass=args.impactor_mass,
+        impactor_drop_height=args.impactor_drop_height,
+        impactor_v0=((0.0, args.impactor_v0_y, 0.0)
+                     if args.impactor_v0_y is not None else None),
+        n_modes_global=args.r_modal,
+        n_modes_local=args.r_local,
+        youngs=args.youngs,
+    )
+    # probe_z_offset override: rebuild probe_xz if user requested.
+    if args.probe_z_offset is not None:
+        L = scene_kw["shelf_length"]
+        scene_kw["probe_xz"] = [
+            (-0.40 * L, float(args.probe_z_offset)),
+            (+0.40 * L, float(args.probe_z_offset)),
+        ]
+
+    coupler_kw = resolve_style_coupler_fields(style, overrides={
+        "modal_impedance_scale":     args.support_response_gain,
+        "modal_damping_scale":       args.modal_damping_scale,
+        "modal_energy_cap_fraction": args.modal_energy_cap_fraction,
+        "modal_jump_gain":           args.modal_jump_gain,
+        "modal_jump_max_height":     args.modal_jump_max_height,
+    })
+
+    # Header banner.
+    mat = args.material or scene.default_material
+    print(f"[scene] {scene.name}  material={mat}  "
+          f"(E = {MATERIAL_YOUNGS[mat]:.2e} Pa, "
+          f"h_t={scene_kw['shelf_thickness']*1e3:.1f} mm)")
+    print(f"[style] {style.name}  jump γ={coupler_kw['modal_jump_gain']:.3g}  "
+          f"g={coupler_kw['modal_impedance_scale']:.3g}  "
+          f"exaggerate={args.display_q_exaggerate:.3g}")
+    print(f"[mode]  {mode}  substeps={args.substeps}  iter={args.iterations}")
 
     handle = build_reduced_support_shelf(
         h=args.h,
         device=args.device,
         iterations=args.iterations,
-        n_modes_global=args.r_modal,
-        n_modes_local=args.r_local,
-        overlay_enabled=args.overlay,
+        avbd_substeps=args.substeps,
+        overlay_enabled=False,
         restart_overlay_each_step=True,
-        reduced_support_enabled=True,
-        impactor_drop_height=args.impactor_drop_height,
-        impactor_v0=(0.0, args.impactor_v0_y, 0.0),
+        reduced_support_enabled=(mode != "plain"),
+        reduced_static_support=(mode == "coupled_modal_static"),
+        coupled_avbd=(mode in ("coupled_modal_bdf1", "coupled_iir_modal")),
+        dcr_postkick=(mode == "old_dcr_postkick"),
+        rayleigh_alpha0=0.0,
+        rayleigh_alpha1=5.0e-6,
+        **scene_kw,
+        **coupler_kw,
     )
+
+    # Apply modal-integrator choice to the coupled coupler (if attached).
+    cc = handle.world.reduced_coupled_coupler
+    if cc is not None:
+        cc.q_integrator = ("bdf1" if mode == "coupled_modal_bdf1" else "iir")
+        print(f"  mode = {mode}, q_integrator = {cc.q_integrator}")
+    else:
+        print(f"  mode = {mode}")
 
     print("[scene]", handle.name)
     print(f"  modal ω = {handle.rs.modal_omega}")
