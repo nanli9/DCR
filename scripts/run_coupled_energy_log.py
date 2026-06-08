@@ -79,22 +79,18 @@ def _run(args):
         youngs=args.youngs,
         reduced_support_enabled=(mode != "plain"),
         reduced_static_support=(mode == "coupled_modal_static"),
-        coupled_avbd=(mode in ("coupled_modal_bdf1", "coupled_iir_modal")),
+        coupled_avbd=(mode == "coupled_iir_modal"),
         dcr_postkick=(mode == "old_dcr_postkick"),
         rayleigh_alpha0=0.0,
         rayleigh_alpha1=args.rayleigh_alpha1,
         modal_impedance_scale=args.support_response_gain,
         modal_damping_scale=args.modal_damping_scale,
-        modal_energy_cap_fraction=args.modal_energy_cap_fraction,
-        modal_jump_gain=args.modal_jump_gain,
-        modal_jump_max_height=args.modal_jump_max_height,
         to_eigenbasis=(getattr(args, "reduced_basis", "synthetic") == "eigen"),
     )
     w = handle.world
     rs = handle.rs
     c = w.reduced_coupled_coupler
-    if c is not None and mode in ("coupled_modal_bdf1", "coupled_iir_modal"):
-        c.q_integrator = "bdf1" if mode == "coupled_modal_bdf1" else "iir"
+    if c is not None and mode == "coupled_iir_modal":
         c.log_substeps = bool(args.log_substeps)
         c.substep_log = []  # clean slate
 
@@ -130,24 +126,12 @@ def _run(args):
             min_S_h = float(getattr(c, "last_min_S_h", 0.0))
             max_S_h = float(getattr(c, "last_max_S_h", 0.0))
             postkick_calls = int(getattr(c, "dcr_postkick_calls", 0))
-            alpha_cap = float(getattr(c, "last_alpha_cap", 1.0))
-            cap_engagements = int(getattr(c, "cap_engagements", 0))
-            dE_modal = float(getattr(c, "last_dE_modal", 0.0))
-            dE_rigid_loss = float(getattr(c, "last_dE_rigid_loss", 0.0))
-            last_max_v_lift = float(getattr(c, "last_max_v_lift", 0.0))
-            last_max_v_hp = float(getattr(c, "last_max_v_hp", 0.0))
-            jump_engagements = int(getattr(c, "jump_engagements", 0))
         else:
             KE_q = PE_q = P_d = 0.0
             q_norm = qdot_norm = q_acc_norm = 0.0
             max_defl = lam_max = 0.0
             min_S_h = max_S_h = 0.0
             postkick_calls = 0
-            alpha_cap = 1.0
-            cap_engagements = 0
-            dE_modal = dE_rigid_loss = 0.0
-            last_max_v_lift = last_max_v_hp = 0.0
-            jump_engagements = 0
             pk = w.reduced_dcr_postkick_coupler
             if pk is not None:
                 postkick_calls = int(pk.cum_kick_events)
@@ -179,18 +163,6 @@ def _run(args):
             "postkick_calls":   postkick_calls,
             "gain":             float(args.support_response_gain),
             "damping_scale":    float(args.modal_damping_scale),
-            "eta":              (float(args.modal_energy_cap_fraction)
-                                 if args.modal_energy_cap_fraction is not None
-                                 else float("nan")),
-            "alpha_cap":        alpha_cap,
-            "cap_engagements":  cap_engagements,
-            "dE_modal":         dE_modal,
-            "dE_rigid_loss":    dE_rigid_loss,
-            "jump_gain":        float(args.modal_jump_gain),
-            "jump_max_height":  float(args.modal_jump_max_height),
-            "last_max_v_lift":  last_max_v_lift,
-            "last_max_v_hp":    last_max_v_hp,
-            "jump_engagements": jump_engagements,
             "impactor_y_m":     float(impactor_body.position[1]),
             "impactor_vy_mps":  float(impactor_body.velocity[1]),
         }
@@ -345,15 +317,10 @@ def _resolve_mode(args) -> str:
         _w.warn(f"--integrator={args.integrator} ignored; --mode={args.mode}",
                 stacklevel=2)
         return args.mode
-    mapping = {
-        "bdf1":    "coupled_modal_bdf1",
-        "newmark": "coupled_iir_modal",   # newmark removed; use iir instead
-        "iir":     "coupled_iir_modal",
-    }
-    mapped = mapping[args.integrator]
-    _w.warn(f"--integrator={args.integrator} is deprecated; use --mode={mapped}",
+    _w.warn(f"--integrator={args.integrator} is deprecated; "
+            "only the IIR resonator is supported now",
             DeprecationWarning, stacklevel=2)
-    return mapped
+    return "coupled_iir_modal"
 
 
 def main():
@@ -385,8 +352,7 @@ def main():
     ap.add_argument(
         "--mode",
         choices=["plain", "old_dcr_postkick",
-                 "coupled_modal_static", "coupled_modal_bdf1",
-                 "coupled_iir_modal"],
+                 "coupled_modal_static", "coupled_iir_modal"],
         default="coupled_iir_modal")
 
     # Scene overrides (None → preset).
@@ -404,9 +370,6 @@ def main():
     demo_grp = ap.add_argument_group("Demo-style overrides")
     demo_grp.add_argument("--support-response-gain", type=float, default=None)
     demo_grp.add_argument("--modal-damping-scale", type=float, default=None)
-    demo_grp.add_argument("--modal-energy-cap-fraction", type=float, default=None)
-    demo_grp.add_argument("--modal-jump-gain", type=float, default=None)
-    demo_grp.add_argument("--modal-jump-max-height", type=float, default=None)
 
     # Solver / advanced.
     adv_grp = ap.add_argument_group("Advanced")
@@ -458,14 +421,10 @@ def main():
     # Demo-style fields.
     if args.support_response_gain   is None: args.support_response_gain   = style.support_response_gain
     if args.modal_damping_scale     is None: args.modal_damping_scale     = style.modal_damping_scale
-    if args.modal_energy_cap_fraction is None: args.modal_energy_cap_fraction = style.modal_energy_cap_fraction
-    if args.modal_jump_gain         is None: args.modal_jump_gain         = style.modal_jump_gain
-    if args.modal_jump_max_height   is None: args.modal_jump_max_height   = style.modal_jump_max_height
 
     print(f"[scene]  {scene.name}  material={args.material}  "
           f"(E={args.youngs:.2e} Pa, h_t={args.shelf_thickness*1e3:.1f} mm)")
-    print(f"[style]  {style.name}  jump γ={args.modal_jump_gain:.3g}  "
-          f"g={args.support_response_gain:.3g}")
+    print(f"[style]  {style.name}  g={args.support_response_gain:.3g}")
 
     out_dir = ROOT / "plot"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -496,16 +455,6 @@ def main():
         knob_parts.append(f"g={args.support_response_gain:.3g}")
     if args.modal_damping_scale != 1.0:
         knob_parts.append(f"c_ζ={args.modal_damping_scale:.3g}")
-    if args.modal_energy_cap_fraction is not None:
-        cap_ev = int(last_row.get("cap_engagements", 0))
-        knob_parts.append(
-            f"η={args.modal_energy_cap_fraction:.3g} ({cap_ev} engagements)")
-    if args.modal_jump_gain != 1.0:
-        jump_ev = int(last_row.get("jump_engagements", 0))
-        max_v_lift = max(float(r.get("last_max_v_lift", 0.0)) for r in rows)
-        knob_parts.append(
-            f"jump γ={args.modal_jump_gain:.3g} "
-            f"({jump_ev} engagements, peak v_lift={max_v_lift:.3f} m/s)")
     knob_str = ("\n" + " · ".join(knob_parts)) if knob_parts else ""
     title = (f"Coupled-AVBD energy budget ({args.tag}, "
              f"E={args.youngs:.1e} Pa, mode={mode}"

@@ -1,6 +1,6 @@
 """Unit + integration tests for the IIR exact-resonator modal step
-(paper Eq. 10 in state-space form, used by ReducedCoupledAVBDCoupler's
-`q_integrator = "iir"` branch).
+(paper Eq. 10 in state-space form, used by ReducedCoupledAVBDCoupler for
+the q_d dynamic component).
 
 Tests:
 
@@ -249,11 +249,9 @@ def test_iir_no_postkick_in_coupled_mode():
     from scenes.reduced_coupled_toy_minimum import build_toy_scene_1
 
     h = build_toy_scene_1(iterations=8, mass=0.05, avbd_substeps=8,
-                          dynamic_q=True, youngs=2.0e10,
+                          youngs=2.0e10,
                           rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6)
     c = h.coupler
-    assert c.q_integrator == "iir", (
-        f"default q_integrator should now be 'iir', got {c.q_integrator!r}")
 
     # No legacy DCR coupler attached.
     dcr_couplers = getattr(h.world, "dcr_couplers", None) or []
@@ -369,10 +367,9 @@ def test_iir_energy_sanity():
     from scenes.reduced_coupled_toy_minimum import build_toy_scene_1
 
     h = build_toy_scene_1(iterations=8, mass=0.05, avbd_substeps=16,
-                          dynamic_q=True, youngs=2.0e10,
+                          youngs=2.0e10,
                           rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6)
     c = h.coupler
-    assert c.q_integrator == "iir"
 
     # Walk through; find first-contact energy and track peak/min damping.
     E_first_contact = None

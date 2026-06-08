@@ -75,11 +75,7 @@ def build_reduced_support_shelf(
     rayleigh_alpha1: float = 5.0e-6,
     modal_impedance_scale: float = 1.0,
     modal_damping_scale: float = 1.0,
-    modal_energy_cap_fraction: float | None = None,
-    modal_jump_gain: float = 1.0,
-    modal_jump_max_height: float = 0.01,
     to_eigenbasis: bool = False,
-    coupling_mode: str = "static_dynamic_split",  # drift-fix v1 (post-Phase 8)
     modal_static_lp_tau: float = 0.05,
 ) -> ShelfSceneHandle:
     """Construct the shelf scene + attach (or not) the reduced support.
@@ -222,18 +218,8 @@ def build_reduced_support_shelf(
                 shelf_y_rest=shelf_y_rest,
                 n_grid_x=N_GRID_X,
                 n_grid_z=N_GRID_Z,
-                coupling_mode=coupling_mode,
                 modal_static_lp_tau=modal_static_lp_tau,
             )
-            if (modal_energy_cap_fraction is not None
-                    and world.reduced_coupled_coupler is not None):
-                world.reduced_coupled_coupler.modal_energy_cap_fraction = (
-                    float(modal_energy_cap_fraction))
-            if world.reduced_coupled_coupler is not None:
-                world.reduced_coupled_coupler.modal_jump_gain = (
-                    float(modal_jump_gain))
-                world.reduced_coupled_coupler.modal_jump_max_height = (
-                    float(modal_jump_max_height))
         else:
             world.attach_reduced_support(
                 rs,

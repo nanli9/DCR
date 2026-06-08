@@ -37,16 +37,13 @@ if str(ROOT) not in sys.path:
 
 
 def _build_toy(iterations: int = 8, mass: float = 0.05,
-               avbd_substeps: int = 16, dynamic_q: bool = True,
-               coupling_mode: str = "static_dynamic_split"):
+               avbd_substeps: int = 16):
     pytest.importorskip("warp")
     from scenes.reduced_coupled_toy_minimum import build_toy_scene_1
     return build_toy_scene_1(
         iterations=iterations,
         mass=mass,
         avbd_substeps=avbd_substeps,
-        dynamic_q=dynamic_q,
-        coupling_mode=coupling_mode,
     )
 
 
@@ -78,18 +75,13 @@ def _settle(world, n_frames: int) -> None:
 # ---------------------------------------------------------------------------
 
 def test_quasi_static_box_settles_to_K_q_inverse():
-    """Toy scene 1 — quasi-static equilibrium matches the analytic
-    `K_q⁻¹·F_corners` prediction within 5 % relative. Uses
-    `dynamic_q=False` so q has no inertia and reaches the algebraic
-    fixed point in a single iteration.
-
-    Under the drift-fix v1 split, the analytic K_q⁻¹·F equilibrium maps
-    to `rs.q_s` (the algebraic static-sag part). The dynamic part `q_d`
-    rings briefly on impact and decays to numerical noise after ~40
-    frames, but isn't strictly zero — so we assert on q_s.
+    """Toy scene 1 — at static equilibrium the algebraic static-sag part
+    `rs.q_s` matches the analytic `K_q⁻¹·F_corners` prediction within 5 %
+    relative. The dynamic part `q_d` rings briefly on impact and decays
+    to numerical noise after ~40 frames, but isn't strictly zero — so
+    we assert on q_s.
     """
-    handle = _build_toy(iterations=8, mass=0.05, avbd_substeps=16,
-                        dynamic_q=False)
+    handle = _build_toy(iterations=8, mass=0.05, avbd_substeps=16)
     c = handle.coupler
 
     _settle(handle.world, n_frames=40)
@@ -97,9 +89,7 @@ def test_quasi_static_box_settles_to_K_q_inverse():
     # Analytic prediction.
     q_analytic = _analytic_static_q(handle.rs, mass=0.05, half_extent=0.02)
     norm_analytic = float(np.linalg.norm(q_analytic))
-    # Drift-fix v1: the static fixed point lives on q_s in split mode;
-    # fall back to last_q_norm for the legacy path.
-    norm_actual = float(getattr(c, "last_q_s_norm", 0.0) or c.last_q_norm)
+    norm_actual = float(c.last_q_s_norm)
 
     assert norm_analytic > 0.0
     rel_err = abs(norm_actual - norm_analytic) / norm_analytic
@@ -286,27 +276,17 @@ def test_dq_decreases_within_iter_loop():
 
 def test_double_update_consistency():
     """After a step's normal iteration_hook calls, force a second hook
-    invocation. At a converged fixed point, the additional Δq must be
-    at numerical-noise scale — proving the hook is at its own fixed
-    point and AVBD's primal in the next iteration won't undo our work
-    meaningfully.
+    invocation on the algebraic static-sag coordinate q_s. At a converged
+    fixed point the additional Δq_s must be at numerical-noise scale —
+    proving the hook is at its own fixed point and AVBD's primal in the
+    next iteration won't undo our work meaningfully.
 
-    Forced to BDF1 because this test checks AVBD primal/Schur mechanics,
-    not modal physics. BDF1's strong numerical damping annihilates any
-    impact-driven transient within ~1 substep, leaving a true rest
-    state to extract |Δq| from. IIR (the default) preserves the
-    physically-correct ringing — its "fixed point" is a moving state,
-    so 1e-9 absolute Δq is not the right gauge for it. The Schur/hook
-    mechanic is identical between BDF1 and IIR, so testing under BDF1
-    covers both.
-
-    Threshold: |q_after_extra - q_before_extra| < 10⁻⁹ m. At a true
-    BDF1 fixed point this delta is at machine-precision floor (~10⁻¹³
-    for our scene; the bound has 4 OoM slack).
+    Threshold: |q_s_after - q_s_before| < 10⁻⁹ m. (q_d is the dynamic
+    component and is not solved in iteration_hook, so this test does NOT
+    probe it.)
     """
     handle = _build_toy(iterations=12, mass=0.05, avbd_substeps=4)
     c = handle.coupler
-    c.q_integrator = "bdf1"
     w = handle.world
 
     # Settle.
@@ -314,103 +294,14 @@ def test_double_update_consistency():
         w.step()
 
     # Snapshot.
-    q_before = handle.rs.q.copy()
+    q_s_before = handle.rs.q_s.copy()
     # Call iteration_hook once more on the current converged state.
     c.iteration_hook(w._solver, iter_idx=999)
-    delta = float(np.linalg.norm(handle.rs.q - q_before))
+    delta = float(np.linalg.norm(handle.rs.q_s - q_s_before))
 
-    # Absolute bound: at a fixed point, the second hook should produce
-    # only a numerical-noise shift in q. Our scene's converged q-magnitude
-    # is ~10⁻⁶ — we require the extra-call shift to be at least 1000×
-    # smaller (~10⁻⁹ m).
     assert delta < 1.0e-9, (
-        f"extra hook call shifted q by {delta:.3e} m — hook is not at "
-        f"its own fixed point (q_norm={c.last_q_norm:.3e}).")
-
-
-# ---------------------------------------------------------------------------
-# T8. Dynamic q overshoots static equilibrium on impact
-# ---------------------------------------------------------------------------
-
-def test_dynamic_q_overshoots_then_decays_to_static():
-    """With `dynamic_q=True`, q has inertia: an impact-time impulse
-    overshoots the algebraic static value (proving M_q/h² and qdot are
-    wired) and decays back to it via D_q (proving damping is wired).
-    With `dynamic_q=False` the same trajectory shows no overshoot —
-    qdot is identically zero.
-
-    Forced to BDF1 for the dynamic run because the test asserts both
-    runs converge to the SAME static fixed point within 40 frames.
-    BDF1's L-stability annihilates the transient inside ~1 substep so
-    "final" really is at-rest. IIR (the default) preserves physical
-    ringing at the Rayleigh ζ ≈ 0.2% rate, so the transient takes
-    O(1/(ζ·ω)) ≈ many seconds to fully damp — not appropriate for a
-    rapid regression test. The IIR ring-and-decay is exercised by the
-    test_iir_* suite instead.
-    """
-    pytest.importorskip("warp")
-
-    def run(dynamic_q: bool) -> dict:
-        # Drift-fix v1: this test pins the legacy IIR/BDF1-driven overshoot
-        # behaviour of `q`. In the new static_dynamic_split mode q is
-        # decomposed and the "overshoot" instead lives on q_d (with
-        # different magnitudes). Keep this test on the legacy path.
-        handle = _build_toy(iterations=8, mass=0.05, avbd_substeps=16,
-                            dynamic_q=dynamic_q,
-                            coupling_mode="iir_anchor_legacy")
-        c = handle.coupler
-        if dynamic_q:
-            c.q_integrator = "bdf1"
-        # Settle to static rest.
-        _settle(handle.world, n_frames=30)
-        q_static = c.last_q_norm
-
-        # Inject a downward velocity into the box.
-        b = handle.world._descs[handle.box_idx]
-        sol = handle.world._solver
-        v_np = sol.v.numpy().copy()
-        v_np[b.avbd_body.index, 1] = -1.0
-        sol.v.assign(v_np)
-
-        peak_q = q_static
-        peak_qdot = 0.0
-        for _ in range(40):
-            handle.world.step()
-            peak_q = max(peak_q, c.last_q_norm)
-            peak_qdot = max(peak_qdot, c.last_qdot_norm)
-        return {
-            "q_static": q_static,
-            "peak_q": peak_q,
-            "peak_qdot": peak_qdot,
-            "final_q": c.last_q_norm,
-            "overlay_events": c.cum_overlay_events_fired,
-        }
-
-    dyn = run(True)
-    qs = run(False)
-
-    # Dynamic mode must overshoot — peak |q| strictly exceeds the
-    # quasi-static fixed point.
-    assert dyn["peak_q"] > 1.10 * dyn["q_static"], (
-        f"dynamic: peak |q|={dyn['peak_q']:.3e} did not overshoot "
-        f"static {dyn['q_static']:.3e}")
-
-    # Quasi-static must NOT overshoot meaningfully — q just tracks
-    # the algebraic equilibrium as f_j varies, no inertial overshoot.
-    assert qs["peak_qdot"] == 0.0
-    assert qs["peak_q"] <= 2.5 * qs["q_static"], (
-        f"quasi-static peak |q|={qs['peak_q']:.3e} significantly above "
-        f"static {qs['q_static']:.3e} — qdot should be 0.")
-
-    # Both must converge back to the SAME static rest (algebraic) after
-    # the transient dies out.
-    assert abs(dyn["final_q"] - qs["final_q"]) < 0.05 * qs["q_static"], (
-        f"dynamic final {dyn['final_q']:.3e} ≠ quasi-static final "
-        f"{qs['final_q']:.3e} — different fixed points.")
-
-    # No overlay event in either mode.
-    assert dyn["overlay_events"] == 0
-    assert qs["overlay_events"] == 0
+        f"extra hook call shifted q_s by {delta:.3e} m — hook is not at "
+        f"its own fixed point (q_s_norm={c.last_q_s_norm:.3e}).")
 
 
 # ---------------------------------------------------------------------------
@@ -434,8 +325,7 @@ def test_static_dynamic_split_no_drift():
         youngs=2.0e11, density=7850.0,
         reduced_support_enabled=True, coupled_avbd=True,
         rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6,
-        modal_jump_gain=1.0, to_eigenbasis=False,
-        coupling_mode="static_dynamic_split",
+        to_eigenbasis=False,
     )
     w = handle.world
     probe_y0 = [float(w._descs[i].dcr_body.position[1])
@@ -470,8 +360,7 @@ def test_q_d_rings_on_impact_under_split():
         youngs=2.0e11, density=7850.0,
         reduced_support_enabled=True, coupled_avbd=True,
         rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6,
-        modal_jump_gain=1.0, to_eigenbasis=False,
-        coupling_mode="static_dynamic_split",
+        to_eigenbasis=False,
     )
     w = handle.world
     c = w.reduced_coupled_coupler

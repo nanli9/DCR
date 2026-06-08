@@ -20,13 +20,12 @@ For each AVBD iteration, after the kernel's per-body primal+dual round, the coup
 For each tracked body `i`, summed over its FLOOR_CONTACT rows `j`:
 
 - `H_x,i = [[A_i, B_iᵀ],[B_i, D_i]]` — the AVBD 6×6 from `kernels_6dof.py:382-562`, reconstructed in Python with the Eq. 14 stiffness rescaling.
-- `H_q = (1/h²)·M_q + K_q + (1/h)·D_q + Σ_j k_for_lhs_j · U_y(j)·U_y(j)ᵀ + ε·I` when `dynamic_q=True` (default). The `M_q/h²` and `D_q/h` blocks come from BDF1 implicit Euler on `M_q q̈ + D_q q̇ + K_q q + Σ f·∂C/∂q = 0`. Set `dynamic_q=False` to drop them and recover the quasi-static `H_q = K_q + ...`.
+- `H_q = K_q + Σ_j k_for_lhs_j · U_y(j)·U_y(j)ᵀ + ε·I`. Under the static / dynamic split (drift-fix v1), the iteration solves only the algebraic static-sag coordinate `q_s` (baseline `H_q = K_q`). The dynamic component `q_d` is evolved separately by the IIR resonator in `substep_end_hook` and does not enter the Schur block. See [Drift-fix v1: static / dynamic split](#drift-fix-v1-static--dynamic-split) below.
 - `J_x,i_j = [ŷ; (R·off_a) × ŷ]`.  `J_q,i_j = U_y(j)` (the y-row of the modal basis evaluated at the corner).
 - `f_j = clamp(ρ_j·C + λ_eff_j, fmin_j, fmax_j)`.  For FLOOR: `lam_eff = c_lambda[j]`, `fmax = 0`.
 - `g_x,i = m·(x − x_inertial)/h² + I_world · Δθ_inertial / h² + Σ_j J_x,i_j · f_j`.
-- `g_q = (1/h²)·M_q·(q − q_hat) + K_q·q + D_q·qdot − Σ_j f_j · U_y(j)` in dynamic mode, with predictor `q_hat = q + h·qdot` cached at `substep_begin_hook`. In quasi-static mode the first two terms drop out. (The constraint Jacobian `∂C/∂q = −U_y(j)`, so the AL gradient contribution is `−f_j·U_y(j)`.)
-- After each substep: `qdot ← (q − q_prev_macro) / h_substep` (BDF1). Quasi-static holds `qdot ≡ 0`.
-- Cross block magnitude is `k_for_lhs_j · J_x,i_j · U_y(j)ᵀ`; the sign in the global block is **negative** (since `∂C/∂q = −U_y`).
+- `g_q = K_q·q_s − Σ_j f_j · U_y(j)`. The constraint Jacobian `∂C/∂q_s = −U_y(j)`, so the AL gradient contribution is `−f_j·U_y(j)`.
+- Cross block magnitude is `k_for_lhs_j · J_x,i_j · U_y(j)ᵀ`; the sign in the global block is **negative** (since `∂C/∂q_s = −U_y`).
 
 Schur-eliminating Δx per body (H_x is small and dense — invert directly):
 
@@ -79,10 +78,9 @@ The hook applies BOTH Δq (to `coupler.rs.q`) AND Δx_i (directly to `solver.x`,
 | T4 | `test_schur_well_conditioned` | `max cond(S) < 10⁸`. |
 | T5 | `test_rho_clip_never_triggered` | AVBD's per-row ρ stays below `rho_clip = 10⁹` (= PENALTY_MAX). |
 | T6 | `test_dq_decreases_within_iter_loop` | `||Δq||` monotonically decreases over 12 inner iterations. |
-| T7 | `test_double_update_consistency` | Calling the hook one extra time on a converged state shifts q by < 10⁻⁹ m (fixed-point property). |
-| T8 | `test_dynamic_q_overshoots_then_decays_to_static` | With `dynamic_q=True`, a velocity impulse drives `|q|` above the static `K_q⁻¹·F` by >10% (overshoot); peak `|qdot|` is non-zero. With `dynamic_q=False`, qdot is identically zero and no overshoot occurs. Both modes settle to the same static fixed point; `cum_overlay_events_fired == 0` in both. |
+| T7 | `test_double_update_consistency` | Calling the hook one extra time on a converged state shifts q_s by < 10⁻⁹ m (fixed-point property). |
 
-All 8 pass; the full AVBD suite remains green (102/102).
+All 7 pass.
 
 ## Numerical experiment
 
@@ -111,7 +109,7 @@ End-of-run |q| from the toy scene at h=1/120 s, 16 substeps, 60 frames:
 
 Spread < 0.05%. Iterations 4 vs 64 give identical static state. The coupled solver is at fixed point.
 
-## IIR exact-resonator modal block (default `q_integrator = "iir"`)
+## IIR exact-resonator modal block (q_d dynamics)
 
 After two iterations of "BDF1-inside-AVBD" and a brief "Newmark-inside-AVBD" detour, the modal-side time stepping is now an **exact damped-oscillator response** computed once per substep via the augmented-matrix-exponential form (`dcr/modal/exact_resonator.py`):
 
@@ -141,8 +139,7 @@ Key properties:
 | `plain`                 | None                                           | Rigid floor; no modal response. |
 | `old_dcr_postkick`      | `ReducedSupportDCRPostkickCoupler`             | Rigid floor + IIR-driven Δv kick after AVBD. *Legacy ablation only*. |
 | `coupled_modal_static`  | `ReducedSupportCoupler` (BCD, `static_only`)   | Quasi-static modal compliance per iter. |
-| `coupled_modal_bdf1`    | `ReducedCoupledAVBDCoupler` (`q_integrator="bdf1"`) | BDF1 modal inertia; ω·h/2 numerical damping. |
-| `coupled_iir_modal`     | `ReducedCoupledAVBDCoupler` (`q_integrator="iir"`)  | **Default.** Exact resonator inside AVBD. |
+| `coupled_iir_modal`     | `ReducedCoupledAVBDCoupler`                    | **Default.** Static / dynamic split with IIR-driven q_d. |
 
 The deprecated `--reduced-static-support`, `--reduced-coupled-avbd`, `--integrator` flags emit `DeprecationWarning` and map to the equivalent `--mode`.
 
@@ -316,15 +313,14 @@ uv run python scripts/run_coupled_substep_sweep.py --frames 60
 uv run python scripts/run_coupled_vs_bcd_benchmark.py --frames 30
 ```
 
-## Demo knobs: response gain, damping scale, energy cap
+## Demo knobs: response gain, damping scale
 
-The coupled IIR mode is architecturally correct but visually subtle on stiff materials (~800 µm probe rise on wood, ~2.5 mm on soft). Three knobs amplify the visible support response without compromising the architecture (no post-fix Δv kick is added; `q` remains a first-class primal in the Schur block).
+The coupled IIR mode is architecturally correct but visually subtle on stiff materials. Two knobs amplify the visible support response without compromising the architecture (no post-fix Δv kick is added; `q_s` remains a first-class primal in the Schur block).
 
 | Flag | Default | Effect | Engages where |
 |---|---|---|---|
 | `--support-response-gain g` | `1.0` (no-op) | `(Mq, Dq, Kq) ← (Mq, Dq, Kq) / g`. `ω_i, ζ_i` exactly invariant; `S_h, T_h` scale by `g`. | `reduced_support.py:make_synthetic_modal_basis_for_shelf` |
 | `--modal-damping-scale c_ζ` | `1.0` (no-op) | `Dq ← c_ζ · Dq` after impedance scaling. `ζ_i ← c_ζ · ζ_i`. | same site |
-| `--modal-energy-cap-fraction η` | `None` (disabled) | Per-substep clamp: `ΔE_q ≤ η · max(ΔE_rigid_loss, 0)`. Solves a 1-scalar quadratic for `α ∈ [0, 1]` and scales the implied modal force by `α`. | `ReducedCoupledAVBDCoupler.substep_end_hook` IIR branch |
 
 ### Why impedance scaling is the right knob
 
@@ -351,102 +347,6 @@ From the post-implementation sweep at `--material wood`, 120 frames, impactor `v
 | 8 |  989 | 509.3 | 92.5 |
 
 End-to-end amplification (≈ 1.2× probe rise at g=8) is **substantially less than linear in g**. The matrix-level scaling is exactly linear (verified by `test_gain_scales_S_h`), but the visible probe response is impact-impulse-dominated: `δ_peak ≈ v·√(m/k_eff)` scales as √g in the impulse limit, and the AVBD floor-contact penalty further damps the transfer. To get larger jumps you need either a softer scene (lower impactor mass, longer impactor v0) or a different metric (steady-state sag) — impedance scaling alone caps out around what you see above.
-
-### Engaging the energy cap
-
-The cap is OFF by default. Engage it under high gain to prevent the modal injection from exceeding what the rigid impact actually lost:
-
-```bash
-uv run python scripts/run_reduced_support_shelf_viser.py \
-    --mode coupled_iir_modal --material wood \
-    --support-response-gain 8 --modal-energy-cap-fraction 0.5
-```
-
-Per substep, the coupler computes:
-
-```
-ΔE_rigid_loss   = E_rigid(tracked, t_n) − E_rigid(tracked, t_n+1)        (= positive on impact)
-E_budget        = η · max(ΔE_rigid_loss, 0)
-ΔE_q(α)         = α·b + ½·α²·a   +   (E_q_free − E_q^old)               (foundation §15)
-α               = largest α ∈ [0,1] s.t. ΔE_q(α) ≤ E_budget
-rs.q            ← q_free + α·(q_full   − q_free)
-rs.qdot         ← qdot_free + α·(qdot_full − qdot_free)
-```
-
-The quadratic solve mirrors `dcr/modal/passive_inject.py:passive_alpha` (copy-pasted inline as `_solve_passive_alpha` to keep the coupler self-contained).
-
-**DEVIATION caveat:** the rigid bodies advanced under the *un-scaled* `F_full`. When `α < 1`, the modal `q` is held back; the constraint `C(x, q) = 0` is re-established on the next substep. For runs that need strict physical fidelity, leave `η = None` and keep `g ≤ 2`.
-
-Diagnostic counters on the coupler:
-
-- `last_alpha_cap` — α this substep
-- `cap_engagements` — cumulative count of substeps where `α < 1`
-- `last_dE_modal`, `last_dE_rigid_loss` — per-substep energy deltas (also written to the energy log CSV)
-
-## Demo knobs II: artistic jump gain
-
-The `--support-response-gain` knob amplifies modal compliance but only buys ~1.2× probe rise at g=8 because impact-impulse dynamics dominate over modal-side response. The principled knob for a **visible DCR-style hop** is structurally different: a velocity-derived **contact-gap bias** that lifts the rigid body through the AVBD contact multiplier — never a post-fix Δv kick.
-
-| Flag | Default | Surfacing | Effect |
-|---|---|---|---|
-| `--modal-jump-gain γ` | `1.0` (no-op) | **primary** | Artistic upward-lift gain at contact rows. γ=1 honest. Try γ=4..12 for demos. |
-| `--modal-jump-max-height h_max` | `0.01` m | advanced | Caps `v_lift ≤ √(2·g·h_max) ≈ 0.443 m/s` (1 cm hop ceiling). |
-| `modal_jump_filter_tau τ` | `0.03` s | coupler field only | One-pole low-pass time constant. Determines what "transient" means. |
-
-### Math (5 steps, per tracked FLOOR row r at corner p_r)
-
-```
-v_s    = U_y(p_r) · qdot                                # modal surface vel., normal direction
-α      = h_sub / (τ + h_sub)
-v_bar  = (1 − α) · v_bar_prev + α · v_s                 # one-pole low-pass, persistent state
-v_hp   = v_s − v_bar                                    # high-pass: rejects sustained sag
-v_up   = max(v_hp, 0)                                   # clip to upward only
-v_lift = min(γ · v_up, v_max)                           # artistic gain + ceiling
-anchor_y[r]  ← floor_y_rest + U_y·q + h_sub · v_lift    # raised floor → upward push
-```
-
-The filter state `v_bar` is persistent per `(body_idx, corner offset)` and survives across substeps.
-
-### Why this gives a jump (not a post-kick)
-
-The AVBD floor constraint is `C = corner_y − anchor_y ≥ 0`, enforced by a compressive multiplier (`fmax = 0`, `λ ≤ 0`). Raising `anchor_y` by `Δ = h · v_lift` makes the body's current position violate `C` by `Δ`. The AVBD primal/dual round responds with an upward push of magnitude `Δ`. The body's velocity at substep_end is updated to `v = (x_n+1 − x_initial) / h`, so it gains exactly `v_lift` of upward velocity per substep that the anchor is lifted.
-
-This is a constraint-mediated lift. The body's `velocity` field is never modified post-hoc. The architectural invariant (no post-fix Δv kick) is preserved by Test 6 (`test_jump_no_postkick_calls`).
-
-### Measured response
-
-Full sweep in [`docs/sweep_jump_gain/RESULTS.md`](sweep_jump_gain/RESULTS.md). Wood-shelf headline at γ=1 → γ=12, 240 frames:
-
-| `γ` | Probe uy range (µm) | Peak |q| (µm) | Amplification |
-|---:|---:|---:|---:|
-| 1 |  981 | 447.8 | 1× |
-| 4 | 2568 | 447.8 | 2.6× |
-| 8 | 5246 | 448.0 | 5.3× |
-| 12 | 6168 | 448.1 | 6.3× |
-
-**Peak |q| stays at 448 µm across all γ.** The jump-gain knob lifts the body through the constraint multiplier, not by amplifying the modal coordinate — exactly the architectural property the impedance knob couldn't deliver.
-
-### Recommended γ values
-
-| `γ` | Visual intent |
-|---:|---|
-| 1 | Honest, no amplification |
-| 2 | Barely visible |
-| 4 | Visible hop, recommended for screenshots |
-| 8 | Clear DCR-like demo jump |
-| 12 | Aggressive artistic hop |
-| ≥16 | Probably fake-looking; v_max usually saturates anyway |
-
-### Composition with `--support-response-gain`
-
-The two knobs are independent levers. Combining `--support-response-gain 4 --modal-jump-gain 4` produces *less* probe rise than `γ=4` alone, because softer support is less bouncy → smaller `v_s` transient → smaller `v_lift`. Pick one or the other for demos; do not combine.
-
-### Honest caveats
-
-- The impactor itself sees the lift too (its corner is in the tracked-rows list). The high-pass τ ≈ 30 ms limits the duration: after ~2τ the impactor's own `v_bar` catches up, lift drops, and only distant probes (where the bending wave arrives later) still register lift. This is documented behavior, not a bug. A per-body opt-out flag would address it cleanly but is out of scope for v1.
-- `v_lift` is in m/s (h-independent). The anchor offset `h · v_lift` is the displacement the body achieves in `h` to gain `v_lift` velocity — physically consistent across substep counts.
-- The clamp at `v_max ≈ 0.443 m/s` corresponds to a 1 cm vertical hop ceiling (`v² = 2·g·h_max`). To allow a 4 cm hop, set `--modal-jump-max-height 0.04` (gives `v_max ≈ 0.886 m/s`). Beyond that the visual story stops being "table launches object" and starts being "object teleports."
-- At very large substep counts (`avbd_substeps ≥ 64`), `α = h/(τ+h)` drops below 0.01 and the filter equilibrates slowly. Users with such configs should bump `coupler.modal_jump_filter_tau` to keep `τ` similar in *substep terms*.
 
 ## Scene presets and live GUI tuning
 

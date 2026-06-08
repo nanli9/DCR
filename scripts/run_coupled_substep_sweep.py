@@ -35,7 +35,6 @@ def _run_one(substeps: int, n_frames: int, mass: float, youngs: float):
         iterations=8,
         mass=mass,
         avbd_substeps=substeps,
-        dynamic_q=True,
         youngs=youngs,
         rayleigh_alpha0=0.0,
         rayleigh_alpha1=5.0e-6,

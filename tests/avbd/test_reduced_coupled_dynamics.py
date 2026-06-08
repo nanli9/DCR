@@ -39,20 +39,17 @@ if str(ROOT) not in sys.path:
 
 
 def _build_toy(*, iterations=8, mass=0.05, avbd_substeps=8,
-               dynamic_q=True, youngs=2.0e11,
-               rayleigh_alpha0=0.0, rayleigh_alpha1=0.0,
-               coupling_mode="static_dynamic_split"):
+               youngs=2.0e11,
+               rayleigh_alpha0=0.0, rayleigh_alpha1=0.0):
     pytest.importorskip("warp")
     from scenes.reduced_coupled_toy_minimum import build_toy_scene_1
     return build_toy_scene_1(
         iterations=iterations,
         mass=mass,
         avbd_substeps=avbd_substeps,
-        dynamic_q=dynamic_q,
         youngs=youngs,
         rayleigh_alpha0=rayleigh_alpha0,
         rayleigh_alpha1=rayleigh_alpha1,
-        coupling_mode=coupling_mode,
     )
 
 
@@ -245,17 +242,14 @@ def test_static_q_scales_inverse_E():
     products = []
     for E in youngs_list:
         h = _build_toy(iterations=8, mass=0.05, avbd_substeps=16,
-                       dynamic_q=False, youngs=E)
+                       youngs=E)
         for _ in range(30):
             h.world.step()
-        # Drift-fix v1: in split mode the static fixed point lives on
-        # q_s; q_d carries a small transient residual that breaks the
-        # 1/E scaling. Read q_s directly when available (split mode);
-        # fall back to rs.q for the legacy path.
+        # The static fixed point lives on q_s; q_d carries a transient
+        # residual that decays via Rayleigh damping but breaks any
+        # snapshot reading rs.q during the impact.
         c = h.coupler
-        q_static_norm = float(getattr(c, "last_q_s_norm", 0.0))
-        if q_static_norm == 0.0:
-            q_static_norm = float(np.linalg.norm(h.rs.q))
+        q_static_norm = float(c.last_q_s_norm)
         products.append(q_static_norm * E)
 
     products = np.array(products, dtype=np.float64)
@@ -273,17 +267,14 @@ def test_static_q_scales_inverse_E():
 
 
 def test_dynamic_peak_q_scales_with_E():
-    """V3 — Sweep youngs ∈ {2e11, 2e10}, dynamic_q=True, observe how
-    peak |q| during the first 40 steps scales. Test |q|_max·E^β
-    invariance with `0.5 ≤ β ≤ 1.0`.
+    """V3 — Sweep youngs ∈ {2e11, 2e10}, observe how peak |q| during the
+    first 40 steps scales. Test |q|_max·E^β invariance with
+    `0.5 ≤ β ≤ 1.0`.
 
-    FINDING (documented in docs/reduced_coupled_avbd.md): the user's
-    evaluation predicted a slope between −0.5 (lossless impact) and
-    −1.0 (quasi-static). Our toy scene is closer to quasi-static
-    (the box starts at rest 0.1 mm above the shelf, so gravity does
-    work over a short fall, not an impulsive collision). The measured
-    slope falls in [−1.0, −0.5] inclusive, satisfying the evaluation's
-    *bracketing* prediction but not pinned to either limit.
+    Our toy scene is closer to quasi-static (the box starts at rest 0.1
+    mm above the shelf, so gravity does work over a short fall, not an
+    impulsive collision). The measured slope falls in [−1.0, −0.5]
+    inclusive, satisfying the bracketing prediction.
 
     We restrict the sweep to the stiff regime (E ≥ 2e10 Pa) where the
     AL contact penalty does not interfere (per V2).
@@ -296,7 +287,7 @@ def test_dynamic_peak_q_scales_with_E():
     for E in youngs_list:
         h = build_toy_scene_1(
             iterations=8, mass=0.05, avbd_substeps=16,
-            dynamic_q=True, youngs=E,
+            youngs=E,
             rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6,
         )
         q_peak = 0.0
@@ -310,8 +301,6 @@ def test_dynamic_peak_q_scales_with_E():
     log_E = np.log(E_arr)
     log_q = np.log(q_peaks)
     slope, _ = np.polyfit(log_E, log_q, 1)
-    # Accept the entire physical bracket [−1.0, −0.5] with a small
-    # tolerance on each end — this is a bracketing test.
     assert -1.10 < slope < -0.40, (
         f"V3 FAILED: log-log slope of |q|_max vs E = {slope:.3f} "
         f"(expected in [−1.0, −0.5], the lossless-impact ↔ quasi-static "
@@ -332,7 +321,7 @@ def test_modal_damping_power_never_negative():
     """
     pytest.importorskip("warp")
     h = _build_toy(iterations=8, mass=0.05, avbd_substeps=16,
-                   dynamic_q=True, youngs=2.0e10,
+                   youngs=2.0e10,
                    rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6)
     c = h.coupler
 

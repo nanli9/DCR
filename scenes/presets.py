@@ -166,11 +166,6 @@ class DemoStyle:
     # Modal block tuning (research / impedance scaling, weak effect).
     support_response_gain:     float       = 1.0
     modal_damping_scale:       float       = 1.0
-    modal_energy_cap_fraction: float | None = None
-
-    # Artistic jump gain (strong, visible effect).
-    modal_jump_gain:           float = 1.0
-    modal_jump_max_height:     float = 0.01      # m → v_max ≈ 0.443 m/s
 
     # Render-only.
     display_q_exaggerate:      float = 1.0
@@ -180,36 +175,16 @@ DEMO_STYLES: dict[str, DemoStyle] = {
     "honest": DemoStyle(
         name="honest",
         description=(
-            "γ=1, no exaggeration. Physical response only. Use this for "
-            "papers, energy-budget plots, anything where numerical "
-            "fidelity matters."),
-    ),
-
-    "visible": DemoStyle(
-        name="visible",
-        description=(
-            "γ=4. The recommended default for screen recordings and "
-            "progress demos. ~3 mm probe rise on a wood shelf."),
-        modal_jump_gain=4.0,
-    ),
-
-    "aggressive": DemoStyle(
-        name="aggressive",
-        description=(
-            "γ=12 + 4 cm hop ceiling. Cinematic. Energy cap engaged at "
-            "η=0.5 so peak ΔE_q stays bounded by rigid loss."),
-        modal_jump_gain=12.0,
-        modal_jump_max_height=0.04,
-        modal_energy_cap_fraction=0.5,
+            "No exaggeration. Physical response only. Use this for papers, "
+            "energy-budget plots, anything where numerical fidelity matters."),
     ),
 
     "paper-figure": DemoStyle(
         name="paper-figure",
         description=(
-            "γ=8, display-q-exaggerate=10. Makes the modal deformation "
-            "visible in stills. Use for figures, NOT for video — the "
-            "exaggeration breaks frame-to-frame motion continuity."),
-        modal_jump_gain=8.0,
+            "display-q-exaggerate=10. Makes the modal deformation visible "
+            "in stills. Use for figures, NOT for video — the exaggeration "
+            "breaks frame-to-frame motion continuity."),
         display_q_exaggerate=10.0,
     ),
 }
@@ -261,16 +236,13 @@ def format_scene_table() -> str:
 def format_style_table() -> str:
     """Markdown-style table for --list-styles."""
     lines = [
-        "  style name      γ      ζ scale    η      exaggerate",
-        "  --------------  -----  ---------  -----  ----------",
+        "  style name      ζ scale    exaggerate",
+        "  --------------  ---------  ----------",
     ]
     for s in DEMO_STYLES.values():
-        eta = "—" if s.modal_energy_cap_fraction is None else f"{s.modal_energy_cap_fraction:.2g}"
         lines.append(
             f"  {s.name:<14}  "
-            f"{s.modal_jump_gain:>4.1f}   "
             f"{s.modal_damping_scale:>4.1f}       "
-            f"{eta:<5}  "
             f"{s.display_q_exaggerate:>5.1f}")
     lines.append("")
     for s in DEMO_STYLES.values():
@@ -344,9 +316,6 @@ def resolve_style_coupler_fields(
     out: dict[str, Any] = dict(
         modal_impedance_scale     = style.support_response_gain,
         modal_damping_scale       = style.modal_damping_scale,
-        modal_energy_cap_fraction = style.modal_energy_cap_fraction,
-        modal_jump_gain           = style.modal_jump_gain,
-        modal_jump_max_height     = style.modal_jump_max_height,
     )
     if overrides:
         for k, v in overrides.items():

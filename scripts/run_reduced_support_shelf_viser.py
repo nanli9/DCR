@@ -255,59 +255,6 @@ class ReducedSupportViewer:
                      "higher = more numerical stability but slower.")
             self.gui_substeps.on_update(self._substeps_changed)
 
-        # ---- Live demo knobs (coupled-IIR mode only) ----
-        if (self.mode == "coupled"
-                and self.world.reduced_coupled_coupler is not None
-                and self.world.reduced_coupled_coupler.q_integrator == "iir"):
-            cc = self.world.reduced_coupled_coupler
-            with self.server.gui.add_folder("Demo knobs (live)"):
-                self.gui_jump_gain = self.server.gui.add_slider(
-                    "modal-jump-gain γ", min=1.0, max=20.0, step=0.5,
-                    initial_value=float(cc.modal_jump_gain),
-                    hint="Artistic upward-lift gain at contact rows. "
-                         "γ=1 honest. γ=4 visible. γ=8..12 demo. "
-                         "γ=20 max. (Live — no rebuild needed.)")
-                self.gui_jump_gain.on_update(self._jump_gain_changed)
-
-                self.gui_jump_max_height_mm = self.server.gui.add_slider(
-                    "jump max height [mm]", min=1.0, max=80.0, step=1.0,
-                    initial_value=float(cc.modal_jump_max_height * 1e3),
-                    hint="Cap on v_lift = √(2·g·h_max). 10 mm → v_max ≈ "
-                         "0.44 m/s. 40 mm → v_max ≈ 0.89 m/s.")
-                self.gui_jump_max_height_mm.on_update(
-                    self._jump_max_height_changed)
-
-                self.gui_jump_tau_ms = self.server.gui.add_slider(
-                    "jump filter τ [ms]", min=1.0, max=200.0, step=1.0,
-                    initial_value=float(cc.modal_jump_filter_tau * 1e3),
-                    hint="One-pole low-pass time constant. Shorter τ → "
-                         "shorter visible hop; longer τ → more sustained "
-                         "lift. Default 30 ms.")
-                self.gui_jump_tau_ms.on_update(self._jump_tau_changed)
-
-                cap_init = cc.modal_energy_cap_fraction
-                self.gui_cap_on_iir = self.server.gui.add_checkbox(
-                    "passivity cap (η enabled)",
-                    initial_value=(cap_init is not None),
-                    hint="When on: ΔE_q ≤ η · max(ΔE_rigid_loss, 0) per "
-                         "substep. Enforces passivity at high gain.")
-                self.gui_cap_on_iir.on_update(self._cap_on_iir_changed)
-
-                self.gui_eta_iir = self.server.gui.add_slider(
-                    "η (cap fraction)", min=0.0, max=2.0, step=0.05,
-                    initial_value=float(cap_init if cap_init is not None
-                                        else 0.5))
-                self.gui_eta_iir.on_update(self._eta_iir_changed)
-
-                self.gui_render_thickness_mm = self.server.gui.add_slider(
-                    "render thickness [mm]", min=0.0, max=80.0, step=1.0,
-                    initial_value=float(self._render_thickness * 1e3),
-                    hint="Cosmetic only: render the shelf as a slab of "
-                         "this thickness. 0 = single sheet. The PHYSICS "
-                         "still uses the scene's shelf_thickness.")
-                self.gui_render_thickness_mm.on_update(
-                    self._render_thickness_changed)
-
         # ---- Scene rebuild (drops material, thickness, impactor in/out) ----
         # Changing these triggers a world rebuild on Apply.
         from scenes.presets import (
@@ -326,8 +273,7 @@ class ReducedSupportViewer:
             self.gui_rb_mode = self.server.gui.add_dropdown(
                 "mode",
                 options=("plain", "coupled_modal_static",
-                         "coupled_modal_bdf1", "coupled_iir_modal",
-                         "old_dcr_postkick"),
+                         "coupled_iir_modal", "old_dcr_postkick"),
                 initial_value=getattr(args, "mode", "coupled_iir_modal"))
             self.gui_rb_material = self.server.gui.add_dropdown(
                 "material",
@@ -339,23 +285,14 @@ class ReducedSupportViewer:
                 hint="Physical plate thickness. ω ∝ h, q_static ∝ 1/h³. "
                      "Thicker → much stiffer → much smaller modal response.")
             self.gui_rb_imp_mass = self.server.gui.add_slider(
-                "impactor mass [kg]", min=0.05, max=5.0, step=0.05,
+                "impactor mass [kg]", min=0.05, max=50.0, step=0.05,
                 initial_value=float(cur_scene.impactor_mass))
             self.gui_rb_imp_v0 = self.server.gui.add_slider(
-                "impactor v0_y [m/s]", min=-5.0, max=0.0, step=0.05,
+                "impactor v0_y [m/s]", min=-20.0, max=0.0, step=0.05,
                 initial_value=float(cur_scene.impactor_v0_y))
             self.gui_rb_drop = self.server.gui.add_slider(
-                "drop height [m]", min=0.0, max=0.30, step=0.005,
+                "drop height [m]", min=0.0, max=2.0, step=0.01,
                 initial_value=float(cur_scene.impactor_drop_height))
-            self.gui_coupling_mode = self.server.gui.add_dropdown(
-                "coupling mode (drift-fix v1)",
-                options=("static_dynamic_split", "iir_anchor_legacy"),
-                initial_value=getattr(args, "coupling_mode",
-                                      "static_dynamic_split"),
-                hint="split: anchor sees only static-sag q_s, q_d "
-                     "rings as visual transient — drift-free. legacy: "
-                     "anchor sees q = q_free (oscillating); produces "
-                     "+108mm probe drift on stiff scenes (kept for A/B).")
             self.gui_rb_apply = self.server.gui.add_button("Apply (rebuild)")
             self.gui_rb_apply.on_click(lambda _: self._rebuild_from_gui())
             self.gui_rb_status = self.server.gui.add_text(
@@ -373,6 +310,30 @@ class ReducedSupportViewer:
                 hint="Render-only multiplier on U·q for the shelf mesh. "
                      "1 = honest; 100 = makes 130 µm look like 13 mm. "
                      "Does NOT touch the physics.")
+            # In static/dynamic-split mode the contact constraint sees
+            # only q_s, but the visual surface defaults to q_s + q_d so
+            # impact ringing is visible. Side effect: when q_d swings the
+            # surface upward, the rigid impactor (driven by q_s anchor)
+            # can appear to dip below the rendered top — visual
+            # penetration. Toggle to "q_s only (contact-honest)" to
+            # render exactly the surface the constraint enforces.
+            self.gui_render_q = self.server.gui.add_dropdown(
+                "render mode",
+                options=("q_s + q_d (visual total)",
+                         "q_s only (contact-honest)"),
+                initial_value="q_s + q_d (visual total)",
+                hint="'q_s + q_d' shows the full modal state (ringing visible "
+                     "but can look like penetration). 'q_s only' renders "
+                     "exactly what the contact constraint sees — no "
+                     "penetration, but no ringing either.")
+            self.gui_render_thickness_mm = self.server.gui.add_slider(
+                "render thickness [mm]", min=0.0, max=80.0, step=1.0,
+                initial_value=float(self._render_thickness * 1e3),
+                hint="Cosmetic only: render the shelf as a slab of this "
+                     "thickness. 0 = single sheet. The PHYSICS still uses "
+                     "the scene's shelf_thickness.")
+            self.gui_render_thickness_mm.on_update(
+                self._render_thickness_changed)
 
         with self.server.gui.add_folder("Reduced support"):
             self.gui_rs_enabled = self.server.gui.add_checkbox(
@@ -615,8 +576,7 @@ class ReducedSupportViewer:
             try: self.gui_mode_label.value = self.mode
             except Exception: pass
         print(f"[rebuild] new scene attached  mode={self.mode}  "
-              f"h_t={self.rs.point_positions_rest.shape[0]} pts, "
-              f"jump_gain={getattr(self.world.reduced_coupled_coupler, 'modal_jump_gain', 'n/a')}")
+              f"h_t={self.rs.point_positions_rest.shape[0]} pts")
 
     def _iters_changed(self, _evt):
         with self._world_lock:
@@ -631,42 +591,6 @@ class ReducedSupportViewer:
                 self.world.avbd_substeps = n
             self.world._solver.substeps = n
             self.world._solver._graph = None
-
-    def _jump_gain_changed(self, _evt):
-        with self._world_lock:
-            cc = self.world.reduced_coupled_coupler
-            if cc is not None:
-                cc.modal_jump_gain = float(self.gui_jump_gain.value)
-
-    def _jump_max_height_changed(self, _evt):
-        with self._world_lock:
-            cc = self.world.reduced_coupled_coupler
-            if cc is not None:
-                cc.modal_jump_max_height = float(
-                    self.gui_jump_max_height_mm.value) * 1e-3
-
-    def _jump_tau_changed(self, _evt):
-        with self._world_lock:
-            cc = self.world.reduced_coupled_coupler
-            if cc is not None:
-                cc.modal_jump_filter_tau = float(
-                    self.gui_jump_tau_ms.value) * 1e-3
-
-    def _cap_on_iir_changed(self, _evt):
-        with self._world_lock:
-            cc = self.world.reduced_coupled_coupler
-            if cc is None:
-                return
-            if self.gui_cap_on_iir.value:
-                cc.modal_energy_cap_fraction = float(self.gui_eta_iir.value)
-            else:
-                cc.modal_energy_cap_fraction = None
-
-    def _eta_iir_changed(self, _evt):
-        with self._world_lock:
-            cc = self.world.reduced_coupled_coupler
-            if cc is not None and cc.modal_energy_cap_fraction is not None:
-                cc.modal_energy_cap_fraction = float(self.gui_eta_iir.value)
 
     def _render_thickness_changed(self, _evt):
         # No lock needed — only affects the next mesh update on the GUI
@@ -706,17 +630,6 @@ class ReducedSupportViewer:
             material = self.gui_rb_material.value
             mode = self.gui_rb_mode.value
 
-            # Carry the LIVE demo-knob values forward into the new world
-            # so the rebuild doesn't reset what the user was tuning.
-            cc_old = self.world.reduced_coupled_coupler
-            jump_gain = (float(cc_old.modal_jump_gain)
-                         if cc_old is not None else style.modal_jump_gain)
-            jump_max_h = (float(cc_old.modal_jump_max_height)
-                          if cc_old is not None else style.modal_jump_max_height)
-            cap_frac = (cc_old.modal_energy_cap_fraction
-                        if cc_old is not None
-                        else style.modal_energy_cap_fraction)
-
             scene_kw = resolve_scene_kwargs(
                 preset,
                 material=material,
@@ -725,13 +638,7 @@ class ReducedSupportViewer:
                 impactor_drop_height=float(self.gui_rb_drop.value),
                 impactor_v0=(0.0, float(self.gui_rb_imp_v0.value), 0.0),
             )
-            coupler_kw = resolve_style_coupler_fields(style, overrides={
-                "modal_impedance_scale": style.support_response_gain,
-                "modal_damping_scale":   style.modal_damping_scale,
-                "modal_energy_cap_fraction": cap_frac,
-                "modal_jump_gain":       jump_gain,
-                "modal_jump_max_height": jump_max_h,
-            })
+            coupler_kw = resolve_style_coupler_fields(style)
             with self._world_lock:
                 # Pause the sim thread briefly while we rebuild.
                 was_paused = self.gui_pause.value
@@ -746,29 +653,17 @@ class ReducedSupportViewer:
                                               self.args.substeps)),
                     reduced_support_enabled=(mode != "plain"),
                     reduced_static_support=(mode == "coupled_modal_static"),
-                    coupled_avbd=(mode in ("coupled_modal_bdf1",
-                                           "coupled_iir_modal")),
+                    coupled_avbd=(mode == "coupled_iir_modal"),
                     dcr_postkick=(mode == "old_dcr_postkick"),
                     rayleigh_alpha0=0.0,
                     rayleigh_alpha1=5.0e-6,
                     to_eigenbasis=(getattr(self.args, "reduced_basis",
                                            "synthetic") == "eigen"),
-                    # Drift-fix v1: read from GUI dropdown if present,
-                    # else from CLI flag. Live A/B in the viser.
-                    coupling_mode=str(getattr(
-                        self.gui_coupling_mode, "value",
-                        getattr(self.args, "coupling_mode",
-                                "static_dynamic_split"))),
                     modal_static_lp_tau=float(getattr(
                         self.args, "modal_static_lp_tau", 0.05)),
                     **scene_kw,
                     **coupler_kw,
                 )
-                # Apply mode-specific integrator choice.
-                cc_new = new_handle.world.reduced_coupled_coupler
-                if cc_new is not None:
-                    cc_new.q_integrator = (
-                        "bdf1" if mode == "coupled_modal_bdf1" else "iir")
 
                 self._swap_handle(new_handle)
                 self.gui_pause.value = was_paused
@@ -918,8 +813,16 @@ class ReducedSupportViewer:
         # Always use the slab vertex layout (top + bottom) — at
         # _render_thickness=0 it collapses to a degenerate sheet that
         # the renderer handles fine.
+        #
+        # Render-mode toggle: "q_s only" shows the contact-honest surface
+        # (no visible penetration); the default "q_s + q_d" shows the full
+        # modal state including transient ringing.
+        if self.gui_render_q.value.startswith("q_s only"):
+            q_for_render = self.rs.q_s
+        else:
+            q_for_render = self.rs.q
         deformed = _slab_world_vertices(
-            self.handle, self.rs.q,
+            self.handle, q_for_render,
             render_thickness=self._render_thickness,
             exaggerate=float(self.gui_q_exaggerate.value))
 
@@ -1048,8 +951,7 @@ def main(argv=None) -> int:
     # ---- Architecture mode ----
     p.add_argument("--mode",
                    choices=["plain", "old_dcr_postkick",
-                            "coupled_modal_static", "coupled_modal_bdf1",
-                            "coupled_iir_modal"],
+                            "coupled_modal_static", "coupled_iir_modal"],
                    default=None,
                    help="Modal coupling architecture. Default: "
                         "coupled_iir_modal (exact resonator inside AVBD).")
@@ -1076,13 +978,6 @@ def main(argv=None) -> int:
                                "ω_i, ζ_i invariant. Weak effect (~1.2× at g=8).")
     demo_grp.add_argument("--modal-damping-scale", type=float, default=None,
                           help="Multiplier on Dq → ζ_i.")
-    demo_grp.add_argument("--modal-energy-cap-fraction", type=float, default=None,
-                          help="Passive cap: ΔE_q ≤ η · ΔE_rigid_loss.")
-    demo_grp.add_argument("--modal-jump-gain", type=float, default=None,
-                          help="Artistic upward-lift gain (γ). γ=1 honest, "
-                               "γ=4..12 demo. The actually-visible knob.")
-    demo_grp.add_argument("--modal-jump-max-height", type=float, default=None,
-                          help="Cap on v_lift = √(2·g·h_max).")
     demo_grp.add_argument("--display-q-exaggerate", type=float, default=None,
                           help="Render-only multiplier on U·q. Physics "
                                "unaffected. 1=honest, 100=makes 130 µm look "
@@ -1104,24 +999,12 @@ def main(argv=None) -> int:
                         "Physics is invariant; 'eigen' is slightly faster "
                         "and matches the DCR paper framing.")
 
-    # ---- Drift-fix v1: static / dynamic split ----
-    p.add_argument(
-        "--coupling-mode",
-        choices=["static_dynamic_split", "iir_anchor_legacy"],
-        default="static_dynamic_split",
-        help="How the modal coordinate enters the contact anchor. "
-             "'static_dynamic_split' (default) splits q = q_s + q_d; "
-             "the anchor sees only the algebraic static-sag q_s, while "
-             "q_d rings purely as a visual transient. Fixes the +100mm "
-             "probe drift produced by the legacy mode. "
-             "'iir_anchor_legacy' is the original Eq. 10 path (drifts). "
-             "Both modes are available in the GUI dropdown for A/B.")
+    # ---- Static / dynamic split tuning ----
     p.add_argument(
         "--modal-static-lp-tau", type=float, default=0.05,
-        help="EMA time constant (s) for the high-pass that drives q_d "
-             "in split mode. τ ≈ 50 ms (3 Hz corner). Smaller τ → q_d "
-             "absorbs faster transients; larger τ → resting load fully "
-             "absorbed by q_s. Ignored in legacy mode.")
+        help="EMA time constant (s) for the high-pass that drives q_d. "
+             "τ ≈ 50 ms (3 Hz corner). Smaller τ → q_d absorbs faster "
+             "transients; larger τ → resting load fully absorbed by q_s.")
 
     # ---- Solver tuning (advanced) ----
     solver_grp = p.add_argument_group("Solver (advanced)")
@@ -1178,12 +1061,9 @@ def main(argv=None) -> int:
     elif args.static_only:
         mode = "coupled_modal_static"
     elif args.coupled_avbd:
-        legacy_int = args.integrator or "iir"
-        mode = ("coupled_modal_bdf1" if legacy_int == "bdf1"
-                else "coupled_iir_modal")
+        mode = "coupled_iir_modal"
     elif args.integrator is not None:
-        mode = ("coupled_modal_bdf1" if args.integrator == "bdf1"
-                else "coupled_iir_modal")
+        mode = "coupled_iir_modal"
     else:
         mode = "coupled_iir_modal"   # safe default
     args.mode = mode
@@ -1233,9 +1113,6 @@ def main(argv=None) -> int:
     coupler_kw = resolve_style_coupler_fields(style, overrides={
         "modal_impedance_scale":     args.support_response_gain,
         "modal_damping_scale":       args.modal_damping_scale,
-        "modal_energy_cap_fraction": args.modal_energy_cap_fraction,
-        "modal_jump_gain":           args.modal_jump_gain,
-        "modal_jump_max_height":     args.modal_jump_max_height,
     })
 
     # Header banner.
@@ -1243,7 +1120,7 @@ def main(argv=None) -> int:
     print(f"[scene] {scene.name}  material={mat}  "
           f"(E = {MATERIAL_YOUNGS[mat]:.2e} Pa, "
           f"h_t={scene_kw['shelf_thickness']*1e3:.1f} mm)")
-    print(f"[style] {style.name}  jump γ={coupler_kw['modal_jump_gain']:.3g}  "
+    print(f"[style] {style.name}  "
           f"g={coupler_kw['modal_impedance_scale']:.3g}  "
           f"exaggerate={args.display_q_exaggerate:.3g}")
     print(f"[mode]  {mode}  substeps={args.substeps}  iter={args.iterations}")
@@ -1257,7 +1134,7 @@ def main(argv=None) -> int:
         restart_overlay_each_step=True,
         reduced_support_enabled=(mode != "plain"),
         reduced_static_support=(mode == "coupled_modal_static"),
-        coupled_avbd=(mode in ("coupled_modal_bdf1", "coupled_iir_modal")),
+        coupled_avbd=(mode == "coupled_iir_modal"),
         dcr_postkick=(mode == "old_dcr_postkick"),
         rayleigh_alpha0=0.0,
         rayleigh_alpha1=5.0e-6,
@@ -1266,13 +1143,7 @@ def main(argv=None) -> int:
         **coupler_kw,
     )
 
-    # Apply modal-integrator choice to the coupled coupler (if attached).
-    cc = handle.world.reduced_coupled_coupler
-    if cc is not None:
-        cc.q_integrator = ("bdf1" if mode == "coupled_modal_bdf1" else "iir")
-        print(f"  mode = {mode}, q_integrator = {cc.q_integrator}")
-    else:
-        print(f"  mode = {mode}")
+    print(f"  mode = {mode}")
 
     print("[scene]", handle.name)
     print(f"  modal ω = {handle.rs.modal_omega}")

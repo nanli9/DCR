@@ -97,8 +97,7 @@ class ReducedSupport:
     overlay_enabled: bool = True
     restart_overlay_each_step: bool = True
 
-    # ---- Static / dynamic split state (used by the coupled-AVBD coupler
-    # when coupling_mode = "static_dynamic_split"; ignored in legacy mode).
+    # ---- Static / dynamic split state (used by ReducedCoupledAVBDCoupler).
     #
     # # DEVIATION (foundation §15 / drift-fix v1, 2026-06-08):
     # the paper's Eq. 10 evolves a single q via the IIR resonator and feeds
@@ -109,11 +108,10 @@ class ReducedSupport:
     # q_s is the algebraic static-sag coordinate (solved coupled with x in
     # the AVBD iteration, baseline H_q = K_q), used in the contact anchor.
     # q_d is the dynamic IIR oscillator forced by a high-passed modal load
-    # (F_dyn = F_total − low_pass(F_total)), used only in the visual
-    # surface. q_d NEVER enters the contact constraint nor H_xq, so the
-    # ratchet cannot form. See plan
-    # ~/.claude/plans/you-are-working-in-fizzy-waffle.md and the diagnostic
-    # variant table that locates the bug.
+    # (F_dyn = F_total − low_pass(F_total)), used only in the visual surface.
+    # q_d NEVER enters the contact constraint nor H_xq, so the ratchet cannot
+    # form. See plan ~/.claude/plans/you-are-working-in-fizzy-waffle.md and
+    # the diagnostic variant table that locates the bug.
     q_s:                NDArray[np.float64] | None = None   # (r,)
     q_d:                NDArray[np.float64] | None = None   # (r,)
     qdot_d:             NDArray[np.float64] | None = None   # (r,)

@@ -137,17 +137,10 @@ The drift-fix is **iter-budget-independent** (legacy needed iter ≥ 8 to mask t
 **Real-time cost:** ~6–10% per step at iter=4 × sub=4 (18.5 ms vs 17.3 ms on the canonical scene), shrinking to < 1 % at iter=8 × sub=4. Still real-time.
 
 ```bash
-# Default mode is "static_dynamic_split" — no flag needed.
 uv run python scripts/run_reduced_support_shelf_viser.py --material steel --impactor-mass 5
-
-# A/B against the legacy bug (browser GUI also has a live dropdown):
-uv run python scripts/run_reduced_support_shelf_viser.py \
-    --material steel --impactor-mass 5 --coupling-mode iir_anchor_legacy
 ```
 
-GUI: the **coupling mode (drift-fix v1)** dropdown switches modes live, and the HUD shows separate `|q_s|` (static sag) and `|q_d|` (dynamic ring) readouts. Implementation notes in `dcr/avbd/reduced_coupled_avbd.py` under the `_substep_begin_split` / `_iteration_split` / `_substep_end_split` methods; design rationale + diagnostic ladder in [`~/.claude/plans/you-are-working-in-fizzy-waffle.md`](~/.claude/plans/you-are-working-in-fizzy-waffle.md).
-
-The legacy `iir_anchor_legacy` path is kept selectable so back-to-back comparisons stay reproducible.
+GUI: the HUD shows separate `|q_s|` (static sag) and `|q_d|` (dynamic ring) readouts, and the **Display → render mode** dropdown toggles between `q_s + q_d` (visual total, may look like penetration when q_d swings up) and `q_s only` (contact-honest, what the constraint actually sees). Implementation lives in `dcr/avbd/reduced_coupled_avbd.py` (`substep_begin_hook` / `iteration_hook` / `substep_end_hook`); design rationale + diagnostic ladder in [`~/.claude/plans/you-are-working-in-fizzy-waffle.md`](~/.claude/plans/you-are-working-in-fizzy-waffle.md).
 
 ### Two-knob recipe (most use cases)
 
@@ -165,50 +158,37 @@ Scenes bundle scene geometry + impactor params. Styles bundle the demo amplifica
 
 | `--scene` | What | `--demo-style` | What |
 |---|---|---|---|
-| `research-baseline` | 5 mm shelf (current default) | `honest` | γ=1, no exaggeration |
-| `cutting-board` | 25 mm wood, knife impactor | `visible` | γ=4 (recommended demo) |
-| `pantry-shelf` | 15 mm shelf, spice jar | `aggressive` | γ=12, 4 cm hop ceiling |
-| `dining-table` | 30 mm hardwood (1 × 0.6 m) | `paper-figure` | γ=8 + 10× exaggeration |
+| `research-baseline` | 5 mm shelf (current default) | `honest` | no exaggeration |
+| `cutting-board` | 25 mm wood, knife impactor | `paper-figure` | 10× display exaggeration |
+| `pantry-shelf` | 15 mm shelf, spice jar | | |
+| `dining-table` | 30 mm hardwood (1 × 0.6 m) | | |
 | `metal-plate` | 5 mm steel | | |
 
-Once viser is running, **all the live demo knobs are tunable in the browser GUI**: jump-gain, energy cap, substeps, render-thickness, plus a "Scene rebuild" panel that lets you swap material / shelf thickness / impactor parameters and click Apply to rebuild the world in place — no relaunch required.
+Once viser is running, the browser GUI exposes a "Scene rebuild" panel for swapping material / shelf thickness / impactor mass-velocity-drop parameters in place, plus live render controls (`render mode`, `display q exaggerate`, `render thickness`). The HUD reports `|q_s|` (static sag), `|q_d|` (dynamic ring), substep count, and contact-residual diagnostics.
 
-> **Note on `shelf_thickness`:** this is the single most sensitive parameter in the whole pipeline. Bending stiffness scales as `h³`, so going from 5 mm to 30 mm cuts the peak modal response ~10× and the visible probe rise 3–5× (the gentler factor is because the `v_max` clamp partially masks the difference for thin shelves). Full measured sweep + scaling math in [`docs/scenes.md` → "How slab thickness affects the result"](docs/scenes.md#how-slab-thickness-affects-the-result). The `shelf_thickness` (physical) and `render_thickness` (cosmetic) knobs are separate; you can have a 5 mm physical sheet that renders as a 25 mm slab.
+> **Note on `shelf_thickness`:** this is the single most sensitive parameter in the whole pipeline. Bending stiffness scales as `h³`, so going from 5 mm to 30 mm cuts the peak modal response ~10× and the visible probe rise 3–5×. Full measured sweep + scaling math in [`docs/scenes.md` → "How slab thickness affects the result"](docs/scenes.md#how-slab-thickness-affects-the-result). The `shelf_thickness` (physical) and `render_thickness` (cosmetic) knobs are separate; you can have a 5 mm physical sheet that renders as a 25 mm slab.
 
 ### Architecture modes
 
 ```bash
---mode coupled_iir_modal      # IIR exact resonator (default, paper Eq. 10)
---mode coupled_modal_bdf1     # BDF1 ablation
+--mode coupled_iir_modal      # IIR exact resonator (default, paper Eq. 10 + split fix)
 --mode coupled_modal_static   # Quasi-static q (no dynamics)
 --mode plain                  # Rigid AVBD, no reduced support
 --mode old_dcr_postkick       # Legacy DCR Δv kick (ablation)
 ```
 
-Three demo knobs amplify the visible probe response without compromising the architecture:
+Two demo knobs tune the modal impedance:
 
-| Flag | What it does | Wood probe-rise vs baseline |
-|---|---|---:|
-| `--support-response-gain g` | Modal impedance scaling: `(Mq, Dq, Kq) ← /g`. ω, ζ invariant. | 1.23× at g=8 |
-| `--modal-damping-scale c_ζ` | Independent multiplier on Dq → ζ. Lower = longer ringdown. | extends ringing ~50% |
-| `--modal-energy-cap-fraction η` | Passivity: `ΔE_q ≤ η · max(ΔE_rigid_loss, 0)` per substep. | safety bound |
-| `--modal-jump-gain γ` | **Artistic upward-lift at contact rows** via velocity-derived anchor bias. | **5.3× at γ=8** |
-| `--modal-jump-max-height h_max` | Caps `v_lift ≤ √(2·g·h_max)` (1 cm ceiling default). | |
-
-`--modal-jump-gain` is the **visible knob** — it computes `v_lift = γ · max(U_y·qdot − v_bar, 0)` (one-pole-low-passed) and injects it as a contact-gap bias `anchor_y ← floor_y_rest + U_y·q + h·v_lift`. The body is lifted entirely through the AVBD contact multiplier; no post-fix Δv kick. **Peak |q| stays constant across γ** — the lift is on the rigid side, not the modal side.
+| Flag | What it does |
+|---|---|
+| `--support-response-gain g` | Modal impedance scaling: `(Mq, Dq, Kq) ← /g`. ω, ζ invariant. |
+| `--modal-damping-scale c_ζ` | Independent multiplier on Dq → ζ. Lower = longer ringdown. |
 
 ```bash
-# Most visible demo:
-uv run python scripts/run_reduced_support_shelf_viser.py \
-    --mode coupled_iir_modal --material wood --modal-jump-gain 8
-
 # Full sweeps:
-uv run python scripts/run_coupled_material_sweep.py --modal-jump-gain 8 --frames 120
-uv run python scripts/run_coupled_energy_log.py --mode coupled_iir_modal \
-    --modal-jump-gain 8 --frames 240 --tag jump_g8
+uv run python scripts/run_coupled_material_sweep.py --frames 120
+uv run python scripts/run_coupled_energy_log.py --mode coupled_iir_modal --frames 240
 ```
-
-Benchmark tables: [`docs/sweep_modal_impedance/RESULTS.md`](docs/sweep_modal_impedance/RESULTS.md) (impedance + damping + cap) and [`docs/sweep_jump_gain/RESULTS.md`](docs/sweep_jump_gain/RESULTS.md) (jump gain across γ ∈ {1, 4, 8, 12} on 4 materials).
 
 ## Demo Scenes (Passive DCR)
 

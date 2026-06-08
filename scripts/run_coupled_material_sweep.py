@@ -37,9 +37,6 @@ def _run_one(*, material: str, youngs: float, substeps: int,
              n_frames: int, impactor_v0_y: float, mode: str = "coupled_iir_modal",
              support_response_gain: float = 1.0,
              modal_damping_scale: float = 1.0,
-             modal_energy_cap_fraction: float | None = None,
-             modal_jump_gain: float = 1.0,
-             modal_jump_max_height: float = 0.01,
              to_eigenbasis: bool = False,
              scene_preset=None):
     """Run one material with the given knobs. `scene_preset` (ScenePreset
@@ -71,21 +68,16 @@ def _run_one(*, material: str, youngs: float, substeps: int,
         youngs=youngs,
         reduced_support_enabled=(mode != "plain"),
         reduced_static_support=(mode == "coupled_modal_static"),
-        coupled_avbd=(mode in ("coupled_modal_bdf1", "coupled_iir_modal")),
+        coupled_avbd=(mode == "coupled_iir_modal"),
         dcr_postkick=(mode == "old_dcr_postkick"),
         rayleigh_alpha0=0.0,
         rayleigh_alpha1=5.0e-6,
         modal_impedance_scale=support_response_gain,
         modal_damping_scale=modal_damping_scale,
-        modal_energy_cap_fraction=modal_energy_cap_fraction,
-        modal_jump_gain=modal_jump_gain,
-        modal_jump_max_height=modal_jump_max_height,
         to_eigenbasis=to_eigenbasis,
     )
     w = handle.world
     c = w.reduced_coupled_coupler
-    if c is not None and mode in ("coupled_modal_bdf1", "coupled_iir_modal"):
-        c.q_integrator = "bdf1" if mode == "coupled_modal_bdf1" else "iir"
 
     # Snapshot probe initial y for rise computation.
     probe_y0 = []
@@ -143,16 +135,12 @@ def main():
                          "Default: scene's value.")
     ap.add_argument("--mode",
                     choices=["plain", "old_dcr_postkick",
-                             "coupled_modal_static", "coupled_modal_bdf1",
-                             "coupled_iir_modal"],
+                             "coupled_modal_static", "coupled_iir_modal"],
                     default="coupled_iir_modal")
 
     # Per-knob overrides (None → demo-style value).
     ap.add_argument("--support-response-gain", type=float, default=None)
     ap.add_argument("--modal-damping-scale", type=float, default=None)
-    ap.add_argument("--modal-energy-cap-fraction", type=float, default=None)
-    ap.add_argument("--modal-jump-gain", type=float, default=None)
-    ap.add_argument("--modal-jump-max-height", type=float, default=None)
     ap.add_argument("--reduced-basis", choices=["synthetic", "eigen"],
                     default="eigen",
                     help="Modal basis (eigen → diagonal IIR; physics equivalent).")
@@ -169,35 +157,27 @@ def main():
     v0_y = args.v0_y if args.v0_y is not None else scene.impactor_v0_y
     g    = args.support_response_gain   if args.support_response_gain   is not None else style.support_response_gain
     cz   = args.modal_damping_scale     if args.modal_damping_scale     is not None else style.modal_damping_scale
-    eta  = args.modal_energy_cap_fraction if args.modal_energy_cap_fraction is not None else style.modal_energy_cap_fraction
-    jg   = args.modal_jump_gain         if args.modal_jump_gain         is not None else style.modal_jump_gain
-    jh   = args.modal_jump_max_height   if args.modal_jump_max_height   is not None else style.modal_jump_max_height
 
     print(f"[scene]  {scene.name}  (h_t={scene.shelf_thickness*1e3:.1f} mm, "
           f"L={scene.shelf_length*1e2:.0f} cm)")
-    print(f"[style]  {style.name}  (γ={jg:.3g}, g={g:.3g}, "
-          f"η={eta if eta is not None else 'None'})")
+    print(f"[style]  {style.name}  (g={g:.3g}, c_ζ={cz:.3g})")
 
     rows = []
     for name, E in MATERIALS.items():
         print(f"  {name:>8s}  E={E:.1e} Pa  substeps={args.substeps}  "
-              f"mode={args.mode}  g={g:.3g}  jump γ={jg:.3g} ...",
+              f"mode={args.mode}  g={g:.3g} ...",
               flush=True)
         rows.append(_run_one(
             material=name, youngs=E, substeps=args.substeps,
             n_frames=args.frames, impactor_v0_y=v0_y, mode=args.mode,
             support_response_gain=g,
             modal_damping_scale=cz,
-            modal_energy_cap_fraction=eta,
-            modal_jump_gain=jg,
-            modal_jump_max_height=jh,
             to_eigenbasis=(args.reduced_basis == "eigen"),
             scene_preset=scene))
 
     print()
-    eta_str = "None" if eta is None else f"{eta:.3g}"
     print(f"# Material sweep — {args.mode}  scene={scene.name}  "
-          f"(g={g:.3g}, c_ζ={cz:.3g}, η={eta_str}, jump γ={jg:.3g})")
+          f"(g={g:.3g}, c_ζ={cz:.3g})")
     print(f"  frames={args.frames}, substeps={args.substeps}, "
           f"impactor v0_y={v0_y} m/s, "
           f"h_t={scene.shelf_thickness*1e3:.1f} mm")
