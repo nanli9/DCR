@@ -1,0 +1,11 @@
+Model Information:
+* title:	Chokdae
+* source:	https://sketchfab.com/3d-models/chokdae-150f3095f58e479da0220260612627c4
+* author:	KOREA HERITAGE SERVICE [KHS] (https://sketchfab.com/KHS_Asset)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Chokdae" (https://sketchfab.com/3d-models/chokdae-150f3095f58e479da0220260612627c4) by KOREA HERITAGE SERVICE [KHS] (https://sketchfab.com/KHS_Asset) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

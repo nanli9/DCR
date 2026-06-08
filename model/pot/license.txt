@@ -1,0 +1,11 @@
+Model Information:
+* title:	LeCreuset - Dutch Oven
+* source:	https://sketchfab.com/3d-models/lecreuset-dutch-oven-4919df7f695f4a86a8385c26d2533569
+* author:	mwheatley (https://sketchfab.com/mwheatley)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "LeCreuset - Dutch Oven" (https://sketchfab.com/3d-models/lecreuset-dutch-oven-4919df7f695f4a86a8385c26d2533569) by mwheatley (https://sketchfab.com/mwheatley) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

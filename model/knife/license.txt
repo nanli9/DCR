@@ -1,0 +1,11 @@
+Model Information:
+* title:	butter knife
+* source:	https://sketchfab.com/3d-models/butter-knife-eeebbba80f9349c9b2f3469f19c3360b
+* author:	676242 (https://sketchfab.com/676242)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "butter knife" (https://sketchfab.com/3d-models/butter-knife-eeebbba80f9349c9b2f3469f19c3360b) by 676242 (https://sketchfab.com/676242) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

@@ -1,0 +1,11 @@
+Model Information:
+* title:	Fork
+* source:	https://sketchfab.com/3d-models/fork-769b896bc0fd427b9884f287da737a32
+* author:	LBOrion (https://sketchfab.com/LBOrion)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Fork" (https://sketchfab.com/3d-models/fork-769b896bc0fd427b9884f287da737a32) by LBOrion (https://sketchfab.com/LBOrion) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
