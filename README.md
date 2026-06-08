@@ -21,7 +21,7 @@ uv sync
 Run all tests:
 
 ```bash
-uv run pytest tests/ -v          # Stage tests + AVBD tests (87 in tests/avbd/)
+uv run pytest tests/ -v          # Stage tests + AVBD tests (141 in tests/avbd/)
 ```
 
 ## Reduced-Coordinate AVBD Support Contact (v1)
@@ -105,7 +105,49 @@ Six follow-up gates, all closed:
 
 > Branch: `AVBD-Native`. Full design + benchmark in [`docs/reduced_coupled_avbd.md`](docs/reduced_coupled_avbd.md). Scene preset reference in [`docs/scenes.md`](docs/scenes.md).
 
-The successor to the v1 overlay: a **monolithic primal Newton block** over rigid `x` and modal `q` inside the AVBD iteration loop, with `q` as a first-class primal variable in the Schur complement. The modal step is the paper's **IIR exact resonator** (Eq. 10) lifted into a *dynamic compliance* form `q = q_free + S_h(q − q_free)` — no BDF1/Newmark inside Newton, no post-fix Δv kick. 132 AVBD tests green.
+The successor to the v1 overlay: a **monolithic primal Newton block** over rigid `x` and modal `q` inside the AVBD iteration loop, with `q` as a first-class primal variable in the Schur complement. The modal step is the paper's **IIR exact resonator** (Eq. 10) lifted into a *dynamic compliance* form `q = q_free + S_h(q − q_free)` — no BDF1/Newmark inside Newton, no post-fix Δv kick. **141 AVBD tests green.**
+
+### Drift-fix v1: static / dynamic modal split (default since 2026-06-08)
+
+The naive "feed q into the contact anchor" coupling above is **non-passive under unilateral contact**. With AVBD's floor enforced one-sidedly (λ ≤ 0, push-up only), the up-swing of a zero-mean oscillating `q` is stiffly enforced by non-penetration while the down-swing is only enforced by gravity. The result is a position-level ratchet: on **steel × 5 kg × iter=4 × sub=4**, probes sitting on the shelf drift **+108 mm upward over 5 s** — purely an artifact of the coupling, not physical behavior.
+
+The fix splits the modal coordinate `q = q_s + q_d`:
+
+| Component | Role | Where it lives |
+|---|---|---|
+| **`q_s`** algebraic static sag | Solved coupled with `x` in the Schur block. Baseline `H_{q_s} = K_q`, gradient `g_{q_s} = K_q·q_s − Σ U_y·f` | **Sole driver of the contact anchor** `floor_y_rest + U_y·q_s` |
+| **`q_d`** dynamic IIR ring | Evolves once per substep through the exact resonator, forced by `F_q_dyn = F_q_total − low_pass(F_q_total)` (EMA, τ ≈ 50 ms) | **Visual only** — renders as `U·(q_s + q_d)` but never enters the contact constraint or `H_xq` cross block |
+
+Because `q_d` never touches the anchor, the ratchet cannot form. Because `q_s` is algebraic, AVBD residual at low iter counts no longer leaks into modal kinetic energy (the failure mode of the legacy IIR commit `F_implied = S_h⁻¹·(q − q_free)`, which amplified residual by `T_h · S_h⁻¹ ≈ ω · cot(ωh/2)` — ~640× on the canonical steel scene). Impact transient is still visible because `F_q_dyn` captures the high-frequency part of the contact load and drives `q_d` to ring.
+
+**Validation sweep** (`scripts/run_reduced_support_shelf.py`, 5 s, iter=4 × sub=4):
+
+| Scenario | Legacy IIR-anchor | Split (default) |
+|---|---:|---:|
+| Steel × 0.5–2 kg | clean (−0.1 mm) | clean (−0.1 mm) |
+| **Steel × 5 kg** | **+108 mm drift** | **−0.12 mm settle** ✓ |
+| **Steel × 6 kg** | +152 mm | −0.13 mm ✓ |
+| **Steel × 10 kg** | +354 mm | −0.15 mm ✓ |
+| **Substep 16 × 5 kg** | **+1553 mm (catastrophic)** | −0.12 mm ✓ |
+| Material sweep (5 kg) | mixed | all < 1 mm ✓ |
+| `peak \|q_d\|` (transient ring) | n/a | 8.3e-3 ✓ |
+
+The drift-fix is **iter-budget-independent** (legacy needed iter ≥ 8 to mask the bug at sub=4; split is clean at iter=4) and removes the non-monotonic substep resonance window (legacy: sub=4 and sub=16 both diverged; split: all four sub ∈ {2, 4, 8, 16} settle to −0.12 mm).
+
+**Real-time cost:** ~6–10% per step at iter=4 × sub=4 (18.5 ms vs 17.3 ms on the canonical scene), shrinking to < 1 % at iter=8 × sub=4. Still real-time.
+
+```bash
+# Default mode is "static_dynamic_split" — no flag needed.
+uv run python scripts/run_reduced_support_shelf_viser.py --material steel --impactor-mass 5
+
+# A/B against the legacy bug (browser GUI also has a live dropdown):
+uv run python scripts/run_reduced_support_shelf_viser.py \
+    --material steel --impactor-mass 5 --coupling-mode iir_anchor_legacy
+```
+
+GUI: the **coupling mode (drift-fix v1)** dropdown switches modes live, and the HUD shows separate `|q_s|` (static sag) and `|q_d|` (dynamic ring) readouts. Implementation notes in `dcr/avbd/reduced_coupled_avbd.py` under the `_substep_begin_split` / `_iteration_split` / `_substep_end_split` methods; design rationale + diagnostic ladder in [`~/.claude/plans/you-are-working-in-fizzy-waffle.md`](~/.claude/plans/you-are-working-in-fizzy-waffle.md).
+
+The legacy `iir_anchor_legacy` path is kept selectable so back-to-back comparisons stay reproducible.
 
 ### Two-knob recipe (most use cases)
 

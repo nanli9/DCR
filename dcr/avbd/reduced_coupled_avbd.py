@@ -245,6 +245,40 @@ class ReducedCoupledAVBDCoupler:
     # the static-only BCD coupler uses (h_substep-based BDF1).
     dynamic_q: bool = True
 
+    # ---- Coupling mode (drift-fix v1, 2026-06-08) ----
+    # # DEVIATION (foundation §15): the paper's Eq. 10 evolves a single q
+    # via the IIR resonator and feeds U_y·q directly into the contact
+    # anchor. That path is non-passive at finite iteration counts under
+    # unilateral contact — zero-mean q oscillation rectifies into +∞
+    # probe drift through the one-sided constraint (variant table in
+    # ~/.claude/plans/you-are-working-in-fizzy-waffle.md). The new
+    # "static_dynamic_split" mode is our deviation: it splits
+    #     q = q_s + q_d
+    # with q_s the algebraic static-sag coordinate (solved coupled with
+    # x in the AVBD iteration, baseline H_q = K_q) and q_d the dynamic
+    # IIR oscillator forced by a high-passed F_dyn. ONLY q_s enters the
+    # contact anchor and H_xq cross block — q_d is rendered only.
+    #   "static_dynamic_split"  — drift-free default. Splits q = q_s + q_d
+    #                             with only q_s in the contact anchor.
+    #                             Verified end-to-end on the canonical
+    #                             steel × 5 kg × iter=4 × sub=4 scene:
+    #                             legacy +108 mm probe drift → split
+    #                             −0.12 mm settle. See plan
+    #                             ~/.claude/plans/...fizzy-waffle.md.
+    #   "iir_anchor_legacy"     — original IIR-into-anchor path (drifts).
+    #                             Kept selectable for A/B comparisons.
+    coupling_mode: str = "static_dynamic_split"
+
+    # EMA time constant (s) for the high-pass that drives q_d. The
+    # forcing on q_d each substep is
+    #     F_q_dyn = F_q_total − F_q_static_lp
+    #     F_q_static_lp ← (1-α)·F_q_static_lp + α·F_q_total,
+    #         α = 1 − exp(−h/τ)
+    # τ ≈ 50 ms ⇒ ~3 Hz corner, well below the lowest typical mode but
+    # above the substep frequency, so a step change in resting load is
+    # absorbed into q_s without spuriously ringing q_d.
+    modal_static_lp_tau: float = 0.05
+
     # Modal integrator choice:
     #   "iir"  — Exact damped-oscillator response per substep (paper Eq. 10
     #            in state-space form). Closed-form q_free, qdot_free, S(h),
@@ -390,6 +424,27 @@ class ReducedCoupledAVBDCoupler:
     # IIR diagnostics — min/max S_i(h) over the last substep.
     last_min_S_h: float = 0.0
     last_max_S_h: float = 0.0
+
+    # ---- Static / dynamic split diagnostics ----
+    # Populated by `_substep_end_split`. All inert in legacy mode.
+    last_q_s_norm:        float = 0.0
+    last_q_d_norm:        float = 0.0
+    last_qdot_d_norm:     float = 0.0
+    last_F_q_total_norm:  float = 0.0
+    last_F_q_static_norm: float = 0.0
+    last_F_q_dyn_norm:    float = 0.0
+    last_passivity_violations: int = 0
+    # Modal-load accumulator (Σ U_y·(-f) across bodies during the FINAL
+    # iteration of the substep). Read by `_substep_end_split` to drive the
+    # high-pass + q_d step. Reset to zeros at the start of each iteration
+    # in `_iteration_split` (synthetic-basis size = r at attach time).
+    _last_F_q_contact: NDArray[np.float64] | None = None
+    # Substep-start q_d energy snapshot (for the passivity log).
+    _E_q_d_substep_begin: float = 0.0
+    # First-substep flag: drives `α = 1` in the EMA on the very first
+    # substep so F_q_static_lp jumps to F_q_total instead of starting at
+    # zero and dumping the full static load into q_d.
+    _first_substep_split: bool = True
     # Defensive counter: incremented if any code path calls
     # `_apply_dcr_velocities` on a body the coupler tracks. In
     # --mode coupled_iir_modal this MUST stay 0 (Test 5). The old
@@ -445,6 +500,11 @@ class ReducedCoupledAVBDCoupler:
             raise ValueError(
                 f"q_integrator must be 'iir' or 'bdf1', got "
                 f"{self.q_integrator!r}.")
+        if self.coupling_mode not in (
+                "static_dynamic_split", "iir_anchor_legacy"):
+            raise ValueError(
+                f"coupling_mode must be 'static_dynamic_split' or "
+                f"'iir_anchor_legacy', got {self.coupling_mode!r}.")
 
     def _rigid_KE_tracked(self, solver) -> float:
         """Σ_b ½·m_b·|v_b|² + ½·ω_b^T·I_world_b·ω_b over tracked bodies.
@@ -473,7 +533,604 @@ class ReducedCoupledAVBDCoupler:
             E += 0.5 * m * float(v @ v) + 0.5 * float(w @ (Iw @ w))
         return E
 
+    # ------------------------------------------------------------------
+    # Static / dynamic split — new mode (drift-fix v1)
+    # ------------------------------------------------------------------
+    # Implemented in Phases 4-6 of the plan
+    # (~/.claude/plans/you-are-working-in-fizzy-waffle.md).
+    # During Phase 3 they raise so an accidental flip surfaces fast.
+
+    def _substep_begin_split(self, solver) -> None:
+        """Static / dynamic split substep_begin (drift-fix v1).
+
+        # DEVIATION (foundation §15, plan ~/.claude/plans/...fizzy-waffle):
+        the anchor is seeded from `rs.q_s` (algebraic static-sag coord)
+        instead of `q_hat = q_free` (oscillating IIR predictor). The IIR
+        precompute runs on (q_d, qdot_d), not (q, qdot), and only sets up
+        the q_d evolution that fires in substep_end. Removing the dynamic
+        component from the contact anchor closes the position-level
+        rectification loop that produced the +108 mm drift.
+        """
+        # 1. Snapshot dynamic state for the passivity log + EMA wake-up.
+        self.rs.q_d_prev_macro    = self.rs.q_d.copy()
+        self.rs.qdot_d_prev_macro = self.rs.qdot_d.copy()
+
+        # 2. q_d energy snapshot (q_s is quasi-static, no kinetic term).
+        Mq_ = self.rs.Mq
+        Kq_ = self.rs.Kq
+        qd0 = self.rs.qdot_d
+        qn0 = self.rs.q_d
+        self._E_q_d_substep_begin = (
+            0.5 * float(qd0 @ (Mq_ @ qd0))
+          + 0.5 * float(qn0 @ (Kq_ @ qn0)))
+        # Rigid KE snapshot — used by legacy cap diagnostics; harmless.
+        self._E_rigid_substep_begin = self._rigid_KE_tracked(solver)
+
+        # 3. IIR precompute on (q_d, qdot_d). Same eigenbasis / dense
+        # branching as the legacy IIR path, fed with the DYNAMIC state.
+        if getattr(self.rs, "is_eigenbasis", False):
+            mass_diag = np.diag(self.rs.Mq)
+            (q_d_free, qdot_d_free, S_diag, T_diag
+             ) = exact_modal_step_precompute(
+                self.rs.q_d, self.rs.qdot_d,
+                self.rs.eigen_omegas, self.rs.eigen_zetas,
+                mass_diag, self.h_substep)
+            S_h_inv_diag = 1.0 / S_diag
+            S_h     = np.diag(S_diag)
+            T_h     = np.diag(T_diag)
+            S_h_inv = np.diag(S_h_inv_diag)
+            self.last_min_S_h = float(S_diag.min())
+            self.last_max_S_h = float(S_diag.max())
+            self.S_h_diag     = S_diag
+            self.S_h_inv_diag = S_h_inv_diag
+            self.T_h_diag     = T_diag
+        else:
+            q_d_free, qdot_d_free, S_h, T_h = (
+                dynamic_compliance_step_precompute(
+                    self.rs.q_d, self.rs.qdot_d,
+                    self.rs.Mq, self.rs.Kq, self.rs.Dq,
+                    self.h_substep))
+            S_h_inv = np.linalg.inv(S_h)
+            diag_S = np.diag(S_h)
+            self.last_min_S_h = float(diag_S.min())
+            self.last_max_S_h = float(diag_S.max())
+            self.S_h_diag     = None
+            self.S_h_inv_diag = None
+            self.T_h_diag     = None
+        self.q_free    = q_d_free
+        self.qdot_free = qdot_d_free
+        self.S_h       = S_h
+        self.T_h       = T_h
+        self.S_h_inv   = S_h_inv
+        # DO NOT overwrite rs.q_d with q_d_free — q_d stays at its prev
+        # value during the iteration loop, and is committed in
+        # _substep_end_split using the converged F_q_dyn.
+
+        # Allocate the F_q_contact accumulator (one-shot at first use).
+        r = self.rs.r
+        if (self._last_F_q_contact is None
+                or self._last_F_q_contact.shape[0] != r):
+            self._last_F_q_contact = np.zeros(r, dtype=np.float64)
+
+        # 4. Pull substep-static body state (same as legacy).
+        anchor_np = solver.c_world_anchor.numpy().copy()
+        off_a_np = solver.c_off_a.numpy().copy()
+        body_a_np = solver.c_body_a.numpy()
+        self._mass_np          = solver.mass.numpy()
+        self._inertia_local_np = solver.inertia_local.numpy()
+        self._x_inertial_np    = solver.x_inertial.numpy()
+        self._q_inertial_np    = solver.q_inertial.numpy()
+
+        # 5. Row caching — identical to legacy (geometry-only).
+        self._U_at_row.clear()
+        self._row_body_a.clear()
+        self._row_off_a.clear()
+        self._row_floor_y_rest.clear()
+        self._rows_per_body.clear()
+        self._row_idx_by_body.clear()
+        self._row_off_by_body.clear()
+        self._row_U_y_by_body.clear()
+        tracked: list[int] = []
+
+        for i, row in enumerate(solver._rows):
+            if row.type != FLOOR_CONTACT_6DOF:
+                continue
+            ba = int(body_a_np[i])
+            if ba not in self.tracked_body_indices:
+                continue
+            tracked.append(i)
+            self._row_body_a[i] = ba
+            self._row_off_a[i] = off_a_np[i].astype(np.float64)
+            if i not in self.rs.floor_y_rest:
+                self.rs.floor_y_rest[i] = float(anchor_np[i, 1])
+            self._row_floor_y_rest[i] = self.rs.floor_y_rest[i]
+            self._rows_per_body.setdefault(ba, []).append(i)
+
+        self.rs.tracked_row_indices = tracked
+        self.last_n_tracked_rows = len(tracked)
+        self.last_n_iter_solves = 0
+        self.last_iter_dq_norms = []
+
+        if not tracked:
+            return
+
+        positions = solver.positions()
+        orientations = solver.orientations()
+        for row_idx in tracked:
+            ba = self._row_body_a[row_idx]
+            off = self._row_off_a[row_idx]
+            qb_xyzw = orientations[ba]
+            r_world = _quat_rotate_xyzw(qb_xyzw, off)
+            corner_w = positions[ba] + r_world
+            U_pt = evaluate_basis_at_point(
+                self.rs,
+                (float(corner_w[0]), float(corner_w[2])),
+                length=self.shelf_length,
+                width=self.shelf_width,
+                n_grid_x=self.n_grid_x,
+                n_grid_z=self.n_grid_z,
+            )
+            self._U_at_row[row_idx] = U_pt
+
+        for body_idx, rows_on_body in self._rows_per_body.items():
+            self._row_idx_by_body[body_idx] = np.asarray(
+                rows_on_body, dtype=np.int64)
+            self._row_off_by_body[body_idx] = np.stack(
+                [self._row_off_a[i] for i in rows_on_body], axis=0)
+            self._row_U_y_by_body[body_idx] = np.stack(
+                [self._U_at_row[i][1] for i in rows_on_body], axis=0)
+
+        # Jump-gain logic is dropped in split mode (it existed to mitigate
+        # the same drift through the rigid side; with q_s in the anchor
+        # the drift can't form, so the workaround is unnecessary).
+        self._jump_v_lift.clear()
+        self.last_max_v_lift = 0.0
+        self.last_max_v_hp = 0.0
+
+        # 6. P4 stacks for vectorised anchor write.
+        n_tracked = len(tracked)
+        self._tracked_rows_arr = np.asarray(tracked, dtype=np.int64)
+        self._U_y_stack = np.stack(
+            [self._U_at_row[i][1] for i in tracked], axis=0)
+        self._floor_y_rest_arr = np.fromiter(
+            (self._row_floor_y_rest[i] for i in tracked),
+            dtype=np.float64, count=n_tracked)
+        self._v_lift_arr = np.zeros(n_tracked, dtype=np.float64)
+
+        # 7. Seed anchors using q_s ONLY. No q_free, no q_d, no v_lift.
+        anchor_new = anchor_np.copy()
+        dy_all = self._U_y_stack @ self.rs.q_s
+        anchor_new[self._tracked_rows_arr, 1] = (
+            self._floor_y_rest_arr + dy_all)
+        solver.c_world_anchor.assign(anchor_new.astype(np.float32))
+
+    def _iteration_split(self, solver, iter_idx: int) -> None:
+        """Schur solve over q_s (drift-fix v1).
+
+        # DEVIATION (foundation §15, plan ~/.claude/plans/...fizzy-waffle):
+        the Schur variable is the algebraic static-sag coordinate q_s.
+        Baseline H_{q_s} = K_q (no IIR predictor — q_s has no dynamics).
+        Identical per-body contact assembly + cross-coupling as the
+        legacy path, just on q_s. q_d is NOT in any block of this
+        iteration; it evolves once per substep in `_substep_end_split`
+        forced by the high-passed F_q_total accumulated below.
+        """
+        rows = self.rs.tracked_row_indices
+        if not rows:
+            return
+
+        lam_np = solver.c_lambda.numpy()
+        pen_np = solver.c_penalty.numpy()
+        fmin_np = solver.c_fmin.numpy()
+        fmax_np = solver.c_fmax.numpy()
+        alpha_C0_np = solver.c_alpha_C0.numpy()
+        stiff_np = solver.c_stiffness.numpy()
+        anchor_np = solver.c_world_anchor.numpy().copy()
+        positions_np = solver.x.numpy().copy()
+        orientations_np = solver.q.numpy().copy()
+        mass_np          = self._mass_np
+        inertia_local_np = self._inertia_local_np
+        x_inertial_np    = self._x_inertial_np
+        q_inertial_np    = self._q_inertial_np
+
+        h = float(self.h_substep)
+        inv_dt2 = 1.0 / (h * h)
+        r = self.rs.r
+        Kq = self.rs.Kq
+
+        # Baseline H_{q_s} / g_{q_s} — algebraic (no IIR predictor).
+        # At convergence: K_q · q_s = Σ U_y · f  (the modal equilibrium
+        # under the contact load).
+        H_q = Kq.copy()
+        g_q = Kq @ self.rs.q_s
+
+        # Reset the modal-load accumulator at the START of every
+        # iteration. Only the LAST iteration's value persists into
+        # `_substep_end_split` and drives the EMA + q_d step.
+        if (self._last_F_q_contact is None
+                or self._last_F_q_contact.shape[0] != r):
+            self._last_F_q_contact = np.zeros(r, dtype=np.float64)
+        else:
+            self._last_F_q_contact[:] = 0.0
+
+        per_body_Hx_inv: dict[int, NDArray[np.float64]] = {}
+        per_body_gx:     dict[int, NDArray[np.float64]] = {}
+        per_body_cross:  dict[int, NDArray[np.float64]] = {}
+
+        max_rho2_over_m = 0.0
+        rho_hits = 0
+
+        n_hat_const = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        rho_clip = self.rho_clip
+
+        for body_idx, rows_on_body in self._rows_per_body.items():
+            m = float(mass_np[body_idx])
+            if m <= 0.0 or not np.isfinite(m):
+                continue
+            q_xyzw = orientations_np[body_idx].astype(np.float64)
+            x_curr = positions_np[body_idx].astype(np.float64)
+            x_iner = x_inertial_np[body_idx].astype(np.float64)
+            q_iner = q_inertial_np[body_idx].astype(np.float64)
+
+            R = _quat_xyzw_to_R(q_xyzw)
+            I_local = inertia_local_np[body_idx].astype(np.float64)
+            I_world = R @ I_local @ R.T
+
+            A = m * inv_dt2 * np.eye(3)
+            D = I_world * inv_dt2
+            B = np.zeros((3, 3), dtype=np.float64)
+
+            r_lin = m * inv_dt2 * (x_curr - x_iner)
+            dq_iner = _quat_xyzw_mul(q_xyzw, _quat_xyzw_inv(q_iner))
+            dtheta_iner = _quat_xyzw_to_rotvec(dq_iner)
+            r_ang = I_world @ (dtheta_iner * inv_dt2)
+
+            cross_body = np.zeros((6, r), dtype=np.float64)
+
+            row_idx_arr = self._row_idx_by_body[body_idx]
+            off_arr     = self._row_off_by_body[body_idx]
+            U_y_arr     = self._row_U_y_by_body[body_idx]
+            n_rows_b    = row_idx_arr.shape[0]
+
+            r_self_w_arr = off_arr @ R.T
+            j_lin_arr = np.broadcast_to(
+                n_hat_const, (n_rows_b, 3))
+            j_ang_arr = np.empty((n_rows_b, 3), dtype=np.float64)
+            j_ang_arr[:, 0] = -r_self_w_arr[:, 2]
+            j_ang_arr[:, 1] = 0.0
+            j_ang_arr[:, 2] =  r_self_w_arr[:, 0]
+
+            C_arr        = (x_curr[1] + r_self_w_arr[:, 1]
+                            - anchor_np[row_idx_arr, 1])
+            s_stiff_arr  = stiff_np[row_idx_arr]
+            hard_arr     = np.isinf(s_stiff_arr)
+            C_arr        = np.where(
+                hard_arr, C_arr - alpha_C0_np[row_idx_arr], C_arr)
+            lam_eff_arr  = np.where(
+                hard_arr, lam_np[row_idx_arr], 0.0)
+            rho_arr      = pen_np[row_idx_arr]
+            rho_used_arr = np.minimum(rho_arr, rho_clip)
+            rho_hits    += int(np.sum(rho_arr >= rho_clip))
+
+            f_lo_arr     = fmin_np[row_idx_arr]
+            f_hi_arr     = fmax_np[row_idx_arr]
+            lam_plus_arr = rho_used_arr * C_arr + lam_eff_arr
+            f_arr        = np.clip(lam_plus_arr, f_lo_arr, f_hi_arr)
+
+            abs_C_arr     = np.abs(C_arr)
+            below_mask    = (lam_plus_arr < f_lo_arr) & (abs_C_arr > 1.0e-12)
+            above_mask    = (lam_plus_arr > f_hi_arr) & (abs_C_arr > 1.0e-12)
+            safe_abs_C    = np.maximum(abs_C_arr, 1.0e-12)
+            k_for_lhs_arr = rho_used_arr.copy()
+            k_for_lhs_arr = np.where(
+                below_mask,
+                np.abs(f_lo_arr - lam_plus_arr) / safe_abs_C,
+                k_for_lhs_arr)
+            k_for_lhs_arr = np.where(
+                above_mask,
+                np.abs(f_hi_arr - lam_plus_arr) / safe_abs_C,
+                k_for_lhs_arr)
+
+            k_col      = k_for_lhs_arr[:, None]
+            k_j_lin    = k_col * j_lin_arr
+            k_j_ang    = k_col * j_ang_arr
+            k_U_y      = k_col * U_y_arr
+
+            A = A + j_lin_arr.T @ k_j_lin
+            B = B + j_ang_arr.T @ k_j_lin
+            D = D + j_ang_arr.T @ k_j_ang
+
+            f_mag_arr  = np.abs(f_arr)
+            geom_mask  = f_mag_arr > 0.0
+            if np.any(geom_mask):
+                g_diag_batch = _geom_stiffness_diag_batch(
+                    n_hat_const, r_self_w_arr)
+                weights = (f_mag_arr * geom_mask)[:, None]
+                D = D + np.diag((g_diag_batch * weights).sum(axis=0))
+
+            r_lin = r_lin + j_lin_arr.T @ f_arr
+            r_ang = r_ang + j_ang_arr.T @ f_arr
+
+            # Modal-side contributions to g_{q_s} and H_{q_s}.
+            #   g_{q_s} -= U_y · f          (J_{q_s}^T · f gradient)
+            #   H_{q_s} += ρ · U_y U_y^T    (AL Hessian)
+            g_q = g_q - U_y_arr.T @ f_arr
+            H_q = H_q + U_y_arr.T @ k_U_y
+
+            # Accumulate Σ U_y · f for the substep-end F_q_total.
+            # This is the modal-frame projection of the actual contact
+            # force at the current iteration's state; the LAST iteration
+            # writes the value `_substep_end_split` reads.
+            self._last_F_q_contact += U_y_arr.T @ f_arr
+
+            # Cross block H_{x q_s} = ρ J_x · J_{q_s}^T = −ρ J_x · U_y^T.
+            cross_body[:3, :] += j_lin_arr.T @ k_U_y
+            cross_body[3:, :] += j_ang_arr.T @ k_U_y
+
+            j_ang_sq_arr = (j_ang_arr * j_ang_arr).sum(axis=1)
+            jjsum_arr    = 1.0 + j_ang_sq_arr
+            row_score    = (rho_used_arr ** 2) * jjsum_arr / max(m, 1e-12)
+            if n_rows_b > 0:
+                max_rho2_over_m = max(max_rho2_over_m,
+                                      float(row_score.max()))
+
+            H_x = np.block([
+                [A,           B.T],
+                [B,           D  ],
+            ])
+            g_x = np.concatenate([r_lin, r_ang])
+
+            H_x_reg = H_x + 1e-12 * np.eye(6)
+            try:
+                H_x_inv = np.linalg.inv(H_x_reg)
+            except np.linalg.LinAlgError:
+                continue
+            per_body_Hx_inv[body_idx] = H_x_inv
+            per_body_gx[body_idx] = g_x
+            per_body_cross[body_idx] = -cross_body
+
+        # Schur reduce over q_s.
+        rhs_q = -g_q
+        S = H_q.copy()
+        for body_idx in per_body_Hx_inv:
+            M = per_body_cross[body_idx]
+            Hxi = per_body_Hx_inv[body_idx]
+            gxi = per_body_gx[body_idx]
+            Hxi_M = Hxi @ M
+            S = S - M.T @ Hxi_M
+            rhs_q = rhs_q + M.T @ Hxi @ gxi
+
+        eps = max(
+            self.eps_baseline * (float(np.trace(Kq)) / max(r, 1)),
+            self.eps_cross_factor * max_rho2_over_m,
+        )
+        S_reg = S + eps * np.eye(r)
+        try:
+            dq = np.linalg.solve(S_reg, rhs_q)
+        except np.linalg.LinAlgError:
+            return
+
+        if self.diagnostic_mode:
+            try:
+                cond = float(np.linalg.cond(S_reg))
+            except Exception:
+                cond = float('inf')
+            self.last_Schur_condition_estimate = min(cond, 1e16)
+
+        # Apply Δq_s and back-substitute for body deltas.
+        q_s_new = self.rs.q_s + dq
+        self.rs.q_s = q_s_new
+
+        max_dx = 0.0
+        max_dtheta = 0.0
+        x_out = positions_np.copy()
+        q_out = orientations_np.copy()
+        for body_idx, Hxi in per_body_Hx_inv.items():
+            M = per_body_cross[body_idx]
+            gxi = per_body_gx[body_idx]
+            rhs6 = -(gxi + M @ dq)
+            delta = Hxi @ rhs6
+            d_x = delta[:3]
+            d_theta = delta[3:]
+            x_out[body_idx] = (positions_np[body_idx]
+                               + delta[:3].astype(np.float32))
+            dq_quat = _quat_xyzw_from_rotvec(delta[3:])
+            new_q = _quat_xyzw_mul(dq_quat, q_out[body_idx].astype(np.float64))
+            n = float(np.linalg.norm(new_q))
+            if n > 1e-12:
+                new_q = new_q / n
+            q_out[body_idx] = new_q.astype(np.float32)
+            max_dx = max(max_dx, float(np.linalg.norm(d_x)))
+            max_dtheta = max(max_dtheta, float(np.linalg.norm(d_theta)))
+
+        solver.x.assign(x_out)
+        solver.q.assign(q_out)
+
+        # Refresh anchors with q_s_new — NO v_lift term in split mode.
+        anchor_out = anchor_np.copy()
+        dy_all = self._U_y_stack @ q_s_new
+        anchor_out[self._tracked_rows_arr, 1] = (
+            self._floor_y_rest_arr + dy_all)
+        solver.c_world_anchor.assign(anchor_out.astype(np.float32))
+
+        self.last_max_dx_norm = max_dx
+        self.last_max_dtheta_norm = max_dtheta
+        self.last_dq_norm = float(np.linalg.norm(dq))
+        self.last_n_iter_solves += 1
+        self.last_iter_dq_norms.append(self.last_dq_norm)
+        self.last_rho_clip_hits = rho_hits
+
+    def _substep_end_split(self, solver) -> None:
+        """Apply the high-passed modal load to q_d, sync `rs.q` for
+        back-compat, log passivity (drift-fix v1).
+
+        # DEVIATION (foundation §15, plan ~/.claude/plans/...fizzy-waffle):
+        the implied force in the legacy IIR commit was
+            F_implied = S_h^{-1}·(q_solved − q_free)
+        which converts AVBD's per-iteration q residual into a modal velocity
+        kick via T_h. That route makes q_d non-passive whenever the AL hasn't
+        fully converged. Here we replace the implied F with the FILTERED
+        actual contact load:
+            F_q_dyn = F_q_total − F_q_static_lp
+        where F_q_total = Σ U_y · f was accumulated during the final
+        iteration of `_iteration_split` and F_q_static_lp is the EMA
+        low-pass thereof. The static component flows through q_s (algebraic,
+        already absorbed into the anchor each iter); only the high-passed
+        residue forces q_d. Resting load → F_q_dyn = 0 → q_d homogeneous,
+        decays through Rayleigh damping. Impact transient → F_q_dyn ≠ 0
+        briefly → q_d rings.
+        """
+        h = float(self.h_substep)
+        Mq = self.rs.Mq
+        Kq = self.rs.Kq
+
+        # F_q_total = Σ U_y · f as accumulated in the FINAL iteration of
+        # _iteration_split. Defensive: if no rows were tracked or the
+        # accumulator was never sized, treat as zero.
+        if self._last_F_q_contact is None:
+            F_q_total = np.zeros(self.rs.r, dtype=np.float64)
+        else:
+            F_q_total = self._last_F_q_contact.copy()
+
+        # EMA update of F_q_static_lp. Frame-rate-aware α; one-shot
+        # init (α=1) on the very first substep so the LP latches to
+        # F_q_total instead of starting at zero (which would dump the
+        # static load into q_d and produce a spurious wake-up ring).
+        tau = float(self.modal_static_lp_tau)
+        if getattr(self, "_first_substep_split", True):
+            alpha_ema = 1.0
+            self._first_substep_split = False
+        else:
+            alpha_ema = 1.0 - float(np.exp(-h / max(tau, 1e-9)))
+        self.rs.F_q_static_lp = (
+            (1.0 - alpha_ema) * self.rs.F_q_static_lp
+          + alpha_ema * F_q_total)
+        F_q_dyn = F_q_total - self.rs.F_q_static_lp
+
+        # Apply F_q_dyn through the IIR precompute prepared at substep_begin.
+        # q_d_new   = q_d_free   + S_h · F_q_dyn
+        # qdot_d_new = qdot_d_free + T_h · F_q_dyn
+        if (self.q_free is not None and self.qdot_free is not None
+                and self.S_h is not None and self.T_h is not None):
+            if self.S_h_diag is not None:
+                q_d_new    = self.q_free    + self.S_h_diag * F_q_dyn
+                qdot_d_new = self.qdot_free + self.T_h_diag * F_q_dyn
+            else:
+                q_d_new    = self.q_free    + self.S_h @ F_q_dyn
+                qdot_d_new = self.qdot_free + self.T_h @ F_q_dyn
+            self.rs.q_d    = q_d_new
+            self.rs.qdot_d = qdot_d_new
+        else:
+            # Pre-warm fallback (first substep before any precompute).
+            self.rs.q_d[:]    = 0.0
+            self.rs.qdot_d[:] = 0.0
+
+        # Passivity log — does q_d energy change exceed the work upper
+        # bound h · F_q_dyn^T · qdot_d? Logged, NOT enforced (the
+        # passivity bound is asymptotic; iteration-noise can briefly
+        # violate it without affecting long-run stability).
+        dE_q_d = ((0.5 * float(self.rs.qdot_d @ (Mq @ self.rs.qdot_d))
+                 + 0.5 * float(self.rs.q_d   @ (Kq @ self.rs.q_d)))
+                 - self._E_q_d_substep_begin)
+        W_q_d_bound = abs(h * float(F_q_dyn @ self.rs.qdot_d))
+        if dE_q_d > W_q_d_bound + 1e-12:
+            self.last_passivity_violations += 1
+
+        # Sync the canonical (q, qdot) views for downstream callers
+        # (viser surface render, HUD readouts, the last_max_support_deflection
+        # diagnostic). In split mode, q_s and q_d are the truth.
+        self.rs.sync_total_from_split()
+
+        # Diagnostics.
+        self.last_q_s_norm        = float(np.linalg.norm(self.rs.q_s))
+        self.last_q_d_norm        = float(np.linalg.norm(self.rs.q_d))
+        self.last_qdot_d_norm     = float(np.linalg.norm(self.rs.qdot_d))
+        self.last_F_q_total_norm  = float(np.linalg.norm(F_q_total))
+        self.last_F_q_static_norm = float(np.linalg.norm(self.rs.F_q_static_lp))
+        self.last_F_q_dyn_norm    = float(np.linalg.norm(F_q_dyn))
+        self.last_q_norm    = float(np.linalg.norm(self.rs.q))
+        self.last_qdot_norm = self.last_qdot_d_norm
+
+        # max_support_deflection on the full visual q (q_s + q_d).
+        if self.rs.U_points.shape[0] > 0:
+            disp = np.einsum("kij,j->ki", self.rs.U_points, self.rs.q)
+            self.last_max_support_deflection = float(
+                np.linalg.norm(disp, axis=1).max())
+        else:
+            self.last_max_support_deflection = 0.0
+
+        # Modal energy diagnostics — on q_d only (q_s has no kinetic).
+        self.last_modal_KE = 0.5 * float(
+            self.rs.qdot_d @ (Mq @ self.rs.qdot_d))
+        self.last_modal_PE = 0.5 * float(
+            self.rs.q_d @ (Kq @ self.rs.q_d))
+        self.last_damp_power = float(
+            self.rs.qdot_d @ (self.rs.Dq @ self.rs.qdot_d))
+        self.last_q_acc_norm = 0.0
+
+        # Track λ across tracked rows (back-compat with legacy diagnostics).
+        rows_tr = self.rs.tracked_row_indices
+        if rows_tr:
+            lam_np_end = solver.c_lambda.numpy()
+            self.last_contact_lambda_max = float(
+                np.max(np.abs(lam_np_end[rows_tr])))
+        else:
+            self.last_contact_lambda_max = 0.0
+
+        # Substep-resolution log.
+        if self.log_substeps:
+            self.substep_log.append({
+                "substep_index": int(self._substep_index),
+                "t_substep_s":   float(self._substep_index * h),
+                "q_norm_m":      self.last_q_norm,
+                "qdot_norm":     self.last_qdot_norm,
+                "q_acc_norm":    self.last_q_acc_norm,
+                "KE_modal_J":    self.last_modal_KE,
+                "PE_modal_J":    self.last_modal_PE,
+                "P_damp_W":      self.last_damp_power,
+                "contact_lambda_max": self.last_contact_lambda_max,
+                "max_support_deflection_m": self.last_max_support_deflection,
+                "n_iter_solves": int(self.last_n_iter_solves),
+                # split-mode extras
+                "q_s_norm":      self.last_q_s_norm,
+                "q_d_norm":      self.last_q_d_norm,
+                "F_q_total_norm":  self.last_F_q_total_norm,
+                "F_q_static_norm": self.last_F_q_static_norm,
+                "F_q_dyn_norm":    self.last_F_q_dyn_norm,
+            })
+        self._substep_index += 1
+
+        # Contact residual (max penetration over tracked rows).
+        rows = self.rs.tracked_row_indices
+        if not rows:
+            self.last_contact_residual = 0.0
+            return
+        positions = solver.positions()
+        orientations = solver.orientations()
+        anchor_np = solver.c_world_anchor.numpy()
+        max_pen = 0.0
+        for row_idx in rows:
+            ba = self._row_body_a[row_idx]
+            off = self._row_off_a[row_idx]
+            r_world = _quat_rotate_xyzw(orientations[ba], off)
+            corner_y = float(positions[ba, 1] + r_world[1])
+            anchor_y = float(anchor_np[row_idx, 1])
+            C = corner_y - anchor_y
+            if C < 0.0:
+                max_pen = max(max_pen, -C)
+        self.last_contact_residual = max_pen
+
     def substep_begin_hook(self, solver) -> None:
+        """Dispatcher (drift-fix v1). Routes to the legacy IIR-into-anchor
+        path or the new static/dynamic-split path based on
+        `self.coupling_mode`."""
+        if not self.rs.enabled:
+            return
+        if self.coupling_mode == "iir_anchor_legacy":
+            return self._substep_begin_legacy(solver)
+        return self._substep_begin_split(solver)
+
+    def _substep_begin_legacy(self, solver) -> None:
         """Walk solver._rows, identify FLOOR rows on tracked bodies,
         cache row metadata and U_y at the corner's rest projection,
         seed anchors at floor_y_rest + U_y·q_hat (BDF1 predictor when
@@ -717,6 +1374,14 @@ class ReducedCoupledAVBDCoupler:
         solver.c_world_anchor.assign(anchor_new.astype(np.float32))
 
     def iteration_hook(self, solver, iter_idx: int) -> None:
+        """Dispatcher (drift-fix v1)."""
+        if not self.rs.enabled:
+            return
+        if self.coupling_mode == "iir_anchor_legacy":
+            return self._iteration_legacy(solver, iter_idx)
+        return self._iteration_split(solver, iter_idx)
+
+    def _iteration_legacy(self, solver, iter_idx: int) -> None:
         """The monolithic Schur solve. See module docstring.
         Applies Δq to self.rs.q AND Δx_i to each tracked body's state.
         """
@@ -1054,6 +1719,14 @@ class ReducedCoupledAVBDCoupler:
         self.last_rho_clip_hits = rho_hits
 
     def substep_end_hook(self, solver) -> None:
+        """Dispatcher (drift-fix v1)."""
+        if not self.rs.enabled:
+            return
+        if self.coupling_mode == "iir_anchor_legacy":
+            return self._substep_end_legacy(solver)
+        return self._substep_end_split(solver)
+
+    def _substep_end_legacy(self, solver) -> None:
         """Finalise the substep: advance qdot from the substep's q delta
         (BDF1) and compute diagnostics. Anchors stay deformed across
         substeps (the next substep_begin_hook re-seeds them anyway).

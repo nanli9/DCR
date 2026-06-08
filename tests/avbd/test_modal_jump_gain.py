@@ -49,6 +49,8 @@ def _run(*, n_frames: int, gain: float = 1.0, h_max: float = 0.01,
     """
     pytest.importorskip("warp")
     from scenes.reduced_support_shelf import build_reduced_support_shelf
+    # Drift-fix v1: modal_jump_gain is a legacy-mode workaround for the
+    # same drift this fix removes architecturally. Pin to legacy.
     handle = build_reduced_support_shelf(
         h=1.0 / 120.0, device="cpu",
         iterations=4, avbd_substeps=substeps,
@@ -64,6 +66,7 @@ def _run(*, n_frames: int, gain: float = 1.0, h_max: float = 0.01,
         modal_impedance_scale=impedance,
         modal_jump_gain=gain,
         modal_jump_max_height=h_max,
+        coupling_mode="iir_anchor_legacy",
     )
     w = handle.world
     c = w.reduced_coupled_coupler
@@ -105,7 +108,8 @@ def test_jump_gain_one_is_noop():
             impactor_drop_height=0.02, impactor_v0=(0.0, -1.0, 0.0),
             impactor_mass=0.5, n_modes_global=6, n_modes_local=4,
             youngs=1.0e10, reduced_support_enabled=True, coupled_avbd=True,
-            rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6, **kw)
+            rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6,
+            coupling_mode="iir_anchor_legacy", **kw)
         c = handle.world.reduced_coupled_coupler
         c.q_integrator = "iir"
         for _ in range(40):

@@ -54,6 +54,8 @@ def build_toy_scene_1(
     rayleigh_alpha0: float = 0.0,
     rayleigh_alpha1: float = 5.0e-6,
     dynamic_q: bool = True,
+    coupling_mode: str = "static_dynamic_split",
+    modal_static_lp_tau: float = 0.05,
 ) -> ToyHandle:
     """One box (`mass` kg) resting at center of the shelf, no probes.
 
@@ -109,6 +111,8 @@ def build_toy_scene_1(
         n_grid_x=N_GRID_X,
         n_grid_z=N_GRID_Z,
         rho_clip=rho_clip,
+        coupling_mode=coupling_mode,
+        modal_static_lp_tau=modal_static_lp_tau,
     )
     coupler.dynamic_q = bool(dynamic_q)
     return ToyHandle(world=world, rs=rs, coupler=coupler, box_idx=box_idx)

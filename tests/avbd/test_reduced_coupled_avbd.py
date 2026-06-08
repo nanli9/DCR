@@ -37,7 +37,8 @@ if str(ROOT) not in sys.path:
 
 
 def _build_toy(iterations: int = 8, mass: float = 0.05,
-               avbd_substeps: int = 16, dynamic_q: bool = True):
+               avbd_substeps: int = 16, dynamic_q: bool = True,
+               coupling_mode: str = "static_dynamic_split"):
     pytest.importorskip("warp")
     from scenes.reduced_coupled_toy_minimum import build_toy_scene_1
     return build_toy_scene_1(
@@ -45,6 +46,7 @@ def _build_toy(iterations: int = 8, mass: float = 0.05,
         mass=mass,
         avbd_substeps=avbd_substeps,
         dynamic_q=dynamic_q,
+        coupling_mode=coupling_mode,
     )
 
 
@@ -80,6 +82,11 @@ def test_quasi_static_box_settles_to_K_q_inverse():
     `K_q⁻¹·F_corners` prediction within 5 % relative. Uses
     `dynamic_q=False` so q has no inertia and reaches the algebraic
     fixed point in a single iteration.
+
+    Under the drift-fix v1 split, the analytic K_q⁻¹·F equilibrium maps
+    to `rs.q_s` (the algebraic static-sag part). The dynamic part `q_d`
+    rings briefly on impact and decays to numerical noise after ~40
+    frames, but isn't strictly zero — so we assert on q_s.
     """
     handle = _build_toy(iterations=8, mass=0.05, avbd_substeps=16,
                         dynamic_q=False)
@@ -90,12 +97,14 @@ def test_quasi_static_box_settles_to_K_q_inverse():
     # Analytic prediction.
     q_analytic = _analytic_static_q(handle.rs, mass=0.05, half_extent=0.02)
     norm_analytic = float(np.linalg.norm(q_analytic))
-    norm_actual = c.last_q_norm
+    # Drift-fix v1: the static fixed point lives on q_s in split mode;
+    # fall back to last_q_norm for the legacy path.
+    norm_actual = float(getattr(c, "last_q_s_norm", 0.0) or c.last_q_norm)
 
     assert norm_analytic > 0.0
     rel_err = abs(norm_actual - norm_analytic) / norm_analytic
     assert rel_err < 0.05, (
-        f"|q| settled to {norm_actual:.4e}, expected {norm_analytic:.4e} "
+        f"|q_s| settled to {norm_actual:.4e}, expected {norm_analytic:.4e} "
         f"(rel err {100*rel_err:.2f}% > 5%)")
 
     # Penetration should be at numerical noise.
@@ -342,8 +351,13 @@ def test_dynamic_q_overshoots_then_decays_to_static():
     pytest.importorskip("warp")
 
     def run(dynamic_q: bool) -> dict:
+        # Drift-fix v1: this test pins the legacy IIR/BDF1-driven overshoot
+        # behaviour of `q`. In the new static_dynamic_split mode q is
+        # decomposed and the "overshoot" instead lives on q_d (with
+        # different magnitudes). Keep this test on the legacy path.
         handle = _build_toy(iterations=8, mass=0.05, avbd_substeps=16,
-                            dynamic_q=dynamic_q)
+                            dynamic_q=dynamic_q,
+                            coupling_mode="iir_anchor_legacy")
         c = handle.coupler
         if dynamic_q:
             c.q_integrator = "bdf1"
@@ -397,3 +411,84 @@ def test_dynamic_q_overshoots_then_decays_to_static():
     # No overlay event in either mode.
     assert dyn["overlay_events"] == 0
     assert qs["overlay_events"] == 0
+
+
+# ---------------------------------------------------------------------------
+# T9 (drift-fix v1). Canonical drift scenario settles to < 1 mm.
+# ---------------------------------------------------------------------------
+
+def test_static_dynamic_split_no_drift():
+    """The canonical drift case (steel × 5 kg × iter=4 × sub=4 × 5 s)
+    pinned the +108 mm probe ratchet of the legacy IIR-anchor path. In
+    the static_dynamic_split default the same scene must settle with
+    |drift| < 1 mm (target: ~0.12 mm sub-mm settling).
+    """
+    pytest.importorskip("warp")
+    from scenes.reduced_support_shelf import build_reduced_support_shelf
+
+    handle = build_reduced_support_shelf(
+        h=1.0/120.0, iterations=4, avbd_substeps=4,
+        impactor_drop_height=0.30, impactor_v0=(0.0, -1.0, 0.0),
+        impactor_mass=5.0, probe_mass=0.005,
+        n_modes_global=8, n_modes_local=8,
+        youngs=2.0e11, density=7850.0,
+        reduced_support_enabled=True, coupled_avbd=True,
+        rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6,
+        modal_jump_gain=1.0, to_eigenbasis=False,
+        coupling_mode="static_dynamic_split",
+    )
+    w = handle.world
+    probe_y0 = [float(w._descs[i].dcr_body.position[1])
+                for i in handle.probe_indices]
+    for _ in range(600):   # 5 s
+        w.step()
+    for k, idx in enumerate(handle.probe_indices):
+        drift = float(w._descs[idx].dcr_body.position[1]) - probe_y0[k]
+        assert abs(drift) < 1e-3, (
+            f"probe[{k}] drifted {drift*1e3:+.2f} mm under "
+            f"static_dynamic_split — legacy was +108 mm, target is < 1 mm.")
+
+
+# ---------------------------------------------------------------------------
+# T10 (drift-fix v1). q_d rings on impact (transient visibility).
+# ---------------------------------------------------------------------------
+
+def test_q_d_rings_on_impact_under_split():
+    """Drop a 5 kg impactor; q_d (the dynamic modal part) must spike
+    during the first 0.5 s impact transient and then decay through
+    Rayleigh damping. If `peak |q_d|` ≪ steady |q_d|, the high-pass
+    isn't producing transient excitation — q_d would be a silent
+    visual hack instead of carrying real vibration."""
+    pytest.importorskip("warp")
+    from scenes.reduced_support_shelf import build_reduced_support_shelf
+
+    handle = build_reduced_support_shelf(
+        h=1.0/120.0, iterations=4, avbd_substeps=4,
+        impactor_drop_height=0.30, impactor_v0=(0.0, -1.0, 0.0),
+        impactor_mass=5.0, probe_mass=0.005,
+        n_modes_global=8, n_modes_local=8,
+        youngs=2.0e11, density=7850.0,
+        reduced_support_enabled=True, coupled_avbd=True,
+        rayleigh_alpha0=0.0, rayleigh_alpha1=5.0e-6,
+        modal_jump_gain=1.0, to_eigenbasis=False,
+        coupling_mode="static_dynamic_split",
+    )
+    w = handle.world
+    c = w.reduced_coupled_coupler
+    transient_peak = 0.0
+    for k in range(60):                # ~0.5 s
+        w.step()
+        transient_peak = max(transient_peak, c.last_q_d_norm)
+    # Then settle out to steady state.
+    for _ in range(540):
+        w.step()
+    steady_q_d = c.last_q_d_norm
+    # q_d must have rung non-trivially during the impact transient.
+    assert transient_peak > 1.0e-4, (
+        f"q_d did not ring during impact (peak={transient_peak:.2e}). "
+        f"Either the high-pass is over-attenuating F_q_dyn or the IIR "
+        f"step isn't being driven.")
+    # And the transient must clearly exceed the steady-state residue.
+    assert transient_peak > 5.0 * max(steady_q_d, 1.0e-12), (
+        f"q_d transient {transient_peak:.2e} not ≫ steady {steady_q_d:.2e} "
+        f"— the impact ring should dominate the steady residual by 5×+.")

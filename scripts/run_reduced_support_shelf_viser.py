@@ -347,6 +347,15 @@ class ReducedSupportViewer:
             self.gui_rb_drop = self.server.gui.add_slider(
                 "drop height [m]", min=0.0, max=0.30, step=0.005,
                 initial_value=float(cur_scene.impactor_drop_height))
+            self.gui_coupling_mode = self.server.gui.add_dropdown(
+                "coupling mode (drift-fix v1)",
+                options=("static_dynamic_split", "iir_anchor_legacy"),
+                initial_value=getattr(args, "coupling_mode",
+                                      "static_dynamic_split"),
+                hint="split: anchor sees only static-sag q_s, q_d "
+                     "rings as visual transient — drift-free. legacy: "
+                     "anchor sees q = q_free (oscillating); produces "
+                     "+108mm probe drift on stiff scenes (kept for A/B).")
             self.gui_rb_apply = self.server.gui.add_button("Apply (rebuild)")
             self.gui_rb_apply.on_click(lambda _: self._rebuild_from_gui())
             self.gui_rb_status = self.server.gui.add_text(
@@ -457,6 +466,13 @@ class ReducedSupportViewer:
                 "max support deflection [m]", initial_value="0.0")
             self.gui_q_norm = self.server.gui.add_text(
                 "|q|", initial_value="0.0")
+            # Drift-fix v1 split-mode HUD: separate static and dynamic
+            # parts so you can see q_d ring on impact while q_s is the
+            # steady sag.
+            self.gui_q_s_norm = self.server.gui.add_text(
+                "|q_s| (static sag)", initial_value="0.0")
+            self.gui_q_d_norm = self.server.gui.add_text(
+                "|q_d| (dynamic ring)", initial_value="0.0")
             self.gui_n_tracked = self.server.gui.add_text(
                 "tracked rows", initial_value="0")
             # Overlay-only diagnostics — only shown in 'overlay' mode.
@@ -737,6 +753,14 @@ class ReducedSupportViewer:
                     rayleigh_alpha1=5.0e-6,
                     to_eigenbasis=(getattr(self.args, "reduced_basis",
                                            "synthetic") == "eigen"),
+                    # Drift-fix v1: read from GUI dropdown if present,
+                    # else from CLI flag. Live A/B in the viser.
+                    coupling_mode=str(getattr(
+                        self.gui_coupling_mode, "value",
+                        getattr(self.args, "coupling_mode",
+                                "static_dynamic_split"))),
+                    modal_static_lp_tau=float(getattr(
+                        self.args, "modal_static_lp_tau", 0.05)),
                     **scene_kw,
                     **coupler_kw,
                 )
@@ -922,6 +946,8 @@ class ReducedSupportViewer:
         # Common diagnostics (every mode exposes these).
         q_max = 0.0
         q_norm = 0.0
+        q_s_norm = 0.0
+        q_d_norm = 0.0
         n_tracked = 0
         overlay_events_cum = 0
         if coupler is not None:
@@ -930,6 +956,8 @@ class ReducedSupportViewer:
             q_norm = float(getattr(coupler, "last_q_norm", 0.0))
             if q_norm == 0.0 and hasattr(coupler, "rs"):
                 q_norm = float(np.linalg.norm(coupler.rs.q))
+            q_s_norm = float(getattr(coupler, "last_q_s_norm", 0.0))
+            q_d_norm = float(getattr(coupler, "last_q_d_norm", 0.0))
             n_tracked = int(getattr(coupler, "last_n_tracked_rows", 0))
             overlay_events_cum = int(getattr(
                 coupler, "cum_overlay_events_fired", 0))
@@ -940,6 +968,8 @@ class ReducedSupportViewer:
             self.gui_e_rigid.value = f"{E_rigid:.4f}"
             self.gui_q_max.value = f"{q_max:.4g}"
             self.gui_q_norm.value = f"{q_norm:.4g}"
+            self.gui_q_s_norm.value = f"{q_s_norm:.4g}"
+            self.gui_q_d_norm.value = f"{q_d_norm:.4g}"
             self.gui_n_tracked.value = str(n_tracked)
             self.gui_overlay_events.value = str(overlay_events_cum)
 
@@ -1073,6 +1103,25 @@ def main(argv=None) -> int:
                         "(M̂=I, K̂=Ω²; diagonal per-mode IIR resonator). "
                         "Physics is invariant; 'eigen' is slightly faster "
                         "and matches the DCR paper framing.")
+
+    # ---- Drift-fix v1: static / dynamic split ----
+    p.add_argument(
+        "--coupling-mode",
+        choices=["static_dynamic_split", "iir_anchor_legacy"],
+        default="static_dynamic_split",
+        help="How the modal coordinate enters the contact anchor. "
+             "'static_dynamic_split' (default) splits q = q_s + q_d; "
+             "the anchor sees only the algebraic static-sag q_s, while "
+             "q_d rings purely as a visual transient. Fixes the +100mm "
+             "probe drift produced by the legacy mode. "
+             "'iir_anchor_legacy' is the original Eq. 10 path (drifts). "
+             "Both modes are available in the GUI dropdown for A/B.")
+    p.add_argument(
+        "--modal-static-lp-tau", type=float, default=0.05,
+        help="EMA time constant (s) for the high-pass that drives q_d "
+             "in split mode. τ ≈ 50 ms (3 Hz corner). Smaller τ → q_d "
+             "absorbs faster transients; larger τ → resting load fully "
+             "absorbed by q_s. Ignored in legacy mode.")
 
     # ---- Solver tuning (advanced) ----
     solver_grp = p.add_argument_group("Solver (advanced)")

@@ -50,6 +50,11 @@ def _run_shelf(*, n_frames: int, gain: float = 1.0, c_zeta: float = 1.0,
     peak |qdot|, peak probe rise, coupler ref)."""
     pytest.importorskip("warp")
     from scenes.reduced_support_shelf import build_reduced_support_shelf
+    # Drift-fix v1: modal_energy_cap_fraction (passivity cap), the demo
+    # impedance / damping knobs, and the gain-driven peak |q| trajectory
+    # are legacy IIR-path features. The new static_dynamic_split mode
+    # routes resting load through q_s algebraically (no cap path engages
+    # because no implied-F injection occurs). Pin to legacy.
     handle = build_reduced_support_shelf(
         h=1.0 / 120.0, device="cpu",
         iterations=4, avbd_substeps=substeps,
@@ -65,6 +70,7 @@ def _run_shelf(*, n_frames: int, gain: float = 1.0, c_zeta: float = 1.0,
         modal_impedance_scale=gain,
         modal_damping_scale=c_zeta,
         modal_energy_cap_fraction=eta,
+        coupling_mode="iir_anchor_legacy",
     )
     w = handle.world
     c = w.reduced_coupled_coupler

@@ -388,6 +388,8 @@ class AVBDDCRWorld:
         n_grid_x: int,
         n_grid_z: int,
         rho_clip: float = 1.0e9,
+        coupling_mode: str = "static_dynamic_split",  # drift-fix v1 (post-Phase 8)
+        modal_static_lp_tau: float = 0.05,
     ) -> ReducedCoupledAVBDCoupler:
         """Wire a `ReducedCoupledAVBDCoupler` into the AVBD substep loop.
 
@@ -426,6 +428,8 @@ class AVBDDCRWorld:
             h_substep=float(self.h) / float(self.avbd_substeps),
             body_mass=body_mass,
             rho_clip=float(rho_clip),
+            coupling_mode=str(coupling_mode),
+            modal_static_lp_tau=float(modal_static_lp_tau),
         )
         # Force overlay-related flags off — this coupler never reads them
         # but downstream code (viewers, scene printouts) does.
