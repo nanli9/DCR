@@ -16,7 +16,8 @@ After the DCR core completes, this repo extends into a **follow-up project of ou
 
 ## What this project is NOT
 
-- Not a fork or extension of *other people's* follow-up papers. No bounce maps, no contact sounds, no anisotropic friction, no GPU port.
+- Not a fork or extension of *other people's* follow-up papers. No bounce maps, no contact sounds, no anisotropic friction.
+  - *(GPU port: previously out of scope. Now in scope on the `AVBD-Native` branch only — the AVBD solver + reduced-coupled coupler are CUDA device-resident there, with the CPU/numpy path kept as the parity-tested reference. Still out of scope on `main` / DCR core.)*
 - Not a production physics engine. Numerical robustness comes second to readability and faithfulness to the paper.
 - Not real-time yet. Get correctness first.
 
@@ -45,7 +46,7 @@ Important scope clarifications for the follow-up:
 - **Python 3.10+** (use modern type hints, `dataclasses`).
 - **`numpy`** for dense linear algebra.
 - **`scipy.sparse`** + `scipy.sparse.linalg.eigsh` for FEM assembly and the generalized eigenproblem.
-- **`warp-lang` on CPU device** for any hot inner loops. `wp.init()` and `device="cpu"`. **No CUDA.**
+- **`warp-lang`** for any hot inner loops. `wp.init()`. CPU (`device="cpu"`) is the reference and the default. **CUDA is in scope on the `AVBD-Native` branch** for GPU residency (the AVBD solver and the reduced-coupled coupler run device-resident on `--device cuda:0`); the CPU/numpy path remains the correctness reference and every device kernel is parity-tested against it. On `main` and the DCR-core stages, stay CPU-only.
 - **`polyscope`** for visualization (fast to integrate, decent enough). `pyvista` is a fallback.
 - **`pylibigl`** if available, for the heat-method geodesic in Stage 6. Otherwise implement it from scratch (it's small).
 
@@ -151,7 +152,7 @@ Do **not** add a new dependency without justifying it in writing. No PyTorch, no
 ## What the user expects when interacting with Claude here
 
 - Direct, concise answers. No "I'd love to help!" preambles.
-- Code that runs on CPU only and starts with the simplest correct version.
+- Code that starts with the simplest correct version, written CPU-first. (On the `AVBD-Native` branch a CUDA device-resident path may follow once the CPU reference passes — keep the CPU/numpy path as the parity reference; elsewhere stay CPU-only.)
 - A clear statement of which stage is being worked on at the top of each response (e.g., "Working on Stage E2 — passive α coefficient").
 - Test outputs (plot, console assertion, or screenshot path) cited when claiming a stage is done.
 - Honest "I'm not sure" or "the paper is silent on this" / "the foundation is silent on this" when warranted.

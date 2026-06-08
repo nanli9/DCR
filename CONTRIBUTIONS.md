@@ -811,10 +811,15 @@ following are **intentionally not done**:
 - **New warp kernels** — Phase B lives in Python at the adapter layer
   (`dcr/avbd/moving_support_solve.py`). No new kernel rows in
   `dcr/avbd/_solver/`. The vendored AVBD kernels are unmodified.
-- **GPU port of the Python pipeline** — the closest-triangle KD-tree,
-  Φ-gather, and modal stepper are CPU numpy. Could be warp-ported but
-  isn't yet (queued; the spec's §16 real-time targets are met for
-  CPU-only scenes up to ~13 bodies at the default iteration count).
+- **GPU port of the Python pipeline** — DONE for `ReducedCoupledAVBDCoupler`.
+  The whole coupler step (`substep_begin` basis eval + eigen IIR
+  precompute + anchor seed, the per-AVBD-iteration Schur solve, and
+  `substep_end` EMA + IIR `q_d` step + passivity + sync) is GPU-resident
+  and the iteration loop is CUDA-graph-captured — see "GPU residency"
+  below. Modal state (q_s, q_d, q̇_d, F_q_static_lp) lives on-device; the
+  only host readback is once per macro-step for the render/HUD. (The
+  other couplers — `ReducedSupportCoupler`, `moving_support_solve` — are
+  still CPU numpy.)
 - **§16 full performance budget** — we log step time and per-stage
   breakdown but don't aggressively meet the spec's `< 33 ms/step`
   goal on the truck scene at iters=10 substeps=4. At iters=4 substeps=1
@@ -836,3 +841,78 @@ is the invariant we enforce. We do not claim:
 - internal invariants alone prove physical correctness — the spec
   recommends a FEM/SOFA-style ground-truth comparison scene as the
   external anchor, which we have not run on this branch.
+
+---
+
+## GPU residency: device-resident coupled `iteration_hook`
+
+**Problem.** With `--device cuda:0`, the coupled shelf
+(`--mode coupled_iir_modal --reduced-basis eigen`) was *slower than CPU*.
+The AVBD solver is fully GPU-resident, but `ReducedCoupledAVBDCoupler` ran
+its per-AVBD-iteration Schur solve in numpy as a Python callback fired
+*inside* the solver's iteration loop. Two costs followed:
+
+1. Every `iteration_hook` did ~9 `.numpy()` device→host pulls + 3
+   `.assign()` pushes, each a full CUDA stream drain — ~16 drains/step at
+   4 substeps × 4 iterations.
+2. Any hook being set **disabled the solver's CUDA-graph capture**, so all
+   ~136 AVBD kernel launches/step paid full Python dispatch overhead.
+
+Measured (`scripts/_diag_coupler_gpu_timing.py`, iter=4 sub=4): bare AVBD
+≈ 4 ms/step on both devices (it is graph-captured); with the coupler,
+CPU ≈ 30 ms vs **CUDA 45 ms**.
+
+**Fix (this work).**
+
+- `dcr/avbd/reduced_coupled_kernels.py` (new) — the per-iteration Schur
+  solve as ~10 warp kernels, each parallel over its natural dimension
+  (r×r Hessian/Schur entries, contact rows, tracked bodies); only the
+  r×r Gaussian elimination is single-thread. They read/write the solver's
+  existing device arrays in place. The 6×6 per-body `H_x` is inverted by a
+  2×2 block formula (A is diagonal — the floor normal is ŷ for every row)
+  with one hand-rolled 3×3 inverse. Plus the substep-boundary kernels:
+  `k_eval_basis` (bilinear grid interpolation of U_y at the moving contact
+  corners — device port of `evaluate_basis_at_point`), `k_iir_precompute`
+  (per-mode exact resonator — device port of `exact_modal_step_precompute`),
+  `k_iir_apply` (EMA high-pass + force q_d), `k_passivity`, `k_sync_total`.
+- `dcr/avbd/reduced_coupled_avbd.py` — `device_resident` path: row
+  identification is done ONCE (the tracked FLOOR-row set, body map and
+  body-frame offsets are static for the shelf); thereafter
+  `substep_begin`/`iteration`/`substep_end` are pure `wp.launch`. Modal
+  state (q_s, q_d, q̇_d, F_q_static_lp) stays resident on-device; the host
+  readback is once per macro-step (last substep) for the render/HUD.
+  Default ON when the solver is on CUDA; `device_resident=False` forces the
+  numpy reference path.
+- `dcr/avbd/_solver/solver_6dof.py` — `hooks_device_resident` flag drops
+  the per-hook `wp.synchronize_device` drains and re-enables CUDA-graph
+  capture for the iteration loop when the hook is launch-only.
+
+**Result.** CUDA **45 → 9.6 ms/step** (4.7×), now **3.2× faster than the
+CPU numpy path** (30 ms). The coupler does ZERO host→device transfers and
+zero per-substep / per-iteration round-trips during a step; the iteration
+loop is CUDA-graph-captured. The only remaining host reads are once per
+macro-step to extract results for rendering/contact-extraction (which bare
+AVBD also does) — skippable entirely in a headless run.
+
+**Math.** No equation changed. The numpy path is the reference and stays
+the default on CPU (CLAUDE.md rule 6). The kernels carry a
+`# DEVIATION:` comment: they compute in float64 internally (the same
+float32 solver values the numpy hook reads, upcast identically) and store
+float32, so the device result matches the reference to round-off. Pinned
+by `tests/avbd/test_reduced_coupled_avbd_device_parity.py`: tight parity
+early (q_s to ~1e-12), and over a full impact + ring-down run, bounded
+absolute drift (x to nm), identical probe settle (drift-fix preserved),
+matching steady-state q_s, and comparable passivity-violation counts. The
+long-run q_d/q̇_d divergence is round-off amplified by the sensitive
+ring-down — unavoidable for any faithful reimplementation, physically
+negligible.
+
+**Residency scope.** Full for this coupler: basis eval, eigen IIR
+precompute/apply, EMA, passivity and sync all run on-device. Row
+identification (which solver rows are tracked) runs once on the host at
+first contact — the tracked-row set / body map / body-frame offsets are
+static for the shelf (verified: 1 distinct set over a full run), so the
+moving quantity (the basis U_y at the contact corners) is what the device
+recomputes each substep. If a future scene made tracked rows churn, that
+one-time identification would need a device-side rebuild or a re-detect
+guard.

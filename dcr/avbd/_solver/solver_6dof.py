@@ -450,6 +450,14 @@ class Solver6DOF:
         self.substep_begin_hook = None     # fn(self) — once per substep
         self.iteration_hook = None         # fn(self, iter_idx) — after each it
         self.substep_end_hook = None       # fn(self) — once per substep
+        # When True, hooks are pure device-kernel launches (no `.numpy()`,
+        # no `.assign()`, no host sync) that read/write the solver's device
+        # arrays in place. The per-hook `wp.synchronize_device` drains below
+        # are then skipped (they exist only so a host hook sees finished
+        # kernels; a device hook enqueues onto the same stream and needs no
+        # drain), and the iteration loop stays CUDA-graph-capturable. Set by
+        # the coupler's device-residency path; see reduced_coupled_kernels.py.
+        self.hooks_device_resident = False
 
     # ---- Scene building -----------------------------------------------------
 
@@ -1449,17 +1457,25 @@ class Solver6DOF:
         #     iteration loop (so it can identify FLOOR rows and seed
         #     anchor displacements from q_hat).
         #   - iteration_hook fires after every iteration body (inside
-        #     _run_iter_loop) — incompatible with CUDA-graph capture, so
-        #     graph capture is disabled whenever the hook is set.
+        #     _run_iter_loop). A host iteration_hook (.numpy()/.assign()) is
+        #     incompatible with CUDA-graph capture, so capture is disabled when
+        #     such a hook is set. A DEVICE-RESIDENT iteration_hook
+        #     (hooks_device_resident) issues only `wp.launch` onto the stream,
+        #     so it CAN be captured inside the iteration loop — the launches
+        #     are recorded into the graph and replayed with the AVBD kernels.
+        #     (substep_begin/end fire OUTSIDE the captured region, so their
+        #     host work is unaffected.)
         if self.substep_begin_hook is not None:
-            wp.synchronize_device(dev)
+            if not self.hooks_device_resident:
+                wp.synchronize_device(dev)
             self.substep_begin_hook(self)
 
         use_graph = (n_active > 0
                      and str(dev).startswith("cuda")
                      and self._graph_cuda_supported()
-                     and self.iteration_hook is None
-                     and self.substep_end_hook is None)
+                     and (self.hooks_device_resident
+                          or (self.iteration_hook is None
+                              and self.substep_end_hook is None)))
         if use_graph:
             if self._graph is None:
                 with wp.ScopedCapture(device=dev) as cap:
@@ -1470,7 +1486,8 @@ class Solver6DOF:
             self._run_iter_loop(total_iters, row_dim, n_b, dev)
 
         if self.substep_end_hook is not None:
-            wp.synchronize_device(dev)
+            if not self.hooks_device_resident:
+                wp.synchronize_device(dev)
             self.substep_end_hook(self)
 
         # ---- 7. Refresh pair hash for next-substep warm-start ----
@@ -1711,7 +1728,8 @@ class Solver6DOF:
             # Python interpose can write into c_world_anchor between
             # primal/dual rounds.
             if self.iteration_hook is not None:
-                wp.synchronize_device(dev)
+                if not self.hooks_device_resident:
+                    wp.synchronize_device(dev)
                 self.iteration_hook(self, it)
 
     def _ensure_pair_buffers(self, cap: int) -> None:

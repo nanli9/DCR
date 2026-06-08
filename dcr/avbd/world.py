@@ -389,6 +389,7 @@ class AVBDDCRWorld:
         n_grid_z: int,
         rho_clip: float = 1.0e9,
         modal_static_lp_tau: float = 0.05,
+        device_resident: bool | None = None,
     ) -> ReducedCoupledAVBDCoupler:
         """Wire a `ReducedCoupledAVBDCoupler` into the AVBD substep loop.
 
@@ -433,6 +434,13 @@ class AVBDDCRWorld:
         # but downstream code (viewers, scene printouts) does.
         rs.overlay_enabled = False
         rs.restart_overlay_each_step = False
+        # GPU device-residency: default ON when the solver runs on CUDA so the
+        # per-iteration coupler solve stays on-device (no host round-trip).
+        # `device_resident=False` forces the numpy reference path (used by the
+        # parity test); on CPU it is a no-op either way.
+        if device_resident is None:
+            device_resident = str(self.device).startswith("cuda")
+        coupler.device_resident = bool(device_resident)
         self.reduced_support = rs
         self.reduced_coupled_coupler = coupler
         self._solver.substep_begin_hook = coupler.substep_begin_hook
