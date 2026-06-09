@@ -832,6 +832,23 @@ def k_anchor(
                                  anc[2])
 
 
+@wp.kernel
+def k_anchor_lp(
+    r: int,
+    q_s: wp.array(dtype=wp.float64),
+    a_lp: wp.float64,
+    q_s_anchor_lp: wp.array(dtype=wp.float64),
+):
+    """EMA low-pass of q_s for the contact anchor (collision-kick + rock fix):
+        q_s_anchor_lp += a_lp·(q_s − q_s_anchor_lp).
+    Routes only the smooth static-sag part of q_s into the anchor so an impact
+    spike in q_s no longer jumps the surface under a body. dim = r."""
+    i = wp.tid()
+    if i >= r:
+        return
+    q_s_anchor_lp[i] = q_s_anchor_lp[i] + a_lp * (q_s[i] - q_s_anchor_lp[i])
+
+
 # ===========================================================================
 # substep_begin / substep_end kernels (full GPU residency)
 # ===========================================================================

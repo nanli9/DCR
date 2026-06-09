@@ -294,6 +294,22 @@ class ReducedCoupledAVBDCoupler:
     # a knob, mass/damping term, or host round-trip (it drops a kernel launch).
     refresh_anchor_each_iter: bool = False
 
+    # Contact-anchor static low-pass (collision angular-kick + rock fix).
+    # The contact anchor y = floor_y_rest + U_y·q_s followed the FULL q_s, which
+    # tracks the INSTANTANEOUS contact force — so an impact force spike spikes
+    # q_s, jumps the support surface under a body's corners, and kicks it (a
+    # tilted drop measured ~600× the rigid-floor |ω|; the ledge boulder rocks).
+    # The static/dynamic split intends q_s = SMOOTH static sag and q_d = damped
+    # ring (render-only); this routes only the LOW-PASSED (static) q_s into the
+    # contact anchor, so the impact/contact transient goes to q_d instead of
+    # kicking the body. The EMA time-constant REUSES `modal_static_lp_tau`
+    # (no new knob). At rest the EMA → q_s, so the equilibrium sag — and every
+    # flat-support scene — is unchanged. False = legacy (anchor follows q_s).
+    # # DEVIATION (foundation §15): static-sag low-pass of the contact reference;
+    # no equation/mass/damping change, no host round-trip.
+    anchor_static_lowpass: bool = True
+    _q_s_anchor_lp: NDArray[np.float64] | None = None
+
     # Body mass cache (filled at attach by world).
     body_mass: dict[int, float] = field(default_factory=dict)
 
@@ -502,6 +518,7 @@ class ReducedCoupledAVBDCoupler:
             device=dev)
         # ---- resident modal state ----
         d["q_s"] = wp.zeros(r, dtype=f64, device=dev)
+        d["q_s_anchor_lp"] = wp.zeros(r, dtype=f64, device=dev)  # EMA for anchor
         d["q_d"] = wp.zeros(r, dtype=f64, device=dev)
         d["qdot_d"] = wp.zeros(r, dtype=f64, device=dev)
         d["F_q_static_lp"] = wp.zeros(r, dtype=f64, device=dev)
@@ -650,6 +667,7 @@ class ReducedCoupledAVBDCoupler:
         # Seed resident modal state from the host truth (zeros at sim start, or
         # whatever the coupler/rs carry on a mid-run switch).
         d["q_s"].assign(self.rs.q_s.astype(np.float64))
+        d["q_s_anchor_lp"].assign(self.rs.q_s.astype(np.float64))
         d["q_d"].assign(self.rs.q_d.astype(np.float64))
         d["qdot_d"].assign(self.rs.qdot_d.astype(np.float64))
         d["F_q_static_lp"].assign(self.rs.F_q_static_lp.astype(np.float64))
@@ -686,9 +704,21 @@ class ReducedCoupledAVBDCoupler:
             d["Mq_diag"], f64(self._dev_h_sub), d["q_free"], d["qdot_free"],
             d["S_h_diag"], d["T_h_diag"]])
         # Seed anchors from q_s (k_anchor; diag[3]==0 in the normal case).
+        # Optional static low-pass: EMA q_s into q_s_anchor_lp and seed the
+        # anchor from THAT, so an impact spike in q_s does not jump the surface
+        # under a body and kick it (collision angular-kick + rock fix). REUSES
+        # modal_static_lp_tau — no new knob. See `anchor_static_lowpass`.
+        lp_tau = self.modal_static_lp_tau if self.anchor_static_lowpass else 0.0
+        if lp_tau > 0.0:
+            a_lp = min(1.0, float(self.h_substep) / lp_tau)
+            wp.launch(K.k_anchor_lp, dim=r, device=dev, inputs=[
+                r, d["q_s"], f64(a_lp), d["q_s_anchor_lp"]])
+            q_s_anchor = d["q_s_anchor_lp"]
+        else:
+            q_s_anchor = d["q_s"]
         wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
             r, d["counts"], d["row_index"], d["row_U_y"], d["floor_y_rest"],
-            d["q_s"], d["diag"], solver.c_world_anchor])
+            q_s_anchor, d["diag"], solver.c_world_anchor])
 
     def _iteration_device(self, solver) -> None:
         """One coupled Schur iteration as a sequence of parallel device-kernel
@@ -1007,8 +1037,21 @@ class ReducedCoupledAVBDCoupler:
         self._v_lift_arr = np.zeros(n_tracked, dtype=np.float64)
 
         # 7. Seed anchors using q_s ONLY. No q_free, no q_d, no v_lift.
+        #    Optional static low-pass: route only the smooth (static-sag) part
+        #    of q_s into the contact anchor so an impact spike in q_s does not
+        #    jump the surface under a landing body and kick it. See
+        #    `anchor_static_lowpass`. # DEVIATION (foundation §15).
+        lp_tau = self.modal_static_lp_tau if self.anchor_static_lowpass else 0.0
+        if lp_tau > 0.0:
+            if self._q_s_anchor_lp is None:
+                self._q_s_anchor_lp = self.rs.q_s.copy()
+            a_lp = min(1.0, float(self.h_substep) / lp_tau)
+            self._q_s_anchor_lp += a_lp * (self.rs.q_s - self._q_s_anchor_lp)
+            q_s_anchor = self._q_s_anchor_lp
+        else:
+            q_s_anchor = self.rs.q_s
         anchor_new = anchor_np.copy()
-        dy_all = self._U_y_stack @ self.rs.q_s
+        dy_all = self._U_y_stack @ q_s_anchor
         anchor_new[self._tracked_rows_arr, 1] = (
             self._floor_y_rest_arr + dy_all)
         solver.c_world_anchor.assign(anchor_new.astype(np.float32))
