@@ -41,6 +41,9 @@ from scenes.reduced_truck import build_reduced_truck
 from scenes.reduced_shelf import build_reduced_shelf
 from scenes.reduced_ledge import build_reduced_ledge
 from scenes.reduced_support_shelf import N_GRID_X, N_GRID_Z
+from scenes.reduced_scene_xpbd_mirror import mirror_to_xpbd
+
+SOLVERS = ("avbd", "xpbd")   # solver-backend dropdown values
 # Decorated render templates + collision-proxy cube (shared loader).
 from scripts.render_assets import (
     _resolve_kind_template, _KIND_TEMPLATE_SOURCE, _CUBE_V, _CUBE_F,
@@ -173,28 +176,75 @@ class ReducedSceneViewer:
         mat = _MATERIAL.get(a.material, _MATERIAL["wood"])
         youngs, density = mat.youngs, mat.density
 
-        # The ReducedCoupledAVBDCoupler is GPU device-resident: on cuda the
-        # per-iteration Schur solve runs on-device (no host round-trip), ~7×
-        # faster than the numpy reference path. Fall back to CPU only if cuda
-        # is unavailable.
+        # The ReducedCoupledAVBDCoupler is GPU device-resident on cuda
+        # (~7× faster than the numpy reference). Fall back to CPU if cuda
+        # is unavailable. AVBD always builds the scene first — it is the
+        # source of truth for body geometry + the reduced support `rs`,
+        # which the XPBD mirror reuses verbatim.
         try:
-            self.handle = self.spec.build(a, youngs, density)
+            self._avbd_handle = self.spec.build(a, youngs, density)
         except Exception as e:
             if a.device != "cpu":
                 print(f"[viewer] device {a.device!r} unavailable "
                       f"({type(e).__name__}: {e}); falling back to cpu — "
                       f"expect ~7× slower step time.")
                 a.device = "cpu"
-                self.handle = self.spec.build(a, youngs, density)
+                self._avbd_handle = self.spec.build(a, youngs, density)
             else:
                 raise
-        self.world = self.handle.world
-        self.rs = self.handle.rs
-        self.coupler = self.world.reduced_coupled_coupler
+        self.rs = self._avbd_handle.rs
         self.h = float(a.h)
+        self._solver_name = str(a.solver).lower()
+
+        if self._solver_name == "xpbd":
+            # XPBD's Solver6DOF is device-resident on whatever Warp device
+            # we pass (kernels run on cpu Warp or cuda the same way, no
+            # per-frame host round-trip in the constraint sweep). The
+            # coupler's iteration_hook does numpy work that triggers a
+            # device→host sync via .numpy()/.assign(), but the per-frame
+            # bandwidth is small (r×r block + per-row arrays), not the
+            # whole-scene state. Cuda residency for the coupler itself is a
+            # later milestone; see dcr/xpbd/reduced_coupled_xpbd.py.
+            self.rs.reset_state()
+            self._xpbd_handle = mirror_to_xpbd(
+                self._avbd_handle, h=self.h,
+                substeps=int(a.substeps), iterations=int(a.iters),
+                device=a.device)
+            self.handle = self._xpbd_handle
+            self.world = self._xpbd_handle.world
+            self.coupler = self._xpbd_handle.coupler
+        else:
+            self._xpbd_handle = None
+            self.handle = self._avbd_handle
+            self.world = self._avbd_handle.world
+            self.coupler = self.world.reduced_coupled_coupler
+
         dr = bool(getattr(self.coupler, "device_resident", False))
-        print(f"[viewer] scene={a.scene} device={a.device}  "
-              f"coupler device_resident={dr}")
+        if self._solver_name == "xpbd":
+            bp = self.world.solver.broadphase
+            sdev = self.world.solver.device
+            print(f"[viewer] scene={a.scene} solver=xpbd  "
+                  f"solver-state/kernels on Warp device={sdev} "
+                  f"(broadphase={bp})  coupler-hook=host-numpy "
+                  f"(GPU-resident coupler is a follow-up; see "
+                  f"dcr/xpbd/reduced_coupled_xpbd.py)")
+        else:
+            print(f"[viewer] scene={a.scene} solver=avbd device={a.device}  "
+                  f"coupler device_resident={dr}")
+
+    # ---- backend-agnostic accessors ------------------------------------
+    def _world_time(self) -> float:
+        # AVBDDCRWorld: `time`; XPBDWorld: `time`. Same attribute name.
+        return float(getattr(self.world, "time", 0.0))
+
+    def _set_iterations(self, n: int) -> None:
+        if self._solver_name == "xpbd":
+            self.world.solver.iterations = int(n)
+            self.world.solver._graph = None
+        else:
+            self.world.avbd_iterations = int(n)
+            self.world._solver.iterations = int(n)
+            self.world._solver._graph = None
 
     # ---- viser scene ---------------------------------------------------
     def _init_support_surface(self):
@@ -244,6 +294,20 @@ class ReducedSceneViewer:
         print(f"[viewer] render templates → {srcs}")
 
     def _gather_poses(self, blist):
+        if self._solver_name == "xpbd":
+            # DCR's body 0 is the floor, so b.dcr_idx ≠ XPBD body index in
+            # general — translate through the mirror's per-body map.
+            pos = self.world.positions()
+            ori_xyzw = self.world.orientations()
+            d2x = self._xpbd_handle.dcr_to_xpbd
+            bp = np.array([pos[d2x[b.dcr_idx]] for b in blist],
+                          dtype=np.float32)
+            # XPBD stores quats as (x, y, z, w); viser expects (w, x, y, z).
+            bw = np.empty((len(blist), 4), dtype=np.float32)
+            for i, b in enumerate(blist):
+                q = ori_xyzw[d2x[b.dcr_idx]]
+                bw[i] = (q[3], q[0], q[1], q[2])
+            return bp, bw
         descs = self.world._descs
         bp = np.array([descs[b.dcr_idx].dcr_body.position for b in blist],
                       dtype=np.float32)
@@ -260,6 +324,13 @@ class ReducedSceneViewer:
             self.gui_scene = g.add_dropdown(
                 "scene (rebuild)", tuple(SCENES.keys()),
                 initial_value=self.args.scene)
+            self.gui_solver = g.add_dropdown(
+                "solver (rebuild)", SOLVERS,
+                initial_value=self.args.solver,
+                hint="avbd = augmented-Lagrangian primal (default, GPU "
+                     "device-resident on cuda). xpbd = compliant-constraint "
+                     "host (proposal §2.1 with XPBD as the substrate; CPU "
+                     "reference path only for now).")
             self.gui_pause = g.add_checkbox("pause", initial_value=False)
             self.gui_speed = g.add_slider("speed", 0.05, 2.0, 0.05, 0.5)
             self.gui_reset = g.add_button("reset / rebuild")
@@ -285,11 +356,11 @@ class ReducedSceneViewer:
                      "0 = released from rest.")
 
         with g.add_folder("Reduced-modal solver"):
-            self.gui_iters = g.add_slider("AVBD iterations", 2, 24, 1,
+            self.gui_iters = g.add_slider("solver iterations", 2, 24, 1,
                                           int(self.args.iters))
             self.gui_iters.on_update(self._iters_changed)
-            self.gui_substeps = g.add_slider("AVBD substeps (rebuild)", 1, 16,
-                                             1, int(self.args.substeps))
+            self.gui_substeps = g.add_slider("solver substeps (rebuild)", 1,
+                                             16, 1, int(self.args.substeps))
             self.gui_impedance = g.add_slider(
                 "modal impedance gain (rebuild)", 0.25, 16.0, 0.25,
                 float(self.args.impedance))
@@ -334,9 +405,7 @@ class ReducedSceneViewer:
     def _iters_changed(self, _evt):
         n = int(self.gui_iters.value)
         with self._world_lock:
-            self.world.avbd_iterations = n
-            self.world._solver.iterations = n
-            self.world._solver._graph = None
+            self._set_iterations(n)
 
     def _render_thick_changed(self, _evt):
         self._render_thickness = max(0.0, float(self.gui_render_thick.value) / 1e3)
@@ -356,7 +425,10 @@ class ReducedSceneViewer:
         with self._world_lock:
             a = self.args
             new_scene = str(self.gui_scene.value)
+            new_solver = str(self.gui_solver.value).lower()
             scene_changed = new_scene != a.scene
+            solver_changed = new_solver != a.solver
+            a.solver = new_solver
             if scene_changed:
                 a.scene = new_scene
                 self.spec = SCENES[new_scene]
@@ -382,7 +454,7 @@ class ReducedSceneViewer:
                 a.drop_height = float(self.gui_drop.value)
                 a.impactor_v0 = float(self.gui_imp_v0.value)
             self._build_world()
-            if scene_changed:
+            if scene_changed or solver_changed:
                 # Different body set + impactor labels + slider ranges → tear
                 # the GUI and render nodes down and rebuild from the new scene.
                 self.server.scene.reset()
@@ -466,7 +538,7 @@ class ReducedSceneViewer:
             except RuntimeError:
                 return
             # Diagnostics.
-            self.gui_t.value = f"{self.world.t:.3f}" if hasattr(self.world, "t") else "—"
+            self.gui_t.value = f"{self._world_time():.3f}"
             self.gui_fps.value = f"{fps:.0f}"
             self.gui_step_ms.value = f"{step_ms:.1f}"
             self.gui_sps.value = f"{sps:.0f}"
@@ -482,9 +554,19 @@ def main(argv=None) -> int:
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--scene", default="truck", choices=tuple(SCENES.keys()),
                     help="which reduced-modal demo scene to load")
+    ap.add_argument("--solver", default="avbd", choices=SOLVERS,
+                    help="backend constraint solver. avbd (default) = the "
+                         "AVBD primal Schur path (GPU device-resident on "
+                         "cuda). xpbd = the proposal §2.1 constraint "
+                         "formulation hosted on XPBD (CPU numpy reference).")
     ap.add_argument("--device", default="cuda:0", choices=["cpu", "cuda:0"],
-                    help="cuda:0 (default) runs the coupler GPU device-resident "
-                         "(~7× faster); cpu uses the numpy reference path.")
+                    help="Warp device for the underlying solver state + "
+                         "kernels. cuda:0 (default) runs the AVBD coupler "
+                         "GPU device-resident (~7× faster than its numpy "
+                         "reference). XPBD's Solver6DOF is device-resident on "
+                         "the same setting (kernels stay on-device); only the "
+                         "XPBD COUPLER hook does numpy work (small per-frame "
+                         "sync).")
     ap.add_argument("--port", type=int, default=8190)
     ap.add_argument("--h", type=float, default=1.0 / 120.0)
     # Knobs default to None → filled from the scene preset so each scene gets
