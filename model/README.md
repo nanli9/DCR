@@ -36,21 +36,40 @@ aspect ratio is what dictates the rendered aspect — pick `half_extents`
 in `build_dinner_table_scene` to match the natural proportions of the
 loaded mesh and the visual will look right.
 
+## Kinds in this folder
+
+The dinner scene uses `plate`, `fork`, `knife`, `candle`, `pot`, `spoon`.
+The reduced-modal demo scenes (`scripts/run_reduced_scene_viser.py`) add:
+
+| kind | used by scene(s) | object |
+|------|------------------|--------|
+| `crate`   | truck, shelf | dropped weight / road crate |
+| `cone`    | truck        | traffic cones |
+| `lumber`  | truck        | stacked timber |
+| `book`    | shelf        | standing books |
+| `boulder` | ledge        | dropped boulder + stone pedestal |
+| `pillar`  | ledge        | balanced columns |
+
 ## Where to grab assets
 
-Sketchfab is the easy route — search for CC0 / CC-BY models and
-download the `.glb` or `.obj`:
+The easy route is the fetch script — it searches Sketchfab, picks a
+low-poly downloadable model per kind, restricts to **CC0 / CC-BY** so the
+asset is redistributable in this repo, and records attribution in
+`ATTRIBUTION_sketchfab.md`:
 
-- Plate:  https://sketchfab.com/search?q=plate+dish+ceramic&type=models&licenses=322a749bcfa841b29dff1e8a1bb74b0b
-- Pot:    https://sketchfab.com/search?q=cooking+pot+iron&type=models&licenses=322a749bcfa841b29dff1e8a1bb74b0b
-- Candle: https://sketchfab.com/search?q=candle+pillar&type=models&licenses=322a749bcfa841b29dff1e8a1bb74b0b
+```
+SKETCHFAB_API_TOKEN=<your token> uv run python scripts/fetch_sketchfab_models.py
+# one kind with a custom search:
+uv run python scripts/fetch_sketchfab_models.py --kinds boulder --query "rock low poly"
+```
 
-(`licenses=322a...` is the CC0 filter. Drop the parameter for CC-BY +
-attribution.)
+The token is read from `--token` / `$SKETCHFAB_API_TOKEN` and is never
+written to disk. The curated default queries reproduce the committed set.
 
-Rename the downloaded file to `{kind}.{ext}` and drop it in this folder.
-No further config needed — relaunch the viewer and it'll pick the new
-template up.
+Or do it by hand: search Sketchfab for a CC0 / CC-BY model, download the
+`.glb` / `.obj`, rename it to `{kind}.{ext}`, and drop it in
+`model/{kind}/`. No further config — relaunch the viewer and it picks the
+new template up.
 
 ## Verifying the load
 

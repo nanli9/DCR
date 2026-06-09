@@ -1,0 +1,50 @@
+{
+ "book": {
+  "author": "leglobule3d",
+  "faces": 824,
+  "kind": "book",
+  "license": "by",
+  "name": "Low poly books",
+  "url": "https://sketchfab.com/3d-models/0da1e8d868884acd9f8e8f5b014bd841"
+ },
+ "boulder": {
+  "author": "hodaart",
+  "faces": 2929,
+  "kind": "boulder",
+  "license": "by",
+  "name": "Stylized Rock Pack Low Poly Game Ready Boulders",
+  "url": "https://sketchfab.com/3d-models/a45607a00e104a859a039e0e8a6974f8"
+ },
+ "cone": {
+  "author": "VoidyAssets",
+  "faces": 884,
+  "kind": "cone",
+  "license": "by",
+  "name": "Traffic Cone - GameReady",
+  "url": "https://sketchfab.com/3d-models/d7cff00ec79a439dbe722792ac27015d"
+ },
+ "crate": {
+  "author": "zaaranakhwa",
+  "faces": 836,
+  "kind": "crate",
+  "license": "by",
+  "name": "Game-Ready Wooden Crate (Low Poly, PBR)",
+  "url": "https://sketchfab.com/3d-models/921cdec29cc94af48a41045b36cf6270"
+ },
+ "lumber": {
+  "author": "Rohit3Dasset",
+  "faces": 4120,
+  "kind": "lumber",
+  "license": "by",
+  "name": "Realistic Wood Logs Pack",
+  "url": "https://sketchfab.com/3d-models/c958d8ff95384bd59a3b775539ce6b3a"
+ },
+ "pillar": {
+  "author": "bazgirkiyarash",
+  "faces": 25464,
+  "kind": "pillar",
+  "license": "by",
+  "name": "Modular Ancient Columns \u2013 Game Ready",
+  "url": "https://sketchfab.com/3d-models/a0248b51de39448e8a5bbeb7e12c0030"
+ }
+}
