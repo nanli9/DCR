@@ -12,7 +12,9 @@ The ledge material is matched to the road scene (stiff-but-light, E = 10
 GPa, ρ = 500) so the modal projection couples strongly — the same regime
 the patch-DCR ledge scene was tuned to in the AVBD branch.
 
-Render kinds: `boulder` (impactor + pedestal), `pillar` (the balanced set).
+Render kinds: `boulder` (the dropped rock) and `pillar` (the balanced
+columns); the pedestal renders as its flat collision box so the pillars
+balance on a flat surface rather than a rounded rock.
 """
 from __future__ import annotations
 
@@ -63,10 +65,12 @@ def build_reduced_ledge(
     top = support_top
     resting_xz: list[tuple[float, float]] = []
 
-    # ---- Stone pedestal (a boulder-skinned block) near ledge center. ----
-    ped_h = (0.06, 0.05, 0.06)
+    # ---- Stone pedestal: a flat-topped block near ledge center. Rendered
+    # as its collision box (NOT a rounded boulder) so the pillars balance on
+    # a flat surface. Wider than tall to read as a platform. ----
+    ped_h = (0.09, 0.045, 0.09)
     add("pedestal", 5.0, ped_h,
-        (0.0, top + ped_h[1] + 0.001, 0.0), (0.50, 0.46, 0.40), "boulder",
+        (0.0, top + ped_h[1] + 0.001, 0.0), (0.55, 0.52, 0.47), "box",
         friction=0.4)
     resting_xz.append((0.0, 0.0))
 

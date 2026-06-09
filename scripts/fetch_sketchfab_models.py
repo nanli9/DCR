@@ -60,7 +60,7 @@ _KIND_QUERIES: dict[str, str] = {
     # bookshelf scene
     "book":    "old hardcover book low poly",
     # cliff-ledge scene
-    "boulder": "rock boulder low poly",
+    "boulder": "round rock stone low poly",
     "pillar":  "stone pillar column low poly",
 }
 

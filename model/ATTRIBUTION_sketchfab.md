@@ -11,7 +11,7 @@ stripped — the flat-shaded batched viewer never uses them).
 | kind | model | author | license | faces | url |
 |------|-------|--------|---------|-------|-----|
 | book | Low poly books | leglobule3d | by | 824 | https://sketchfab.com/3d-models/0da1e8d868884acd9f8e8f5b014bd841 |
-| boulder | Stylized Rock Pack Low Poly Game Ready Boulders | hodaart | by | 2929 | https://sketchfab.com/3d-models/a45607a00e104a859a039e0e8a6974f8 |
+| boulder | Round stone | matousekfoto | by | 80000 | https://sketchfab.com/3d-models/3463df78be894c37a0df72894524c7ed |
 | cone | Traffic Cone - GameReady | VoidyAssets | by | 884 | https://sketchfab.com/3d-models/d7cff00ec79a439dbe722792ac27015d |
 | crate | Game-Ready Wooden Crate (Low Poly, PBR) | zaaranakhwa | by | 836 | https://sketchfab.com/3d-models/921cdec29cc94af48a41045b36cf6270 |
 | lumber | Realistic Wood Logs Pack | Rohit3Dasset | by | 4120 | https://sketchfab.com/3d-models/c958d8ff95384bd59a3b775539ce6b3a |
