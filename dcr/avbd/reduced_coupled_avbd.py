@@ -272,6 +272,28 @@ class ReducedCoupledAVBDCoupler:
     # Tests that assert on cond MUST set this to True at attach time.
     diagnostic_mode: bool = False
 
+    # Contact-anchor refresh cadence (rocking-limit-cycle fix).
+    # The contact anchor y = floor_y_rest + U_y·q_s sets the support-surface
+    # height under each resting body's corners. When True (legacy) it is
+    # rewritten after EVERY AVBD iteration from the still-evolving q_s; on a
+    # cantilever support (large modal slope under the contact) the per-iteration
+    # q_s ripple hands the body's corners DIFFERENT anchor heights → a spurious
+    # net torque → a sustained ROCKING limit cycle (undamped, because the body
+    # couples to the algebraic q_s, not the damped ring q_d — so modal damping
+    # can't touch it). Worst on the ledge boulder; flat/simply-supported
+    # supports (truck/dinner) are unaffected.
+    # When False the anchor is seeded ONCE per substep (substep_begin) from the
+    # committed q_s and HELD FIXED through the iteration loop: the contact solve
+    # sees a stable surface, so the per-iteration ripple can no longer pump
+    # rotation. q_s still updates inside the Schur block every iteration
+    # (the Δx↔Δq cross-coupling is untouched); only the contact's surface
+    # reference is staggered by ≤1 substep. At rest q_s is constant, so the
+    # equilibrium sag — and every flat-support scene — is unchanged.
+    # # DEVIATION (foundation §15): staggered (Gauss–Seidel) anchor update vs
+    # the monolithic per-iteration refresh; dissipates the rock without adding
+    # a knob, mass/damping term, or host round-trip (it drops a kernel launch).
+    refresh_anchor_each_iter: bool = False
+
     # Body mass cache (filled at attach by world).
     body_mass: dict[int, float] = field(default_factory=dict)
 
@@ -737,9 +759,13 @@ class ReducedCoupledAVBDCoupler:
             d["M"], d["dq"], d["diag"], d["b_dxn"], d["b_dthn"]])
         wp.launch(K.k_reduce_diag, dim=1, device=dev, inputs=[
             d["counts"], d["b_dxn"], d["b_dthn"], d["diag"]])
-        wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
-            r, d["counts"], d["row_index"], d["row_U_y"],
-            d["floor_y_rest"], d["q_s"], d["diag"], solver.c_world_anchor])
+        # Anchor refresh: only when monolithic (legacy). Staggered mode keeps
+        # the substep_begin seed fixed through the iteration loop to kill the
+        # rocking limit cycle (see `refresh_anchor_each_iter`).
+        if self.refresh_anchor_each_iter:
+            wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
+                r, d["counts"], d["row_index"], d["row_U_y"],
+                d["floor_y_rest"], d["q_s"], d["diag"], solver.c_world_anchor])
         self.last_n_iter_solves += 1
 
     def _substep_end_device(self, solver) -> None:
@@ -1237,12 +1263,15 @@ class ReducedCoupledAVBDCoupler:
         solver.x.assign(x_out)
         solver.q.assign(q_out)
 
-        # Refresh anchors with q_s_new — NO v_lift term in split mode.
-        anchor_out = anchor_np.copy()
-        dy_all = self._U_y_stack @ q_s_new
-        anchor_out[self._tracked_rows_arr, 1] = (
-            self._floor_y_rest_arr + dy_all)
-        solver.c_world_anchor.assign(anchor_out.astype(np.float32))
+        # Refresh anchors with q_s_new — NO v_lift term in split mode. Only in
+        # monolithic (legacy) mode; staggered mode holds the substep_begin seed
+        # to kill the rocking limit cycle (see `refresh_anchor_each_iter`).
+        if self.refresh_anchor_each_iter:
+            anchor_out = anchor_np.copy()
+            dy_all = self._U_y_stack @ q_s_new
+            anchor_out[self._tracked_rows_arr, 1] = (
+                self._floor_y_rest_arr + dy_all)
+            solver.c_world_anchor.assign(anchor_out.astype(np.float32))
 
         self.last_max_dx_norm = max_dx
         self.last_max_dtheta_norm = max_dtheta
