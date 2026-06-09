@@ -323,36 +323,47 @@ class ReducedSceneViewer:
                 grp["proxy"].visible = show
 
     def _reset(self):
-        """Rebuild the world from the current GUI knobs. A scene change or
-        any scene/solver knob (material / thickness / impactor / substeps /
-        impedance / damping) needs a fresh basis + coupler + render nodes."""
+        """Rebuild the world. A SCENE CHANGE loads the new scene's preset
+        defaults (its impactor mass/drop ranges differ, so carrying the old
+        slider values over would throw value-out-of-range) and rebuilds the
+        render + GUI nodes. SAME-scene reset reads the live GUI knobs."""
         with self._world_lock:
             a = self.args
-            scene_changed = str(self.gui_scene.value) != a.scene
-            a.scene = str(self.gui_scene.value)
-            self.spec = SCENES[a.scene]
-            a.iters = int(self.gui_iters.value)
-            a.substeps = int(self.gui_substeps.value)
-            a.impedance = float(self.gui_impedance.value)
-            a.damping = float(self.gui_damping.value)
-            a.material = str(self.gui_material.value)
-            a.thickness = float(self.gui_thickness.value) / 1e3
-            a.impactor_mass = float(self.gui_imp_mass.value)
-            a.drop_height = float(self.gui_drop.value)
-            a.impactor_v0 = float(self.gui_imp_v0.value)
+            new_scene = str(self.gui_scene.value)
+            scene_changed = new_scene != a.scene
+            if scene_changed:
+                a.scene = new_scene
+                self.spec = SCENES[new_scene]
+                sp = self.spec
+                a.material = sp.material
+                a.thickness = sp.thickness
+                a.impactor_mass = sp.impactor_mass
+                a.drop_height = sp.drop_height
+                a.impactor_v0 = sp.impactor_v0
+                a.iters = sp.iters
+                a.substeps = sp.substeps
+                a.exaggerate = sp.exaggerate
+                a.impedance = 1.0
+                a.damping = 1.0
+            else:
+                a.iters = int(self.gui_iters.value)
+                a.substeps = int(self.gui_substeps.value)
+                a.impedance = float(self.gui_impedance.value)
+                a.damping = float(self.gui_damping.value)
+                a.material = str(self.gui_material.value)
+                a.thickness = float(self.gui_thickness.value) / 1e3
+                a.impactor_mass = float(self.gui_imp_mass.value)
+                a.drop_height = float(self.gui_drop.value)
+                a.impactor_v0 = float(self.gui_imp_v0.value)
             self._build_world()
             if scene_changed:
-                # Different body set + impactor labels → tear the GUI and
-                # render nodes down and rebuild from the new scene.
+                # Different body set + impactor labels + slider ranges → tear
+                # the GUI and render nodes down and rebuild from the new scene.
                 self.server.scene.reset()
                 self.server.gui.reset()
                 self._init_support_surface()
                 self._init_bodies()
                 self._init_gui()
-            else:
-                # Body kinds/sizes unchanged; existing render groups still
-                # match. Refresh the support color in case nothing else did.
-                pass
 
     # ---- loop ----------------------------------------------------------
     def _loop(self):
@@ -378,29 +389,36 @@ class ReducedSceneViewer:
             self._render_tick(t_step)
 
     def _render_tick(self, step_ms):
-        q = self.rs.q_s if self.gui_render_q.value.startswith("q_s only") else self.rs.q
-        deformed = _slab_world_vertices(
-            self.handle, q, self._render_thickness,
-            float(self.gui_exagg.value))
-        show_proxy = bool(self.gui_show_proxy.value)
-        try:
-            with self.server.atomic():
-                self.support_handle.vertices = deformed
-                for grp in self._groups:
-                    bp, bw = self._gather_poses(grp["bodies"])
-                    tgt = grp["proxy"] if show_proxy else grp["handle"]
-                    tgt.batched_positions = bp
-                    tgt.batched_wxyzs = bw
-        except RuntimeError:
-            return
-        # Diagnostics.
-        self.gui_t.value = f"{self.world.t:.3f}" if hasattr(self.world, "t") else "—"
-        self.gui_step_ms.value = f"{step_ms:.1f}"
-        self.gui_q.value = f"{np.linalg.norm(self.rs.q):.3e}"
-        self.gui_qs.value = f"{np.linalg.norm(self.rs.q_s):.3e}"
-        self.gui_qd.value = f"{np.linalg.norm(self.rs.q_d):.3e}"
-        self.gui_defl.value = f"{self.coupler.last_max_support_deflection * 1e3:.3f}"
-        self.gui_passv.value = str(self.coupler.last_passivity_violations)
+        # Hold the world lock for the whole tick. A scene-change _reset() swaps
+        # self.world / self.rs / self._groups and tears down the GUI handles
+        # while holding this lock, so guarding here stops the render thread
+        # from reading the new world's (shorter) _descs against the old body
+        # list (IndexError) or writing to torn-down GUI elements mid-rebuild.
+        with self._world_lock:
+            q = (self.rs.q_s if self.gui_render_q.value.startswith("q_s only")
+                 else self.rs.q)
+            deformed = _slab_world_vertices(
+                self.handle, q, self._render_thickness,
+                float(self.gui_exagg.value))
+            show_proxy = bool(self.gui_show_proxy.value)
+            try:
+                with self.server.atomic():
+                    self.support_handle.vertices = deformed
+                    for grp in self._groups:
+                        bp, bw = self._gather_poses(grp["bodies"])
+                        tgt = grp["proxy"] if show_proxy else grp["handle"]
+                        tgt.batched_positions = bp
+                        tgt.batched_wxyzs = bw
+            except RuntimeError:
+                return
+            # Diagnostics.
+            self.gui_t.value = f"{self.world.t:.3f}" if hasattr(self.world, "t") else "—"
+            self.gui_step_ms.value = f"{step_ms:.1f}"
+            self.gui_q.value = f"{np.linalg.norm(self.rs.q):.3e}"
+            self.gui_qs.value = f"{np.linalg.norm(self.rs.q_s):.3e}"
+            self.gui_qd.value = f"{np.linalg.norm(self.rs.q_d):.3e}"
+            self.gui_defl.value = f"{self.coupler.last_max_support_deflection * 1e3:.3f}"
+            self.gui_passv.value = str(self.coupler.last_passivity_violations)
 
 
 def main(argv=None) -> int:
