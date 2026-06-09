@@ -1,0 +1,608 @@
+{
+  "accessors": [
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 12264,
+      "max": [
+        0.15370406210422516,
+        0.09117313474416733,
+        0.11414748430252075
+      ],
+      "min": [
+        -0.15370407700538635,
+        -0.09117311984300613,
+        0.008263985626399517
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 147168,
+      "componentType": 5126,
+      "count": 12264,
+      "max": [
+        0.9998310804367065,
+        0.9999909400939941,
+        0.9998511672019958
+      ],
+      "min": [
+        -0.9999975562095642,
+        -0.9999908804893494,
+        -1.0
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 12264,
+      "max": [
+        0.9984986186027527,
+        0.9984986186027527
+      ],
+      "min": [
+        0.0015015015378594398,
+        0.0015015015378594398
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "componentType": 5125,
+      "count": 47184,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 294336,
+      "componentType": 5126,
+      "count": 6284,
+      "max": [
+        0.1122509241104126,
+        0.08903802186250687,
+        0.11087125539779663
+      ],
+      "min": [
+        -0.1122509241104126,
+        -0.08903801441192627,
+        0.01846865750849247
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 369744,
+      "componentType": 5126,
+      "count": 6284,
+      "max": [
+        0.9955359101295471,
+        0.9971359968185425,
+        1.0
+      ],
+      "min": [
+        -0.9955359101295471,
+        -0.997136116027832,
+        0.07562792301177979
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 98112,
+      "componentType": 5126,
+      "count": 6284,
+      "max": [
+        0.9873446226119995,
+        0.9778208136558533
+      ],
+      "min": [
+        -0.18657879531383514,
+        -0.1847328394651413
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 188736,
+      "componentType": 5125,
+      "count": 24576,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 445152,
+      "componentType": 5126,
+      "count": 640,
+      "max": [
+        0.11396641284227371,
+        0.09117313474416733,
+        0.11087126284837723
+      ],
+      "min": [
+        -0.11396641284227371,
+        -0.09117311984300613,
+        0.11087124049663544
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 452832,
+      "componentType": 5126,
+      "count": 640,
+      "max": [
+        0.7225524187088013,
+        0.714070737361908,
+        1.0
+      ],
+      "min": [
+        -0.6965083479881287,
+        -0.7140704393386841,
+        0.6913161277770996
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 148384,
+      "componentType": 5126,
+      "count": 640,
+      "max": [
+        0.9650365710258484,
+        0.9745603799819946
+      ],
+      "min": [
+        0.11578722298145294,
+        0.0015015015378594398
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 287040,
+      "componentType": 5125,
+      "count": 2304,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 460512,
+      "componentType": 5126,
+      "count": 22039,
+      "max": [
+        0.1161249577999115,
+        0.09626951813697815,
+        0.2096407413482666
+      ],
+      "min": [
+        -0.11612498015165329,
+        -0.09626958519220352,
+        0.18427830934524536
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 724980,
+      "componentType": 5126,
+      "count": 22039,
+      "max": [
+        0.9999712705612183,
+        0.9998581409454346,
+        1.0
+      ],
+      "min": [
+        -0.999971330165863,
+        -0.9998582005500793,
+        -0.9999999403953552
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 153504,
+      "componentType": 5126,
+      "count": 22039,
+      "max": [
+        0.9984986782073975,
+        0.9794510006904602
+      ],
+      "min": [
+        0.0015015015378594398,
+        0.0015015015378594398
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 296256,
+      "componentType": 5125,
+      "count": 83328,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 989448,
+      "componentType": 5126,
+      "count": 9035,
+      "max": [
+        0.02378784865140915,
+        0.023906853049993515,
+        0.230434849858284
+      ],
+      "min": [
+        -0.023787841200828552,
+        -0.023906929418444633,
+        0.20964071154594421
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 1097868,
+      "componentType": 5126,
+      "count": 9035,
+      "max": [
+        0.9999999403953552,
+        0.9999998807907104,
+        0.8078395128250122
+      ],
+      "min": [
+        -0.9999999403953552,
+        -0.9999998807907104,
+        -1.0
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 329816,
+      "componentType": 5126,
+      "count": 9035,
+      "max": [
+        0.4937366843223572,
+        0.45564141869544983
+      ],
+      "min": [
+        0.0015015017706900835,
+        0.0015015015378594398
+      ],
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 629568,
+      "componentType": 5125,
+      "count": 34560,
+      "type": "SCALAR"
+    }
+  ],
+  "asset": {
+    "extras": {
+      "author": "mwheatley (https://sketchfab.com/mwheatley)",
+      "license": "CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)",
+      "source": "https://sketchfab.com/3d-models/lecreuset-dutch-oven-4919df7f695f4a86a8385c26d2533569",
+      "title": "LeCreuset - Dutch Oven"
+    },
+    "generator": "Sketchfab-12.65.0",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 767808,
+      "name": "floatBufferViews",
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 402096,
+      "byteOffset": 767808,
+      "byteStride": 8,
+      "name": "floatBufferViews",
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 1206288,
+      "byteOffset": 1169904,
+      "byteStride": 12,
+      "name": "floatBufferViews",
+      "target": 34962
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 2376192,
+      "uri": "scene.bin"
+    }
+  ],
+  "images": [
+    {
+      "uri": "textures/glaze_baseColor.png"
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "glaze",
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.2874781874
+      }
+    },
+    {
+      "doubleSided": true,
+      "name": "Material.001",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.783538,
+          0.658375,
+          0.491021,
+          1.0
+        ],
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.849534606780517
+      }
+    },
+    {
+      "doubleSided": true,
+      "name": "metal",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.467201,
+          0.467201,
+          0.467201,
+          1.0
+        ],
+        "roughnessFactor": 0.0535155373
+      }
+    },
+    {
+      "doubleSided": true,
+      "name": "plastic",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.00807565,
+          0.00807565,
+          0.00807565,
+          1.0
+        ],
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.5367652871
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "pot_glaze_0",
+      "primitives": [
+        {
+          "attributes": {
+            "NORMAL": 1,
+            "POSITION": 0,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    },
+    {
+      "name": "pot_Material.001_0",
+      "primitives": [
+        {
+          "attributes": {
+            "NORMAL": 5,
+            "POSITION": 4,
+            "TEXCOORD_0": 6
+          },
+          "indices": 7,
+          "material": 1,
+          "mode": 4
+        }
+      ]
+    },
+    {
+      "name": "pot_metal_0",
+      "primitives": [
+        {
+          "attributes": {
+            "NORMAL": 9,
+            "POSITION": 8,
+            "TEXCOORD_0": 10
+          },
+          "indices": 11,
+          "material": 2,
+          "mode": 4
+        }
+      ]
+    },
+    {
+      "name": "llid_glaze_0",
+      "primitives": [
+        {
+          "attributes": {
+            "NORMAL": 13,
+            "POSITION": 12,
+            "TEXCOORD_0": 14
+          },
+          "indices": 15,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    },
+    {
+      "name": "llid_plastic_0",
+      "primitives": [
+        {
+          "attributes": {
+            "NORMAL": 17,
+            "POSITION": 16,
+            "TEXCOORD_0": 18
+          },
+          "indices": 19,
+          "material": 3,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "children": [
+        1
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        2.220446049250313e-16,
+        -1.0,
+        0.0,
+        0.0,
+        1.0,
+        2.220446049250313e-16,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "Sketchfab_model"
+    },
+    {
+      "children": [
+        2
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        -1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "dutch.fbx"
+    },
+    {
+      "children": [
+        3,
+        7
+      ],
+      "name": "RootNode"
+    },
+    {
+      "children": [
+        4,
+        5,
+        6
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.6292067939183141e-07,
+        -0.9999999999999868,
+        0.0,
+        0.0,
+        0.9999999999999868,
+        -1.6292067939183141e-07,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "pot"
+    },
+    {
+      "mesh": 0,
+      "name": "pot_glaze_0"
+    },
+    {
+      "mesh": 1,
+      "name": "pot_Material.001_0"
+    },
+    {
+      "mesh": 2,
+      "name": "pot_metal_0"
+    },
+    {
+      "children": [
+        8,
+        9
+      ],
+      "matrix": [
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        -1.6292067939183141e-07,
+        -0.9999999999999868,
+        0.0,
+        0.0,
+        0.9999999999999868,
+        -1.6292067939183141e-07,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "name": "llid"
+    },
+    {
+      "mesh": 3,
+      "name": "llid_glaze_0"
+    },
+    {
+      "mesh": 4,
+      "name": "llid_plastic_0"
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 10497,
+      "wrapT": 10497
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Sketchfab_Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    }
+  ]
+}
