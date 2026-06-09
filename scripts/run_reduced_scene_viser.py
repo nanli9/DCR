@@ -55,13 +55,30 @@ def _rgb_u8(c) -> tuple[int, int, int]:
     return tuple(int(np.clip(round(v * 255), 0, 255)) for v in c)
 
 
-# Support material → (Young's modulus [Pa], density [kg/m³]). Young's modulus
-# map matches scenes/presets.py MATERIAL_YOUNGS; densities are representative.
-_MATERIAL: dict[str, tuple[float, float]] = {
-    "steel":   (2.0e11, 7850.0),   # ~rigid at support scale (stiff stone)
-    "wood":    (1.0e10,  600.0),   # the recommended demo material
-    "plastic": (1.0e9,  1200.0),   # visibly flexes
-    "soft":    (1.0e8,  1000.0),   # rubbery, exaggerated demo
+@dataclass(frozen=True)
+class SupportMaterial:
+    """Physically representative (E, ρ) for the deformable support, plus a
+    distinct render appearance so the slab LOOKS like the chosen material.
+    Stiffer materials deflect less — with the default exaggeration=1 the
+    steel/glass slabs barely move (that's honest); softer ones flex visibly.
+    `flat` toggles faceted vs smooth shading as a coarse metal-vs-matte cue."""
+    youngs: float       # Young's modulus E [Pa]
+    density: float      # [kg/m³]
+    color: tuple[float, float, float]
+    flat: bool = True
+
+
+# Ordered stiff → soft. E / ρ are textbook values; colors evoke the material.
+_MATERIAL: dict[str, SupportMaterial] = {
+    "steel":    SupportMaterial(2.00e11, 7850.0, (0.60, 0.63, 0.67), flat=False),
+    "titanium": SupportMaterial(1.16e11, 4500.0, (0.52, 0.53, 0.57), flat=False),
+    "glass":    SupportMaterial(7.00e10, 2500.0, (0.66, 0.85, 0.88), flat=False),
+    "aluminum": SupportMaterial(6.90e10, 2700.0, (0.84, 0.86, 0.89), flat=False),
+    "concrete": SupportMaterial(3.00e10, 2400.0, (0.64, 0.62, 0.58), flat=True),
+    "wood":     SupportMaterial(1.00e10,  600.0, (0.55, 0.36, 0.20), flat=True),
+    "plastic":  SupportMaterial(1.00e9,  1200.0, (0.20, 0.38, 0.72), flat=True),
+    "soft":     SupportMaterial(1.00e8,  1000.0, (0.86, 0.46, 0.55), flat=True),
+    "rubber":   SupportMaterial(5.00e7,  1100.0, (0.13, 0.13, 0.15), flat=True),
 }
 
 
@@ -119,7 +136,7 @@ SCENES: dict[str, ScenePreset] = {
         impactor_mass=40.0, drop_height=0.7, mass_range=(2.0, 120.0)),
     "shelf": ScenePreset(
         label="Bookshelf Drop", build=_generic_build(build_reduced_shelf),
-        impactor_label="weight", support_color=(0.52, 0.38, 0.24),
+        impactor_label="book", support_color=(0.52, 0.38, 0.24),
         material="plastic", thickness=0.03,
         impactor_mass=6.0, drop_height=0.5, mass_range=(0.5, 20.0)),
     "ledge": ScenePreset(
@@ -153,7 +170,8 @@ class ReducedSceneViewer:
     # ---- world ---------------------------------------------------------
     def _build_world(self):
         a = self.args
-        youngs, density = _MATERIAL.get(a.material, _MATERIAL["wood"])
+        mat = _MATERIAL.get(a.material, _MATERIAL["wood"])
+        youngs, density = mat.youngs, mat.density
 
         # The ReducedCoupledAVBDCoupler is GPU device-resident: on cuda the
         # per-iteration Schur solve runs on-device (no host round-trip), ~7×
@@ -180,12 +198,17 @@ class ReducedSceneViewer:
 
     # ---- viser scene ---------------------------------------------------
     def _init_support_surface(self):
+        # The slab is skinned to the selected support MATERIAL (color +
+        # flat/smooth shading), so steel looks like steel and wood like wood.
+        # Re-adding "/support" replaces the node, so this is also the refresh
+        # path when the material changes on a same-scene reset.
         self._faces = _slab_faces(N_GRID_X, N_GRID_Z)
         verts0 = _slab_world_vertices(
             self.handle, self.rs.q, self._render_thickness, 1.0)
+        mat = _MATERIAL.get(self.args.material, _MATERIAL["wood"])
         self.support_handle = self.server.scene.add_mesh_simple(
             "/support", vertices=verts0, faces=self._faces,
-            color=self.spec.support_color, flat_shading=False, side="double")
+            color=mat.color, flat_shading=mat.flat, side="double")
 
     def _init_bodies(self):
         """One decorated batched node per render_kind + a dim cube proxy node
@@ -292,7 +315,13 @@ class ReducedSceneViewer:
 
         with g.add_folder("Diagnostics"):
             self.gui_t = g.add_text("t [s]", initial_value="0.000")
-            self.gui_step_ms = g.add_text("step [ms]", initial_value="0.0")
+            self.gui_fps = g.add_text("render fps", initial_value="0")
+            self.gui_step_ms = g.add_text(
+                "step [ms]", initial_value="0.0",
+                hint="wall-clock of one world.step() — lower = faster solver")
+            self.gui_sps = g.add_text(
+                "sim steps/s", initial_value="0",
+                hint="physics steps executed per second (target 120·speed)")
             self.gui_q = g.add_text("|q|", initial_value="0")
             self.gui_qs = g.add_text("|q_s| (static sag)", initial_value="0")
             self.gui_qd = g.add_text("|q_d| (dynamic ring)", initial_value="0")
@@ -361,11 +390,22 @@ class ReducedSceneViewer:
                 self._init_support_surface()
                 self._init_bodies()
                 self._init_gui()
+            else:
+                # Same scene: rebuild only the slab so a material change is
+                # reflected (new color/shading + fresh basis); the body render
+                # groups still match (same kinds/sizes/indices).
+                self._init_support_surface()
 
     # ---- loop ----------------------------------------------------------
+    _FPS_CAP = 90.0   # cap the render/update rate so the loop isn't a busy-spin
+
     def _loop(self):
         last = time.perf_counter()
+        last_tick = last
         accum = 0.0
+        steps_in_window = 0
+        fps_ema = 0.0
+        sps_ema = 0.0
         while not self._stop.is_set():
             now = time.perf_counter()
             dt = now - last
@@ -383,9 +423,26 @@ class ReducedSceneViewer:
                 t_step = (time.perf_counter() - t0) * 1e3
                 accum -= self.h
                 n += 1
-            self._render_tick(t_step)
+            # Frame rate (render ticks/s) and sim rate (physics steps/s),
+            # both EMA-smoothed for a steady readout.
+            tnow = time.perf_counter()
+            d_tick = tnow - last_tick
+            last_tick = tnow
+            if d_tick > 1e-6:
+                inst_fps = 1.0 / d_tick
+                inst_sps = n / d_tick
+                a = 0.12
+                fps_ema = inst_fps if fps_ema == 0 else (1 - a) * fps_ema + a * inst_fps
+                sps_ema = inst_sps if sps_ema == 0 else (1 - a) * sps_ema + a * inst_sps
+            self._render_tick(t_step, fps_ema, sps_ema)
+            # Cap the loop so it renders at most _FPS_CAP/s (and stops pinning a
+            # core); the accumulator still drives real-time stepping across the
+            # sleep, so playback speed is unaffected.
+            spare = 1.0 / self._FPS_CAP - (time.perf_counter() - now)
+            if spare > 0:
+                time.sleep(spare)
 
-    def _render_tick(self, step_ms):
+    def _render_tick(self, step_ms, fps=0.0, sps=0.0):
         # Hold the world lock for the whole tick. A scene-change _reset() swaps
         # self.world / self.rs / self._groups and tears down the GUI handles
         # while holding this lock, so guarding here stops the render thread
@@ -410,7 +467,9 @@ class ReducedSceneViewer:
                 return
             # Diagnostics.
             self.gui_t.value = f"{self.world.t:.3f}" if hasattr(self.world, "t") else "—"
+            self.gui_fps.value = f"{fps:.0f}"
             self.gui_step_ms.value = f"{step_ms:.1f}"
+            self.gui_sps.value = f"{sps:.0f}"
             self.gui_q.value = f"{np.linalg.norm(self.rs.q):.3e}"
             self.gui_qs.value = f"{np.linalg.norm(self.rs.q_s):.3e}"
             self.gui_qd.value = f"{np.linalg.norm(self.rs.q_d):.3e}"

@@ -11,7 +11,8 @@ inside the AVBD iteration (cross-block ρ·J_x·J_q^T).
 A soft shelf (E = 0.5 GPa) makes the static sag q_s visibly large, so this
 scene is the clearest read on the coupled static/dynamic split.
 
-Render kinds: `book`, `crate` (the dropped weight).
+Render kinds: `book` only — the standing row plus a big closed book (a
+heavy tome) as the dropped weight.
 """
 from __future__ import annotations
 
@@ -75,12 +76,14 @@ def build_reduced_shelf(
             friction=0.3)
         resting_xz.append((bx, 0.0))
 
-    # ---- The heavy weight: drops on the shelf's free end (impactor). ----
-    drop_h = (0.05, 0.05, 0.05)
+    # ---- The dropped weight: a big closed book (heavy tome) onto the
+    # shelf's free end. Flat, wide book shape; thematically a book, not a
+    # crate. This is the controllable impactor. ----
+    drop_h = (0.06, 0.035, 0.08)
     impactor_idx = add(
-        "drop_weight", float(impactor_mass), drop_h,
+        "drop_book", float(impactor_mass), drop_h,
         (0.22, top + drop_h[1] + float(impactor_drop_height), 0.0),
-        (0.28, 0.28, 0.30), "crate", friction=0.5,
+        (0.45, 0.12, 0.12), "book", friction=0.5,
         vel=(0.0, float(impactor_v0), 0.0))
 
     contact_zones = [(0.22, 0.0)] + resting_xz
@@ -103,5 +106,5 @@ def build_reduced_shelf(
         probe_indices=[b.dcr_idx for b in bodies if b.render_kind == "book"],
         bodies=bodies,
         name="Reduced-Coordinate AVBD Bookshelf Drop",
-        impactor_label="weight",
+        impactor_label="book",
     )
