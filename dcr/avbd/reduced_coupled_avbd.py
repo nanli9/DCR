@@ -426,6 +426,8 @@ class ReducedCoupledAVBDCoupler:
     _dev_n_b: int = 0
     _dev_n_tracked: int = 0
     _dev_total_rows: int = 0
+    _k_eps_tiled: object = None       # per-r cooperative-Cholesky solve kernel
+    _eps_block_dim: int = 64
 
     # ------------------------------------------------------------------
     # Lifecycle hooks
@@ -452,6 +454,7 @@ class ReducedCoupledAVBDCoupler:
 
         dev = solver.device
         r = int(self.rs.r)
+        is_cuda = str(dev).startswith("cuda")
         max_b = max(1, len(self.tracked_body_indices))
         cap_rows = max(1, len(solver._rows))
         n_grid_pts = int(self.rs.U_points.shape[0])
@@ -528,6 +531,27 @@ class ReducedCoupledAVBDCoupler:
         self._dev_eps_cross = float(self.eps_cross_factor)
         self._dev_r = r
         self._dev_n_grid_pts = n_grid_pts
+
+        # Block-cooperative Cholesky solver for the r×r SPD Schur system. This
+        # replaces the single-thread GE k_eps_solve (the profiled hot spot) on
+        # CUDA. The tile API is GPU-only, so non-CUDA falls back to k_eps_solve.
+        # Generated per-r (tile shapes are compile-time) and warmed here OUTSIDE
+        # any graph-capture region so the first real launch (which IS captured)
+        # never triggers a kernel compile inside capture.
+        self._k_eps_tiled = None
+        self._eps_block_dim = 64
+        if is_cuda:
+            from .reduced_coupled_kernels import make_k_eps_solve_tiled
+            self._k_eps_tiled = make_k_eps_solve_tiled(r)
+            # Warmup: S/rhs are freshly zeroed ⇒ solves ε·I·dq = 0 ⇒ dq = 0,
+            # q_s unchanged (still zero). Forces an out-of-capture compile.
+            wp.launch_tiled(
+                self._k_eps_tiled, dim=[1], device=dev,
+                block_dim=self._eps_block_dim, inputs=[
+                    d["counts"], d["rho_score"], wp.float64(self._dev_eps_base),
+                    wp.float64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"],
+                    d["q_s"], d["diag"]])
+            wp.synchronize_device(dev)
         self._dev_h_sub = float(self.h_substep)
         self._dev_tau = float(self.modal_static_lp_tau)
         # substeps per macro step (for once-per-step host readback).
@@ -679,11 +703,22 @@ class ReducedCoupledAVBDCoupler:
         wp.launch(K.k_rhs, dim=r, device=dev, inputs=[
             r, d["counts"], d["gq"], d["b_TL"], d["b_TR"], d["b_BL"],
             d["b_BR"], d["b_gx0"], d["b_gx1"], d["M"], d["rhs"]])
-        # 5. ε-regularize + r×r solve + q_s update (single thread).
-        wp.launch(K.k_eps_solve, dim=1, device=dev, inputs=[
-            r, d["counts"], d["rho_score"], f64(self._dev_eps_base),
-            f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"], d["q_s"],
-            d["diag"]])
+        # 5. ε-regularize + r×r solve + q_s update. Block-cooperative Cholesky
+        # (tile API) when available — replaces the single-thread GE that the
+        # profiler flagged as the dominant cost; falls back to k_eps_solve on
+        # CPU / when the tiled kernel is unavailable.
+        if self._k_eps_tiled is not None:
+            wp.launch_tiled(
+                self._k_eps_tiled, dim=[1], device=dev,
+                block_dim=self._eps_block_dim, inputs=[
+                    d["counts"], d["rho_score"], f64(self._dev_eps_base),
+                    f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"],
+                    d["q_s"], d["diag"]])
+        else:
+            wp.launch(K.k_eps_solve, dim=1, device=dev, inputs=[
+                r, d["counts"], d["rho_score"], f64(self._dev_eps_base),
+                f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"], d["q_s"],
+                d["diag"]])
         # 6. back-substitute body deltas + diagnostics + anchor refresh.
         wp.launch(K.k_backsub, dim=max_b, device=dev, inputs=[
             solver.x, solver.q, solver.mass, r, d["counts"], d["body_ids"],

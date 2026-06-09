@@ -550,6 +550,105 @@ def k_eps_solve(
     diag[2] = wp.sqrt(dqn)
 
 
+# ---------------------------------------------------------------------------
+# Cooperative-Cholesky r×r solve (block-parallel replacement for k_eps_solve)
+# ---------------------------------------------------------------------------
+# Profiling (scripts/_diag_warp_kernel_profile.py) showed the single-thread GE
+# in k_eps_solve was the dominant GPU cost (~3.6 ms/step, 46% of all kernel
+# time): a `dim=1` thread doing O(r³) elimination is memory-latency bound, no
+# latency hiding. This replaces it with warp's block-cooperative tile Cholesky
+# (`wp.tile_cholesky` / `wp.tile_cholesky_solve`), where one thread-block solves
+# the single r×r system with all lanes participating — same arithmetic in f64,
+# same ε-regularization, same q_s update + ‖dq‖ diagnostic.
+#
+# # DEVIATION (GE-with-partial-pivot → Cholesky): the numpy reference solves the
+# # ε-regularized Schur system with np.linalg.solve (LU). The single-thread
+# # device kernel mirrored that with Gaussian elimination + partial pivoting,
+# # which also handles an indefinite matrix. Cholesky requires S_reg to be SPD.
+# # Verified empirically (scripts probe, 4000 solves over a full impact+ring-down
+# # run): S_reg is SPD throughout — min eigenvalue ~2e8, condition ~4e3, zero
+# # indefinite cases — and the ε term (ε ≥ eps_baseline·tr(K_q)/r > 0) keeps it
+# # PD by construction. So the partial-pivot/singular branch is unreachable here.
+# # For any non-CUDA path, atypical r, or a future scene that violates SPD, the
+# # caller falls back to the single-thread k_eps_solve above (full pivot +
+# # singular guard). Cholesky is numerically identical to LU on this well-
+# # conditioned SPD system (parity test matches np.linalg.solve to ~1e-17).
+#
+# Tile shapes must be compile-time constants while r (mode count) is a runtime
+# scene parameter, so the kernel is generated per-r and cached.
+_TILED_EPS_SOLVE_CACHE: dict[int, object] = {}
+
+
+@wp.func
+def _sq_f64(a: wp.float64) -> wp.float64:
+    return a * a
+
+
+def make_k_eps_solve_tiled(r: int):
+    """Return a block-cooperative Cholesky solver kernel specialised to `r`.
+
+    Replaces the single-thread k_eps_solve (paper has no equivalent; this is the
+    follow-up reduced-coupled Schur solve). Launch with `wp.launch_tiled(...,
+    dim=[1], block_dim=B)`: one block, B lanes cooperate on the r×r solve.
+
+    Solves  (S + ε·I) · dq = rhs  with  ε = max(eps_baseline_trace,
+    eps_cross_factor·max_t rho_score[t]) ; then q_s += dq ; diag[2] = ‖dq‖.
+    """
+    cached = _TILED_EPS_SOLVE_CACHE.get(r)
+    if cached is not None:
+        return cached
+
+    R = wp.constant(int(r))
+
+    @wp.kernel
+    def k_eps_solve_tiled(
+        counts: wp.array(dtype=int),
+        rho_score: wp.array(dtype=wp.float64),
+        eps_baseline_trace: wp.float64,
+        eps_cross_factor: wp.float64,
+        S: wp.array2d(dtype=wp.float64),
+        rhs: wp.array(dtype=wp.float64),
+        dq: wp.array(dtype=wp.float64),
+        q_s: wp.array(dtype=wp.float64),
+        diag: wp.array(dtype=wp.float64),
+    ):
+        # ε from the per-body ρ scores (same reduction as k_eps_solve; n_b ≤ a
+        # handful, so each lane recomputes it redundantly — trivially cheap).
+        n_b = counts[0]
+        max_rho2 = wp.float64(0.0)
+        for t in range(n_b):
+            max_rho2 = wp.max(max_rho2, rho_score[t])
+        eps = wp.max(eps_baseline_trace, eps_cross_factor * max_rho2)
+
+        # S_reg = S + ε·I, then cooperative Cholesky solve.
+        St = wp.tile_load(S, shape=(R, R))
+        epsv = wp.tile_full(shape=R, value=eps, dtype=wp.float64)
+        St = wp.tile_diag_add(St, epsv)
+        L = wp.tile_cholesky(St)
+        bt = wp.tile_load(rhs, shape=R)
+        xt = wp.tile_cholesky_solve(L, bt)
+
+        # dq = Δq_s ; q_s += dq ; ‖dq‖ → diag[2].
+        wp.tile_store(dq, xt)
+        qt = wp.tile_load(q_s, shape=R)
+        qt = qt + xt
+        wp.tile_store(q_s, qt)
+        sq = wp.tile_map(_sq_f64, xt)
+        nrm = wp.tile_sum(sq)
+        dqn2 = wp.tile_extract(nrm, 0)  # uniform across the block
+        diag[2] = wp.sqrt(dqn2)
+        # diag[3]: singular/non-finite flag. SPD ⇒ always finite here; the check
+        # only writes a scalar (no tile op), so the branch never diverges the
+        # cooperative ops above.
+        if dqn2 == dqn2:
+            diag[3] = _ZERO
+        else:
+            diag[3] = _ONE
+
+    _TILED_EPS_SOLVE_CACHE[r] = k_eps_solve_tiled
+    return k_eps_solve_tiled
+
+
 @wp.kernel
 def k_backsub(
     x: wp.array(dtype=wp.vec3),
