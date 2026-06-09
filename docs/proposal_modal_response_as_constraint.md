@@ -125,7 +125,7 @@ and with damping on the total strictly decreases. This is exactly what "accurate
 | **Iteration-robust** | end-of-run `\|q\|` at 4/8/16/32/64 solver iters | spread **< 0.05%** — the answer doesn't drift as you change iteration count, because it sits at a true fixed point (a kinematic `d_max/h` kick would drift). |
 | **Stable under tight substeps** | BCD vs ours at 8 substeps | the naive BCD baseline **blows up** (28 mm peak `\|q\|`, 571 mm/s probe velocity); **ours stays bounded** (8.1 µm, 8.5 mm/s). The single strongest argument for the monolithic coupling. |
 | **No hidden tuned kick** | `overlay_events == 0` asserted every step | the response comes entirely from the cross-block `ρ J_x J_qᵀ` (static sag) + the dissipative IIR (dynamic ring) — no post-fix velocity kick, no cooldown, no force-cap heuristics. |
-| **Real-time-plausible** | hot-path vectorization | −44% step time → ~32 ms/frame on the research shelf scene (CPU prototype; not yet GPU). |
+| **Real-time-plausible** | CPU hot-path vectorization, then GPU device-residency | CPU reference: −44% step time → ~32 ms/frame on the research shelf scene. On `AVBD-Native` the whole coupled substep is now **GPU device-resident** — graph-replay **~1.85 ms/step** after parallelizing the r×r Schur solve (commits `9a99e19`, `ba48d65`, `8c38003`); the CPU/numpy path is kept as the parity reference. |
 
 Honest cost: the coupled solve is ~20× the bare rigid step at 8 substeps, decomposable as ~5× (substeps) × ~4× (coupling). DCR's whole point was avoiding that cost; the bet here is that AVBD/VBD-style co-optimization makes it affordable enough to be worth the correctness, robustness, and energy-conservation it buys. Quantifying *where* it's worth it is a deliverable (§7).
 
@@ -178,7 +178,7 @@ Note this also explains an architectural observation already in our `CONTRIBUTIO
 5. **Ground-truth anchor — mirror the paper's own comparison.** DCR §5.2 already validates "Dinner is served" against a SOFA elastic reconstruction (stiff table, `10⁻⁵` step, ~30 min). Reproduce *that* scene and compare the coupled-constraint response to the same SOFA ground truth — internal invariants are necessary, not sufficient; we need one external check that the *motion* is right, not just that the ledger balances. *(New work; most important for credibility.)*
 6. **Cost / regime characterization.** The ~5×·~4× decomposition, the stiff-support regime boundary, the substep/iteration robustness curves — stated as "where this is worth it" versus DCR's cheaper bias.
 
-**Deliverables.** A methods note (§2–§3 math + §6 generality table), the exactness + closed-system plots, the SOFA ground-truth comparison, and a cost/regime figure. No audio, no GPU port, no other-paper follow-ons — out of scope by design.
+**Deliverables.** A methods note (§2–§3 math + §6 generality table), the exactness + closed-system plots, the SOFA ground-truth comparison, and a cost/regime figure. No audio and no other-paper follow-ons — out of scope by design. (The coupler is already GPU device-resident on `AVBD-Native`; that residency is engineering the cost/regime figure reports — graph-replay ~1.85 ms/step — not a research deliverable in itself.)
 
 **Open questions for you**
 - Is the **exactness vs. penalty-bias** distinction (monolithic vs. BCD) the headline, or is the **energy-conservation / transpose-consistency** story the headline? They're separable; not sure which you'd foreground.
