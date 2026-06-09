@@ -80,9 +80,9 @@ class ScenePreset:
     drop_height: float = 0.5
     impactor_v0: float = 0.0
     mass_range: tuple[float, float] = (0.5, 20.0)
-    iters: int = 8
+    iters: int = 4
     substeps: int = 4
-    exaggerate: float = 80.0
+    exaggerate: float = 1.0      # 1 = honest (no display exaggeration)
 
 
 def _dinner_build(a, youngs, density):
@@ -111,26 +111,22 @@ SCENES: dict[str, ScenePreset] = {
     "dinner": ScenePreset(
         label="Dinner Table", build=_dinner_build, impactor_label="pot",
         support_color=(0.45, 0.32, 0.22), material="wood", thickness=0.03,
-        impactor_mass=8.0, drop_height=0.5, mass_range=(0.5, 20.0),
-        exaggerate=80.0),
+        impactor_mass=8.0, drop_height=0.5, mass_range=(0.5, 20.0)),
     "truck": ScenePreset(
         label="Road Impact", build=_generic_build(build_reduced_truck),
         impactor_label="crate", support_color=(0.34, 0.34, 0.36),
         material="wood", thickness=0.06,
-        impactor_mass=40.0, drop_height=0.7, mass_range=(2.0, 120.0),
-        exaggerate=40.0),
+        impactor_mass=40.0, drop_height=0.7, mass_range=(2.0, 120.0)),
     "shelf": ScenePreset(
         label="Bookshelf Drop", build=_generic_build(build_reduced_shelf),
         impactor_label="weight", support_color=(0.52, 0.38, 0.24),
         material="plastic", thickness=0.03,
-        impactor_mass=6.0, drop_height=0.5, mass_range=(0.5, 20.0),
-        exaggerate=80.0),
+        impactor_mass=6.0, drop_height=0.5, mass_range=(0.5, 20.0)),
     "ledge": ScenePreset(
         label="Cliff Ledge Rockfall", build=_generic_build(build_reduced_ledge),
         impactor_label="boulder", support_color=(0.48, 0.46, 0.42),
         material="wood", thickness=0.08,
-        impactor_mass=50.0, drop_height=0.8, mass_range=(5.0, 120.0),
-        exaggerate=120.0),
+        impactor_mass=50.0, drop_height=0.8, mass_range=(5.0, 120.0)),
 }
 
 
@@ -287,7 +283,8 @@ class ReducedSceneViewer:
             self.gui_exagg = g.add_slider("modal exaggeration", 1.0, 500.0,
                                           1.0, float(self.args.exaggerate))
             self.gui_render_q = g.add_dropdown(
-                "render modal state", ("q_s + q_d (full)", "q_s only (static)"))
+                "render modal state", ("q_s + q_d (full)", "q_s only (static)"),
+                initial_value="q_s only (static)")
             self.gui_render_thick = g.add_slider(
                 "support render thickness [mm]", 0.0, 100.0, 1.0,
                 self._render_thickness * 1e3)
