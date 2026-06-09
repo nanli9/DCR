@@ -675,15 +675,29 @@ class AVBDDCRWorld:
         # (3) sync state AVBD → DCR (single batched readback per array).
         self._sync_avbd_to_dcr()
 
-        # (4) extract contacts.
+        # (4) extract contacts — only when a consumer is attached. The DCR
+        # patch coupler (and the moving-support pass, which requires it) are the
+        # only things that read the extracted contacts + lam triples, via
+        # `passive_couplers`. In the GPU reduced-coupled mode `passive_couplers`
+        # is empty — the ReducedCoupledAVBDCoupler reads the solver's device
+        # arrays directly through its hooks — so this host-side row walk + ~13
+        # device→host `.numpy()` pulls would build contacts nobody consumes.
+        # Skipping it there removes ~1.5 ms/step (the step's largest host cost
+        # once the solve went GPU-resident) with no behavior change for the
+        # patch-coupler / moving-support modes. `last_contacts` is left empty in
+        # this mode (the viser HUD's contact count just reads 0).
         t_extract_0 = _t.perf_counter()
-        contacts, lam, k_normal, records, current_keys = extract_contacts(
-            self._solver,
-            floor_body_idx=self._floor_body_idx,
-            prev_contact_keys=self._prev_contact_keys,
-            dt=self.h,
-            avbd_to_dcr=self._avbd_to_dcr_index_map(),
-        )
+        if self.passive_couplers:
+            contacts, lam, k_normal, records, current_keys = extract_contacts(
+                self._solver,
+                floor_body_idx=self._floor_body_idx,
+                prev_contact_keys=self._prev_contact_keys,
+                dt=self.h,
+                avbd_to_dcr=self._avbd_to_dcr_index_map(),
+            )
+        else:
+            _empty = np.zeros(0, dtype=np.float64)
+            contacts, lam, k_normal, current_keys = [], _empty, _empty, set()
         self.last_extract_ms = (_t.perf_counter() - t_extract_0) * 1000.0
         self._prev_contact_keys = current_keys
         self.last_contacts = contacts

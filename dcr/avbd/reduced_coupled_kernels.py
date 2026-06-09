@@ -272,6 +272,13 @@ def k_g(
     Fq[a] = ff
 
 
+@wp.func
+def _hxi_mul(TL: mat33d, TR: mat33d, BL: mat33d, BR: mat33d,
+             v0: vec3d, v1: vec3d):
+    """H_x⁻¹ · [v0; v1] split into (top, bottom) 3-vecs."""
+    return TL * v0 + TR * v1, BL * v0 + BR * v1
+
+
 @wp.kernel
 def k_body(
     x: wp.array(dtype=wp.vec3),
@@ -280,11 +287,9 @@ def k_body(
     inertia_local: wp.array(dtype=wp.mat33),
     x_inertial: wp.array(dtype=wp.vec3),
     q_inertial: wp.array(dtype=wp.quat),
-    r: int,
     counts: wp.array(dtype=int),
     body_ids: wp.array(dtype=int),
     body_row_start: wp.array(dtype=int),
-    row_U_y: wp.array2d(dtype=wp.float64),
     rowdata: wp.array2d(dtype=wp.float64),
     inv_dt2: wp.float64,
     b_TL: wp.array(dtype=mat33d),
@@ -293,20 +298,21 @@ def k_body(
     b_BR: wp.array(dtype=mat33d),
     b_gx0: wp.array(dtype=vec3d),
     b_gx1: wp.array(dtype=vec3d),
-    M: wp.array3d(dtype=wp.float64),
+    b_hg0: wp.array(dtype=vec3d),
+    b_hg1: wp.array(dtype=vec3d),
     rho_score: wp.array(dtype=wp.float64),
 ):
-    """Per tracked body: assemble H_x = [[A,Bᵀ],[B,D]] + g_x + cross M, then
-    block-invert H_x. dim = max_b (threads ≥ n_b early-out)."""
+    """Per tracked body: assemble H_x = [[A,Bᵀ],[B,D]] + g_x, then block-invert
+    H_x. dim = max_b (threads ≥ n_b early-out). The r-way cross-coupling block M
+    is built separately in k_body_cross (parallel over modes) — splitting it out
+    of this thread's serial row×r loop was the iteration-2 GPU optimisation.
+    Also precomputes b_hg = H_x⁻¹·g_x (used by k_rhs) here once per body instead
+    of redundantly per-mode inside k_rhs."""
     t = wp.tid()
     if t >= counts[0]:
         return
     bidx = body_ids[t]
     m = wp.float64(mass[bidx])
-
-    for aa in range(6):
-        for cc in range(r):
-            M[t, aa, cc] = wp.float64(0.0)
 
     if not (m > wp.float64(0.0)):
         b_TL[t] = mat33d()
@@ -315,6 +321,8 @@ def k_body(
         b_BR[t] = mat33d()
         b_gx0[t] = vec3d(_ZERO, _ZERO, _ZERO)
         b_gx1[t] = vec3d(_ZERO, _ZERO, _ZERO)
+        b_hg0[t] = vec3d(_ZERO, _ZERO, _ZERO)
+        b_hg1[t] = vec3d(_ZERO, _ZERO, _ZERO)
         rho_score[t] = wp.float64(0.0)
         return
 
@@ -378,12 +386,6 @@ def k_body(
         r_lin = vec3d(r_lin[0], r_lin[1] + f, r_lin[2])
         r_ang = vec3d(r_ang[0] + ja0 * f, r_ang[1], r_ang[2] + ja2 * f)
 
-        for c1 in range(r):
-            kuy = k * row_U_y[rr, c1]
-            M[t, 1, c1] = M[t, 1, c1] - kuy
-            M[t, 3, c1] = M[t, 3, c1] - ja0 * kuy
-            M[t, 5, c1] = M[t, 5, c1] - ja2 * kuy
-
         j_ang_sq = ja0 * ja0 + ja2 * ja2
         score = (rho_used * rho_used) * (_ONE + j_ang_sq) / wp.max(
             m, wp.float64(1e-12))
@@ -412,13 +414,83 @@ def k_body(
     b_BR[t] = Scinv
     b_gx0[t] = r_lin
     b_gx1[t] = r_ang
+    # H_x⁻¹·g_x once per body (k_rhs consumes this; same _hxi_mul, so the rhs
+    # dot products downstream are bit-identical to the old per-mode recompute).
+    hg0, hg1 = _hxi_mul(b_TL[t], b_TR[t], b_BL[t], b_BR[t], r_lin, r_ang)
+    b_hg0[t] = hg0
+    b_hg1[t] = hg1
 
 
-@wp.func
-def _hxi_mul(TL: mat33d, TR: mat33d, BL: mat33d, BR: mat33d,
-             v0: vec3d, v1: vec3d):
-    """H_x⁻¹ · [v0; v1] split into (top, bottom) 3-vecs."""
-    return TL * v0 + TR * v1, BL * v0 + BR * v1
+@wp.kernel
+def k_body_cross(
+    mass: wp.array(dtype=float),
+    r: int,
+    counts: wp.array(dtype=int),
+    body_ids: wp.array(dtype=int),
+    body_row_start: wp.array(dtype=int),
+    row_U_y: wp.array2d(dtype=wp.float64),
+    rowdata: wp.array2d(dtype=wp.float64),
+    M: wp.array3d(dtype=wp.float64),
+):
+    """Cross-coupling block M (6×r) per tracked body — one thread per (body,
+    mode). dim = (max_b, r). Splits the per-mode inner loop out of k_body so the
+    r-way work runs on r threads/body instead of serially in one thread. Only
+    rows 1,3,5 are nonzero: M[·,1,c] = −Σ k·U_y ; M[·,3,c] = −Σ ja0·k·U_y ;
+    M[·,5,c] = −Σ ja2·k·U_y, summed over the body's rows in the SAME order as
+    the original k_body loop, so the result is bit-identical."""
+    t, c1 = wp.tid()
+    if t >= counts[0] or c1 >= r:
+        return
+    M[t, 0, c1] = wp.float64(0.0)
+    M[t, 2, c1] = wp.float64(0.0)
+    M[t, 4, c1] = wp.float64(0.0)
+    bidx = body_ids[t]
+    m = wp.float64(mass[bidx])
+    if not (m > wp.float64(0.0)):
+        M[t, 1, c1] = wp.float64(0.0)
+        M[t, 3, c1] = wp.float64(0.0)
+        M[t, 5, c1] = wp.float64(0.0)
+        return
+    rstart = body_row_start[t]
+    rend = body_row_start[t + 1]
+    m1 = wp.float64(0.0)
+    m3 = wp.float64(0.0)
+    m5 = wp.float64(0.0)
+    for rr in range(rstart, rend):
+        kuy = rowdata[rr, 0] * row_U_y[rr, c1]
+        m1 = m1 - kuy
+        m3 = m3 - rowdata[rr, 2] * kuy
+        m5 = m5 - rowdata[rr, 3] * kuy
+    M[t, 1, c1] = m1
+    M[t, 3, c1] = m3
+    M[t, 5, c1] = m5
+
+
+@wp.kernel
+def k_hmb(
+    r: int,
+    counts: wp.array(dtype=int),
+    b_TL: wp.array(dtype=mat33d),
+    b_TR: wp.array(dtype=mat33d),
+    b_BL: wp.array(dtype=mat33d),
+    b_BR: wp.array(dtype=mat33d),
+    M: wp.array3d(dtype=wp.float64),
+    Hmb_top: wp.array2d(dtype=vec3d),
+    Hmb_bot: wp.array2d(dtype=vec3d),
+):
+    """Precompute H_x⁻¹·M[:,b] per (body, mode-b). dim = (max_b, r). In k_schur
+    this product was recomputed r times per (t,b) (once for every a); hoisting it
+    here computes it once. Same _hxi_mul ⇒ k_schur's dot products stay
+    bit-identical. m≤0 bodies have zero blocks + zero M ⇒ zero result."""
+    t, b = wp.tid()
+    if t >= counts[0] or b >= r:
+        return
+    mb_top = vec3d(M[t, 0, b], M[t, 1, b], M[t, 2, b])
+    mb_bot = vec3d(M[t, 3, b], M[t, 4, b], M[t, 5, b])
+    hm_top, hm_bot = _hxi_mul(b_TL[t], b_TR[t], b_BL[t], b_BR[t],
+                              mb_top, mb_bot)
+    Hmb_top[t, b] = hm_top
+    Hmb_bot[t, b] = hm_bot
 
 
 @wp.kernel
@@ -426,25 +498,20 @@ def k_schur(
     r: int,
     counts: wp.array(dtype=int),
     Hq: wp.array2d(dtype=wp.float64),
-    b_TL: wp.array(dtype=mat33d),
-    b_TR: wp.array(dtype=mat33d),
-    b_BL: wp.array(dtype=mat33d),
-    b_BR: wp.array(dtype=mat33d),
     M: wp.array3d(dtype=wp.float64),
+    Hmb_top: wp.array2d(dtype=vec3d),
+    Hmb_bot: wp.array2d(dtype=vec3d),
     S: wp.array2d(dtype=wp.float64),
 ):
-    """S[a,b] = H_q[a,b] − Σ_t (Mᵀ H_x⁻¹ M)[a,b]. dim = (r, r)."""
+    """S[a,b] = H_q[a,b] − Σ_t (Mᵀ H_x⁻¹ M)[a,b]. dim = (r, r). H_x⁻¹·M[:,b] is
+    read from k_hmb's precompute, so the per-thread work is just the two dots."""
     a, b = wp.tid()
     acc = Hq[a, b]
     n_b = counts[0]
     for t in range(n_b):
         ma_top = vec3d(M[t, 0, a], M[t, 1, a], M[t, 2, a])
         ma_bot = vec3d(M[t, 3, a], M[t, 4, a], M[t, 5, a])
-        mb_top = vec3d(M[t, 0, b], M[t, 1, b], M[t, 2, b])
-        mb_bot = vec3d(M[t, 3, b], M[t, 4, b], M[t, 5, b])
-        hm_top, hm_bot = _hxi_mul(b_TL[t], b_TR[t], b_BL[t], b_BR[t],
-                                  mb_top, mb_bot)
-        acc -= wp.dot(ma_top, hm_top) + wp.dot(ma_bot, hm_bot)
+        acc -= wp.dot(ma_top, Hmb_top[t, b]) + wp.dot(ma_bot, Hmb_bot[t, b])
     S[a, b] = acc
 
 
@@ -453,25 +520,20 @@ def k_rhs(
     r: int,
     counts: wp.array(dtype=int),
     gq: wp.array(dtype=wp.float64),
-    b_TL: wp.array(dtype=mat33d),
-    b_TR: wp.array(dtype=mat33d),
-    b_BL: wp.array(dtype=mat33d),
-    b_BR: wp.array(dtype=mat33d),
-    b_gx0: wp.array(dtype=vec3d),
-    b_gx1: wp.array(dtype=vec3d),
+    b_hg0: wp.array(dtype=vec3d),
+    b_hg1: wp.array(dtype=vec3d),
     M: wp.array3d(dtype=wp.float64),
     rhs: wp.array(dtype=wp.float64),
 ):
-    """rhs[a] = −g_q[a] + Σ_t (Mᵀ H_x⁻¹ g_x)[a]. dim = r."""
+    """rhs[a] = −g_q[a] + Σ_t (Mᵀ H_x⁻¹ g_x)[a]. dim = r. H_x⁻¹·g_x is read from
+    k_body's b_hg precompute (was recomputed per-mode here before)."""
     a = wp.tid()
     acc = -gq[a]
     n_b = counts[0]
     for t in range(n_b):
-        hg_top, hg_bot = _hxi_mul(b_TL[t], b_TR[t], b_BL[t], b_BR[t],
-                                  b_gx0[t], b_gx1[t])
         ma_top = vec3d(M[t, 0, a], M[t, 1, a], M[t, 2, a])
         ma_bot = vec3d(M[t, 3, a], M[t, 4, a], M[t, 5, a])
-        acc += wp.dot(ma_top, hg_top) + wp.dot(ma_bot, hg_bot)
+        acc += wp.dot(ma_top, b_hg0[t]) + wp.dot(ma_bot, b_hg1[t])
     rhs[a] = acc
 
 
@@ -669,7 +731,9 @@ def k_backsub(
     b_dxn: wp.array(dtype=wp.float64),
     b_dthn: wp.array(dtype=wp.float64),
 ):
-    """Δx_i = −H_x⁻¹(g_x + M·dq); apply to x, q. dim = max_b."""
+    """Δx_i = −H_x⁻¹(g_x + M·dq); apply to x, q. dim = max_b. (M·dq is computed
+    inline here — splitting it into a separate parallel kernel was profiled as a
+    net loss: k_backsub's cost is the per-body quaternion apply, not this loop.)"""
     t = wp.tid()
     if t >= counts[0]:
         return

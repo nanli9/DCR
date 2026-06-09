@@ -427,7 +427,7 @@ class ReducedCoupledAVBDCoupler:
     _dev_n_tracked: int = 0
     _dev_total_rows: int = 0
     _k_eps_tiled: object = None       # per-r cooperative-Cholesky solve kernel
-    _eps_block_dim: int = 64
+    _eps_block_dim: int = 32          # one warp suffices for the r×r tile solve
 
     # ------------------------------------------------------------------
     # Lifecycle hooks
@@ -518,6 +518,10 @@ class ReducedCoupledAVBDCoupler:
         d["b_BR"] = wp.zeros(max_b, dtype=mat33d, device=dev)
         d["b_gx0"] = wp.zeros(max_b, dtype=vec3d, device=dev)
         d["b_gx1"] = wp.zeros(max_b, dtype=vec3d, device=dev)
+        d["b_hg0"] = wp.zeros(max_b, dtype=vec3d, device=dev)
+        d["b_hg1"] = wp.zeros(max_b, dtype=vec3d, device=dev)
+        d["Hmb_top"] = wp.zeros((max_b, r), dtype=vec3d, device=dev)
+        d["Hmb_bot"] = wp.zeros((max_b, r), dtype=vec3d, device=dev)
         d["M"] = wp.zeros((max_b, 6, r), dtype=f64, device=dev)
         d["rho_score"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["b_dxn"] = wp.zeros(max_b, dtype=f64, device=dev)
@@ -547,7 +551,7 @@ class ReducedCoupledAVBDCoupler:
             # q_s unchanged (still zero). Forces an out-of-capture compile.
             wp.launch_tiled(
                 self._k_eps_tiled, dim=[1], device=dev,
-                block_dim=self._eps_block_dim, inputs=[
+                block_dim=int(self._eps_block_dim), inputs=[
                     d["counts"], d["rho_score"], wp.float64(self._dev_eps_base),
                     wp.float64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"],
                     d["q_s"], d["diag"]])
@@ -689,20 +693,27 @@ class ReducedCoupledAVBDCoupler:
         wp.launch(K.k_g, dim=r, device=dev, inputs=[
             r, d["counts"], d["Kq"], d["q_s"], d["row_U_y"], d["rowdata"],
             d["gq"], d["Fq"]])
-        # 3. per-body H_x assembly + block inverse.
+        # 3. per-body H_x assembly + block inverse (scalar/3×3 part, dim=max_b)
+        #    and the r-way cross-coupling block M (dim=(max_b, r)).
         wp.launch(K.k_body, dim=max_b, device=dev, inputs=[
             solver.x, solver.q, solver.mass, solver.inertia_local,
-            solver.x_inertial, solver.q_inertial, r, d["counts"],
-            d["body_ids"], d["body_row_start"], d["row_U_y"], d["rowdata"],
+            solver.x_inertial, solver.q_inertial, d["counts"],
+            d["body_ids"], d["body_row_start"], d["rowdata"],
             f64(self._dev_inv_dt2), d["b_TL"], d["b_TR"], d["b_BL"], d["b_BR"],
-            d["b_gx0"], d["b_gx1"], d["M"], d["rho_score"]])
-        # 4. Schur reduce + rhs.
+            d["b_gx0"], d["b_gx1"], d["b_hg0"], d["b_hg1"], d["rho_score"]])
+        wp.launch(K.k_body_cross, dim=(max_b, r), device=dev, inputs=[
+            solver.mass, r, d["counts"], d["body_ids"], d["body_row_start"],
+            d["row_U_y"], d["rowdata"], d["M"]])
+        # 4. Hoist H_x⁻¹·M[:,b] (per body,mode), then Schur reduce + rhs.
+        wp.launch(K.k_hmb, dim=(max_b, r), device=dev, inputs=[
+            r, d["counts"], d["b_TL"], d["b_TR"], d["b_BL"], d["b_BR"],
+            d["M"], d["Hmb_top"], d["Hmb_bot"]])
         wp.launch(K.k_schur, dim=(r, r), device=dev, inputs=[
-            r, d["counts"], d["Hq"], d["b_TL"], d["b_TR"], d["b_BL"],
-            d["b_BR"], d["M"], d["S"]])
+            r, d["counts"], d["Hq"], d["M"], d["Hmb_top"], d["Hmb_bot"],
+            d["S"]])
         wp.launch(K.k_rhs, dim=r, device=dev, inputs=[
-            r, d["counts"], d["gq"], d["b_TL"], d["b_TR"], d["b_BL"],
-            d["b_BR"], d["b_gx0"], d["b_gx1"], d["M"], d["rhs"]])
+            r, d["counts"], d["gq"], d["b_hg0"], d["b_hg1"], d["M"],
+            d["rhs"]])
         # 5. ε-regularize + r×r solve + q_s update. Block-cooperative Cholesky
         # (tile API) when available — replaces the single-thread GE that the
         # profiler flagged as the dominant cost; falls back to k_eps_solve on
