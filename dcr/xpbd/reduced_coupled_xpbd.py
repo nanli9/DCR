@@ -996,6 +996,13 @@ class ReducedCoupledXPBDCoupler:
         d["rho_score"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["b_dxn"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["b_dthn"] = wp.zeros(max_b, dtype=f64, device=dev)
+        # ---- V2-B: device-resident velocity band (shared k_velocity_band) ----
+        # XPBD's gap-gated d["row_active"] IS the band's per-corner gate (only
+        # corners within contact_active_margin participate), so no extra array.
+        d["v_band"] = wp.zeros(n_bodies, dtype=vec3d, device=dev)
+        d["omega_band"] = wp.zeros(n_bodies, dtype=vec3d, device=dev)
+        d["reservoir"] = wp.zeros(1, dtype=f64, device=dev)        # persistent R
+        d["band_diag"] = wp.zeros(4, dtype=f64, device=dev)        # n,maxλ,clamps
 
         # Build + upload the per-corner CSR topology.
         body_ids = np.zeros(max_b, np.int32)
@@ -1201,11 +1208,12 @@ class ReducedCoupledXPBDCoupler:
         dev = solver.device
         r = int(self._dev_r)
         f64 = wp.float64
+        band_owns = 1 if getattr(self, "band_owns_excitation", False) else 0
         wp.launch(KX.k_iir_apply_xpbd, dim=r, device=dev, inputs=[
             r, d["Fq"], d["F_q_total_smooth"], d["F_q_static_lp"],
             d["q_free"], d["qdot_free"], d["S_h_diag"], d["T_h_diag"],
             d["first_substep"], f64(self._dev_h_sub), f64(self._dev_tau),
-            d["q_d"], d["qdot_d"], d["F_q_dyn"]])
+            int(band_owns), d["q_d"], d["qdot_d"], d["F_q_dyn"]])
         if self._dev_diag:
             # Passivity log (also clears the first-substep flag).
             wp.launch(K.k_passivity, dim=1, device=dev, inputs=[
@@ -1218,6 +1226,21 @@ class ReducedCoupledXPBDCoupler:
                       inputs=[d["first_substep"]])
         wp.launch(K.k_sync_total, dim=r, device=dev, inputs=[
             r, d["q_s"], d["q_d"], d["qdot_d"], d["q_total"], d["qdot_total"]])
+        # V2-B: device-resident velocity band (shared kernel). XPBD passes its
+        # device mass/inertia (inverted from inv_mass/inv_I) and gap-gated
+        # row_active. Sole body↔ring channel; on-device (no host round-trip).
+        if band_owns:
+            wp.launch(K.k_velocity_band, dim=1, device=dev, inputs=[
+                solver.x, solver.q, solver.v, solver.omega,
+                d["mass"], d["inertia_local"],
+                d["counts"], d["body_ids"], d["row_body"], d["row_off"],
+                d["row_U_y"], d["row_active"], d["q_s"], d["qdot_d"], r,
+                f64(self.shelf_y_rest),
+                f64(getattr(self, "_band_margin", 5.0e-3)),
+                f64(getattr(self, "_band_eta", 1.0)),
+                f64(getattr(self, "_band_e", 0.0)),
+                f64(1.0e-9), f64(1.0e-12),
+                d["v_band"], d["omega_band"], d["reservoir"], d["band_diag"]])
         self._substep_index += 1
 
     def post_step_hook(self, solver) -> None:
@@ -1237,6 +1260,17 @@ class ReducedCoupledXPBDCoupler:
         self.last_q_s_norm = float(np.linalg.norm(self.rs.q_s))
         self.last_q_d_norm = float(np.linalg.norm(self.rs.q_d))
         self.last_q_norm = float(np.linalg.norm(self.rs.q))
+        # V2-B: the device band mutates qdot_d + the reservoir every substep, so
+        # pull them for the HUD/tests regardless of the diagnostics gate.
+        if getattr(self, "band_owns_excitation", False) and "reservoir" in d:
+            self.rs.qdot_d = d["qdot_d"].numpy().astype(np.float64).copy()
+            self.rs.sync_total_from_split()
+            self._modal_reservoir = float(d["reservoir"].numpy()[0])
+            bd = d["band_diag"].numpy()
+            self.last_band_impulses = int(bd[0])
+            self.last_band_max_lambda = float(bd[1])
+            self.last_band_clamps = int(bd[2])
+            self.last_qdot_d_norm = float(np.linalg.norm(self.rs.qdot_d))
         if not self._dev_diag:
             return
         self.rs.qdot_d = d["qdot_d"].numpy().astype(np.float64).copy()

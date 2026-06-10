@@ -565,6 +565,15 @@ class ReducedCoupledAVBDCoupler:
         d["rho_score"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["b_dxn"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["b_dthn"] = wp.zeros(max_b, dtype=f64, device=dev)
+        # ---- V2-B: device-resident velocity band (impulse_port port) ----
+        n_bodies = int(solver.x.shape[0])
+        d["v_band"] = wp.zeros(n_bodies, dtype=vec3d, device=dev)
+        d["omega_band"] = wp.zeros(n_bodies, dtype=vec3d, device=dev)
+        d["reservoir"] = wp.zeros(1, dtype=f64, device=dev)          # persistent R
+        d["band_diag"] = wp.zeros(4, dtype=f64, device=dev)          # n,maxλ,clamps
+        # AVBD rows are pre-identified contacts → all active; the band's own
+        # margin/closing tests gate them. (XPBD passes its gap-gated row_active.)
+        d["band_row_active"] = wp.ones(cap_rows, dtype=int, device=dev)
 
         # Cached scalars.
         self._dev_inv_dt2 = 1.0 / (float(self.h_substep) ** 2)
@@ -811,20 +820,38 @@ class ReducedCoupledAVBDCoupler:
         dev = solver.device
         r = int(self._dev_r)
         f64 = wp.float64
-        # EMA high-pass + force q_d/q̇_d through the exact resonator.
+        band_owns = 1 if getattr(self, "band_owns_excitation", False) else 0
+        # EMA high-pass + force q_d/q̇_d through the exact resonator. Under
+        # band_owns the forced dynamic load is gated off (band is sole drive).
         wp.launch(K.k_iir_apply, dim=r, device=dev, inputs=[
             r, d["Fq"], d["F_q_static_lp"], d["q_free"], d["qdot_free"],
             d["S_h_diag"], d["T_h_diag"], d["first_substep"],
-            f64(self._dev_h_sub), f64(self._dev_tau),
+            f64(self._dev_h_sub), f64(self._dev_tau), int(band_owns),
             d["q_d"], d["qdot_d"], d["F_q_dyn"]])
         # Passivity log (per substep) + clear the first-substep EMA flag.
         wp.launch(K.k_passivity, dim=1, device=dev, inputs=[
             r, d["q_d"], d["qdot_d"], d["Mq"], d["Kq"], d["F_q_dyn"],
             d["escal"], f64(self._dev_h_sub), d["first_substep"],
             d["pass_counter"]])
-        # q = q_s + q_d ; q̇ = q̇_d.
+        # q = q_s + q_d ; q̇ = q̇_d  (pre-band, matching numpy V2-A order).
         wp.launch(K.k_sync_total, dim=r, device=dev, inputs=[
             r, d["q_s"], d["q_d"], d["qdot_d"], d["q_total"], d["qdot_total"]])
+        # V2-B: device-resident velocity band — the SOLE body↔ring channel.
+        # One single-thread sequential-per-corner kernel; kicks q̇_d + body
+        # v/ω, reservoir-governed (per-prefix §15). Stays on-device (no host
+        # round-trip — the whole point of V2-B vs the numpy V2-A band).
+        if band_owns:
+            wp.launch(K.k_velocity_band, dim=1, device=dev, inputs=[
+                solver.x, solver.q, solver.v, solver.omega,
+                solver.mass, solver.inertia_local,
+                d["counts"], d["body_ids"], d["row_body"], d["row_off"],
+                d["row_U_y"], d["band_row_active"], d["q_s"], d["qdot_d"], r,
+                f64(self.shelf_y_rest),
+                f64(getattr(self, "_band_margin", 5.0e-3)),
+                f64(getattr(self, "_band_eta", 1.0)),
+                f64(getattr(self, "_band_e", 0.0)),
+                f64(1.0e-9), f64(1.0e-12),
+                d["v_band"], d["omega_band"], d["reservoir"], d["band_diag"]])
 
         # Once-per-macro-step host readback for render/HUD (the only host
         # round-trip; substep boundaries are otherwise device-only). Also when
@@ -852,6 +879,14 @@ class ReducedCoupledAVBDCoupler:
         self.last_max_dtheta_norm = float(diag[1])
         self.last_dq_norm = float(diag[2])
         self.last_passivity_violations = int(d["pass_counter"].numpy()[0])
+        # V2-B: pull the resident reservoir + band diagnostics to the host so
+        # the HUD/tests see the per-prefix §15 margin (R) and impulse counts.
+        if "reservoir" in d:
+            self._modal_reservoir = float(d["reservoir"].numpy()[0])
+            bd = d["band_diag"].numpy()
+            self.last_band_impulses = int(bd[0])
+            self.last_band_max_lambda = float(bd[1])
+            self.last_band_clamps = int(bd[2])
 
         Mq, Kq, Dq = self.rs.Mq, self.rs.Kq, self.rs.Dq
         self.last_q_s_norm = float(np.linalg.norm(self.rs.q_s))

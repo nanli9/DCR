@@ -279,6 +279,7 @@ def k_iir_apply_xpbd(
     first_substep: wp.array(dtype=int),
     h: wp.float64,
     tau: wp.float64,
+    band_owns: int,
     q_d: wp.array(dtype=wp.float64),
     qdot_d: wp.array(dtype=wp.float64),
     F_q_dyn: wp.array(dtype=wp.float64),
@@ -286,7 +287,10 @@ def k_iir_apply_xpbd(
     """XPBD substep_end: short-τ EMA on F_q_total (kills the substep-bounce
     square-wave), THEN the static/dynamic split + exact-resonator force of q_d.
     The short-τ stage is the XPBD-only addition over AVBD's k_iir_apply. dim =
-    r. Mirrors substep_end_hook lines 736–768."""
+    r. Mirrors substep_end_hook lines 736–768.
+
+    V2-B: `band_owns != 0` gates F_q_dyn to 0 so the velocity band is the sole
+    ring excitation (matches the numpy V2-A gate)."""
     i = wp.tid()
     if i >= r:
         return
@@ -308,6 +312,8 @@ def k_iir_apply_xpbd(
     f_static = (wp.float64(1.0) - alpha) * F_q_static_lp[i] + alpha * f_total
     F_q_static_lp[i] = f_static
     f_dyn = f_total - f_static
+    if band_owns != 0:
+        f_dyn = wp.float64(0.0)
     F_q_dyn[i] = f_dyn
     q_d[i] = q_free[i] + S_h_diag[i] * f_dyn
     qdot_d[i] = qdot_free[i] + T_h_diag[i] * f_dyn

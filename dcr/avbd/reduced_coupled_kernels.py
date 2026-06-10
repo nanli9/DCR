@@ -1038,12 +1038,18 @@ def k_iir_apply(
     first_substep: wp.array(dtype=int),
     h: wp.float64,
     tau: wp.float64,
+    band_owns: int,
     q_d: wp.array(dtype=wp.float64),
     qdot_d: wp.array(dtype=wp.float64),
     F_q_dyn: wp.array(dtype=wp.float64),
 ):
     """EMA high-pass of the modal load → force q_d via the exact resonator.
-    q_d = q_free + S_h·F_dyn; q̇_d = q̇_free + T_h·F_dyn. dim = r."""
+    q_d = q_free + S_h·F_dyn; q̇_d = q̇_free + T_h·F_dyn. dim = r.
+
+    V2-B: when `band_owns != 0` the velocity band is the SOLE ring excitation,
+    so the forced dynamic load is gated to zero (F_q_dyn = 0 → q_d, q̇_d decay
+    freely here and the band's impulse kicks q̇_d next). The EMA F_q_static_lp
+    still tracks F_total, matching the numpy V2-A gate (impulse_port.py)."""
     i = wp.tid()
     if i >= r:
         return
@@ -1055,6 +1061,8 @@ def k_iir_apply(
     f_static = (wp.float64(1.0) - alpha) * F_q_static_lp[i] + alpha * f_total
     F_q_static_lp[i] = f_static
     f_dyn = f_total - f_static
+    if band_owns != 0:
+        f_dyn = wp.float64(0.0)
     F_q_dyn[i] = f_dyn
     q_d[i] = q_free[i] + S_h_diag[i] * f_dyn
     qdot_d[i] = qdot_free[i] + T_h_diag[i] * f_dyn
@@ -1112,3 +1120,191 @@ def k_sync_total(
         return
     q_total[i] = q_s[i] + q_d[i]
     qdot_total[i] = qdot_d[i]
+
+
+# ===========================================================================
+# V2-B: device-resident velocity band (passive impulse, reservoir governor)
+# ---------------------------------------------------------------------------
+# Device port of dcr/dcr/impulse_port.py::apply_velocity_band — the SOLE
+# body↔ring channel under `band_owns_excitation`. One momentum-conserving
+# impulse per closing contact corner kicks both the modal ring (q̇_d -= U_y·λ)
+# and the body (v,ω), scaled by the reservoir-exact governor so the per-prefix
+# §15 bound  Σ ΔE_modal ≤ η Σ L  holds (foundation §1/§6/§15).
+#
+# The reservoir is a SINGLE shared scalar (one modal field) debited SEQUENTIALLY
+# per corner (design rule 3: sequential-per-support, NOT Jacobi). q̇_d is also
+# shared. So the band is inherently sequential over corners → a single-thread
+# kernel walking the CSR rows in body-grouped order, exactly the numpy loop
+# order. Corner count is small (≈ books × bottom corners) so single-thread is
+# cheap next to the r×r Schur solve; the win is staying ON-DEVICE (no per-substep
+# host round-trip).
+#
+# # DEVIATION (internal f64 to match numpy): body v/ω are accumulated in f64
+# scratch (v_band/omega_band) across a body's corners and truncated to the f32
+# solver arrays only at the end — mirroring the numpy reference, which mutates
+# an upcast f64 copy and writes `.assign(...astype(float32))` once.
+# ===========================================================================
+@wp.func
+def _reservoir_alpha(a_m: wp.float64, b_m: wp.float64, l1: wp.float64,
+                     l2: wp.float64, R: wp.float64,
+                     eta: wp.float64) -> wp.float64:
+    """Reservoir-exact passive α (passive_inject.reservoir_alpha; §6/§15).
+    Largest α∈[0,1] with net draw D(α)=ΔE_modal(α)−η·L(α) ≤ R."""
+    eps = wp.float64(1e-18)
+    one = wp.float64(1.0)
+    zero = wp.float64(0.0)
+    if a_m < eps:
+        return one
+    A = wp.float64(0.5) * a_m - eta * l2          # ≥ 0 (l2 ≤ 0)
+    B = b_m - eta * l1
+    if A < eps:
+        if B <= zero:
+            return one
+        return wp.clamp(R / B, zero, one)
+    disc = B * B + wp.float64(4.0) * A * wp.max(zero, R)
+    alpha_plus = (-B + wp.sqrt(wp.max(zero, disc))) / (wp.float64(2.0) * A)
+    return wp.clamp(alpha_plus, zero, one)
+
+
+@wp.func
+def _reservoir_draw(a_m: wp.float64, b_m: wp.float64, l1: wp.float64,
+                    l2: wp.float64, alpha: wp.float64,
+                    eta: wp.float64) -> wp.float64:
+    """Net reservoir draw D(α) (passive_inject.reservoir_draw; §1/§15)."""
+    return (b_m - eta * l1) * alpha \
+        + (wp.float64(0.5) * a_m - eta * l2) * alpha * alpha
+
+
+@wp.kernel
+def k_velocity_band(
+    x: wp.array(dtype=wp.vec3),
+    q: wp.array(dtype=wp.quat),
+    v: wp.array(dtype=wp.vec3),
+    omega: wp.array(dtype=wp.vec3),
+    mass: wp.array(dtype=float),
+    inertia_local: wp.array(dtype=wp.mat33),
+    counts: wp.array(dtype=int),
+    body_ids: wp.array(dtype=int),
+    row_body: wp.array(dtype=int),
+    row_off: wp.array(dtype=vec3d),
+    row_U_y: wp.array2d(dtype=wp.float64),
+    row_active: wp.array(dtype=int),
+    q_s: wp.array(dtype=wp.float64),
+    qdot_d: wp.array(dtype=wp.float64),
+    r: int,
+    shelf_y_rest: wp.float64,
+    margin: wp.float64,
+    eta: wp.float64,
+    e_rest: wp.float64,
+    vel_eps: wp.float64,
+    a_floor: wp.float64,
+    v_band: wp.array(dtype=vec3d),       # f64 scratch (n_bodies)
+    omega_band: wp.array(dtype=vec3d),   # f64 scratch (n_bodies)
+    reservoir: wp.array(dtype=wp.float64),    # [1] persistent
+    band_diag: wp.array(dtype=wp.float64),    # [n_impulses, max_lambda, clamps]
+):
+    """Single-thread sequential velocity-band impulse over contact corners.
+    dim = 1. Mutates qdot_d, v, omega, reservoir, band_diag in place."""
+    if wp.tid() != 0:
+        return
+    n_b = counts[0]
+    n_rows = counts[2]
+    # Upcast body v/ω into f64 accumulators (so a body's multiple corners
+    # accumulate in f64, truncated to f32 only on writeback — numpy parity).
+    for bb in range(n_b):
+        bidx = body_ids[bb]
+        v_band[bidx] = _to_vec3d(v[bidx])
+        omega_band[bidx] = _to_vec3d(omega[bidx])
+
+    res = reservoir[0]
+    n_imp = _ZERO
+    max_lam = _ZERO
+    n_clamp = _ZERO
+    # Rows are CSR-grouped by body, and R / Iⁱⁿᵛ depend only on the body pose
+    # (constant during the band) — recompute them only when the body changes
+    # (bit-identical to per-row, far fewer 3×3 inverses + quat→mat).
+    cur_body = int(-1)
+    R = wp.identity(n=3, dtype=wp.float64)
+    Iinv = wp.identity(n=3, dtype=wp.float64)
+    m = _ZERO
+
+    for rr in range(n_rows):
+        if row_active[rr] == 0:
+            continue
+        bidx = row_body[rr]
+        if bidx != cur_body:
+            cur_body = bidx
+            m = wp.float64(mass[bidx])
+            if m > _ZERO:
+                qq = q[bidx]
+                R = _quat_to_R(wp.float64(qq[0]), wp.float64(qq[1]),
+                               wp.float64(qq[2]), wp.float64(qq[3]))
+                Iinv = R * _inv3(_to_mat33d(inertia_local[bidx])) \
+                    * wp.transpose(R)
+        if m <= _ZERO:
+            continue
+        r_w = R * row_off[rr]
+        corner_y = wp.float64(x[bidx][1]) + r_w[1]
+        # U_y·q_s, ‖U_y‖², U_y·q̇_d  (one pass over the r modes).
+        uq = _ZERO
+        uu = _ZERO
+        uqd = _ZERO
+        for a in range(r):
+            uy = row_U_y[rr, a]
+            uq += uy * q_s[a]
+            uu += uy * uy
+            uqd += uy * qdot_d[a]
+        surf_y = shelf_y_rest + uq
+        if corner_y - surf_y > margin:           # separated
+            continue
+        vb = v_band[bidx]
+        wb = omega_band[bidx]
+        # (ω × r_w).y = ω_z r_x − ω_x r_z ; rxn = r_w × n̂ = (−r_z, 0, r_x).
+        cross_y = wb[2] * r_w[0] - wb[0] * r_w[2]
+        v_corner_y = vb[1] + cross_y
+        g_dot = v_corner_y - uqd
+        if g_dot >= -vel_eps:                    # not closing
+            continue
+        rxn = vec3d(-r_w[2], _ZERO, r_w[0])
+        Iinv_rxn = Iinv * rxn          # Iⁱⁿᵛ cached per body above
+        w_eff = _ONE / m + wp.dot(rxn, Iinv_rxn) + uu
+        lam0 = -(_ONE + e_rest) * g_dot / w_eff
+        if lam0 <= _ZERO:
+            continue
+        a_m = lam0 * lam0 * uu                    # ‖s‖² = λ₀²‖U_y‖²
+        b_m = -lam0 * uqd                         # q̇·s = −λ₀(q̇·U_y)
+        w_r = w_eff - uu                          # rigid eff inverse mass
+        l1 = -v_corner_y * lam0
+        l2 = -_HALF * w_r * lam0 * lam0           # ≤ 0
+        alpha = _reservoir_alpha(a_m, b_m, l1, l2, res, eta)
+        if (alpha < _ONE - wp.float64(1e-9)) and (a_m > a_floor):
+            n_clamp += _ONE
+        lam = alpha * lam0
+        res -= _reservoir_draw(a_m, b_m, l1, l2, alpha, eta)
+        # Apply the momentum-conserving impulse.
+        v_band[bidx] = vec3d(vb[0], vb[1] + lam / m, vb[2])
+        dom = Iinv_rxn * lam
+        omega_band[bidx] = vec3d(wb[0] + dom[0], wb[1] + dom[1], wb[2] + dom[2])
+        for a in range(r):
+            qdot_d[a] = qdot_d[a] - row_U_y[rr, a] * lam
+        n_imp += _ONE
+        if lam > max_lam:
+            max_lam = lam
+
+    # Truncate the f64 accumulators back to the f32 solver arrays (once).
+    for bb in range(n_b):
+        bidx = body_ids[bb]
+        vb = v_band[bidx]
+        wb = omega_band[bidx]
+        v[bidx] = wp.vec3(wp.float32(vb[0]), wp.float32(vb[1]),
+                          wp.float32(vb[2]))
+        omega[bidx] = wp.vec3(wp.float32(wb[0]), wp.float32(wb[1]),
+                              wp.float32(wb[2]))
+    reservoir[0] = res
+    # Accumulate run totals (the host reads band_diag only on the last substep;
+    # per-substep assignment would report just that substep). band_diag[3]
+    # mirrors the live reservoir for a one-shot HUD read.
+    band_diag[0] += n_imp
+    band_diag[1] = wp.max(band_diag[1], max_lam)
+    band_diag[2] += n_clamp
+    band_diag[3] = res

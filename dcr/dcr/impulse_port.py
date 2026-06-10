@@ -252,3 +252,34 @@ def enable_substep_band(world, coupler, *, eta: float = 1.0, e: float = 0.0,
     coupler._band_last_stats = last          # latest VelocityBandStats (per substep)
     coupler._band_run = run                  # whole-run accumulators
     return solver
+
+
+def enable_device_band(world, coupler, *, eta: float = 1.0, e: float = 0.0,
+                       margin: float = 5.0e-3):
+    """V2-B: run the velocity band FULLY ON-DEVICE (CUDA-resident).
+
+    The V2-A `enable_substep_band` keeps the band on the numpy host — every
+    substep round-trips body v/ω and q̇_d device→host→device, draining the GPU
+    pipeline. V2-B folds the band into the coupler's own device `substep_end`
+    as a single warp kernel (`k_velocity_band`), so nothing leaves the GPU mid
+    step. The band is the SOLE body↔ring channel (same as V2-A):
+      * `band_owns_excitation = True` → the device IIR gates F_q_dyn to 0,
+      * `anchor_includes_q_d = False` → the anchor carries only the static sag.
+
+    No hook wrapping: the coupler's substep_end hook (already the solver's hook)
+    dispatches to `_substep_end_device`, which launches the band kernel when
+    `band_owns_excitation`. Requires a CUDA solver (device_resident path); on
+    CPU use `enable_substep_band` (the numpy reference). Returns the solver.
+    """
+    coupler.device_resident = True
+    coupler.band_owns_excitation = True
+    if hasattr(coupler, "anchor_includes_q_d"):
+        coupler.anchor_includes_q_d = False
+    coupler._band_eta = float(eta)
+    coupler._band_e = float(e)
+    coupler._band_margin = float(margin)
+    coupler._modal_reservoir = 0.0
+    solver = _solver_of(world)
+    if solver is None:
+        raise RuntimeError("world exposes no solver / _solver")
+    return solver
