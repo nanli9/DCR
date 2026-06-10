@@ -91,7 +91,9 @@ class XPBDWorld:
         shelf_y_rest: float,
         n_grid_x: int,
         n_grid_z: int,
-        contact_stiffness: float = 1.0e8,
+        contact_stiffness: float = 1.0e6,   # see reduced_coupled_xpbd.py field
+        #   doc: 1e8/1e9 over-stiffens the q_s Schur block (eps∝ρ² swamps K_q)
+        #   → dead static-sag coupling; 1e6 ≈ AVBD's escalated ρ → faithful q_s.
         modal_static_lp_tau: float = 0.05,
         anchor_static_lowpass: bool = True,
         contact_active_margin: float = 2.0e-3,
@@ -140,6 +142,9 @@ class XPBDWorld:
         self.solver.substep_begin_hook = coupler.substep_begin_hook
         self.solver.iteration_hook = coupler.iteration_hook
         self.solver.substep_end_hook = coupler.substep_end_hook
+        # Once-per-step host readback for the device-resident path (no-op on
+        # the cpu/numpy reference path).
+        self.solver.post_step_hook = coupler.post_step_hook
         self._coupler = coupler
         return coupler
 

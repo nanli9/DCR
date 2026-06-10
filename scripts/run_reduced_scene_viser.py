@@ -202,14 +202,13 @@ class ReducedSceneViewer:
         h = float(a.h)
 
         if solver_name == "xpbd":
-            # XPBD's Solver6DOF is device-resident on whatever Warp device
-            # we pass (kernels run on cpu Warp or cuda the same way, no
-            # per-frame host round-trip in the constraint sweep). The
-            # coupler's iteration_hook does numpy work that triggers a
-            # device→host sync via .numpy()/.assign(), but the per-frame
-            # bandwidth is small (r×r block + per-row arrays), not the
-            # whole-scene state. Cuda residency for the coupler itself is a
-            # later milestone; see dcr/xpbd/reduced_coupled_xpbd.py.
+            # On cuda the XPBD coupler is now FULLY device-resident (mirrors the
+            # AVBD path): begin/iteration/end run as on-device warp kernels, the
+            # substep loop is CUDA-graph-captured, and the only host round-trip
+            # is one readback per step for the HUD. ~15× faster than the numpy
+            # hooks (which forced a device→host sync every iteration and
+            # disabled graph capture). On cpu it falls back to the numpy
+            # reference. See dcr/xpbd/reduced_coupled_xpbd.py (_use_device).
             new_avbd_handle.rs.reset_state()
             new_xpbd_handle = mirror_to_xpbd(
                 new_avbd_handle, h=h,

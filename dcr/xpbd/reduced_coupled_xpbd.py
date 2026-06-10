@@ -26,10 +26,11 @@ Schur-eliminate the per-body 6×6 blocks; solve r×r for Δq_s; back-substitute 
 # Lagrangian penalty (escalates over iterations toward PENALTY_MAX = 1e9).
 # XPBD's effective stiffness is `1/(α + h²/W)` per constraint — for HARD
 # contact (`α = 0`) it equals `1/(h²/W) = W/h²` where `W = J·M⁻¹·J^T`.
-# Here we use a fixed, large `contact_stiffness` (1e9 by default, matching
-# AVBD's `rho_clip`) so the per-iteration Schur block is bit-identical in
-# structure to AVBD's at maximum penalty; XPBD's per-substep λ reset is
-# automatic (no augmented Lagrangian carries across iterations).
+# Here we use a fixed `contact_stiffness` matching AVBD's ACTUAL escalated
+# `ρ` (~1e6 in these scenes), NOT its 1e9 clip — see the field docstring:
+# matching the clip over-stiffens and kills the static-sag coupling. XPBD's
+# per-substep λ reset is automatic (no augmented Lagrangian carries across
+# iterations).
 
 # DEVIATION (foundation §15, drift-fix v1): inherits AVBD's static/dynamic
 # split. `q = q_s + q_d`. Only `q_s` enters the contact gap; `q_d` is the
@@ -178,15 +179,21 @@ class ReducedCoupledXPBDCoupler:
     modal_static_lp_tau: float = 0.05
 
     # Constant effective stiffness per active contact row, replacing AVBD's
-    # AL `ρ`. XPBD-natively `α → 0` is the hard-contact limit (≈ 1e9). We
-    # default to 1e8 — somewhat softer, so the impact decelerates over
-    # MULTIPLE substeps instead of snapping in one. That sustained transient
-    # is what sources the modal dynamic ring `q_d`; otherwise the Schur
-    # converges in one shot and the impact-equivalent forcing collapses to
-    # a single-substep spike that the IIR can barely resolve. Empirical
-    # sweep: 1e7-1e8 gives the best visible deflection on the shelf scene
-    # without significant penetration leakage.
-    contact_stiffness: float = 1.0e8
+    # AL `ρ`. XPBD-natively `α → 0` is the hard-contact limit (≈ 1e9).
+    #
+    # FIX (verified 2026-06-10): the old default 1e8 (set to "match AVBD's
+    # rho_clip = 1e9") killed the static-sag coupling. AVBD's `ρ` ESCALATES
+    # but in these scenes only reaches ~1e6 — it never approaches the 1e9
+    # clip. The Schur regulariser below scales as `eps_cross_factor·ρ²/m`, so
+    # a fixed ρ=1e8 makes ε ≈ 1e10, which SWAMPS the true Schur scale (~K_q ~
+    # 1e4–1e7) and divides Δq_s by ~1e10 → `q_s` collapses to ~1e-8 (measured
+    # ‖q_s‖_rest = 1.25e-8, vs analytic static sag 1.84e-3 — coupling dead).
+    # Matching AVBD's ACTUAL escalated ρ (~1e6, NOT its clip) puts ε back in
+    # line with the Schur scale: ‖q_s‖_rest = 1.30e-3 = 0.71× analytic,
+    # IDENTICAL to AVBD's 0.71×. Validated stable + finite across all four
+    # scenes (dinner/truck/shelf/ledge) with body rest positions unchanged.
+    # See docs/proposal_modal_response_as_constraint.md §3.3.
+    contact_stiffness: float = 1.0e6
 
     # Solver regulariser auto-scaled inside iteration_hook so that
     #   ε = max(eps_baseline · trace(K_q)/r,
@@ -206,6 +213,15 @@ class ReducedCoupledXPBDCoupler:
     # update), removing the rocking limit cycle for cantilever supports.
     anchor_static_lowpass: bool = True
     _q_s_anchor_lp: NDArray[np.float64] | None = None
+
+    # Whether the contact anchor tracks the dynamic ring q_d in addition to the
+    # static sag q_s. False (default) ⇒ anchor on q_s ONLY, exactly like the
+    # AVBD coupler: bodies rest on the static-sag surface and the q_d ring is
+    # render-only, so resting bodies stay still. True ⇒ anchor on q_s + q_d so
+    # bodies visibly ride the ringing surface (the original demo behavior; it
+    # makes the coupling vivid but couples every resting body to the modal ring,
+    # which reads as "everything vibrates"). See substep_begin_hook.
+    anchor_includes_q_d: bool = False
 
     # ---- IIR exact-resonator workspace ----
     q_free:      NDArray[np.float64] | None = None
@@ -294,6 +310,19 @@ class ReducedCoupledXPBDCoupler:
     last_min_S_h: float = 0.0
     last_max_S_h: float = 0.0
 
+    # ---- GPU device residency (mirrors the AVBD coupler) -------------------
+    # When True AND the solver is on CUDA AND the basis is eigen, the three
+    # hooks run fully on-device (see reduced_coupled_xpbd_kernels). Topology is
+    # uploaded once; the only host round-trip is one readback per macro-step
+    # (post_step_hook) for the render/HUD. The numpy path above stays the
+    # parity reference (CLAUDE.md rule 6) and runs on CPU or when disabled.
+    device_resident: bool = True
+    _device_ready: bool = False
+    _dbuf: dict = field(default_factory=dict)
+    _k_eps_tiled: object = None
+    _eps_block_dim: int = 32
+    _dev_n_b: int = 0
+
     # ------------------------------------------------------------------
     # Lifecycle hooks
     # ------------------------------------------------------------------
@@ -303,6 +332,9 @@ class ReducedCoupledXPBDCoupler:
         each tracked body, cache `U_y` per row, low-pass `q_s` into the
         contact reference. Mirrors `ReducedCoupledAVBDCoupler.substep_begin_hook`.
         """
+        if self._use_device(solver):
+            self._substep_begin_device(solver)
+            return
         # 1. Snapshot dynamic state for the passivity log.
         self.rs.q_d_prev_macro    = self.rs.q_d.copy()
         self.rs.qdot_d_prev_macro = self.rs.qdot_d.copy()
@@ -394,7 +426,11 @@ class ReducedCoupledXPBDCoupler:
         # constraint). For demo scenes where you SEE the response, the
         # coupling visibility outweighs the drift risk; for production /
         # long-run simulations, revert to q_s-only.
-        q_total = self.rs.q_s + self.rs.q_d
+        # AVBD-parity default: anchor on q_s only (q_d ring stays render-only).
+        if self.anchor_includes_q_d:
+            q_total = self.rs.q_s + self.rs.q_d
+        else:
+            q_total = self.rs.q_s.copy()
         lp_tau = self.modal_static_lp_tau if self.anchor_static_lowpass else 0.0
         if lp_tau > 0.0:
             if (self._q_s_anchor_lp is None
@@ -478,6 +514,9 @@ class ReducedCoupledXPBDCoupler:
         for Δq_s, back-substitutes Δx_b and applies in place to `solver.x`
         / `solver.q` and to `rs.q_s`.
         """
+        if self._use_device(solver):
+            self._iteration_device(solver, iter_idx)
+            return
         rows = self.rs.tracked_row_indices
         if not rows:
             return
@@ -724,6 +763,9 @@ class ReducedCoupledXPBDCoupler:
         """Apply the high-passed modal load to `q_d`, sync `rs.q = q_s + q_d`,
         log passivity. Bit-identical to AVBD's substep_end except for the
         absence of the AL `λ` tracking diagnostic."""
+        if self._use_device(solver):
+            self._substep_end_device(solver)
+            return
         h = float(self.h_substep)
         Mq = self.rs.Mq
         Kq = self.rs.Kq
@@ -840,3 +882,367 @@ class ReducedCoupledXPBDCoupler:
             if C < 0.0:
                 max_pen = max(max_pen, -C)
         self.last_contact_residual = max_pen
+
+    # ======================================================================
+    # GPU device-resident path (mirrors ReducedCoupledAVBDCoupler). Topology
+    # uploaded ONCE; begin / iteration / end run as on-device kernel launches
+    # so the whole substep loop is CUDA-graph-capturable; one host readback
+    # per macro-step (post_step_hook) feeds the render/HUD.
+    # ======================================================================
+    def _use_device(self, solver) -> bool:
+        """True when the device-resident path should run. Requires CUDA + the
+        eigen basis (the device IIR is the eigen exact-resonator)."""
+        return bool(self.device_resident
+                    and str(solver.device).startswith("cuda")
+                    and getattr(self.rs, "is_eigenbasis", False))
+
+    def _ensure_device_buffers(self, solver) -> None:
+        """Allocate scene-capacity device buffers and upload the (static)
+        per-corner topology ONCE. cap_rows = 8·n_tracked (all corners are
+        candidate rows; per-substep gap-gating flips row_active on-device).
+        Sets solver.hooks_device_resident so the solver captures the substep
+        loop into a CUDA graph."""
+        import warp as wp
+        from .reduced_coupled_xpbd_kernels import (
+            vec3d, mat33d, make_k_eps_solve_tiled)
+
+        dev = solver.device
+        f64 = wp.float64
+        r = int(self.rs.r)
+
+        inv_mass_np = solver.inv_mass.numpy().astype(np.float64)
+        n_bodies = int(inv_mass_np.shape[0])
+        mass_full = np.where(inv_mass_np > 0.0,
+                             1.0 / np.maximum(inv_mass_np, 1e-30), 0.0)
+        inv_I_np = solver.inv_I.numpy().astype(np.float64)
+        I_local_full = np.where(inv_I_np > 0.0,
+                                1.0 / np.maximum(inv_I_np, 1e-30), 0.0)
+        he_np = solver.he.numpy().astype(np.float64)
+
+        tracked = [int(b) for b in self.tracked_body_indices
+                   if mass_full[int(b)] > 0.0]
+        n_b = len(tracked)
+        max_b = max(1, n_b)
+        cap_rows = max(1, 8 * n_b)
+        self._dev_n_b = n_b
+        self._dev_max_b = max_b
+        self._dev_cap_rows = cap_rows
+        self._dev_r = r
+
+        d = self._dbuf
+        # ---- constants (uploaded once) ----
+        d["Kq"] = wp.array(self.rs.Kq.astype(np.float64), dtype=f64, device=dev)
+        d["Mq"] = wp.array(self.rs.Mq.astype(np.float64), dtype=f64, device=dev)
+        d["Mq_diag"] = wp.array(np.diag(self.rs.Mq).astype(np.float64),
+                                dtype=f64, device=dev)
+        d["eigen_omega"] = wp.array(
+            np.asarray(self.rs.eigen_omegas, np.float64), dtype=f64, device=dev)
+        d["eigen_zeta"] = wp.array(
+            np.asarray(self.rs.eigen_zetas, np.float64), dtype=f64, device=dev)
+        d["grid_Uy"] = wp.array(
+            self.rs.U_points[:, 1, :].astype(np.float64), dtype=f64, device=dev)
+        d["mass"] = wp.array(mass_full.astype(np.float32), dtype=float,
+                             device=dev)
+        I_mats = np.zeros((n_bodies, 3, 3), np.float32)
+        for b in range(n_bodies):
+            I_mats[b] = np.diag(I_local_full[b]).astype(np.float32)
+        # k_body reads inertia_local as float32 wp.mat33 (then upcasts).
+        d["inertia_local"] = wp.array(I_mats, dtype=wp.mat33, device=dev)
+        # ---- resident modal state (persists across steps) ----
+        for nm in ("q_s", "q_d", "qdot_d", "q_s_anchor_lp", "F_q_static_lp",
+                   "F_q_total_smooth", "q_free", "qdot_free", "S_h_diag",
+                   "T_h_diag", "F_q_dyn", "q_total", "qdot_total",
+                   "gq", "Fq", "rhs", "dq"):
+            d[nm] = wp.zeros(r, dtype=f64, device=dev)
+        d["Hq"] = wp.zeros((r, r), dtype=f64, device=dev)
+        d["S"] = wp.zeros((r, r), dtype=f64, device=dev)
+        d["diag"] = wp.zeros(8, dtype=f64, device=dev)
+        d["escal"] = wp.zeros(4, dtype=f64, device=dev)
+        d["first_substep"] = wp.ones(1, dtype=int, device=dev)
+        d["pass_counter"] = wp.zeros(1, dtype=int, device=dev)
+        d["counts"] = wp.zeros(3, dtype=int, device=dev)
+        # ---- predictor snapshot (full body arrays) ----
+        d["x_pred"] = wp.zeros(n_bodies, dtype=wp.vec3, device=dev)
+        d["q_pred"] = wp.zeros(n_bodies, dtype=wp.quat, device=dev)
+        # ---- topology (uploaded once) ----
+        d["body_ids"] = wp.zeros(max_b, dtype=int, device=dev)
+        d["body_row_start"] = wp.zeros(max_b + 1, dtype=int, device=dev)
+        d["row_index"] = wp.zeros(cap_rows, dtype=int, device=dev)
+        d["row_body"] = wp.zeros(cap_rows, dtype=int, device=dev)
+        d["row_body_slot"] = wp.zeros(cap_rows, dtype=int, device=dev)
+        d["row_off"] = wp.zeros(cap_rows, dtype=vec3d, device=dev)
+        d["row_U_y"] = wp.zeros((cap_rows, r), dtype=f64, device=dev)
+        d["row_anchor_y"] = wp.zeros(cap_rows, dtype=f64, device=dev)
+        d["row_active"] = wp.zeros(cap_rows, dtype=int, device=dev)
+        d["rowdata"] = wp.zeros((cap_rows, 8), dtype=f64, device=dev)
+        d["n_active"] = wp.zeros(max_b, dtype=int, device=dev)
+        d["f_per_row"] = wp.zeros(max_b, dtype=f64, device=dev)
+        # ---- per-body block scratch ----
+        for nm in ("b_TL", "b_TR", "b_BL", "b_BR"):
+            d[nm] = wp.zeros(max_b, dtype=mat33d, device=dev)
+        for nm in ("b_gx0", "b_gx1", "b_hg0", "b_hg1"):
+            d[nm] = wp.zeros(max_b, dtype=vec3d, device=dev)
+        d["Hmb_top"] = wp.zeros((max_b, r), dtype=vec3d, device=dev)
+        d["Hmb_bot"] = wp.zeros((max_b, r), dtype=vec3d, device=dev)
+        d["M"] = wp.zeros((max_b, 6, r), dtype=f64, device=dev)
+        d["rho_score"] = wp.zeros(max_b, dtype=f64, device=dev)
+        d["b_dxn"] = wp.zeros(max_b, dtype=f64, device=dev)
+        d["b_dthn"] = wp.zeros(max_b, dtype=f64, device=dev)
+
+        # Build + upload the per-corner CSR topology.
+        body_ids = np.zeros(max_b, np.int32)
+        body_row_start = np.zeros(max_b + 1, np.int32)
+        row_body = np.zeros(cap_rows, np.int32)
+        row_body_slot = np.zeros(cap_rows, np.int32)
+        row_index = np.arange(cap_rows, dtype=np.int32)
+        row_off = np.zeros((cap_rows, 3), np.float64)
+        start = 0
+        for t, b in enumerate(tracked):
+            body_ids[t] = b
+            body_row_start[t] = start
+            he = he_np[b]
+            for c in range(8):
+                row_body[start] = b
+                row_body_slot[start] = t
+                row_off[start] = _BOX_CORNER_SIGNS[c] * he
+                start += 1
+        body_row_start[n_b] = start
+        total = start
+        d["counts"].assign(np.array([n_b, total, total], np.int32))
+        d["body_ids"].assign(body_ids)
+        d["body_row_start"].assign(body_row_start)
+        d["row_index"].assign(row_index)
+        d["row_body"].assign(row_body)
+        d["row_body_slot"].assign(row_body_slot)
+        d["row_off"].assign(row_off)
+        # Seed resident modal state from rs (zeros at sim start).
+        d["q_s"].assign(self.rs.q_s.astype(np.float64))
+        d["q_d"].assign(self.rs.q_d.astype(np.float64))
+        d["qdot_d"].assign(self.rs.qdot_d.astype(np.float64))
+        d["F_q_static_lp"].assign(self.rs.F_q_static_lp.astype(np.float64))
+        _qd_w = 1.0 if self.anchor_includes_q_d else 0.0
+        d["q_s_anchor_lp"].assign(
+            (self.rs.q_s + _qd_w * self.rs.q_d).astype(np.float64))
+        d["F_q_total_smooth"].assign(self.rs.q_s.astype(np.float64) * 0.0)
+
+        # Cached scalars.
+        self._dev_inv_dt2 = 1.0 / (float(self.h_substep) ** 2)
+        self._dev_h_sub = float(self.h_substep)
+        self._dev_tau = float(self.modal_static_lp_tau)
+        self._dev_grav_y = -9.81
+        self._dev_eps_base = (self.eps_baseline
+                              * float(np.trace(self.rs.Kq)) / max(r, 1))
+        self._dev_eps_cross = float(self.eps_cross_factor)
+        n_sub = int(round(self.h_macro / self.h_substep)) \
+            if self.h_substep > 0 else 1
+        self._dev_n_sub = max(1, n_sub)
+        # Per-substep passivity / max-norm diagnostics are pure logging — gate
+        # their kernels off by default (each is a launch-latency-bound dim=1/r
+        # kernel run 8–32×/step). Enable via log_substeps / diagnostic_mode.
+        self._dev_diag = bool(self.log_substeps or self.diagnostic_mode)
+        self._dev_n_iter = int(getattr(solver, "iterations", 1))
+
+        # Block-cooperative Cholesky for the r×r SPD Schur solve (replaces the
+        # single-thread GE on CUDA). Generated per-r and WARMED here, outside
+        # any capture region, so the first captured launch never compiles.
+        self._k_eps_tiled = make_k_eps_solve_tiled(r)
+        wp.launch_tiled(
+            self._k_eps_tiled, dim=[1], device=dev,
+            block_dim=int(self._eps_block_dim), inputs=[
+                d["counts"], d["rho_score"], f64(self._dev_eps_base),
+                f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"],
+                d["q_s"], d["diag"]])
+        wp.synchronize_device(dev)
+
+    def _substep_begin_device(self, solver) -> None:
+        """Device substep_begin: snapshot the predictor, modal-energy reference,
+        eigen IIR precompute, anchor low-pass of (q_s + q_d), and basis-eval +
+        gap-gate — all on-device."""
+        import warp as wp
+        from . import reduced_coupled_xpbd_kernels as KX
+        from ..avbd import reduced_coupled_kernels as K
+        if not self._device_ready:
+            self._ensure_device_buffers(solver)
+            solver.hooks_device_resident = True
+            self._device_ready = True
+        if self._dev_n_b == 0:
+            return
+        d = self._dbuf
+        dev = solver.device
+        r = int(self._dev_r)
+        cap = int(self._dev_cap_rows)
+        max_b = int(self._dev_max_b)
+        f64 = wp.float64
+        # Snapshot the post-integrate predictor state (x_inertial / q_inertial).
+        wp.copy(d["x_pred"], solver.x)
+        wp.copy(d["q_pred"], solver.q)
+        # Modal-energy reference for the passivity log (diagnostic only).
+        if self._dev_diag:
+            wp.launch(K.k_modal_energy, dim=1, device=dev, inputs=[
+                r, d["q_d"], d["qdot_d"], d["Mq"], d["Kq"], d["escal"], int(0)])
+        # Eigen exact-resonator precompute on (q_d, q̇_d).
+        wp.launch(K.k_iir_precompute, dim=r, device=dev, inputs=[
+            r, d["q_d"], d["qdot_d"], d["eigen_omega"], d["eigen_zeta"],
+            d["Mq_diag"], f64(self._dev_h_sub), d["q_free"], d["qdot_free"],
+            d["S_h_diag"], d["T_h_diag"]])
+        # Anchor reference: EMA low-pass of (q_s + q_d). a_lp = 1 ⇒ no smoothing
+        # (anchor tracks q_total exactly), matching the numpy no-LP branch.
+        lp_tau = self.modal_static_lp_tau if self.anchor_static_lowpass else 0.0
+        a_lp = min(1.0, float(self.h_substep) / lp_tau) if lp_tau > 0.0 else 1.0
+        qd_w = 1.0 if self.anchor_includes_q_d else 0.0
+        wp.launch(KX.k_anchor_lp_xpbd, dim=r, device=dev, inputs=[
+            r, d["q_s"], d["q_d"], f64(qd_w), f64(a_lp), d["first_substep"],
+            d["q_s_anchor_lp"]])
+        # Basis eval at the (predictor) corners, freeze anchor, gap-gate active.
+        wp.launch(KX.k_eval_and_gate, dim=cap, device=dev, inputs=[
+            d["x_pred"], d["q_pred"], d["counts"], r, d["row_body"],
+            d["row_off"], d["grid_Uy"], int(self.n_grid_x), int(self.n_grid_z),
+            f64(self.shelf_length), f64(self.shelf_width),
+            f64(self.shelf_y_rest), d["q_s_anchor_lp"],
+            f64(self.contact_active_margin), d["row_U_y"], d["row_anchor_y"],
+            d["row_active"]])
+        wp.launch(KX.k_count_active, dim=max_b, device=dev, inputs=[
+            d["counts"], d["body_row_start"], d["row_active"], d["n_active"]])
+
+    def _iteration_device(self, solver, iter_idx: int = 0) -> None:
+        """One coupled Schur iteration as on-device kernel launches (no host
+        round-trip). Mirrors iteration_hook; the Schur core kernels are the
+        shared AVBD ones, the contact-force adapter is XPBD-specific."""
+        import warp as wp
+        from . import reduced_coupled_xpbd_kernels as KX
+        from ..avbd import reduced_coupled_kernels as K
+        if not self._device_ready or self._dev_n_b == 0:
+            return
+        d = self._dbuf
+        dev = solver.device
+        r = int(self._dev_r)
+        cap = int(self._dev_cap_rows)
+        max_b = int(self._dev_max_b)
+        f64 = wp.float64
+        # 1. per-row XPBD contact force (fixed ρ + gravity phantom dual).
+        wp.launch(KX.k_rowforce_xpbd, dim=cap, device=dev, inputs=[
+            solver.x, solver.q, d["mass"], d["counts"], d["row_index"],
+            d["row_body"], d["row_body_slot"], d["row_off"], d["row_anchor_y"],
+            d["row_active"], d["n_active"], f64(self.contact_stiffness),
+            f64(self._dev_grav_y), d["rowdata"]])
+        # 2. modal Hessian + gradient (shared AVBD kernels). k_g's Fq output is
+        #    the penalty sum — IGNORED here; the IIR drive is the momentum
+        #    deficit computed in step 7, which overwrites d["Fq"].
+        wp.launch(K.k_hq, dim=(r, r), device=dev, inputs=[
+            r, d["counts"], d["Kq"], d["row_U_y"], d["rowdata"], d["Hq"]])
+        wp.launch(K.k_g, dim=r, device=dev, inputs=[
+            r, d["counts"], d["Kq"], d["q_s"], d["row_U_y"], d["rowdata"],
+            d["gq"], d["Fq"]])
+        # 3. per-body H_x assembly + block inverse, and the cross block M.
+        wp.launch(K.k_body, dim=max_b, device=dev, inputs=[
+            solver.x, solver.q, d["mass"], d["inertia_local"], d["x_pred"],
+            d["q_pred"], d["counts"], d["body_ids"], d["body_row_start"],
+            d["rowdata"], f64(self._dev_inv_dt2), d["b_TL"], d["b_TR"],
+            d["b_BL"], d["b_BR"], d["b_gx0"], d["b_gx1"], d["b_hg0"],
+            d["b_hg1"], d["rho_score"]])
+        wp.launch(K.k_body_cross, dim=(max_b, r), device=dev, inputs=[
+            d["mass"], r, d["counts"], d["body_ids"], d["body_row_start"],
+            d["row_U_y"], d["rowdata"], d["M"]])
+        # 4. Schur reduce + rhs.
+        wp.launch(K.k_hmb, dim=(max_b, r), device=dev, inputs=[
+            r, d["counts"], d["b_TL"], d["b_TR"], d["b_BL"], d["b_BR"],
+            d["M"], d["Hmb_top"], d["Hmb_bot"]])
+        wp.launch(K.k_schur, dim=(r, r), device=dev, inputs=[
+            r, d["counts"], d["Hq"], d["M"], d["Hmb_top"], d["Hmb_bot"],
+            d["S"]])
+        wp.launch(K.k_rhs, dim=r, device=dev, inputs=[
+            r, d["counts"], d["gq"], d["b_hg0"], d["b_hg1"], d["M"], d["rhs"]])
+        # 5. ε-regularize + r×r cooperative-Cholesky solve + q_s update.
+        wp.launch_tiled(
+            self._k_eps_tiled, dim=[1], device=dev,
+            block_dim=int(self._eps_block_dim), inputs=[
+                d["counts"], d["rho_score"], f64(self._dev_eps_base),
+                f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"], d["q_s"],
+                d["diag"]])
+        # 6. back-substitute body deltas + max-norm diagnostics.
+        wp.launch(K.k_backsub, dim=max_b, device=dev, inputs=[
+            solver.x, solver.q, d["mass"], r, d["counts"], d["body_ids"],
+            d["b_TL"], d["b_TR"], d["b_BL"], d["b_BR"], d["b_gx0"], d["b_gx1"],
+            d["M"], d["dq"], d["diag"], d["b_dxn"], d["b_dthn"]])
+        if self._dev_diag:
+            wp.launch(K.k_reduce_diag, dim=1, device=dev, inputs=[
+                d["counts"], d["b_dxn"], d["b_dthn"], d["diag"]])
+        # 7. momentum-deficit modal load (the IIR drive). Only the LAST
+        #    iteration's value reaches substep_end, so compute it once on the
+        #    final iteration — identical result, skips it on iters 0..n-2.
+        if iter_idx >= self._dev_n_iter - 1:
+            wp.launch(KX.k_body_fdef, dim=max_b, device=dev, inputs=[
+                solver.x, d["x_pred"], d["mass"], d["counts"], d["body_ids"],
+                d["n_active"], f64(self._dev_inv_dt2), d["f_per_row"]])
+            wp.launch(KX.k_fq_momentum, dim=r, device=dev, inputs=[
+                r, d["counts"], d["body_row_start"], d["row_active"],
+                d["row_U_y"], d["f_per_row"], d["Fq"]])
+
+    def _substep_end_device(self, solver) -> None:
+        """Device substep_end: short-τ EMA + static/dynamic split + exact-
+        resonator force of q_d, passivity log, and q = q_s + q_d sync — all
+        on-device. The host readback is deferred to post_step_hook (outside the
+        captured region)."""
+        import warp as wp
+        from . import reduced_coupled_xpbd_kernels as KX
+        from ..avbd import reduced_coupled_kernels as K
+        if not self._device_ready or self._dev_n_b == 0:
+            self._substep_index += 1
+            return
+        d = self._dbuf
+        dev = solver.device
+        r = int(self._dev_r)
+        f64 = wp.float64
+        wp.launch(KX.k_iir_apply_xpbd, dim=r, device=dev, inputs=[
+            r, d["Fq"], d["F_q_total_smooth"], d["F_q_static_lp"],
+            d["q_free"], d["qdot_free"], d["S_h_diag"], d["T_h_diag"],
+            d["first_substep"], f64(self._dev_h_sub), f64(self._dev_tau),
+            d["q_d"], d["qdot_d"], d["F_q_dyn"]])
+        if self._dev_diag:
+            # Passivity log (also clears the first-substep flag).
+            wp.launch(K.k_passivity, dim=1, device=dev, inputs=[
+                r, d["q_d"], d["qdot_d"], d["Mq"], d["Kq"], d["F_q_dyn"],
+                d["escal"], f64(self._dev_h_sub), d["first_substep"],
+                d["pass_counter"]])
+        else:
+            # Cheap dedicated first-substep clear when passivity is gated off.
+            wp.launch(KX.k_clear_first, dim=1, device=dev,
+                      inputs=[d["first_substep"]])
+        wp.launch(K.k_sync_total, dim=r, device=dev, inputs=[
+            r, d["q_s"], d["q_d"], d["qdot_d"], d["q_total"], d["qdot_total"]])
+        self._substep_index += 1
+
+    def post_step_hook(self, solver) -> None:
+        """Fires once per solver.step(), OUTSIDE the captured region. Pulls the
+        resident modal state to host for the render/HUD."""
+        if not self._use_device(solver) or not self._device_ready:
+            return
+        if self._dev_n_b == 0:
+            return
+        d = self._dbuf
+        # Minimal render/HUD readback: q_s + q_d (→ rs.q for the support mesh).
+        # qdot_d / F_q_static_lp / Fq stay device-resident (the sim never needs
+        # them on host); only pull them when diagnostics are on.
+        self.rs.q_s = d["q_s"].numpy().astype(np.float64).copy()
+        self.rs.q_d = d["q_d"].numpy().astype(np.float64).copy()
+        self.rs.sync_total_from_split()
+        self.last_q_s_norm = float(np.linalg.norm(self.rs.q_s))
+        self.last_q_d_norm = float(np.linalg.norm(self.rs.q_d))
+        self.last_q_norm = float(np.linalg.norm(self.rs.q))
+        if not self._dev_diag:
+            return
+        self.rs.qdot_d = d["qdot_d"].numpy().astype(np.float64).copy()
+        self.rs.F_q_static_lp = d["F_q_static_lp"].numpy().astype(
+            np.float64).copy()
+        self._last_F_q_contact = d["Fq"].numpy().astype(np.float64).copy()
+        diag = d["diag"].numpy()
+        self.last_max_dx_norm = float(diag[0])
+        self.last_max_dtheta_norm = float(diag[1])
+        self.last_dq_norm = float(diag[2])
+        self.last_passivity_violations = int(d["pass_counter"].numpy()[0])
+        self.last_qdot_d_norm = float(np.linalg.norm(self.rs.qdot_d))
+        self.last_qdot_norm = self.last_qdot_d_norm
+        if self.rs.U_points.shape[0] > 0:
+            disp = np.einsum("kij,j->ki", self.rs.U_points, self.rs.q)
+            self.last_max_support_deflection = float(
+                np.linalg.norm(disp, axis=1).max())

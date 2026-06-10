@@ -169,12 +169,22 @@ class Solver6DOF:
         self._floor_disabled_host: list[int] = []
 
         # Reduced-coupled hooks. fn(self) for begin/end, fn(self, iter_idx) for
-        # per-iteration. When ANY hook is set the captured CUDA graph is
-        # bypassed (the hook runs Python that touches device arrays via
-        # .numpy()/.assign(), incompatible with graph replay).
+        # per-iteration. A HOST hook (numpy/.assign()) is incompatible with the
+        # captured CUDA graph, so capture is bypassed when one is set. A
+        # DEVICE-RESIDENT hook (hooks_device_resident=True) issues only
+        # wp.launch onto the stream, so the whole substep loop — hooks included
+        # — IS captured and replayed (the coupler's device path sets the flag).
         self.substep_begin_hook = None
         self.iteration_hook = None
         self.substep_end_hook = None
+        self.hooks_device_resident = False
+        # Fires once per step() AFTER the capture/replay, OUTSIDE any captured
+        # region — the device-resident coupler uses it for its one per-step
+        # host readback (the captured region cannot do .numpy()).
+        self.post_step_hook = None
+        # Debug/profiling: force the uncaptured (eager) launch path so a
+        # per-kernel GPU profiler can attribute time inside the substep loop.
+        self._graph_disabled = False
 
     # ---- scene building -----------------------------------------------------
     def _add_body(self, position, half_extents, mass, quaternion, velocity,
@@ -541,11 +551,15 @@ class Solver6DOF:
             self.n_pairs_dev.assign(np.array([self.n_pairs], np.int32))
 
         # Host-side hooks (numpy / .assign()) are incompatible with the
-        # captured graph's recorded launches — bypass capture when any is set.
+        # captured graph's recorded launches — bypass capture when one is set
+        # UNLESS the hooks are device-resident (only wp.launch onto the stream),
+        # in which case the substep loop, hooks and all, is captured.
         hooks_active = (self.substep_begin_hook is not None
                         or self.iteration_hook is not None
                         or self.substep_end_hook is not None)
-        use_graph = str(dev).startswith("cuda") and not hooks_active
+        use_graph = (str(dev).startswith("cuda")
+                     and (not hooks_active or self.hooks_device_resident)
+                     and not self._graph_disabled)
         if use_graph:
             sig = self._signature(n)
             if self._graph is None or self._graph_sig != sig:
@@ -556,6 +570,10 @@ class Solver6DOF:
             wp.capture_launch(self._graph)
         else:
             self._record(n)
+
+        # Per-step host readback for a device-resident coupler (outside capture).
+        if self.post_step_hook is not None:
+            self.post_step_hook(self)
 
     # ---- perturbation / readback -------------------------------------------
     def set_velocity(self, idx, vel):

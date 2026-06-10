@@ -267,6 +267,100 @@ def passive_alpha(
     return float(np.clip(alpha_star, 0.0, 1.0))
 
 
+def reservoir_alpha(
+    a_m: float,
+    b_m: float,
+    l1: float,
+    l2: float,
+    R: float,
+    eta: float,
+) -> float:
+    """Reservoir-exact passive scaling coefficient (foundation §1, §6, core §15).
+
+    `passive_alpha` sizes its budget from the rigid loss at the FULL impulse
+    (α=1) and then scales the kick by α; when it clamps (α<1) the realized rigid
+    loss no longer matches the budget that set the cap, so the cumulative §15
+    bound `Σ ΔE_modal ≤ η Σ ΔE_loss` can dip negative on a prefix at η<1 (the
+    "funding circularity" slack). This routine removes that slack.
+
+    One velocity-band impulse scaled by α∈[0,1] changes the modal and rigid
+    energies by two quadratics in α that share the SAME α:
+
+        ΔE_modal(α) = b_m α + ½ a_m α²        (§15:  a_m = ‖s‖²,  b_m = q̇·s)
+        L(α)        = l1  α +    l2  α²        (rigid KE LOSS = −ΔE_rigid)
+
+    Maintain a persistent reservoir `R ≥ 0` holding banked-but-unspent budget
+    `η Σ L − Σ ΔE_modal`. This impulse may draw at most `R`, where the NET draw
+    is the realized injection minus the realized funding it itself produces:
+
+        D(α) = ΔE_modal(α) − η L(α)
+             = (b_m − η l1) α + (½ a_m − η l2) α²            # B α + A α²
+
+    Return the largest α∈[0,1] with `D(α) ≤ R`. The caller then debits
+    `R ← R − D(α)`, which stays ≥0 by construction — so `Σ ΔE_modal ≤ η Σ L`
+    holds at EVERY prefix, for any η∈[0,1] and any clamping. (Indeed the
+    per-prefix margin `η Σ L − Σ ΔE_modal` IS the reservoir R.) Because both
+    terms of D use the realized α, there is no α=1-vs-realized mismatch.
+
+    Convexity: l2 = −½·w_r·λ₀² ≤ 0 (w_r = rigid effective inverse mass), so
+    A = ½ a_m − η l2 ≥ 0 and D is convex with D(0)=0 ≤ R. At η=1 one can show
+    D(1) = −½ ġ⁻²/w_eff < 0, so α=1 is always feasible — the governor provably
+    never clamps at η=1 (design rule 1: a clamp, not a dial).
+
+    # DEVIATION (foundation §15 / paper Eq.10): the forced-IIR injection is
+    # replaced by a reservoir-banked passive impulse; the reservoir accumulates
+    # across steps (per the §6 "impact reservoir"), making the bound cumulative
+    # rather than the per-step E_max = η ΔE_loss of foundation §1.
+
+    Args:
+        a_m: ‖s‖² ≥ 0, the §15 quadratic coefficient (s = raw modal kick).
+        b_m: q̇·s, the §15 linear coefficient.
+        l1: linear coefficient of the realized rigid LOSS L(α) (= −(v_c·n)·λ₀).
+        l2: quadratic coefficient of L(α) (= −½·w_r·λ₀² ≤ 0).
+        R: current reservoir (≥0). At the first impulse this is 0.
+        eta: transfer efficiency η∈[0,1].
+
+    Returns:
+        alpha: scaling coefficient in [0, 1].
+    """
+    if a_m < _EPS_TINY:
+        # Contact at (near) a modal node: Δq̇_d ≈ 0, no modal injection to bound,
+        # so the contact impulse is unconstrained by passivity.
+        return 1.0
+
+    A = 0.5 * a_m - eta * l2          # ≥ 0 since l2 ≤ 0
+    B = b_m - eta * l1
+
+    if A < _EPS_TINY:
+        # Degenerate (vanishing impulse): linear budget B·α ≤ R.
+        if B <= 0.0:
+            return 1.0
+        return float(np.clip(R / B, 0.0, 1.0))
+
+    # D convex, D(0)=0 ≤ R: the feasible set containing 0 is [0, α₊] with
+    # α₊ the non-negative root of A α² + B α − R = 0 (√ ≥ |B| since A,R ≥ 0).
+    disc = B * B + 4.0 * A * max(0.0, R)
+    alpha_plus = (-B + np.sqrt(max(0.0, disc))) / (2.0 * A)
+    return float(np.clip(alpha_plus, 0.0, 1.0))
+
+
+def reservoir_draw(
+    a_m: float,
+    b_m: float,
+    l1: float,
+    l2: float,
+    alpha: float,
+    eta: float,
+) -> float:
+    """Net reservoir draw D(α) for a realized α (foundation §1/§15).
+
+    D(α) = ΔE_modal(α) − η L(α) = (b_m − η l1) α + (½ a_m − η l2) α².
+    The caller updates the reservoir `R ← R − reservoir_draw(...)`. Returns a
+    value ≤ R (when α came from `reservoir_alpha`), so the reservoir stays ≥0.
+    """
+    return (b_m - eta * l1) * alpha + (0.5 * a_m - eta * l2) * alpha * alpha
+
+
 def prescribed_alpha(
     s: NDArray[np.float64],
     qdot: NDArray[np.float64],

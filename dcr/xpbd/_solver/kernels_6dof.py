@@ -193,7 +193,14 @@ def solve_floor_contacts(
         if w <= 0.0:
             continue
         dlam = d / w                       # α = 0 contact
-        lam_floor[slot] = dlam
+        # Accumulate λ_n over the substep's position iterations (lam_floor is
+        # zeroed once per substep in _record). The velocity-pass dynamic
+        # friction budget is μ·f_n with f_n = λ_n/h², so λ_n MUST be the total
+        # normal impulse (≈ m·g·h² at rest), not just the last iteration's
+        # residual. Overwriting here under-counted f_n → friction far too weak →
+        # boxes slid ~24× past the Coulomb stopping distance. Matches the
+        # accumulate already done for box-box (`lam_pair += dlam`).
+        lam_floor[slot] = lam_floor[slot] + dlam
         p = dlam * s
         # body A = box (+), B = static floor
         wp.atomic_add(dx, i, p * inv_mass[i])
@@ -563,6 +570,16 @@ def velocity_floor(
     if inv_mass[i] == 0.0:
         return
     s = wp.vec3(0.0, 1.0, 0.0)
+    # Total floor normal force on this body across its contacting corners. The
+    # per-corner friction below is averaged (÷count) in apply_velocity_6dof, so
+    # if each corner clamped to its own ¼-share f_n the averaged result would be
+    # ¼ of μ·N (a 4-corner box slid at effective μ≈μ/4). Clamping every corner
+    # to the body's TOTAL normal force makes the count-averaged sum net to the
+    # correct μ·N, while the per-corner min(·,|v_t|) still prevents overshoot.
+    fn_tot = float(0.0)
+    for c in range(8):
+        fn_tot = fn_tot + lam_floor[i * 8 + c]
+    fn_tot = fn_tot / (h * h)
     for c in range(8):
         slot = i * 8 + c
         lam_n = lam_floor[slot]
@@ -577,8 +594,7 @@ def velocity_floor(
         impulse = wp.vec3(0.0, 0.0, 0.0)
         # dynamic friction (Eq. 30): Δv = −v_t/|v_t| · min(h μ_d |f_n|, |v_t|)
         if mu_d > 0.0 and ltan > EPS:
-            fn = lam_n / (h * h)
-            dvm = wp.min(h * mu_d * wp.abs(fn), ltan)
+            dvm = wp.min(h * mu_d * wp.abs(fn_tot), ltan)
             impulse = impulse - (vt / ltan) * dvm
         # restitution (Eq. for normal velocity): remove inward normal velocity
         # and add e·(−v_n) outward. Threshold avoids resting jitter.
@@ -622,6 +638,13 @@ def velocity_box(
     ci = m_inc[pid]
     cj = m_ref[pid]
     s = m_normal[pid]
+    # Total normal force over this pair's manifold points — same count-averaging
+    # compensation as velocity_floor: each point clamps friction to the pair's
+    # total f_n so the ÷count average nets to μ·N instead of μ·N/(#points).
+    fn_tot = float(0.0)
+    for c in range(nc):
+        fn_tot = fn_tot + lam_pair[pid * 8 + c]
+    fn_tot = fn_tot / (h * h)
     for c in range(nc):
         slot = pid * 8 + c
         lam_n = lam_pair[slot]
@@ -639,8 +662,7 @@ def velocity_box(
         ltan = wp.length(vt)
         impulse = wp.vec3(0.0, 0.0, 0.0)
         if mu_d > 0.0 and ltan > EPS:
-            fn = lam_n / (h * h)
-            dvm = wp.min(h * mu_d * wp.abs(fn), ltan)
+            dvm = wp.min(h * mu_d * wp.abs(fn_tot), ltan)
             impulse = impulse - (vt / ltan) * dvm
         if vn < 0.0:
             impulse = impulse + s * (-vn + wp.max(-restitution * vn, 0.0))

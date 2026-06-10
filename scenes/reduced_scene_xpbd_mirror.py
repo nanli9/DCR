@@ -59,7 +59,12 @@ def mirror_to_xpbd(
     substeps: int,
     iterations: int,
     device: str = "cpu",
-    contact_stiffness: float = 1.0e9,
+    # 1e6, NOT 1e9: matching AVBD's 1e9 penalty CLIP (rather than its actual
+    # escalated ρ≈1e6) over-stiffened the q_s Schur block — the eps regulariser
+    # ∝ρ² swamped the K_q-scale solution and the static-sag coupling went dead
+    # (‖q_s‖≈1e-8 vs analytic 1.8e-3). See reduced_coupled_xpbd.py field doc +
+    # docs/proposal_modal_response_as_constraint.md §3.3 (verified 2026-06-10).
+    contact_stiffness: float = 1.0e6,
     modal_static_lp_tau: float = 0.05,
     anchor_static_lowpass: bool = True,
 ) -> XPBDSceneHandle:
