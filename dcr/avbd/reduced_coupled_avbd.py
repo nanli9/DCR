@@ -1379,6 +1379,12 @@ class ReducedCoupledAVBDCoupler:
           + alpha_ema * F_q_total)
         F_q_dyn = F_q_total - self.rs.F_q_static_lp
 
+        # V2-A: velocity band owns the body↔ring exchange → it is the SOLE ring
+        # excitation; zero the legacy F_q_dyn forcing (no double-excitation).
+        # See dcr/dcr/impulse_port.py:enable_substep_band.
+        if getattr(self, "band_owns_excitation", False):
+            F_q_dyn = np.zeros_like(F_q_dyn)
+
         # Apply F_q_dyn through the IIR precompute prepared at substep_begin.
         # q_d_new   = q_d_free   + S_h · F_q_dyn
         # qdot_d_new = qdot_d_free + T_h · F_q_dyn

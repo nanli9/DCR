@@ -183,8 +183,72 @@ def apply_velocity_band(coupler, solver, *, eta: float = 1.0, e: float = 0.0,
         rs.qdot_d[:] = qd
     # Persist the reservoir across steps (V1): it carries banked-but-unspent
     # budget so the per-prefix §15 bound holds globally, not just per step.
-    coupler._modal_reservoir = max(0.0, reservoir)
-    st.reservoir = coupler._modal_reservoir
+    # NOT floored — `reservoir_alpha` guarantees D(α) ≤ R, so R stays ≥ 0 by
+    # construction; leaving it unfloored lets a real violation surface (the
+    # parity/per-prefix tests assert R ≥ −ε).
+    coupler._modal_reservoir = reservoir
+    st.reservoir = reservoir
     if st.invariant_margin_min == float("inf"):
         st.invariant_margin_min = 0.0
     return st
+
+
+def _solver_of(world):
+    return getattr(world, "solver", None) or getattr(world, "_solver", None)
+
+
+def enable_substep_band(world, coupler, *, eta: float = 1.0, e: float = 0.0,
+                        margin: float = 5.0e-3):
+    """V2-A: fold the velocity band into the PER-SUBSTEP loop (numpy reference).
+
+    The post-step `apply_velocity_band` samples the kHz ring at the step rate
+    (≈120 Hz) — the source of the coarse per-step settle offset. This wraps the
+    coupler's `substep_end_hook` so the band runs once per SUBSTEP, right after
+    the coupler advances the free IIR, at the substep velocities. It also makes
+    the band the SOLE body↔ring channel:
+      * `band_owns_excitation = True` → the coupler zeroes the legacy `F_q_dyn`
+        forcing, so the ring is excited only by the band's Δq̇_d impulses;
+      * `anchor_includes_q_d = False` → the contact anchor carries only the
+        static sag, so the ring's push on the body comes only through the band.
+    One momentum-conserving impulse now does both excitation and reaction
+    (proposal §3.3). Solver-agnostic (XPBD `world.solver`, AVBD `world._solver`).
+
+    Numpy reference only: forces `device_resident = False` (the band reads/writes
+    host arrays per substep). The device-resident fold is V2-B. Returns the
+    wrapped solver. Idempotent — wraps at most once per coupler.
+    """
+    coupler.device_resident = False
+    coupler.band_owns_excitation = True
+    if hasattr(coupler, "anchor_includes_q_d"):
+        coupler.anchor_includes_q_d = False
+    coupler._modal_reservoir = 0.0          # fresh reservoir for this run
+    solver = _solver_of(world)
+    if solver is None:
+        raise RuntimeError("world exposes no solver / _solver")
+    if getattr(coupler, "_band_substep_wrapped", False):
+        return solver                        # already folded in
+    inner = solver.substep_end_hook          # the coupler's own per-substep hook
+    last = {"stats": None}
+    # Run-level accumulators (the band fires per SUBSTEP, so per-call stats reset
+    # each substep; these carry the whole-run totals the parity test asserts on).
+    run = {"impulses": 0, "clamps": 0, "substeps": 0,
+           "reservoir_min": float("inf"), "max_lambda": 0.0}
+
+    def _wrapped(s):
+        if inner is not None:
+            inner(s)                         # coupler advances q_s-solve + free IIR
+        st = apply_velocity_band(coupler, s, eta=eta, e=e, margin=margin)
+        last["stats"] = st
+        run["impulses"] += st.n_impulses
+        run["clamps"] += st.clamp_activations
+        run["substeps"] += 1
+        run["max_lambda"] = max(run["max_lambda"], st.max_lambda)
+        # st.reservoir is the UNFLOORED global margin η Σ L − Σ ΔE_modal; its
+        # running minimum is the per-prefix §15 bound witness for the run.
+        run["reservoir_min"] = min(run["reservoir_min"], st.reservoir)
+
+    solver.substep_end_hook = _wrapped
+    coupler._band_substep_wrapped = True
+    coupler._band_last_stats = last          # latest VelocityBandStats (per substep)
+    coupler._band_run = run                  # whole-run accumulators
+    return solver

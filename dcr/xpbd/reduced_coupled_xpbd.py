@@ -800,6 +800,14 @@ class ReducedCoupledXPBDCoupler:
           + alpha_ema * F_q_total)
         F_q_dyn = F_q_total - self.rs.F_q_static_lp
 
+        # V2-A: when the velocity band owns the body↔ring exchange, it is the
+        # SOLE excitation channel — zero the legacy F_q_dyn forcing so the ring
+        # is driven only by the band's momentum-conserving Δq̇_d impulses (no
+        # double-excitation). q_d/q̇_d then ride the free damped IIR between
+        # impulses. See dcr/dcr/impulse_port.py:enable_substep_band.
+        if getattr(self, "band_owns_excitation", False):
+            F_q_dyn = np.zeros_like(F_q_dyn)
+
         if (self.q_free is not None and self.qdot_free is not None
                 and self.S_h is not None and self.T_h is not None):
             if self.S_h_diag is not None:
