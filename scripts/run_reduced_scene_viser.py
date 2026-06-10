@@ -172,6 +172,12 @@ class ReducedSceneViewer:
 
     # ---- world ---------------------------------------------------------
     def _build_world(self):
+        """Build the world atomically: keep the previous (handle, rs, world,
+        coupler) bound on self until the new ones are fully constructed. If
+        the XPBD mirror or anything else fails partway, the render thread
+        keeps seeing a consistent (rs, handle) pair instead of a half-updated
+        mix that triggers basis/q shape mismatches in the slab vertex shader.
+        """
         a = self.args
         mat = _MATERIAL.get(a.material, _MATERIAL["wood"])
         youngs, density = mat.youngs, mat.density
@@ -182,21 +188,20 @@ class ReducedSceneViewer:
         # source of truth for body geometry + the reduced support `rs`,
         # which the XPBD mirror reuses verbatim.
         try:
-            self._avbd_handle = self.spec.build(a, youngs, density)
+            new_avbd_handle = self.spec.build(a, youngs, density)
         except Exception as e:
             if a.device != "cpu":
                 print(f"[viewer] device {a.device!r} unavailable "
                       f"({type(e).__name__}: {e}); falling back to cpu — "
                       f"expect ~7× slower step time.")
                 a.device = "cpu"
-                self._avbd_handle = self.spec.build(a, youngs, density)
+                new_avbd_handle = self.spec.build(a, youngs, density)
             else:
                 raise
-        self.rs = self._avbd_handle.rs
-        self.h = float(a.h)
-        self._solver_name = str(a.solver).lower()
+        solver_name = str(a.solver).lower()
+        h = float(a.h)
 
-        if self._solver_name == "xpbd":
+        if solver_name == "xpbd":
             # XPBD's Solver6DOF is device-resident on whatever Warp device
             # we pass (kernels run on cpu Warp or cuda the same way, no
             # per-frame host round-trip in the constraint sweep). The
@@ -205,19 +210,29 @@ class ReducedSceneViewer:
             # bandwidth is small (r×r block + per-row arrays), not the
             # whole-scene state. Cuda residency for the coupler itself is a
             # later milestone; see dcr/xpbd/reduced_coupled_xpbd.py.
-            self.rs.reset_state()
-            self._xpbd_handle = mirror_to_xpbd(
-                self._avbd_handle, h=self.h,
+            new_avbd_handle.rs.reset_state()
+            new_xpbd_handle = mirror_to_xpbd(
+                new_avbd_handle, h=h,
                 substeps=int(a.substeps), iterations=int(a.iters),
                 device=a.device)
-            self.handle = self._xpbd_handle
-            self.world = self._xpbd_handle.world
-            self.coupler = self._xpbd_handle.coupler
+            new_handle = new_xpbd_handle
+            new_world = new_xpbd_handle.world
+            new_coupler = new_xpbd_handle.coupler
         else:
-            self._xpbd_handle = None
-            self.handle = self._avbd_handle
-            self.world = self._avbd_handle.world
-            self.coupler = self.world.reduced_coupled_coupler
+            new_xpbd_handle = None
+            new_handle = new_avbd_handle
+            new_world = new_avbd_handle.world
+            new_coupler = new_world.reduced_coupled_coupler
+
+        # Atomic swap: only after the new state is fully constructed.
+        self._avbd_handle = new_avbd_handle
+        self._xpbd_handle = new_xpbd_handle
+        self.handle = new_handle
+        self.world = new_world
+        self.coupler = new_coupler
+        self.rs = new_avbd_handle.rs
+        self.h = h
+        self._solver_name = solver_name
 
         dr = bool(getattr(self.coupler, "device_resident", False))
         if self._solver_name == "xpbd":

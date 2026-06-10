@@ -53,6 +53,7 @@ class DinnerSceneHandle:
     probe_indices: list[int]                # the place-setting plates
     bodies: list[DinnerBody] = field(default_factory=list)
     name: str = "Reduced-Coordinate AVBD Dinner Table"
+    impactor_label: str = "pot"             # shared with ReducedSceneHandle
 
 
 def build_reduced_dinner_table(

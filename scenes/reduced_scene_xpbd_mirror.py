@@ -156,6 +156,8 @@ def mirror_to_xpbd(
         probe_indices=probe_xpbd_idx,
         bodies=handle.bodies,
         name=handle.name + " (XPBD)",
-        impactor_label=handle.impactor_label,
+        # Some scene handles (e.g. DinnerSceneHandle) don't declare the
+        # field; default to a generic label so the mirror still works.
+        impactor_label=getattr(handle, "impactor_label", "impactor"),
         dcr_to_xpbd=dcr_to_xpbd,
     )
