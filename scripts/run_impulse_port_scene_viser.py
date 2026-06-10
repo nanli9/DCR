@@ -64,10 +64,13 @@ class ImpulsePortSceneViewer(ReducedSceneViewer):
             self.gui_band_eta = g.add_slider(
                 "eta (η) — §15 transfer", 0.0, 1.0, 0.05, 1.0,
                 hint="Ships at 1.0 (governor is a safety clamp, not a dial). "
-                     "<1 throttles injection (clamp count rises).")
+                     "<1 throttles injection (clamp count rises). The reservoir-"
+                     "exact governor (V1) keeps the per-prefix §15 bound exact at "
+                     "ANY η — watch 'reservoir R' stay ≥ 0.")
             self.gui_band_imp = g.add_text("impulses / step", initial_value="0")
             self.gui_band_clamp = g.add_text("governor clamps", initial_value="0")
-            self.gui_band_inv = g.add_text("§15 margin", initial_value="0")
+            self.gui_band_res = g.add_text("reservoir R (≥0)", initial_value="0")
+            self.gui_band_inv = g.add_text("§15 margin / step", initial_value="0")
             self.gui_band_lam = g.add_text("max impulse λ", initial_value="0")
 
     # Copy of the base loop with the velocity-band pass injected post-step.
@@ -135,6 +138,7 @@ class ImpulsePortSceneViewer(ReducedSceneViewer):
             else:
                 self.gui_band_imp.value = str(st.n_impulses)
                 self.gui_band_clamp.value = str(st.clamp_activations)
+                self.gui_band_res.value = f"{st.reservoir:.3e}"
                 self.gui_band_inv.value = f"{st.invariant_margin_min:.2e}"
                 self.gui_band_lam.value = f"{st.max_lambda:.3e}"
         except RuntimeError:

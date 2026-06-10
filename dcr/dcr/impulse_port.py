@@ -38,7 +38,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from dcr.avbd.reduced_coupled_avbd import _quat_xyzw_to_R
-from dcr.modal.passive_inject import passive_alpha
+from dcr.modal.passive_inject import reservoir_alpha, reservoir_draw
 
 _N = np.array([0.0, 1.0, 0.0])     # support normal (scenes are ~horizontal slabs)
 _VEL_EPS = 1.0e-9                  # closing-velocity floor (skip non-injections)
@@ -53,6 +53,7 @@ class VelocityBandStats:
     cum_modal_inj: float = 0.0
     cum_rigid_loss: float = 0.0
     invariant_margin_min: float = float("inf")
+    reservoir: float = 0.0          # V1: banked-but-unspent budget η Σ L − Σ ΔE_modal
 
 
 def _body_dynamics(solver):
@@ -89,13 +90,23 @@ def apply_velocity_band(coupler, solver, *, eta: float = 1.0, e: float = 0.0,
     """Apply one per-step velocity-band impulse exchange between the tracked
     bodies and the modal ring `q̇_d`. Mutates `solver.v`, `solver.omega`, and
     `coupler.rs.qdot_d` in place. Returns per-step diagnostics. Call AFTER
-    `world.step()` (the coupler's per-corner caches reflect the last substep)."""
+    `world.step()` (the coupler's per-corner caches reflect the last substep).
+
+    V1 governor (foundation §1/§6/§15): a persistent reservoir `R ≥ 0` (banked
+    on `coupler._modal_reservoir`) holds unspent budget `η Σ L − Σ ΔE_modal`.
+    Each impulse may draw at most `R` via `reservoir_alpha`; debit `R ← R − D(α)`
+    keeps it ≥0, so `Σ ΔE_modal ≤ η Σ L` holds at EVERY prefix for any η — the
+    per-prefix rigor the old per-impulse `passive_alpha` lacked at η<1. The
+    reservoir is the shared support's (one modal field; all bodies couple to it),
+    so it is a single scalar, debited sequentially per corner (design rule 3)."""
     rs = coupler.rs
     st = VelocityBandStats()
     tracked = getattr(coupler, "tracked_body_indices", None)
     if not tracked or rs.qdot_d is None:
         st.invariant_margin_min = 0.0
+        st.reservoir = float(getattr(coupler, "_modal_reservoir", 0.0))
         return st
+    reservoir = float(getattr(coupler, "_modal_reservoir", 0.0))
 
     qd = np.asarray(rs.qdot_d, dtype=np.float64).copy()
     q_s = np.asarray(rs.q_s, dtype=np.float64)
@@ -129,19 +140,25 @@ def apply_velocity_band(coupler, solver, *, eta: float = 1.0, e: float = 0.0,
                 continue
 
             s = -U_y * lam0
-            a = float(s @ s)
+            a = float(s @ s)                         # a_m = ‖s‖²  (§15)
+            b_m = float(qd @ s)                      # q̇·s        (§15)
+            # Rigid-loss quadratic L(α) = l1·α + l2·α²  (foundation §15):
+            #   ΔE_rigid(α) = v_corner_y·(α λ₀) + ½ w_r (α λ₀)²,  L = −ΔE_rigid
+            #   w_r = rigid effective inverse mass = w_eff − ‖U_y‖² (≥0).
+            w_r = w_eff - float(U_y @ U_y)
+            l1 = -v_corner_y * lam0
+            l2 = -0.5 * w_r * lam0 * lam0            # ≤ 0
             if governor:
-                dw = Iinv @ rxn * lam0
-                v_new = v_np[b].copy(); v_new[1] += lam0 / m
-                w_new = w_np[b] + dw
-                ke0 = 0.5 * m * float(v_np[b] @ v_np[b]) + 0.5 * float(w_np[b] @ Iw @ w_np[b])
-                ke1 = 0.5 * m * float(v_new @ v_new) + 0.5 * float(w_new @ Iw @ w_new)
-                alpha = passive_alpha(s, qd, eta * max(0.0, -(ke1 - ke0)))
+                # Reservoir-exact governor (V1): largest α with the net draw
+                # D(α)=ΔE_modal(α)−η·L(α) ≤ reservoir. Debit below keeps R≥0.
+                alpha = reservoir_alpha(a, b_m, l1, l2, reservoir, eta)
             else:
                 alpha = 1.0
             if alpha < 1.0 - 1e-9 and a > _A_FLOOR:
                 st.clamp_activations += 1
             lam = alpha * lam0
+            if governor:
+                reservoir -= reservoir_draw(a, b_m, l1, l2, alpha, eta)
 
             qd_before = qd.copy(); v0 = v_np[b].copy(); w0 = w_np[b].copy()
             v_np[b][1] += lam / m
@@ -164,6 +181,10 @@ def apply_velocity_band(coupler, solver, *, eta: float = 1.0, e: float = 0.0,
         solver.v.assign(v_np.astype(np.float32))
         solver.omega.assign(w_np.astype(np.float32))
         rs.qdot_d[:] = qd
+    # Persist the reservoir across steps (V1): it carries banked-but-unspent
+    # budget so the per-prefix §15 bound holds globally, not just per step.
+    coupler._modal_reservoir = max(0.0, reservoir)
+    st.reservoir = coupler._modal_reservoir
     if st.invariant_margin_min == float("inf"):
         st.invariant_margin_min = 0.0
     return st

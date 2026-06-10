@@ -51,7 +51,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from dcr.modal.homogeneous_stepper import HomogeneousStepper
-from dcr.modal.passive_inject import passive_alpha
+from dcr.modal.passive_inject import passive_alpha, reservoir_alpha, reservoir_draw
 
 GRAV = -9.81
 _VEL_EPS = 1.0e-9   # closing-velocity floor: below this a contact is "not closing"
@@ -92,6 +92,11 @@ class V0Config:
     coupling: str = "velocity"     # "velocity" | "position"
     ring_vel: str = "integrated"   # "sampled" | "integrated"  (velocity only)
     use_governor: bool = True
+    # V1: "per_impulse" (the original per-event passive_alpha cap — exact at
+    # η=1, slack at η<1) or "reservoir" (the reservoir-exact governor: a
+    # persistent R makes the per-prefix §15 bound exact for any η). Defaults to
+    # per_impulse so the existing 19 V0 tests are unchanged; the V1 tests opt in.
+    governor_mode: str = "per_impulse"
     gravity: bool = True
 
 
@@ -147,6 +152,7 @@ def run(cfg: V0Config) -> V0Result:
     resolve_res_max = 0.0
     ledger_res_max = 0.0
     invariant_margin_min = np.inf
+    reservoir = 0.0          # V1 reservoir-exact governor (foundation §1/§15)
     gap_min = np.inf
     was_in_contact = False
 
@@ -155,7 +161,7 @@ def run(cfg: V0Config) -> V0Result:
         the enclosing ledgers; returns the new body velocity."""
         nonlocal cum_rigid_loss, cum_modal_inj, clamp_activations
         nonlocal pull_violations, resolve_res_max, ledger_res_max
-        nonlocal invariant_margin_min
+        nonlocal invariant_margin_min, reservoir
         v_loc = v_in
         qd_vel = ring.qdot if cfg.ring_vel == "sampled" else vbar_d
         g_dot = v_loc - float(U_y @ qd_vel)     # relative normal velocity
@@ -170,11 +176,18 @@ def run(cfg: V0Config) -> V0Result:
         a = lam0 * lam0 * norm_Uy2
         b = -lam0 * float(ring.qdot @ U_y)
         dE_body_full = lam0 * v_loc + 0.5 * lam0 * lam0 * Minv
-        if cfg.use_governor:
+        if not cfg.use_governor:
+            alpha = 1.0
+        elif cfg.governor_mode == "reservoir":
+            # V1: rigid-loss quadratic L(α)=l1 α+l2 α² (1-DOF: w_r = Minv);
+            # reservoir-exact α with persistent R → per-prefix §15 bound exact.
+            l1 = -v_loc * lam0
+            l2 = -0.5 * Minv * lam0 * lam0
+            alpha = reservoir_alpha(a, b, l1, l2, reservoir, cfg.eta)
+            reservoir -= reservoir_draw(a, b, l1, l2, alpha, cfg.eta)
+        else:                                            # "per_impulse" (V0)
             E_max = cfg.eta * max(0.0, -dE_body_full)   # η·rigid_loss_at_α1
             alpha = passive_alpha(s, ring.qdot, E_max)
-        else:
-            alpha = 1.0
         # Count a clamp only when the governor throttles a MEANINGFUL injection
         # (a = ‖s‖² above a floor). passive_alpha returns α<1 for numerically
         # negligible impulses too, but those aren't the governor doing work — the
