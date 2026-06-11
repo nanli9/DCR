@@ -1003,6 +1003,11 @@ class ReducedCoupledXPBDCoupler:
         d["omega_band"] = wp.zeros(n_bodies, dtype=vec3d, device=dev)
         d["reservoir"] = wp.zeros(1, dtype=f64, device=dev)        # persistent R
         d["band_diag"] = wp.zeros(4, dtype=f64, device=dev)        # n,maxλ,clamps
+        # Device-resident contact friction (k_contact_friction) — standalone
+        # tangential Coulomb pass; reuses the band's CSR topology + row_active.
+        d["v_fric"] = wp.zeros(n_bodies, dtype=vec3d, device=dev)
+        d["omega_fric"] = wp.zeros(n_bodies, dtype=vec3d, device=dev)
+        d["fric_diag"] = wp.zeros(2, dtype=f64, device=dev)        # n_corners,maxλ
 
         # Build + upload the per-corner CSR topology.
         body_ids = np.zeros(max_b, np.int32)
@@ -1241,6 +1246,22 @@ class ReducedCoupledXPBDCoupler:
                 f64(getattr(self, "_band_e", 0.0)),
                 f64(1.0e-9), f64(1.0e-12),
                 d["v_band"], d["omega_band"], d["reservoir"], d["band_diag"]])
+        # Device-resident contact friction: standalone tangential Coulomb pass,
+        # runs band-on AND band-off (independent of band_owns). Launched after
+        # the band so it damps the band's per-corner angular kick. Stays on-
+        # device (no host round-trip), inside the captured graph.
+        if getattr(self, "friction_on_device", False):
+            wp.launch(K.k_contact_friction, dim=1, device=dev, inputs=[
+                solver.x, solver.q, solver.v, solver.omega,
+                d["mass"], d["inertia_local"],
+                d["counts"], d["body_ids"], d["row_body"], d["row_off"],
+                d["row_U_y"], d["row_active"], d["q_s"], r,
+                f64(self.shelf_y_rest),
+                f64(getattr(self, "_fric_margin", 5.0e-3)),
+                f64(getattr(self, "_fric_mu", 0.4)),
+                f64(getattr(self, "_fric_h", 1.0 / 120.0)),
+                f64(9.81), f64(1.0e-9),
+                d["v_fric"], d["omega_fric"], d["fric_diag"]])
         self._substep_index += 1
 
     def post_step_hook(self, solver) -> None:

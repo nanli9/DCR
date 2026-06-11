@@ -1308,3 +1308,141 @@ def k_velocity_band(
     band_diag[1] = wp.max(band_diag[1], max_lam)
     band_diag[2] += n_clamp
     band_diag[3] = res
+
+
+# ===========================================================================
+# Device-resident contact friction (dynamic Coulomb at the coupler corners)
+# ---------------------------------------------------------------------------
+# Device port of dcr/dcr/impulse_port.py::apply_contact_friction. Tracked
+# bodies are floor_disabled and the coupler anchor is normal-only, so without
+# this the resting bodies slide and (under the band) spin about ŷ forever.
+# Standalone velocity-level dynamic Coulomb pass (Müller 2020 Eq. 30): per
+# in-contact corner, remove the tangential corner velocity, clamped to the
+# cone μ·λ_n with λ_n = (m·g/n_c)·h the gravity-support impulse share. No modal
+# term (U_y is normal-only ⇒ friction ⟂ ring ⇒ §15 bound untouched).
+#
+# Same single-thread, CSR-grouped, f64-scratch structure as k_velocity_band:
+# corners are walked in body-grouped order; R / Iⁱⁿᵛ recomputed only on a body
+# change; per-body in-contact count n_c is a forward-scan over the body's rows.
+# dim = 1. Mutates v, omega, fric_diag in place. Runs AFTER the band (so it
+# damps the band's per-corner angular kick), independent of band_owns.
+#
+# # DEVIATION (paper Eq.10 / foundation §15): friction is a body-side contact
+# # term, orthogonal to the ring; it does NOT enter the modal energy ledger.
+# ===========================================================================
+@wp.kernel
+def k_contact_friction(
+    x: wp.array(dtype=wp.vec3),
+    q: wp.array(dtype=wp.quat),
+    v: wp.array(dtype=wp.vec3),
+    omega: wp.array(dtype=wp.vec3),
+    mass: wp.array(dtype=float),
+    inertia_local: wp.array(dtype=wp.mat33),
+    counts: wp.array(dtype=int),
+    body_ids: wp.array(dtype=int),
+    row_body: wp.array(dtype=int),
+    row_off: wp.array(dtype=vec3d),
+    row_U_y: wp.array2d(dtype=wp.float64),
+    row_active: wp.array(dtype=int),
+    q_s: wp.array(dtype=wp.float64),
+    r: int,
+    shelf_y_rest: wp.float64,
+    margin: wp.float64,
+    mu: wp.float64,
+    h: wp.float64,
+    g: wp.float64,
+    vel_eps: wp.float64,
+    v_fric: wp.array(dtype=vec3d),       # f64 scratch (n_bodies)
+    omega_fric: wp.array(dtype=vec3d),   # f64 scratch (n_bodies)
+    fric_diag: wp.array(dtype=wp.float64),    # [n_corners, max_impulse]
+):
+    if wp.tid() != 0:
+        return
+    n_b = counts[0]
+    n_rows = counts[2]
+    for bb in range(n_b):
+        bidx = body_ids[bb]
+        v_fric[bidx] = _to_vec3d(v[bidx])
+        omega_fric[bidx] = _to_vec3d(omega[bidx])
+
+    n_corn = _ZERO
+    max_imp = _ZERO
+    cur_body = int(-1)
+    R = wp.identity(n=3, dtype=wp.float64)
+    Iinv = wp.identity(n=3, dtype=wp.float64)
+    m = _ZERO
+    lam_cap = _ZERO
+
+    for rr in range(n_rows):
+        if row_active[rr] == 0:
+            continue
+        bidx = row_body[rr]
+        if bidx != cur_body:
+            cur_body = bidx
+            m = wp.float64(mass[bidx])
+            lam_cap = _ZERO
+            if m > _ZERO:
+                qq = q[bidx]
+                R = _quat_to_R(wp.float64(qq[0]), wp.float64(qq[1]),
+                               wp.float64(qq[2]), wp.float64(qq[3]))
+                Iinv = R * _inv3(_to_mat33d(inertia_local[bidx])) \
+                    * wp.transpose(R)
+                # Forward-scan this body's rows to count in-contact corners,
+                # so the normal load is split as in numpy (m·g/n_c per corner).
+                n_c = int(0)
+                for kk in range(rr, n_rows):
+                    if row_body[kk] != bidx:
+                        break
+                    if row_active[kk] == 0:
+                        continue
+                    r_wk = R * row_off[kk]
+                    uqk = _ZERO
+                    for a in range(r):
+                        uqk += row_U_y[kk, a] * q_s[a]
+                    if (wp.float64(x[bidx][1]) + r_wk[1]) \
+                            - (shelf_y_rest + uqk) <= margin:
+                        n_c += 1
+                if n_c > 0:
+                    lam_n = (m * g / wp.float64(n_c)) * h
+                    lam_cap = mu * lam_n
+        if m <= _ZERO or lam_cap <= _ZERO:
+            continue
+        r_w = R * row_off[rr]
+        uq = _ZERO
+        for a in range(r):
+            uq += row_U_y[rr, a] * q_s[a]
+        if (wp.float64(x[bidx][1]) + r_w[1]) - (shelf_y_rest + uq) > margin:
+            continue                                 # separated
+        vb = v_fric[bidx]
+        wb = omega_fric[bidx]
+        v_c = vb + wp.cross(wb, r_w)                 # contact-point velocity
+        vt = vec3d(v_c[0], _ZERO, v_c[2])            # tangential (n̂ = ŷ)
+        ltan = wp.length(vt)
+        if ltan <= vel_eps:
+            continue
+        t = vt / ltan
+        rxt = wp.cross(r_w, t)
+        Iinv_rxt = Iinv * rxt
+        w_t = _ONE / m + wp.dot(rxt, Iinv_rxt)
+        lam_remove = ltan / w_t
+        lam_t = wp.min(lam_remove, lam_cap)          # Coulomb cone clamp
+        if lam_t <= _ZERO:
+            continue
+        p = t * (-lam_t)                             # friction impulse (⟂ n̂)
+        v_fric[bidx] = vb + p / m
+        dom = Iinv * wp.cross(r_w, p)
+        omega_fric[bidx] = vec3d(wb[0] + dom[0], wb[1] + dom[1], wb[2] + dom[2])
+        n_corn += _ONE
+        if lam_t > max_imp:
+            max_imp = lam_t
+
+    for bb in range(n_b):
+        bidx = body_ids[bb]
+        vb = v_fric[bidx]
+        wb = omega_fric[bidx]
+        v[bidx] = wp.vec3(wp.float32(vb[0]), wp.float32(vb[1]),
+                          wp.float32(vb[2]))
+        omega[bidx] = wp.vec3(wp.float32(wb[0]), wp.float32(wb[1]),
+                              wp.float32(wb[2]))
+    fric_diag[0] += n_corn
+    fric_diag[1] = wp.max(fric_diag[1], max_imp)

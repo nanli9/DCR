@@ -402,3 +402,28 @@ def enable_device_band(world, coupler, *, eta: float = 1.0, e: float = 0.0,
     if solver is None:
         raise RuntimeError("world exposes no solver / _solver")
     return solver
+
+
+def enable_device_friction(world, coupler, *, mu: float | None = None,
+                           margin: float = 5.0e-3, h: float = 1.0 / 120.0):
+    """Run the contact-friction pass FULLY ON-DEVICE (CUDA-resident).
+
+    Device port of `apply_contact_friction`: sets `coupler.friction_on_device`
+    so the coupler's `_substep_end_device` launches `k_contact_friction` after
+    the band, inside the captured graph (no host round-trip). Standalone — runs
+    band-on AND band-off. Reuses the band's CSR topology + `row_active` gate.
+
+    Requires a CUDA solver (the device-resident substep path is CUDA-gated; on
+    CPU `_use_device` is False, so use `apply_contact_friction` — the numpy
+    reference). μ defaults to the solver's own friction (zero new knob).
+    Returns the solver.
+    """
+    coupler.device_resident = True
+    coupler.friction_on_device = True
+    solver = _solver_of(world)
+    if solver is None:
+        raise RuntimeError("world exposes no solver / _solver")
+    coupler._fric_mu = float(mu) if mu is not None else _mu_of(solver, 0)
+    coupler._fric_margin = float(margin)
+    coupler._fric_h = float(h)
+    return solver
