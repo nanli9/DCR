@@ -193,6 +193,125 @@ def apply_velocity_band(coupler, solver, *, eta: float = 1.0, e: float = 0.0,
     return st
 
 
+@dataclass
+class FrictionStats:
+    n_corners: int = 0          # in-contact corners that saw a friction impulse
+    max_impulse: float = 0.0    # ‖p_t‖ max over corners this step
+    tang_mom_removed: float = 0.0   # Σ ‖Δ(m v_t)‖ — diagnostic only
+
+
+_G = 9.81                       # support normal force per body ≈ m·g (resting)
+
+
+def _mu_of(solver, b: int) -> float:
+    """Per-body Coulomb μ, solver-agnostic. XPBD stores a scalar `friction`;
+    AVBD exposes per-body `friction` (else a scalar). Reuses the SAME μ the
+    solver's own floor/box friction uses — no new knob."""
+    mu = getattr(solver, "friction", None)
+    if mu is not None:
+        return float(mu)
+    bodies = getattr(solver, "bodies", None)
+    if bodies is not None and b < len(bodies):
+        return float(getattr(bodies[b], "friction", 0.5))
+    return 0.5
+
+
+def apply_contact_friction(coupler, solver, *, mu: float | None = None,
+                           margin: float = 5.0e-3, h: float = 1.0 / 120.0,
+                           ) -> FrictionStats:
+    """Dynamic Coulomb friction at the tracked bodies' shelf-contact corners.
+
+    Tracked bodies are `floor_disabled` (the coupler owns their per-corner
+    anchor), so the solver's own floor friction never touches them and the
+    anchor is normal-only (`reduced_coupled_xpbd.py` J_x = [ŷ; r×ŷ]). With no
+    tangential resistance, lateral momentum → constant slide and angular
+    momentum about ŷ → constant yaw spin (the velocity band amplifies the spin
+    ~600× by injecting per-corner angular impulses with no frictional sink).
+
+    This restores the missing tangential channel as a STANDALONE velocity-level
+    pass (runs band-on AND band-off). Per in-contact corner, in the SAME impulse
+    formulation as `apply_velocity_band` (effective inverse mass `w_t`, impulse
+    `λ_t`), it removes the tangential corner velocity, clamped to the Coulomb
+    cone (Müller 2020 Eq. 30 — dynamic friction):
+
+        v_c = v + ω×r ,  v_t = v_c − ŷ(ŷ·v_c)            # tangential corner vel
+        t   = v_t/‖v_t‖ ,  w_t = 1/m + (r×t)·I⁻¹(r×t)    # band's m_eff, no modal
+        λ_remove = ‖v_t‖ / w_t                           # impulse to fully cancel
+        λ_n      = (m·g/n_c)·h                            # normal support share·h
+        λ_t = min(λ_remove, μ·λ_n)                        # cone clamp
+        Δv = −t λ_t/m ,  Δω = I⁻¹(r × −t λ_t)            # body-only reaction
+
+    No modal term (U_y is normal-only, so friction is orthogonal to the ring) —
+    the §15 energy bound and the band's passivity are untouched. λ_t ≤ λ_remove
+    always, so friction never reverses v_t: it cannot add tangential energy.
+    Mutates `solver.v`/`solver.omega` in place. Call AFTER `world.step()` (and
+    after the band, if enabled). Zero new knobs: μ defaults to the solver's own.
+
+    # DEVIATION (paper Eq.10 / foundation §15): friction is a body-side contact
+    # term, not part of the modal coupling; it is orthogonal to the ring and so
+    # does not enter the energy ledger. Device-resident fold mirrors the V2-B
+    # band kernel (same per-corner structure).
+    """
+    st = FrictionStats()
+    tracked = getattr(coupler, "tracked_body_indices", None)
+    if not tracked:
+        return st
+    q_s = np.asarray(coupler.rs.q_s, dtype=np.float64)
+    shelf_y_rest = float(getattr(coupler, "shelf_y_rest", 0.0))
+    mass, R, pos, v_np, w_np, I_w, Iinv_w = _body_dynamics(solver)
+    touched = False
+
+    for b in tracked:
+        idx = coupler._row_idx_by_body.get(b)
+        if idx is None or len(idx) == 0 or mass[b] <= 0.0:
+            continue
+        off_arr = coupler._row_off_by_body[b]
+        U_arr = coupler._row_U_y_by_body[b]
+        m = float(mass[b]); Iinv = Iinv_w[b]
+        mu_b = float(mu) if mu is not None else _mu_of(solver, b)
+        if mu_b <= 0.0:
+            continue
+
+        # First pass: which corners are in contact (to split the normal load).
+        in_contact = []
+        for j in range(off_arr.shape[0]):
+            r_w = R[b] @ off_arr[j]
+            surf_y = shelf_y_rest + float(U_arr[j] @ q_s)
+            if float(pos[b][1] + r_w[1]) - surf_y <= margin:
+                in_contact.append((j, r_w))
+        n_c = len(in_contact)
+        if n_c == 0:
+            continue
+        lam_n = (m * _G / n_c) * h          # normal support impulse per corner
+        lam_cap = mu_b * lam_n
+
+        for j, r_w in in_contact:           # sequential (Gauss–Seidel, like band)
+            v_c = v_np[b] + np.cross(w_np[b], r_w)
+            v_t = v_c - _N * float(v_c @ _N)
+            ltan = float(np.linalg.norm(v_t))
+            if ltan <= _VEL_EPS:
+                continue
+            t = v_t / ltan
+            rxt = np.cross(r_w, t)
+            w_t = (1.0 / m) + float(rxt @ Iinv @ rxt)
+            lam_remove = ltan / w_t
+            lam_t = min(lam_remove, lam_cap)
+            if lam_t <= 0.0:
+                continue
+            p = -t * lam_t
+            v_np[b] += p / m
+            w_np[b] += Iinv @ np.cross(r_w, p)
+            st.n_corners += 1
+            st.max_impulse = max(st.max_impulse, lam_t)
+            st.tang_mom_removed += lam_t
+            touched = True
+
+    if touched:
+        solver.v.assign(v_np.astype(np.float32))
+        solver.omega.assign(w_np.astype(np.float32))
+    return st
+
+
 def _solver_of(world):
     return getattr(world, "solver", None) or getattr(world, "_solver", None)
 

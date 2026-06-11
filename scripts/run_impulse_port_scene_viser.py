@@ -28,7 +28,7 @@ import time
 from scripts.run_reduced_scene_viser import (
     ReducedSceneViewer, SCENES, _MATERIAL, main as _reduced_main,
 )
-from dcr.dcr.impulse_port import apply_velocity_band
+from dcr.dcr.impulse_port import apply_velocity_band, apply_contact_friction
 
 
 class ImpulsePortSceneViewer(ReducedSceneViewer):
@@ -67,6 +67,12 @@ class ImpulsePortSceneViewer(ReducedSceneViewer):
                      "<1 throttles injection (clamp count rises). The reservoir-"
                      "exact governor (V1) keeps the per-prefix §15 bound exact at "
                      "ANY η — watch 'reservoir R' stay ≥ 0.")
+            self.gui_fric_on = g.add_checkbox(
+                "contact friction (Coulomb)", initial_value=True,
+                hint="ON: dynamic Coulomb friction at the shelf-contact corners "
+                     "(reuses the solver's μ; no new knob) — kills the "
+                     "frictionless slide AND the band-injected yaw spin. OFF: "
+                     "the normal-only anchor lets resting bodies slide/spin.")
             self.gui_band_imp = g.add_text("impulses / step", initial_value="0")
             self.gui_band_clamp = g.add_text("governor clamps", initial_value="0")
             self.gui_band_res = g.add_text("reservoir R (≥0)", initial_value="0")
@@ -118,16 +124,20 @@ class ImpulsePortSceneViewer(ReducedSceneViewer):
         Solver-agnostic: runs on BOTH XPBD (world.solver) and AVBD
         (world._solver). The band reads only q̇_d + the per-corner caches, so
         the SAME code path drives the body↔ring reaction on either backend."""
-        if not bool(self.gui_band_on.value):
-            self._band_last = None
-            return
         solver = getattr(self.world, "solver", None)
         if solver is None:
             solver = getattr(self.world, "_solver", None)   # AVBD world
         if solver is None:
             return
-        self._band_last = apply_velocity_band(
-            self.coupler, solver, eta=float(self.gui_band_eta.value))
+        if bool(self.gui_band_on.value):
+            self._band_last = apply_velocity_band(
+                self.coupler, solver, eta=float(self.gui_band_eta.value))
+        else:
+            self._band_last = None
+        # Friction is a STANDALONE pass: runs band-on AND band-off (band-off
+        # also drifts). Applied after the band so it damps the band's kick.
+        if bool(self.gui_fric_on.value):
+            apply_contact_friction(self.coupler, solver, h=self.h)
 
     def _render_tick(self, step_ms, fps=0.0, sps=0.0):
         super()._render_tick(step_ms, fps, sps)
