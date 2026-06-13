@@ -43,6 +43,10 @@ class MultiBodySystem:
     k_c: float = 1.0e5
     newton_iters: int = 30
     newton_tol: float = 1.0e-10
+    # optional stacked initial generalized velocity (e.g. a fast-dropping
+    # impactor); None ⇒ start at rest. Respected by every solver through
+    # initial_state(), so GT / AVBD / XPBD / split all see the same kick.
+    v0: NDArray[np.float64] | None = None
 
     offsets: list[int] = field(init=False)        # start index of each body in z
     n: int = field(init=False)
@@ -78,7 +82,8 @@ class MultiBodySystem:
 
     def initial_state(self) -> MultiBodyState:
         z = np.concatenate([b.rest_state() for b in self.bodies])
-        return MultiBodyState(z=z, v=np.zeros(self.n))
+        v = np.zeros(self.n) if self.v0 is None else self.v0.copy()
+        return MultiBodyState(z=z, v=v)
 
     # -- contact geometry ---------------------------------------------
     def _gaps(self, z):
@@ -238,6 +243,74 @@ def build_stack(kind: str, n_cubes: int, *, size: float = 0.1,
             contacts.append(Contact(upper=upper_idx, pid_upper=j,
                                     lower=lower_idx, pid_lower=4 + j))
     return MultiBodySystem(bodies=bodies, contacts=contacts, k_c=k_c)
+
+
+def build_stack_impact(kind: str, n_stack: int = 3, *, size: float = 0.1,
+                       slab_E: float = 5.0e7, cube_E: float = 5.0e6,
+                       kappa_v: float = 2.0e3, damping: float = 0.5,
+                       k_c: float = 1.0e6, material_rho: float = 600.0,
+                       impactor_rho: float = 5000.0, impactor_size: float | None = None,
+                       impactor_v0: float = 5.0, impactor_gap: float = 0.02):
+    """A resting tower of `n_stack` cubes on the slab + a HEAVY box dropped fast
+    onto the top of the stack, so the impact propagates DOWN the tower and rings
+    the slab.
+
+    Contacts: cube0↔slab, cube_i↔cube_{i-1} (the stack), and impactor↔top cube —
+    so the box actually lands ON the stack (not through it). The impactor starts
+    `impactor_gap` above the top face with a downward initial velocity
+    `impactor_v0` (m/s); it is `impactor_rho/material_rho`× as dense as the tower
+    cubes. Returns (system, info) with the impactor index and the stack indices.
+
+    bodies[0] = slab; bodies[1..n_stack] = stack (bottom→top); bodies[-1] = box.
+    """
+    from dcr.fem.material import Material
+    from dcr.twobody.reduced_body import (build_abd_cube, build_fem_cube,
+                                          build_fem_slab)
+
+    half = 0.5 * size
+    slab_top = 0.025
+    imp_size = impactor_size if impactor_size is not None else size
+    imp_half = 0.5 * imp_size
+
+    slab = build_fem_slab(material=Material(E=slab_E, nu=0.3, rho=material_rho),
+                          num_modes=16, alpha0=2.0 * damping, alpha1=1.0e-4 * damping)
+
+    def make_cube(rho_, drop_y_, sz_):
+        mat = Material(E=cube_E, nu=0.3, rho=rho_)
+        if kind == "abd":
+            return build_abd_cube(size=sz_, material=mat, kappa_v=kappa_v,
+                                  drop_y=drop_y_, alpha0=damping)
+        return build_fem_cube(size=sz_, material=mat, drop_y=drop_y_,
+                              alpha0=damping, alpha1=5.0e-4 * damping)
+
+    # tower cubes resting exactly on each other (centroid i = slab_top+(2i+1)·half)
+    cubes = [make_cube(material_rho, slab_top + (2 * i + 1) * half, size)
+             for i in range(n_stack)]
+    # heavy box just above the top face, slammed down
+    top_face = slab_top + 2 * n_stack * half
+    impactor = make_cube(impactor_rho, top_face + imp_half + impactor_gap, imp_size)
+
+    bodies = [slab] + cubes + [impactor]
+    imp_idx = 1 + n_stack
+    top_idx = n_stack                         # body index of the top tower cube
+    contacts: list[Contact] = []
+    for j in range(4):                        # cube0 ↔ slab
+        contacts.append(Contact(upper=1, pid_upper=j, lower=0, pid_lower=j))
+    for i in range(1, n_stack):               # cube_i ↔ cube_{i-1}
+        for j in range(4):
+            contacts.append(Contact(upper=1 + i, pid_upper=j,
+                                    lower=i, pid_lower=4 + j))
+    for j in range(4):                        # box ↔ top tower cube
+        contacts.append(Contact(upper=imp_idx, pid_upper=j,
+                                lower=top_idx, pid_lower=4 + j))
+
+    sysm = MultiBodySystem(bodies=bodies, contacts=contacts, k_c=k_c)
+    # fast downward initial velocity on the box's translation carrier (y = dof 1)
+    v0 = np.zeros(sysm.n)
+    v0[sysm.offsets[imp_idx] + 1] = -abs(impactor_v0)
+    sysm.v0 = v0
+    info = {"impactor_body": imp_idx, "stack_bodies": list(range(1, n_stack + 1))}
+    return sysm, info
 
 
 def build_side_by_side(kind: str, n_rest: int = 3, *, size: float = 0.1,

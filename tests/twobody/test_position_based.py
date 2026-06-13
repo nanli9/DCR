@@ -18,7 +18,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from dcr.twobody.multibody import build_side_by_side, build_stack
+from dcr.twobody.multibody import (build_side_by_side, build_stack,
+                                    build_stack_impact)
 from dcr.twobody.position_based import (AVBDDynamicSystem, SplitOneWaySystem,
                                         XPBDDynamicSystem)
 
@@ -128,6 +129,44 @@ def test_impactor_lands_on_bare_slab_not_through_cube():
     # and placing it on a cube is now rejected loudly
     with pytest.raises(ValueError, match="penetrate"):
         build_side_by_side("fem", n_rest=3, impactor_x=0.0)
+
+
+def test_stack_impact_heavy_box_is_stable_and_two_way():
+    """A heavy fast box on a 3-cube stack: the box's initial velocity is applied,
+    the dynamic solver stays stable (bounded penetration, finite energy), the slab
+    rings hard (two-way), and the impact is absorbed (the system settles)."""
+    base, info = build_stack_impact("fem", n_stack=3, impactor_rho=5000.0,
+                                    impactor_v0=5.0, k_c=1.0e6, damping=0.6)
+    imp = info["impactor_body"]
+    st0 = base.initial_state()
+    assert st0.v[base.offsets[imp] + 1] < -1.0, "box initial velocity not applied"
+
+    dyn = AVBDDynamicSystem(base, n_outer=8, n_inner=4)
+    st = dyn.initial_state()
+    slab_ke = max_pen = 0.0
+    for _ in range(1600):
+        st = dyn.step(st, 5.0e-4)
+        e = dyn.energy_breakdown(st)
+        slab_ke = max(slab_ke, e["KE_body0"])
+        max_pen = max(max_pen, e["max_penetration"])
+        assert np.isfinite(e["total"])
+    assert slab_ke > 1.0, f"slab barely rang under heavy impact (KE={slab_ke:.2e})"
+    assert max_pen < 5.0e-3, f"contact unstable (pen={max_pen*1e3:.2f}mm)"
+    assert np.linalg.norm(st.v) < 0.5, "impact not absorbed (still moving fast)"
+
+
+def test_stack_impact_split_cannot_absorb():
+    """One-way contrast: under the same heavy impact the split's quasi-static slab
+    rings not at all (slab modal KE ≡ 0) — it cannot absorb the impact."""
+    base, info = build_stack_impact("fem", n_stack=3, impactor_rho=5000.0,
+                                    impactor_v0=5.0, k_c=1.0e6, damping=0.6)
+    split = SplitOneWaySystem(base)
+    st = split.initial_state()
+    slab_ke = 0.0
+    for _ in range(1600):
+        st = split.step(st, 5.0e-4)
+        slab_ke = max(slab_ke, split.energy_breakdown(st)["KE_body0"])
+    assert slab_ke < 1.0e-9, f"quasi-static slab should not ring (KE={slab_ke:.2e})"
 
 
 @pytest.mark.parametrize("kind", ["fem", "abd"])
