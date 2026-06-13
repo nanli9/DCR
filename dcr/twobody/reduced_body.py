@@ -376,8 +376,10 @@ def build_abd_cube(
     kappa_v: float = 5.0e3,
     drop_y: float = 0.12,
     alpha0: float = 1.0,
+    cx: float = 0.0,
+    cz: float = 0.0,
 ) -> ABDAffineBody:
-    """ABD affine cube of edge `size`, centroid dropped from world y=`drop_y`."""
+    """ABD affine cube of edge `size`, centroid at (cx, drop_y, cz)."""
     material = material or Material(E=1.0e9, nu=0.3, rho=600.0)
     mesh = make_block_tet_mesh(size=size, nx=nx, ny=nx, nz=nx)
     half = 0.5 * size
@@ -393,7 +395,7 @@ def build_abd_cube(
         node_mass=m_node,
         kappa_v=kappa_v,
         corner_rest=corner_rest,
-        centroid_world0=np.array([0.0, drop_y, 0.0]),
+        centroid_world0=np.array([cx, drop_y, cz]),
     )
     body.set_damping(alpha0)
     # stash mesh surface for the viewer
@@ -410,6 +412,8 @@ def build_fem_cube(
     drop_y: float = 0.12,
     alpha0: float = 1.0,
     alpha1: float = 5.0e-4,
+    cx: float = 0.0,
+    cz: float = 0.0,
 ) -> FEMModalBody:
     """FEM-modal cube: translation carrier + `n_elastic` elastic eigenmodes."""
     material = material or Material(E=1.0e9, nu=0.3, rho=600.0)
@@ -433,7 +437,7 @@ def build_fem_cube(
     centroid = mesh.vertices.mean(axis=0)
     # tracked corners
     corner_ids, corners = _cube_corner_ids(mesh, half)
-    corner_rest_world = corners - centroid + np.array([0.0, drop_y, 0.0])
+    corner_rest_world = corners - centroid + np.array([cx, drop_y, cz])
     # modal rows at each corner node: (P, 3, k)
     corner_modal = np.stack([Phi[3 * cid: 3 * cid + 3, :] for cid in corner_ids])
 
@@ -442,7 +446,7 @@ def build_fem_cube(
     sv = np.unique(surface.faces.ravel())
     remap = np.full(mesh.num_vertices, -1, dtype=np.int64)
     remap[sv] = np.arange(len(sv))
-    surf_rest = mesh.vertices[sv] - centroid + np.array([0.0, drop_y, 0.0])
+    surf_rest = mesh.vertices[sv] - centroid + np.array([cx, drop_y, cz])
     surf_modal = np.stack([Phi[3 * v: 3 * v + 3, :] for v in sv])
     surf_faces = remap[surface.faces].astype(np.int32)
 

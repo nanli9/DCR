@@ -238,3 +238,60 @@ def build_stack(kind: str, n_cubes: int, *, size: float = 0.1,
             contacts.append(Contact(upper=upper_idx, pid_upper=j,
                                     lower=lower_idx, pid_lower=4 + j))
     return MultiBodySystem(bodies=bodies, contacts=contacts, k_c=k_c)
+
+
+def build_side_by_side(kind: str, n_rest: int = 3, *, size: float = 0.1,
+                       spacing: float = 0.28, impactor_x: float = 0.0,
+                       impactor_drop: float = 0.45, impactor_rho: float = 3000.0,
+                       slab_E: float = 5.0e7, cube_E: float = 5.0e6,
+                       kappa_v: float = 2.0e3, damping: float = 0.5,
+                       k_c: float = 1.0e5, rest_gap: float = 0.002):
+    """Slab + `n_rest` cubes RESTING side by side + one heavy impactor dropped on
+    the slab. The impactor rings the slab; the ring kicks the bystander cubes
+    (slab → cube momentum transfer through the monolithic implicit contact, no
+    velocity-impulse band). Returns (system, info) where info marks which body is
+    the impactor and the resting-cube indices.
+
+    bodies[0] = slab; bodies[1..n_rest] = resting cubes (left→right);
+    bodies[n_rest+1] = impactor.
+    """
+    from dcr.fem.material import Material
+    from dcr.twobody.reduced_body import (build_abd_cube, build_fem_cube,
+                                          build_fem_slab)
+
+    half = 0.5 * size
+    slab_top = 0.025
+    rest_centroid = slab_top + half
+    # resting-cube x positions, centered
+    xs = (np.arange(n_rest) - (n_rest - 1) / 2.0) * spacing
+
+    def make_cube(cube_E_, rho_, drop_y_, cx_):
+        mat = Material(E=cube_E_, nu=0.3, rho=rho_)
+        if kind == "abd":
+            return build_abd_cube(size=size, material=mat, kappa_v=kappa_v,
+                                  drop_y=drop_y_, alpha0=damping, cx=cx_)
+        return build_fem_cube(size=size, material=mat, drop_y=drop_y_,
+                              alpha0=damping, alpha1=5.0e-4 * damping, cx=cx_)
+
+    cubes = [make_cube(cube_E, 600.0, rest_centroid + rest_gap, float(x)) for x in xs]
+    impactor = make_cube(cube_E, impactor_rho, impactor_drop, float(impactor_x))
+    all_cubes = cubes + [impactor]
+
+    # slab must track 4 contact points under every cube's bottom corners
+    corner_xz = []
+    for cx in list(xs) + [impactor_x]:
+        for sx, sz in ((half, half), (half, -half), (-half, half), (-half, -half)):
+            corner_xz.append((cx + sx, sz))
+    slab = build_fem_slab(material=Material(E=slab_E, nu=0.3, rho=600.0),
+                          num_modes=16, alpha0=2.0 * damping, alpha1=1.0e-4 * damping,
+                          nx=20, ny=12, cube_corners_xz=np.array(corner_xz))
+
+    bodies = [slab] + all_cubes
+    contacts: list[Contact] = []
+    for c in range(len(all_cubes)):
+        for j in range(4):
+            contacts.append(Contact(upper=1 + c, pid_upper=j,
+                                    lower=0, pid_lower=4 * c + j))
+    sysm = MultiBodySystem(bodies=bodies, contacts=contacts, k_c=k_c)
+    info = {"impactor_body": 1 + n_rest, "rest_bodies": list(range(1, n_rest + 1))}
+    return sysm, info
