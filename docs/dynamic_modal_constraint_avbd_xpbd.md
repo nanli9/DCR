@@ -159,6 +159,81 @@ uv run python scripts/run_stack_impact_viser.py --solver split               # o
 uv run python scripts/run_stack_impact_viser.py --kind abd --impactor-rho 8000 --impactor-v0 8
 ```
 
+## Truck-bed road impact — the busy multi-pile scene (`build_truck_bed`)
+
+`scenes/reduced_truck.py`'s road layout brought into the `MultiBodySystem`
+framework so AVBD/XPBD are exercised on a **busy, multi-pile** scene. A flexible
+**bed slab** (1.6 m × 0.8 m, 20 modes, clamped short ends) carries a mixed cargo
+load — a light crate, a **3-cube lumber stack**, a heavy crate, and a 2-crate
+stack — and a **heavy box (≈108 J) is dropped on bare bed** between them. The box
+rings the bed and the ring **rocks every distant cargo pile** (`docs/figures/
+truck_bed_{reaction,solvers}_fem.png`):
+
+| solver (fem, 2000 steps, h=5e-4) | bed modal KE peak | cargo KE peak | max ΔE | max pen | settles |
+|---|---|---|---|---|---|
+| **AVBD** | 41.1 J | 3.31 J | **−1.6e-5** | **0.18 mm** | ‖v‖=0.14 |
+| **XPBD** | 45.4 J | 3.73 J | −2.6e-4 | 3.34 mm | ‖v‖=0.26 |
+| GT | 43.4 J | 3.27 J | −5.4e-5 | 3.34 mm | ‖v‖=0.34 |
+| **SPLIT (1-way)** | **0.000 J** | 1.43 J | −7.2e-5 | 1.04 mm | **‖v‖=3.24 ✗** |
+
+- Both real-time solvers (AVBD, XPBD) **agree with the GT** on the bed ring and
+  the cargo rocking; AVBD's augmented Lagrangian holds the load to **0.18 mm**
+  penetration vs the penalty solvers' 3.3 mm.
+- The cargo reaction is **staggered**: the nearest piles rock first, then the wave
+  reaches the far ones (`truck_bed_reaction_fem.png`, right panel). The tall
+  lumber stack reacts most (it amplifies the bed motion).
+- **SPLIT cannot ring the bed** (modal KE ≡ 0), so the cargo gets only **~½** the
+  kick (1.4 J vs 3.3–3.7 J) and the run **never settles** (the lossless
+  quasi-static bed absorbs nothing, so the box keeps bouncing: ‖v‖end = 3.2).
+
+```bash
+uv run python scripts/run_truck_bed_benchmark.py --solvers      # AVBD/XPBD/GT/SPLIT
+uv run python scripts/run_truck_bed_benchmark.py --impactor-rho 9000 --impactor-v0 8
+```
+
+## Energy-consistent passivity certificate (`run_passivity_certificate.py`)
+
+The advisor's third ask: *account contact energy with each solver's own model so
+each carries a clean per-step bound.* The certificate logs, per solver, the total
+mechanical energy with its **native** contact potential and certifies passivity
+(**PASS iff** `max_n (E[n+1]−E[n]) ≤ ε_tol` over the whole run):
+
+| native contact model | stored Φ_contact |
+|---|---|
+| penalty GT / SPLIT | ½·k_c·Σ max(0,−gap)² |
+| XPBD (compliant, α=1/k_c) | ½·k_c·Σ max(0,−gap)²  (same elastic energy) |
+| AVBD (augmented Lagrangian) | ½·ρ₀·Σ max(0,−gap)² — the multiplier λ enforcing gap≈0 is a **workless** constraint reaction, so only the residual penalty is *stored* |
+
+All reduce to the same form (ρ₀=k_c), so `energy_breakdown.total` is the native
+certificate energy for every solver — what differs is **how much each stores**.
+On the truck scene (fem, 2000 steps, ε_tol = 1e-4 J):
+
+| solver | certificate | dissipated | max per-step ΔE | contact-stored E peak |
+|---|---|---|---|---|
+| **AVBD** | **PASS ✓** (0 violations) | 123.3 J | **−1.6e-5 J** | **0.028 J** |
+| **XPBD** | **PASS ✓** (0 violations) | 123.2 J | −2.6e-4 J | 18.1 J |
+| GT | **PASS ✓** (0 violations) | 123.3 J | −5.4e-5 J | 18.2 J |
+| SPLIT | PASS ✓ (passive but non-settling) | 20.2 J | −7.2e-5 J | 1.74 J |
+
+- **Every solver is strictly passive**: the *largest* per-step energy change is
+  itself negative — total energy is monotone non-increasing, no governor, no
+  reservoir. Passivity is structural (backward Euler on a bounded-below potential).
+- **AVBD has the cleanest bound**: its AL multiplier drives gap→0, so it stores
+  **~650× less** spurious penetration energy (0.028 J) than the penalty solvers
+  (18 J). The penalty/compliant solvers carry a real ½k_c·gap² residual.
+- **SPLIT is passive but pathological**: it dissipates only 20 J of the 123 J it
+  must absorb — the quasi-static bed cannot ring or damp, so the energy stays in
+  the perpetually-bouncing box (it does not settle).
+
+(Total energy dips slightly negative late in the run — that is only the
+gravitational datum `PE_grav = −f_grav·z` as the cargo settles below `z=0`; the
+constant offset does not affect the monotonicity certificate.)
+
+```bash
+uv run python scripts/run_passivity_certificate.py --scene truck
+uv run python scripts/run_passivity_certificate.py --scene side_by_side
+```
+
 ## Penetration fix (side-by-side scene)
 
 The impactor previously defaulted to `x=0`, exactly the centre resting cube's `x`.

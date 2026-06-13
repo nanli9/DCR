@@ -326,6 +326,107 @@ def build_stack_impact(kind: str, n_stack: int = 3, *, size: float = 0.1,
     return sysm, info
 
 
+def build_truck_bed(kind: str = "fem", *, size: float = 0.1,
+                    slab_E: float = 5.0e7, cube_E: float = 5.0e6,
+                    kappa_v: float = 2.0e3, damping: float = 0.6,
+                    k_c: float = 1.0e6, material_rho: float = 600.0,
+                    impactor_rho: float = 6000.0, impactor_v0: float = 6.0,
+                    impactor_x: float = 0.0, impactor_drop: float | None = None,
+                    piles: list[tuple[float, float, int]] | None = None):
+    """A *truck-bed / road* scene: the flexible bed slab (the modal support) with
+    several resting cargo piles of varying mass at different x, plus a HEAVY box
+    dropped fast on bare bed. This is the `scenes/reduced_truck.py` layout brought
+    into the `MultiBodySystem` (twobody) framework so the AVBD / XPBD dynamic
+    constraint can be exercised on a busy, multi-pile scene: the drop rings the
+    bed and the ring rocks every distant cargo pile (two-way, through the support).
+
+    The bed is bigger than the single-footprint slab (length 1.6 m, width 0.8 m,
+    clamped at the short ends) and tracks a contact footprint under every pile base
+    and under the impactor. `piles` is a list of `(x, density, n_high)` cargo piles
+    (a tower of `n_high` cubes of the given density at bed-x `x`); the default is a
+    busy mixed load: a light crate, a 3-cube lumber stack, a heavy crate, and a
+    2-crate stack. The impactor lands on bare bed in a gap (`impactor_x`) and never
+    touches the cargo — it drives the bed only.
+
+    bodies[0] = bed slab; bodies[1..] = cargo cubes pile-by-pile (bottom→top);
+    bodies[-1] = impactor. Returns (system, info) where info carries the impactor
+    index, the per-pile body-index lists and flat cargo list, and pile labels.
+    """
+    from dcr.fem.material import Material
+    from dcr.twobody.reduced_body import (build_abd_cube, build_fem_cube,
+                                          build_fem_slab)
+
+    half = 0.5 * size
+    slab_top = 0.025
+    if piles is None:                         # default busy mixed truck load
+        piles = [(-0.55, 800.0, 1),           # light crate
+                 (-0.22, 700.0, 3),           # tall lumber stack (rocks visibly)
+                 (0.30, 1100.0, 1),           # heavy single crate
+                 (0.58, 750.0, 2)]            # 2-crate stack
+    labels = [f"pile@{x:+.2f}×{n}" for (x, _r, n) in piles]
+    if impactor_drop is None:
+        impactor_drop = slab_top + 6 * half   # start above the bed, fall fast
+
+    # footprints touching the bed (in body order): each pile base, then impactor
+    foot_x = [x for (x, _r, _n) in piles] + [impactor_x]
+    for fx in foot_x[:-1]:                     # impactor must not overlap a pile
+        if abs(impactor_x - fx) < size:
+            raise ValueError(
+                f"impactor_x={impactor_x:.3f} overlaps a pile at x={fx:.3f} "
+                f"(|Δx|<{size}); land it on bare bed in a gap.")
+    corner_xz = []
+    for cx in foot_x:
+        for sx, sz in ((half, half), (half, -half), (-half, half), (-half, -half)):
+            corner_xz.append((cx + sx, sz))
+    slab = build_fem_slab(material=Material(E=slab_E, nu=0.3, rho=material_rho),
+                          num_modes=20, alpha0=2.0 * damping, alpha1=1.0e-4 * damping,
+                          length=1.6, width=0.8, nx=28, ny=14,
+                          cube_corners_xz=np.array(corner_xz))
+
+    def make_cube(rho_, drop_y_, cx_):
+        mat = Material(E=cube_E, nu=0.3, rho=rho_)
+        if kind == "abd":
+            return build_abd_cube(size=size, material=mat, kappa_v=kappa_v,
+                                  drop_y=drop_y_, alpha0=damping, cx=cx_)
+        return build_fem_cube(size=size, material=mat, drop_y=drop_y_,
+                              alpha0=damping, alpha1=5.0e-4 * damping, cx=cx_)
+
+    bodies = [slab]
+    contacts: list[Contact] = []
+    pile_bodies: list[list[int]] = []
+    for f, (x, rho, n_high) in enumerate(piles):
+        idxs = []
+        for i in range(n_high):
+            bi = len(bodies)
+            bodies.append(make_cube(rho, slab_top + (2 * i + 1) * half, x))
+            idxs.append(bi)
+            if i == 0:                        # base cube ↔ bed footprint f
+                for j in range(4):
+                    contacts.append(Contact(upper=bi, pid_upper=j,
+                                            lower=0, pid_lower=4 * f + j))
+            else:                             # cube i ↔ cube (i-1) in the pile
+                for j in range(4):
+                    contacts.append(Contact(upper=bi, pid_upper=j,
+                                            lower=idxs[i - 1], pid_lower=4 + j))
+        pile_bodies.append(idxs)
+
+    imp_idx = len(bodies)                      # heavy impactor on bare bed
+    bodies.append(make_cube(impactor_rho, impactor_drop, impactor_x))
+    foot_imp = len(piles)
+    for j in range(4):
+        contacts.append(Contact(upper=imp_idx, pid_upper=j,
+                                lower=0, pid_lower=4 * foot_imp + j))
+
+    sysm = MultiBodySystem(bodies=bodies, contacts=contacts, k_c=k_c)
+    v0 = np.zeros(sysm.n)
+    v0[sysm.offsets[imp_idx] + 1] = -abs(impactor_v0)   # fast downward drop
+    sysm.v0 = v0
+    info = {"impactor_body": imp_idx, "pile_bodies": pile_bodies,
+            "all_cargo": [bi for p in pile_bodies for bi in p],
+            "labels": labels}
+    return sysm, info
+
+
 def build_side_by_side(kind: str, n_rest: int = 3, *, size: float = 0.1,
                        spacing: float = 0.28, impactor_x: float | None = None,
                        impactor_drop: float = 0.45, impactor_rho: float = 3000.0,

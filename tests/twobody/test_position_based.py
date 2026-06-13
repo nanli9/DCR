@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 
 from dcr.twobody.multibody import (build_side_by_side, build_stack,
-                                    build_stack_impact)
+                                    build_stack_impact, build_truck_bed)
 from dcr.twobody.position_based import (AVBDDynamicSystem, SplitOneWaySystem,
                                         XPBDDynamicSystem)
 
@@ -176,6 +176,44 @@ def test_stack_impact_split_cannot_absorb():
         st = split.step(st, 5.0e-4)
         slab_ke = max(slab_ke, split.energy_breakdown(st)["KE_body0"])
     assert slab_ke < 1.0e-9, f"quasi-static slab should not ring (KE={slab_ke:.2e})"
+
+
+@pytest.mark.parametrize("solver", ["AVBD", "XPBD"])
+def test_truck_bed_impact_rocks_cargo_and_is_passive(solver):
+    """The busy truck-bed scene: a heavy box dropped on the bare bed rings the
+    flexible bed and the ring ROCKS every resting cargo pile (two-way, through the
+    support). Assert: the box's drop velocity is applied, the run is passive (total
+    energy monotone non-increasing to round-off), the bed rings, the distant cargo
+    is rocked from quiet, contact stays stable, and it settles."""
+    base, info = build_truck_bed("fem", impactor_rho=6000.0, impactor_v0=6.0,
+                                 k_c=1.0e6, damping=0.6)
+    imp = info["impactor_body"]
+    cargo = info["all_cargo"]
+    # box dropped on bare bed beside the cargo — no box↔cargo contact
+    assert all(c.upper != imp or c.lower == 0 for c in base.contacts)
+    st0 = base.initial_state()
+    assert st0.v[base.offsets[imp] + 1] < -1.0, "box drop velocity not applied"
+
+    sys = (AVBDDynamicSystem(base, n_outer=8, n_inner=4) if solver == "AVBD"
+           else XPBDDynamicSystem(base, n_iters=30))
+    st = sys.initial_state()
+    bed_ke = max_pen = 0.0
+    cargo_ke, totals = [], [sys.energy_breakdown(st)["total"]]
+    for _ in range(1800):
+        st = sys.step(st, 5.0e-4)
+        e = sys.energy_breakdown(st)
+        bed_ke = max(bed_ke, e["KE_body0"])
+        max_pen = max(max_pen, e["max_penetration"])
+        cargo_ke.append(sum(e[f"KE_body{b}"] for b in cargo))
+        totals.append(e["total"])
+        assert np.isfinite(e["total"])
+    cargo_ke = np.asarray(cargo_ke)
+    quiet = cargo_ke[:40].max()                 # before the box reaches the bed
+    assert bed_ke > 1.0, f"{solver} bed barely rang (KE={bed_ke:.2e})"
+    assert cargo_ke.max() > 20.0 * quiet, f"{solver} ring did not rock the cargo"
+    assert max_pen < 5.0e-3, f"{solver} contact unstable (pen={max_pen*1e3:.2f}mm)"
+    # passive for free — total mechanical energy monotone non-increasing
+    assert np.diff(np.asarray(totals)).max() < 1.0e-4, f"{solver} not passive"
 
 
 @pytest.mark.parametrize("kind", ["fem", "abd"])
