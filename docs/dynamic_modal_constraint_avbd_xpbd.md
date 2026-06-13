@@ -77,9 +77,13 @@ ABD settle (`--scene settle --kind abd`): AVBD matches the GT rest to 1.3e-5 wit
 ## Run it
 
 ```bash
-# logged comparison + 4-panel figure
+# logged comparison + 4-panel figure (scenes: side_by_side, settle, stack)
 uv run python scripts/run_solver_comparison_benchmark.py --scene side_by_side --kind fem
-uv run python scripts/run_solver_comparison_benchmark.py --scene settle --kind abd --no-xpbd
+uv run python scripts/run_solver_comparison_benchmark.py --scene stack --kind abd --no-xpbd
+
+# one-way SPLIT vs two-way DYNAMIC overlay (the PI's question)
+uv run python scripts/run_split_vs_dynamic_overlay.py --scene side_by_side --with-gt
+uv run python scripts/run_split_vs_dynamic_overlay.py --scene stack --kind fem
 
 # lockstep 3-up viser (GT grey / AVBD orange / XPBD green)
 uv run python scripts/run_solver_comparison_viser.py        # http://localhost:8198
@@ -87,6 +91,46 @@ uv run python scripts/run_solver_comparison_viser.py        # http://localhost:8
 # acceptance tests (settle+passive, GT parity, two-way kick, AL non-penetration)
 uv run python -m pytest tests/twobody/test_position_based.py -q
 ```
+
+## One-way split vs two-way dynamic — the PI's question
+
+`scripts/run_split_vs_dynamic_overlay.py` runs the SAME scene through the old
+**split** (`SplitOneWaySystem` — slab modal `q` held quasi-static, the production
+coupler's documented `H_q = K_q`, `q̇=0`) and the **dynamic constraint**
+(`AVBDDynamicSystem`), and overlays the tell-tales.
+
+**The rigorous two-way signature is the slab's modal kinetic energy** (figure
+`docs/figures/split_vs_dynamic_side_by_side_fem.png`):
+
+| quantity (side-by-side, FEM) | SPLIT (1-way) | DYN (2-way) | GT |
+|---|---|---|---|
+| slab modal KE peak | **0.000 J** (structural) | 1.52 J | 1.79 J |
+| bystander cube KE peak | 0.030 J | 0.091 J | 0.151 J |
+| settling time (rigid KE → 0) | ~2 s | ~0.4 s | ~0.4 s |
+
+- **Slab modal KE ≡ 0 in the split** — a quasi-static slab stores no kinetic
+  energy, so it *cannot ring*. In the dynamic constraint it rings to ~1.5 J and
+  decays as it feeds energy back. That nonzero modal KE *is* the two-way loop.
+- The split's slab is a **lossless quasi-static spring**: it absorbs none of the
+  impact (no modal inertia to ring, no `q̇` for `D_q` to damp), so the impactor
+  bounces for ~2 s. The dynamic slab rings *and* damps, settling in ~0.4 s.
+- The distant bystander gets a **3–5× stronger, resonant** kick in the dynamic
+  case; the split only transmits weak, repeated *quasi-static* nudges (the global
+  sag), never a kinetic ring.
+
+Honest nuance for the PI: the split is *not literally* zero-transmission — its
+global static sag does move a bystander a little — but it carries **no kinetic
+energy** and produces **no resonant ring or impact absorption**. The dynamic
+constraint restores all three. The stack scene (`--scene stack`) shows the same
+slab-modal-KE 0-vs-ringing split.
+
+## Penetration fix (side-by-side scene)
+
+The impactor previously defaulted to `x=0`, exactly the centre resting cube's `x`.
+Since `build_side_by_side` has **only cube→slab contacts** (no cube↔cube), the
+impactor fell straight *through* that cube. Fixed: `impactor_x=None` now drops it
+into the gap between the two centre cubes (½·spacing) so it lands on bare slab,
+and an impactor placed within a cube's x-span now raises `ValueError`.
 
 ## Scope / honesty
 

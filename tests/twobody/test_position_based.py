@@ -19,7 +19,8 @@ import numpy as np
 import pytest
 
 from dcr.twobody.multibody import build_side_by_side, build_stack
-from dcr.twobody.position_based import AVBDDynamicSystem, XPBDDynamicSystem
+from dcr.twobody.position_based import (AVBDDynamicSystem, SplitOneWaySystem,
+                                        XPBDDynamicSystem)
 
 _H = 5.0e-4
 
@@ -91,6 +92,42 @@ def test_two_way_bystander_kick(solver, kind):
     assert quiet < 1.0e-3, f"{solver}/{kind} bystander not quiet pre-impact"
     assert kick > 100.0 * quiet, f"{solver}/{kind} weak two-way kick"
     assert max(modal) > 0.2, f"{solver}/{kind} slab barely rang"
+
+
+def test_split_is_one_way_dynamic_is_two_way():
+    """The two-way signature is the slab's modal KINETIC energy: structurally 0
+    for the one-way split (quasi-static slab — it cannot ring), and clearly
+    nonzero for the dynamic constraint (the slab rings and feeds energy back).
+    This is the answer to the PI's one-way-vs-two-way question."""
+    base, info = build_side_by_side("fem", n_rest=3, impactor_drop=0.35,
+                                    impactor_rho=2500.0, damping=0.6, k_c=4.0e5)
+    split = SplitOneWaySystem(base)
+    dyn = AVBDDynamicSystem(base, n_outer=6, n_inner=3)
+    sp_slab_ke = dyn_slab_ke = 0.0
+    sp, dy = split.initial_state(), dyn.initial_state()
+    for _ in range(2000):
+        sp = split.step(sp, _H)
+        dy = dyn.step(dy, _H)
+        sp_slab_ke = max(sp_slab_ke, split.energy_breakdown(sp)["KE_body0"])
+        dyn_slab_ke = max(dyn_slab_ke, dyn.energy_breakdown(dy)["KE_body0"])
+    assert sp_slab_ke < 1.0e-9, f"split slab ringing (KE={sp_slab_ke:.2e})"
+    assert dyn_slab_ke > 0.1, f"dynamic slab did not ring (KE={dyn_slab_ke:.2e})"
+
+
+def test_impactor_lands_on_bare_slab_not_through_cube():
+    """Regression: the side-by-side impactor must land in a gap on the slab, not
+    share a resting cube's x (no cube↔cube contacts ⇒ it would penetrate)."""
+    base, info = build_side_by_side("fem", n_rest=3)
+    imp = base.bodies[info["impactor_body"]]
+    imp_x = float(imp.corner_rest[:, 0].mean())
+    half = 0.05
+    for bi in info["rest_bodies"]:
+        cube_x = float(base.bodies[bi].corner_rest[:, 0].mean())
+        assert abs(imp_x - cube_x) >= 2 * half, \
+            f"impactor x={imp_x} overlaps resting cube x={cube_x}"
+    # and placing it on a cube is now rejected loudly
+    with pytest.raises(ValueError, match="penetrate"):
+        build_side_by_side("fem", n_rest=3, impactor_x=0.0)
 
 
 @pytest.mark.parametrize("kind", ["fem", "abd"])

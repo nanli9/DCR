@@ -45,6 +45,82 @@ from .multibody import MultiBodySystem, MultiBodyState
 
 
 # ======================================================================
+# SPLIT (one-way) — the OLD design, for contrast
+# ======================================================================
+class SplitOneWaySystem:
+    """The old static/dynamic SPLIT, reduced to its essence: the slab's modal
+    coordinate is held QUASI-STATIC in the contact solve.
+
+    This is the documented setup of the production coupler
+    (`dcr/avbd/reduced_coupled_avbd.py`): *"q is quasi-static — no M_q·qdot, no
+    D_q·qdot, only K_q·q. qdot is held at zero."* The slab block uses
+    H_q = K_q (+ contact), g_q = K_q·q − f_grav_slab (+ contact); there is **no**
+    modal inertia M_q/h² and **no** modal velocity carried, so the slab stores no
+    modal kinetic energy. It is a memoryless spring: it deflects under the
+    instantaneous load and relaxes instantly — it cannot RING, so the energetic
+    transient (the part the real split routes one-way into a render-only q_d +
+    velocity band) never pushes a body. Energy flows rigid → slab, not back.
+
+    Used only as the BASELINE the dynamic-constraint two-way coupling is compared
+    against (`scripts/run_split_vs_dynamic_overlay.py`). bodies[0] is the slab.
+
+    # DEVIATION (foundation §15): this is the one-way path on purpose — it omits
+    # the modal inertia so there is no structural back-reaction. The dynamic
+    # constraint (AVBD/XPBDDynamicSystem) restores it.
+    """
+
+    def __init__(self, base: MultiBodySystem, *, newton_iters: int = 30,
+                 slab_body: int = 0):
+        self.base = base
+        self.newton_iters = newton_iters
+        self.slab_body = slab_body
+
+    def initial_state(self) -> MultiBodyState:
+        return self.base.initial_state()
+
+    def energy_breakdown(self, st: MultiBodyState) -> dict:
+        return self.base.energy_breakdown(st)
+
+    def static_residual(self, st: MultiBodyState) -> float:
+        return self.base.static_residual(st)
+
+    def body_z(self, st: MultiBodyState, i: int) -> NDArray[np.float64]:
+        return self.base.body_z(st, i)
+
+    @property
+    def bodies(self):
+        return self.base.bodies
+
+    def step(self, state: MultiBodyState, h: float) -> MultiBodyState:
+        b = self.base
+        sl0 = b._slice(self.slab_body)
+        z_n, v_n = state.z, state.v
+        z_tilde = z_n + h * v_n + (h * h) * (b._Minv @ b._fgrav)
+        z = z_n.copy()
+        for _ in range(self.newton_iters):
+            g_int, H_int = b._internal(z)
+            gaps, grads = b._gaps(z)
+            # dynamic bodies: backward-Euler inertia + damping
+            g = (b._M @ (z - z_tilde)) / (h * h) + (b._D @ (z - z_n)) / h + g_int
+            H = b._M / (h * h) + H_int + b._D / h
+            # slab modal block → QUASI-STATIC: drop inertia + damping, keep only
+            # the elastic restoring K_q·q against gravity (and contact, added next).
+            g[sl0] = g_int[sl0] - b._fgrav[sl0]
+            H[sl0, sl0] = H_int[sl0, sl0]
+            for c in range(len(b.contacts)):
+                if gaps[c] < 0.0:
+                    g += b.k_c * gaps[c] * grads[c]
+                    H += b.k_c * np.outer(grads[c], grads[c])
+            delta = np.linalg.solve(H, -g)
+            z += delta
+            if np.linalg.norm(delta) < 1.0e-10:
+                break
+        v = (z - z_n) / h
+        v[sl0] = 0.0   # quasi-static slab: no modal velocity / no kinetic energy
+        return MultiBodyState(z=z, v=v)
+
+
+# ======================================================================
 # AVBD — augmented-Lagrangian, fixed iteration budget
 # ======================================================================
 class AVBDDynamicSystem:

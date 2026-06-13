@@ -43,6 +43,11 @@ def _build_scene(scene: str, kind: str, k_c: float, damping: float):
     if scene == "settle":
         sysm = build_stack(kind, n_cubes=2, damping=damping, k_c=k_c, gap=0.01)
         return sysm, {"impactor_body": None, "rest_bodies": []}
+    if scene == "stack":
+        # a taller tower (3 cubes) dropped onto the slab — cube↔cube + cube↔slab
+        # contacts, the slab rings under the settling stack.
+        sysm = build_stack(kind, n_cubes=3, damping=damping, k_c=k_c, gap=0.02)
+        return sysm, {"impactor_body": None, "rest_bodies": []}
     raise ValueError(scene)
 
 
@@ -128,7 +133,7 @@ def make_plot(results: dict, scene: str, kind: str, out: Path) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--scene", choices=["side_by_side", "settle"],
+    ap.add_argument("--scene", choices=["side_by_side", "settle", "stack"],
                     default="side_by_side")
     ap.add_argument("--kind", choices=["fem", "abd"], default="fem")
     ap.add_argument("--h", type=float, default=5.0e-4)

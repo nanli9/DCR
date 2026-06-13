@@ -241,7 +241,7 @@ def build_stack(kind: str, n_cubes: int, *, size: float = 0.1,
 
 
 def build_side_by_side(kind: str, n_rest: int = 3, *, size: float = 0.1,
-                       spacing: float = 0.28, impactor_x: float = 0.0,
+                       spacing: float = 0.28, impactor_x: float | None = None,
                        impactor_drop: float = 0.45, impactor_rho: float = 3000.0,
                        slab_E: float = 5.0e7, cube_E: float = 5.0e6,
                        kappa_v: float = 2.0e3, damping: float = 0.5,
@@ -254,6 +254,11 @@ def build_side_by_side(kind: str, n_rest: int = 3, *, size: float = 0.1,
 
     bodies[0] = slab; bodies[1..n_rest] = resting cubes (left→right);
     bodies[n_rest+1] = impactor.
+
+    The impactor lands on BARE SLAB in a gap between resting cubes. There are no
+    cube↔cube contacts (only cube→slab), so an impactor placed at a resting cube's
+    x would fall straight THROUGH it; `impactor_x=None` (default) drops it into the
+    gap between the two centre cubes (½·spacing) to avoid that.
     """
     from dcr.fem.material import Material
     from dcr.twobody.reduced_body import (build_abd_cube, build_fem_cube,
@@ -264,6 +269,17 @@ def build_side_by_side(kind: str, n_rest: int = 3, *, size: float = 0.1,
     rest_centroid = slab_top + half
     # resting-cube x positions, centered
     xs = (np.arange(n_rest) - (n_rest - 1) / 2.0) * spacing
+    # Default: land the impactor in the gap between the two centre cubes so it
+    # hits bare slab, never overlapping a resting cube's x (no cube↔cube contact).
+    if impactor_x is None:
+        impactor_x = 0.5 * spacing if n_rest > 1 else 0.5 * (size + spacing)
+    # Guard: an impactor sharing a resting cube's x-span would interpenetrate it.
+    if any(abs(impactor_x - x) < size for x in xs):
+        nearest = min(xs, key=lambda x: abs(impactor_x - x))
+        raise ValueError(
+            f"impactor_x={impactor_x:.3f} overlaps a resting cube at x={nearest:.3f} "
+            f"(|Δx|<{size}); with no cube↔cube contacts it would penetrate. "
+            f"Place it in a gap (e.g. ½·spacing={0.5*spacing:.3f}).")
 
     def make_cube(cube_E_, rho_, drop_y_, cx_):
         mat = Material(E=cube_E_, nu=0.3, rho=rho_)
