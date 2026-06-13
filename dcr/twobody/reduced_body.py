@@ -355,9 +355,13 @@ def _reindex_surface(modal: ModalAnalysis) -> NDArray[np.int32]:
 
 
 def _cube_corner_ids(mesh: TetMesh, half: float):
-    """Nearest mesh vertices to the 4 bottom corners (y = -half)."""
-    corners = np.array([[half, -half, half], [half, -half, -half],
-                        [-half, -half, half], [-half, -half, -half]])
+    """Nearest mesh vertices to the 8 corners: bottom 4 (pids 0-3, y=-half)
+    then top 4 (pids 4-7, y=+half), each pair sharing the same (x, z) so a
+    stacked cube's bottom corner i pairs with the cube-below's top corner i+4."""
+    xz = np.array([[half, half], [half, -half], [-half, half], [-half, -half]])
+    bottom = np.column_stack([xz[:, 0], np.full(4, -half), xz[:, 1]])
+    top = np.column_stack([xz[:, 0], np.full(4, half), xz[:, 1]])
+    corners = np.vstack([bottom, top])
     ids = []
     for c in corners:
         d = np.sum((mesh.vertices - c) ** 2, axis=1)
