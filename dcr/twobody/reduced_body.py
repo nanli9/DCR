@@ -161,6 +161,39 @@ class ABDAffineBody:
                     H[bi:bi + 3, bj:bj + 3] = Hij
         return H
 
+    # -- elastic constraints for XPBD (compliant-constraint form) -----
+    def elastic_constraints(self, q: NDArray[np.float64]):
+        """V⊥ as XPBD compliant constraints (Macklin 2016 §3, ABD Eq. 6–7).
+
+        V⊥ = κ_v Σ_i[(‖a_i‖²−1)² + Σ_{j≠i}(a_i·a_j)²] is a sum of squared
+        scalar constraints C with energy ½ k C². Six constraints: 3 diagonal
+        C_ii = ‖a_i‖²−1 (each appears ONCE ⇒ k = 2κ_v) and 3 off-diagonal
+        C_ij = a_i·a_j (i<j; each appears TWICE in the j≠i double sum ⇒
+        k = 4κ_v). Returns ``(C, grad(ndof,), compliance, damp_coeff)`` tuples.
+
+        # DEVIATION (ABD Eq. 8): the affine internal is genuinely nonlinear,
+        # so each XPBD projection re-linearizes ∇C at the current q — exactly
+        # the standard PBD treatment of a nonlinear constraint.
+        """
+        a = (q[3:6], q[6:9], q[9:12])
+        alpha_diag = 1.0 / (2.0 * self.kappa_v)   # diagonal term once
+        alpha_off = 1.0 / (4.0 * self.kappa_v)    # off-diagonal counted twice
+        # mass-proportional Rayleigh damping D = α0 M ⇒ per-constraint damp
+        # coefficient handled at the velocity level (see XPBDDynamicSystem);
+        # report 0 here and let the solver apply the body-level D.
+        out = []
+        for i in range(3):
+            g = np.zeros(12)
+            g[3 + 3 * i:6 + 3 * i] = 2.0 * a[i]
+            out.append((float(a[i] @ a[i] - 1.0), g, alpha_diag, 0.0))
+        for i in range(3):
+            for j in range(i + 1, 3):
+                g = np.zeros(12)
+                g[3 + 3 * i:6 + 3 * i] = a[j]
+                g[3 + 3 * j:6 + 3 * j] = a[i]
+                out.append((float(a[i] @ a[j]), g, alpha_off, 0.0))
+        return out
+
     # -- skinning for the viewer --------------------------------------
     def deformed_nodes(self, q: NDArray[np.float64],
                        exaggerate: float = 1.0) -> NDArray[np.float64]:
@@ -250,6 +283,25 @@ class FEMModalBody:
         H = np.zeros((self.ndof, self.ndof))
         H[self.nc:, self.nc:] = self.K_modal
         return H
+
+    def elastic_constraints(self, z: NDArray[np.float64]):
+        """Modal stiffness as XPBD compliant constraints (Macklin 2016 §3).
+
+        ½ qᵀK_q q = Σ_i ½ ω²_i a_i² is a sum of 1-DOF linear constraints
+        C_i = a_i (the i-th modal amplitude) with stiffness ω²_i ⇒ compliance
+        α_i = 1/ω²_i. The carrier translation (dofs 0..nc) is free (no elastic
+        constraint — inertia + gravity only). Returns
+        ``(C, grad(ndof,), compliance, damp_coeff)`` per mode, with the modal
+        Rayleigh damping D_modal[i,i] as the per-constraint damp coefficient.
+        """
+        out = []
+        for i in range(self.omega2.shape[0]):
+            dof = self.nc + i
+            g = np.zeros(self.ndof)
+            g[dof] = 1.0
+            alpha = 1.0 / float(self.omega2[i]) if self.omega2[i] > 0.0 else 0.0
+            out.append((float(z[dof]), g, alpha, float(self.D_modal[i, i])))
+        return out
 
     def deformed_surface(self, z: NDArray[np.float64],
                          exaggerate: float = 1.0) -> NDArray[np.float64]:

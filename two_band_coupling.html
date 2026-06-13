@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Modal Contact as a Dynamic Two-Way Constraint</title>
+<style>
+  :root{
+    --bg:#0e1014; --panel:#161922; --panel2:#1b1f2a; --line:#272c38;
+    --ink:#e7eaf0; --muted:#9aa1ad; --green:#34d399; --orange:#fb923c;
+    --red:#e0635a; --accent:#7aa2ff; --yellow:#f5c451;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;line-height:1.5}
+  .wrap{max-width:1040px;margin:0 auto;padding:34px 22px 70px}
+  header h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+  header .sub{color:var(--muted);font-size:16px;margin:0 0 4px}
+  header .by{color:var(--accent);font-size:13px;margin-top:10px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .hero{background:linear-gradient(180deg,#12151d,#0f1218);border:1px solid var(--line);
+    border-radius:16px;padding:16px 16px 10px;margin:22px 0 14px}
+  .hero h2{margin:2px 6px 10px;font-size:14px;color:var(--muted);font-weight:600;
+    text-transform:uppercase;letter-spacing:.06em}
+  .canvas-box{position:relative;width:100%;height:400px}
+  canvas{width:100%;height:100%;display:block;border-radius:10px}
+  .controls{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:12px 6px 4px}
+  button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    border-radius:9px;padding:9px 14px;font-size:13.5px;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--accent);color:#fff}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#0b1020;font-weight:600}
+  .toggle{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13.5px;
+    margin-left:auto;cursor:pointer;user-select:none}
+  .toggle input{accent-color:var(--green);width:16px;height:16px}
+  .legend{display:flex;gap:26px;flex-wrap:wrap;margin:8px 8px 2px;color:var(--muted);font-size:13px}
+  .legend span{display:inline-flex;align-items:center;gap:8px}
+  .swatch{width:22px;height:3px;border-radius:2px;display:inline-block}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:22px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+  .card.full{grid-column:1/-1}
+  .card h3{margin:0 0 10px;font-size:16px;letter-spacing:-.01em}
+  .card p{margin:0 0 10px;color:#d3d8e1;font-size:14.5px}
+  .card p.small{color:var(--muted);font-size:13px}
+  .eq{background:#0c0f15;border:1px solid var(--line);border-radius:9px;padding:11px 13px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;color:#e7eaf0;
+    margin:8px 0;overflow-x:auto;white-space:pre;line-height:1.7}
+  .eq .g{color:var(--green)} .eq .o{color:var(--orange)} .eq .m{color:var(--muted)}
+  .eq .a{color:var(--accent)} .eq .y{color:var(--yellow)}
+  .eq .hl{background:rgba(245,196,81,.14);border-radius:3px;padding:1px 3px;
+    box-shadow:inset 0 0 0 1px rgba(245,196,81,.3)}
+  table{width:100%;border-collapse:collapse;margin-top:6px;font-size:13.5px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  td.k{color:var(--ink);font-weight:600;white-space:nowrap}
+  .tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:20px;
+    border:1px solid var(--line);color:var(--muted);margin-left:6px}
+  .tag.good{color:var(--green);border-color:rgba(52,211,153,.4)}
+  .tag.warn{color:var(--yellow);border-color:rgba(245,196,81,.4)}
+  .pos{color:var(--green)} .vel{color:var(--orange)}
+  .del{color:var(--muted);text-decoration:line-through;text-decoration-color:rgba(224,99,90,.7)}
+  footer{margin-top:26px;color:var(--muted);font-size:12.5px;text-align:center}
+  @media(max-width:760px){.grid{grid-template-columns:1fr}.canvas-box{height:340px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Modal Contact as a Dynamic Two-Way Constraint</h1>
+    <p class="sub">Promote the support's modal amplitude <code>q</code> into a <em>dynamic</em> degree of freedom solved jointly with the bodies — so contact loads the modes <em>and</em> the ringing modes push the bodies back. Two-way and passive <em>by construction</em>; no separate velocity band, no energy governor.</p>
+    <p class="by">DCR follow-up · unified dynamic constraint (Approach B) · single backward-Euler solve over (z, q)</p>
+  </header>
+
+  <!-- ============ HERO ANIMATION ============ -->
+  <section class="hero">
+    <h2>The energy loop: cubes ride the ringing support, both damp to rest</h2>
+    <div class="canvas-box"><canvas id="shelf"></canvas></div>
+    <div class="controls">
+      <button class="primary" id="drop">Drop the impactor ▸</button>
+      <button id="reset">Reset</button>
+      <label class="toggle"><input type="checkbox" id="loop" checked/> show energy exchange&nbsp;<code>rigid&nbsp;↔&nbsp;modal</code></label>
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--green)"></i> <b>dynamic support surface</b> <code>y<sub>rest</sub>+U<sub>y</sub>·q</code> — the <em>full</em> q (sag + ring), one curve</span>
+      <span><i class="swatch" style="background:#5b6373"></i> static-sag equilibrium — where it settles</span>
+      <span><i class="swatch" style="background:var(--red)"></i> dropped impactor — rings the support; bystanders get kicked through it</span>
+    </div>
+  </section>
+
+  <!-- ============ EXPLANATION CARDS ============ -->
+  <div class="grid">
+
+    <div class="card full">
+      <h3>What changed: from a two-band split to one dynamic constraint</h3>
+      <p>The earlier design <em>split</em> the support's deformation: the static sag <code>q<sub>s</sub></code> went into the contact constraint, while the fast ring <code>q̇<sub>d</sub></code> was evolved separately and injected as a capped, one-way velocity impulse. That seam is exactly why energy only flowed <b>rigid → support</b> and never looped back.</p>
+      <p>The fix is to stop splitting. Carry the <b>full, dynamic</b> modal state <code>q</code> as a second-order DOF — with its own inertia <code>M<sub>q</sub></code>, stiffness <code>K<sub>q</sub></code>, damping <code>D<sub>q</sub></code> — <em>inside the same contact solve</em> as the bodies. One backward-Euler step minimizes a single incremental potential over <code>(z, q)</code>. The two-way loop is then <b>structural</b>, not injected: the contact force that lifts a cube is the very reaction that loads the mode, and the mode's inertia pushes back.</p>
+      <p class="small"><b>Deleted along the way:</b> <span class="del">q<sub>s</sub>/q<sub>d</sub> split</span> · <span class="del">drift-fix</span> · <span class="del">separate IIR resonator for in-contact ring</span> · <span class="del">velocity band</span> · <span class="del">η / energy reservoir governor</span> · <span class="del">high-pass / cooldown</span>. The static sag is no longer special — it is just the equilibrium of the dynamic <code>q</code> under gravity.</p>
+    </div>
+
+    <div class="card">
+      <h3>The two kinds of unknowns</h3>
+      <p><b>z</b> — the <b>rigid bodies'</b> state: position + orientation (and velocity <code>v = [v<sub>lin</sub>; ω]</code>). Ordinary rigid DOFs, one block of 6 per body.</p>
+      <p><b>q</b> — the <b>modal amplitudes</b> <code>∈ ℝ<sup>r</sup></code>: the support's deformation field compressed to <code>r</code> numbers (mass-normalized, so <code>M<sub>q</sub>=I</code>, <code>K<sub>q</sub>=diag(ω²)</code>). <b class="pos">Now a dynamic DOF</b>, with state <code>(q, q̇)</code> — not a passive output.</p>
+      <p class="small">Both are advanced by the <em>same</em> implicit step. The contact is the only thing that couples them.</p>
+    </div>
+
+    <div class="card">
+      <h3>Contact as a constraint on <code>(z, q)</code></h3>
+      <p>The cube rests on the <em>deformed</em> surface, whose height is set by the full <code>q</code>:</p>
+      <div class="eq">g<sub>j</sub>(<span class="a">z</span>,<span class="g">q</span>) = corner<sub>y,j</sub>(<span class="a">z</span>) − ( y<sub>rest,j</sub> + <span class="g">U<sub>y,j</sub></span>·<span class="g">q</span> )  ≥ 0   <span class="m"># non-penetration</span></div>
+      <p class="small">Gradients: <code>∂g/∂z = J<sub>x,j</sub> = [n̂; r×n̂]</code> (body, from collision detection); <code>∂g/∂q = −U<sub>y,j</sub> ≡ J<sub>q,j</sub></code> (the mode shape sampled <em>where the body touches</em>). <code>U<sub>y,j</sub></code> is the single object that couples body and mode.</p>
+      <p class="small">Unilateral, compressive-only: <code>f<sub>j</sub> = clamp(ρ g<sub>j</sub> + λ<sub>j</sub>, −∞, 0)</code>.</p>
+    </div>
+
+    <div class="card full">
+      <h3>One variational step over <code>(z, q)</code> <span class="tag">the formulation</span></h3>
+      <p>Each substep minimizes a single incremental potential (backward Euler / AVBD augmented-Lagrangian). The only structural change from the static coupler is the <span class="hl">highlighted</span> modal-inertia term — that one term is what gives <code>q</code> a life of its own:</p>
+      <div class="eq">E(<span class="a">z</span>,<span class="g">q</span>) = Σ<sub>i</sub> 1⁄(2h²)‖z<sub>i</sub> − z̃<sub>i</sub>‖²<sub>M<sub>i</sub></sub>     <span class="m"># rigid inertia</span>
+       + <span class="hl">1⁄(2h²)‖<span class="g">q</span> − q̃‖²<sub>M<sub>q</sub></sub></span>      <span class="m"># modal inertia  ◀ NEW</span>
+       + ½ <span class="g">q</span>ᵀK<sub>q</sub><span class="g">q</span>               <span class="m"># modal stiffness</span>
+       + Σ<sub>j</sub> Φ<sub>AL</sub>( g<sub>j</sub>(<span class="a">z</span>,<span class="g">q</span>) )      <span class="m"># contact — sees the FULL q</span></div>
+      <p class="small">Inertial predictors (the modal one carries the ring's history <code>q̇<sup>n</sup></code> — <em>not</em> zeroed, which is the whole point):</p>
+      <div class="eq">z̃<sub>i</sub> = z<sub>i</sub><sup>n</sup> + h v<sub>i</sub><sup>n</sup> + h² M<sub>i</sub><sup>−1</sup> f<sub>i</sub><sup>ext</sup>
+<span class="hl">q̃  = <span class="g">q</span><sup>n</sup> + h <span class="g">q̇</span><sup>n</sup> + h² M<sub>q</sub><sup>−1</sup> f<sub>q</sub><sup>grav</sup></span>     <span class="m"># f<sub>q</sub><sup>grav</sup> = Uᵀf<sub>grav</sub> → gives the static sag at equilibrium</span></div>
+    </div>
+
+    <div class="card full">
+      <h3>The Newton / Schur block — only <code>H<sub>q</sub></code> gains two terms</h3>
+      <p>Stationarity <code>∇E = 0</code> gives the same monolithic system you already assemble; the cross-block <code>−ρ J<sub>x</sub>U<sub>y</sub>ᵀ</code> is unchanged. The static <code>H<sub>q</sub>=K<sub>q</sub>+Σk U<sub>y</sub>U<sub>y</sub>ᵀ</code> simply gains an inertia and a damping term:</p>
+      <div class="eq">[ H<sub>x,i</sub>           −ρ J<sub>x,i</sub> U<sub>y,j</sub>ᵀ ] [Δz<sub>i</sub>]   [ −g<sub>x,i</sub> ]
+[                           ] [    ] = [       ]
+[ −ρ U<sub>y,j</sub> J<sub>x,i</sub>ᵀ        H<sub>q</sub>     ] [Δ<span class="g">q</span> ]   [ −g<sub>q</sub>  ]
+
+<span class="hl">H<sub>q</sub> = 1⁄h²·M<sub>q</sub> + 1⁄h·D<sub>q</sub></span> + K<sub>q</sub> + Σ<sub>j</sub> k<sub>j</sub> U<sub>y,j</sub>U<sub>y,j</sub>ᵀ
+g<sub>q</sub> = <span class="hl">1⁄h²·M<sub>q</sub>(<span class="g">q</span>−q̃) + 1⁄h·D<sub>q</sub>(<span class="g">q</span>−<span class="g">q</span><sup>n</sup>)</span> + K<sub>q</sub><span class="g">q</span> − Σ<sub>j</sub> U<sub>y,j</sub> f<sub>j</sub></div>
+      <p class="small">Schur-eliminate <code>Δz<sub>i</sub></code> per body (each <code>H<sub>x,i</sub></code> is a dense 6×6), solve the resulting <code>r×r</code> system for <code>Δq</code>, back-substitute. After the step: <code>q̇<sup>n+1</sup> = (q<sup>n+1</sup> − q<sup>n</sup>)/h</code>. Computationally identical to the static coupler — the new terms are diagonal additions.</p>
+    </div>
+
+    <div class="card">
+      <h3>Why it is two-way &amp; momentum-conserving</h3>
+      <p>There is <b>one</b> multiplier <code>f<sub>j</sub></code> per contact. It enters the two gradients with opposite signs through the <em>same</em> scalar:</p>
+      <div class="eq">rigid:  g<sub>x</sub> += <span class="a">+J<sub>x,j</sub></span> f<sub>j</sub>   ⌉  one f<sub>j</sub>,
+modal:  g<sub>q</sub> += <span class="g">−U<sub>y,j</sub></span> f<sub>j</sub>   ⌋  opposite signs</div>
+      <p class="small">That <em>is</em> Newton's third law. The force lifting the cube is exactly the reaction loading the mode — resolved to convergence each step. Because <code>q</code> now has inertia, when the mode springs back it raises the anchor and pushes the cube. The loop is built in.</p>
+    </div>
+
+    <div class="card">
+      <h3>Passive for free <span class="tag good">no governor</span></h3>
+      <p>Backward Euler on this potential is <b>unconditionally dissipative</b>: total mechanical energy is monotone non-increasing every step,</p>
+      <div class="eq">Ė = −<span class="g">q̇</span>ᵀD<sub>q</sub><span class="g">q̇</span> − Σ v<sub>i</sub>ᵀC<sub>i</sub>v<sub>i</sub>  ≤ 0</div>
+      <p class="small">so the run can only converge to <code>argmin E</code> = the static sag. The old <span class="del">ΔE<sub>modal</sub> ≤ η·ΔE<sub>rigid loss</sub></span> reservoir is <b>unnecessary</b> — it was needed only because the split <em>injected</em> energy one-way. A momentum-conserving shared multiplier never injects.</p>
+    </div>
+
+    <div class="card full">
+      <h3>Old split vs. new dynamic constraint</h3>
+      <table>
+        <tr><th></th><th>Two-band split <span class="tag">q<sub>s</sub> + q̇<sub>d</sub></span></th><th>Dynamic constraint <span class="tag good">full q</span></th></tr>
+        <tr><td class="k">modal state in solve</td><td>only static <code>q<sub>s</sub></code>; <code>q̇</code> held at 0</td><td>full <code>(q, q̇)</code>, inertia <code>M<sub>q</sub>/h²</code> in the block</td></tr>
+        <tr><td class="k">energy flow</td><td><b>one-way</b> rigid → support (capped)</td><td><b>two-way</b> loop, slosh then damp</td></tr>
+        <tr><td class="k">ring back-reaction</td><td>explicit velocity impulse (event-driven)</td><td>structural — falls out of the shared <code>f<sub>j</sub></code></td></tr>
+        <tr><td class="k">passivity</td><td>enforced by η / reservoir governor</td><td>free (backward Euler is dissipative)</td></tr>
+        <tr><td class="k">tuning knobs</td><td>η, reservoir, window, high-pass, cooldown</td><td><b>none non-physical</b> — only <code>M<sub>q</sub>,K<sub>q</sub>,D<sub>q</sub></code> (from modal analysis + material)</td></tr>
+        <tr><td class="k">seams</td><td><code>q<sub>s</sub></code>/<code>q<sub>d</sub></code> consistency (drift-fix)</td><td>none — single state</td></tr>
+      </table>
+    </div>
+
+    <div class="card full">
+      <h3>Honest boundary of the claim <span class="tag warn">read before believing</span></h3>
+      <p class="small"><b>Numerical damping.</b> Backward Euler removes energy even with <code>D<sub>q</sub>=0</code>, and that extra damping on the ring is baked in — not separately tunable. For a controlled modal Q-factor use BDF2 / implicit midpoint, or substep finer. The ring decay you see is physical damping <em>plus</em> integrator damping.</p>
+      <p class="small"><b>Timescale / fidelity.</b> At a typical substep <code>h ∼ 1–4 ms</code>, modes above <code>∼1/(2h)</code> are over-damped / under-resolved. Low modes (visible sag &amp; sway, &lt;100 Hz) are faithful; a crisp kHz ring needs finer <code>h</code> or a hybrid that keeps an exact-exponential resonator for <em>airborne</em> intervals only.</p>
+      <p class="small"><b>Novelty.</b> The physics here is classical flexible-multibody coupling (floating-frame + component-mode-synthesis; equivalently the affine-body / IPC family, but with <em>modal</em> rather than affine reduction). What is unestablished is realizing it as <b>compliant constraints inside a real-time position-based rigid solver</b> (XPBD / AVBD, GPU). This step is the in-solver <em>ground truth</em>; the cheaper, approximate, <em>passivity-governed</em> coupling is where the energy-bound contribution actually lives — validated against this.</p>
+    </div>
+
+  </div>
+
+  <footer>Single self-contained file · animation is illustrative (the real ring is kHz; slowed and amplified for the eye). Energy trace is a schematic two-reservoir exchange, not the solver's exact log.</footer>
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('shelf');
+  const ctx = canvas.getContext('2d');
+  let W=0,H=0,dpr=1;
+  function resize(){
+    dpr = window.devicePixelRatio || 1;
+    const r = canvas.getBoundingClientRect();
+    W = r.width; H = r.height;
+    canvas.width = Math.round(W*dpr); canvas.height = Math.round(H*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  window.addEventListener('resize', resize); resize();
+
+  // ---- geometry ----
+  const L  = ()=> 64;
+  const Rr = ()=> W-64;
+  const yRest  = ()=> H*0.30;
+  const As     = ()=> Math.min(30, H*0.085);   // static sag amplitude
+  const Ad     = ()=> Math.min(26, H*0.075);   // ring amplitude
+  const yFloor = ()=> H*0.84;
+  const X = u => L() + u*(Rr()-L());
+
+  // physical-ish state
+  let showLoop = true, env = 0, t = 0, last = 0;
+  let impOff = 0, impV = 0, falling = false, lastImpact = -10;
+  const w1 = 7.6, w2 = 12.7, beat = 2.7;   // mode freqs (slowed) + slosh beat
+
+  // static sag (the equilibrium the surface settles to): pinned-pinned 1st shape
+  function sag(u){ return yRest() + As()*Math.sin(Math.PI*u); }
+  // dynamic ring = env-decayed mix of two mode shapes (the live q_d)
+  function ring(u){
+    return env*Ad()*( 0.58*Math.sin(Math.PI*u)*Math.cos(w1*t)
+                    + 0.42*Math.sin(2*Math.PI*u)*Math.cos(w2*t+0.7) );
+  }
+  // FULL dynamic surface y_rest + U_y q  (sag + ring, one curve — no split)
+  function surface(u){ return sag(u) + ring(u); }
+  function surfSlope(u){
+    const du=1e-3, dyScreen=(surface(u+du)-surface(u-du))/(2*du);
+    return dyScreen/(Rr()-L());
+  }
+
+  const cubes = [
+    {u:0.16, c:'#c7c3ba', w:26, h:34},
+    {u:0.32, c:'#c7c3ba', w:26, h:34},
+    {u:0.50, c:'#e0635a', w:34, h:30, impactor:true},
+    {u:0.68, c:'#c7c3ba', w:26, h:34},
+    {u:0.84, c:'#c7c3ba', w:26, h:34},
+  ];
+
+  // energy-exchange history (schematic two-reservoir: rigid KE <-> modal)
+  const NH = 170;
+  let histR = new Array(NH).fill(0), histM = new Array(NH).fill(0);
+
+  function rrect(x,y,w,h,r){
+    ctx.beginPath();
+    ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+  }
+
+  function curve(fn,color,width,glow){
+    ctx.beginPath();
+    for(let i=0;i<=140;i++){ const u=i/140; const x=X(u), y=fn(u);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }
+    ctx.strokeStyle=color; ctx.lineWidth=width; ctx.lineJoin='round';
+    if(glow){ ctx.shadowColor=color; ctx.shadowBlur=10; }
+    ctx.stroke(); ctx.shadowBlur=0;
+  }
+
+  function support(u){
+    const x=X(u), yt=sag(u), yb=yFloor();
+    ctx.fillStyle='#3a3f4b';
+    rrect(x-13, yt-2, 26, yb-yt+2, 6); ctx.fill();
+    ctx.fillStyle='#2c313c'; rrect(x-19, yb-8, 38, 12, 4); ctx.fill();
+  }
+
+  function cube(c){
+    const u=c.u, x=X(u);
+    // cubes RIDE the FULL dynamic surface (the two-way coupling, visibly)
+    const ys = surface(u);
+    const off = c.impactor ? impOff : 0;
+    const ang = Math.atan(surfSlope(u));
+    ctx.save();
+    ctx.translate(x, ys-off);
+    ctx.rotate(ang);
+    ctx.fillStyle=c.c; rrect(-c.w/2, -c.h, c.w, c.h, 5); ctx.fill();
+    ctx.strokeStyle='rgba(0,0,0,.22)'; ctx.lineWidth=1.5;
+    ctx.beginPath(); ctx.moveTo(-c.w/2+4,-c.h+4); ctx.lineTo(-c.w/2+4,-4); ctx.stroke();
+    ctx.restore();
+  }
+
+  function energyPanel(){
+    if(!showLoop) return;
+    const pw=Math.min(230, W*0.42), ph=60, px=Rr()-pw, py=12;
+    ctx.fillStyle='rgba(12,15,21,.82)'; rrect(px,py,pw,ph,8); ctx.fill();
+    ctx.strokeStyle='#272c38'; ctx.lineWidth=1; rrect(px,py,pw,ph,8); ctx.stroke();
+    const plot=(hist,color)=>{
+      ctx.beginPath();
+      for(let i=0;i<NH;i++){
+        const x=px+8+(pw-16)*(i/(NH-1));
+        const y=py+ph-10-(ph-26)*Math.min(1,hist[i]);
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+      }
+      ctx.strokeStyle=color; ctx.lineWidth=1.8; ctx.stroke();
+    };
+    plot(histR,'#fb923c'); plot(histM,'#34d399');
+    ctx.font='10.5px ui-monospace,Menlo,monospace';
+    ctx.fillStyle='#fb923c'; ctx.fillText('rigid KE', px+10, py+15);
+    ctx.fillStyle='#34d399'; ctx.fillText('modal q', px+76, py+15);
+    ctx.fillStyle='#9aa1ad'; ctx.fillText('loops ⇄, damps to rest', px+10, py+ph-5);
+  }
+
+  function frame(ts){
+    const dt = Math.min(0.033, (ts-last)/1000 || 0.016); last=ts; t+=dt;
+
+    // impactor fall + impact
+    if(falling){
+      impV += 560*dt; impOff -= impV*dt;
+      if(impOff<=0){ impOff=0; impV=0; falling=false; env=1; lastImpact=t; }
+    }
+    // ring envelope decay (physical + integrator damping, schematically)
+    env *= Math.pow(0.5, dt/1.7);
+    if(env<0.001) env=0;
+    if(!falling && env<0.04 && (t-lastImpact)>2.6){ drop(); }
+
+    // schematic two-reservoir energy exchange: total ~env, slosh via beat
+    const frac = 0.5 + 0.5*Math.cos(beat*t);   // fraction currently in modal
+    const Em = env*frac, Er = env*(1-frac);
+    histR.push(Er); histR.shift(); histM.push(Em); histM.shift();
+
+    ctx.clearRect(0,0,W,H);
+    // undeformed baseline
+    ctx.strokeStyle='#2b303b'; ctx.lineWidth=1.4; ctx.setLineDash([5,6]);
+    ctx.beginPath(); ctx.moveTo(X(0),yRest()); ctx.lineTo(X(1),yRest()); ctx.stroke();
+    ctx.setLineDash([]);
+    support(0); support(1);
+    // static-sag equilibrium (faint reference) then the live dynamic surface
+    curve(sag, '#5b6373', 1.6, false);
+    curve(surface, '#34d399', 3.2, true);
+    cubes.forEach(cube);
+    energyPanel();
+    requestAnimationFrame(frame);
+  }
+
+  function drop(){ if(falling) return; impOff = Math.max(120,H*0.32); impV=0; falling=true; }
+  document.getElementById('drop').onclick = drop;
+  document.getElementById('reset').onclick = ()=>{ env=0; impOff=0; impV=0; falling=false; lastImpact=t;
+    histR.fill(0); histM.fill(0); };
+  document.getElementById('loop').onchange = e=>{ showLoop=e.target.checked; };
+
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
