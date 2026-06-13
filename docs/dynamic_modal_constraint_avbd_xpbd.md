@@ -124,42 +124,39 @@ energy** and produces **no resonant ring or impact absorption**. The dynamic
 constraint restores all three. The stack scene (`--scene stack`) shows the same
 slab-modal-KE 0-vs-ringing split.
 
-## Heavy box dropped on a stack (`build_stack_impact`)
+## Heavy box dropped BESIDE a stack (`build_stack_impact`)
 
-A resting tower of `n_stack` cubes on the slab + a **heavy box slammed down fast**
-on top of it (cube↔cube contacts through the whole stack, so it lands ON the
-tower; cube↔slab at the base). The box starts just above the top face with a
-downward initial velocity (`MultiBodySystem.v0`, respected by every solver), at
-`impactor_rho/material_rho`× the tower density. Default 5000 kg/m³ × 5 m/s ≈
-**62.5 J of impact** — stable at `k_c=1e6`, `h=5e-4` with 0.38 mm penetration.
+A resting tower of `n_stack` cubes on the slab + a **heavy box dropped fast onto
+bare slab next to the tower** (box↔slab contact only — it does *not* touch the
+stack; cube↔cube + cube0↔slab hold the tower). The box rings the slab and **the
+ring kicks the tower** — the two-way dynamic constraint carries the slab's ring
+back into the resting stack, so the tower jolts. The box starts beside the tower
+at `impactor_drop` (≈ stack-top height) with a downward initial velocity
+(`MultiBodySystem.v0`, respected by every solver), at `impactor_rho/material_rho`×
+the tower density. Default 6000 kg/m³ × 5 m/s ≈ **75 J** — stable at `k_c=1e6`,
+`h=5e-4` with 0.09 mm penetration.
 
 `scripts/run_stack_impact_benchmark.py --solvers` logs per-body KE and plots the
 reaction (`docs/figures/stack_impact_{reaction,solvers}_fem.png`):
 
-| solver | slab modal KE peak | box KE at t=1 s | max ΔE | settles |
+| solver | slab modal KE peak | stack kicked | max ΔE | max pen |
 |---|---|---|---|---|
-| AVBD | 14.5 J | ~0 | +0.17 J¹ | yes (~0.35 s) |
-| GT | 21.4 J | ~0 | −8e-6 | yes (~0.5 s) |
-| XPBD | 21.7 J | ~0 | −1e-4 | yes |
-| **SPLIT (1-way)** | **0.000 J** | **1.72 J** | −8e-5 | **no — box bounces on** |
+| AVBD | 24.0 J | **839×** (quiet→3.6 J) | −2.8e-6 | 0.09 mm |
+| GT | 26.0 J | yes | −5e-6 | 2.51 mm |
+| XPBD | 27.5 J | yes | −1e-5 | 2.50 mm |
+| **SPLIT (1-way)** | **0.000 J** | **barely** | −7e-5 | 2.69 mm |
 
-The box slams the stack, the stiff cubes **transmit** the impulse, the **slab
-rings** (14–22 J), and the ring **pushes the box back up** (box KE recovers to
-~5 J at 25 ms — energy returned from the slab → two-way), then both decay. Under
-the **split**, the quasi-static slab cannot ring or absorb the impact, so the box
-**bounces for the whole run** with ~10 J still trapped at t=1 s — a vivid failure
-of the one-way design under a hard hit.
+The box lands on the slab beside the tower (box KE → 0), the **slab rings** (24–27 J),
+and the ring **kicks the resting stack ~840×** its pre-impact KE — the *top* cube
+reacts most (the tower amplifies the base motion). Under the **split** the
+quasi-static slab cannot ring (slab modal KE ≡ 0), so the tower is barely
+disturbed — the one-way path can't transmit the impact through the support.
 
-¹ AVBD shows a small one-step contact-PE blip at the most violent impacts (the
-fixed AL iteration budget vs GT's Newton-to-convergence); it is a transient
-(0.27% of the 62.5 J impact), not an instability — the run settles. Finer `h` or
-more outer iterations remove it.
-
-Live viewer (watch the box slam the stack and the slab ring):
+Live viewer (watch the box land beside the tower and the ring kick it):
 ```bash
-uv run python scripts/run_stack_impact_viser.py                              # AVBD
-uv run python scripts/run_stack_impact_viser.py --solver split               # one-way: box bounces on
-uv run python scripts/run_stack_impact_viser.py --impactor-rho 8000 --impactor-v0 8 --k-c 4e6 --h 2e-4
+uv run python scripts/run_stack_impact_viser.py                              # AVBD: tower gets kicked
+uv run python scripts/run_stack_impact_viser.py --solver split               # one-way: tower barely reacts
+uv run python scripts/run_stack_impact_viser.py --kind abd --impactor-rho 8000 --impactor-v0 8
 ```
 
 ## Penetration fix (side-by-side scene)

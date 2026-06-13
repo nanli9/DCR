@@ -131,28 +131,37 @@ def test_impactor_lands_on_bare_slab_not_through_cube():
         build_side_by_side("fem", n_rest=3, impactor_x=0.0)
 
 
-def test_stack_impact_heavy_box_is_stable_and_two_way():
-    """A heavy fast box on a 3-cube stack: the box's initial velocity is applied,
-    the dynamic solver stays stable (bounded penetration, finite energy), the slab
-    rings hard (two-way), and the impact is absorbed (the system settles)."""
-    base, info = build_stack_impact("fem", n_stack=3, impactor_rho=5000.0,
+def test_stack_impact_heavy_box_beside_kicks_the_stack():
+    """A heavy fast box dropped on bare slab BESIDE a 3-cube stack: the box's
+    initial velocity is applied, the box never touches the tower, the dynamic
+    solver stays stable, the slab rings hard, and the RING KICKS the stack (the
+    tower's KE jumps from ~quiet to a real reaction) — two-way, and it settles."""
+    base, info = build_stack_impact("fem", n_stack=3, impactor_rho=6000.0,
                                     impactor_v0=5.0, k_c=1.0e6, damping=0.6)
     imp = info["impactor_body"]
+    stack = info["stack_bodies"]
+    # box is dropped beside the tower (no box↔stack contact)
+    assert all(c.upper != imp or c.lower == 0 for c in base.contacts)
     st0 = base.initial_state()
     assert st0.v[base.offsets[imp] + 1] < -1.0, "box initial velocity not applied"
 
     dyn = AVBDDynamicSystem(base, n_outer=8, n_inner=4)
     st = dyn.initial_state()
     slab_ke = max_pen = 0.0
+    stack_ke = []
     for _ in range(1600):
         st = dyn.step(st, 5.0e-4)
         e = dyn.energy_breakdown(st)
         slab_ke = max(slab_ke, e["KE_body0"])
         max_pen = max(max_pen, e["max_penetration"])
+        stack_ke.append(sum(e[f"KE_body{b}"] for b in stack))
         assert np.isfinite(e["total"])
-    assert slab_ke > 1.0, f"slab barely rang under heavy impact (KE={slab_ke:.2e})"
+    stack_ke = np.asarray(stack_ke)
+    quiet = stack_ke[:40].max()                 # before the box reaches the slab
+    assert slab_ke > 1.0, f"slab barely rang (KE={slab_ke:.2e})"
+    assert stack_ke.max() > 50.0 * quiet, "the ring did not kick the stack"
     assert max_pen < 5.0e-3, f"contact unstable (pen={max_pen*1e3:.2f}mm)"
-    assert np.linalg.norm(st.v) < 0.5, "impact not absorbed (still moving fast)"
+    assert np.linalg.norm(st.v) < 0.5, "did not settle"
 
 
 def test_stack_impact_split_cannot_absorb():

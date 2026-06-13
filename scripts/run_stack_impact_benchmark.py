@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Stack reaction to a heavy fast box — per-cube energy log + figure.
+"""Stack reaction to a heavy fast box dropped BESIDE it — energy log + figure.
 
-Drops a heavy box (fast initial velocity) onto a 3-cube stack and logs each
-body's kinetic energy so the impact wave travelling top → bottom through the
-tower, and the slab ring, are visible. Optionally overlays solvers.
+Drops a heavy box (fast initial velocity) onto BARE SLAB next to a 3-cube stack;
+the box rings the slab and the ring KICKS the tower. Logs each body's kinetic
+energy so the slab ring and the stack's reaction are visible. Optionally overlays
+solvers (the one-way split's slab can't ring, so it barely kicks the stack).
 
 Outputs (docs/):
   * data/stack_impact_<kind>_<solver>.csv          — per-body KE time series
@@ -56,27 +57,35 @@ def _plot_wave(L, info, kind, h):
     import matplotlib.pyplot as plt
     stack = info["stack_bodies"]
     imp = info["impactor_body"]
-    fig, ax = plt.subplots(figsize=(11, 5.5))
-    ax.plot(L["t"], L[f"KE_body{imp}"], lw=2.0, color="#e0635a", label="box (impactor)")
-    labels = ([f"stack #{k} (bottom)" if k == 0 else
-               (f"stack #{k} (top)" if bi == stack[-1] else f"stack #{k}")
-               for k, bi in enumerate(stack)])
     cmap = plt.get_cmap("viridis")
+    t_imp = L["t"][int(np.argmax(L["KE_slab"] > 0.5))]
+    xlim = (max(0, t_imp - 0.02), t_imp + 0.30)
+
+    fig, ax = plt.subplots(1, 2, figsize=(15, 5.2))
+    fig.suptitle(f"Stack reaction to a heavy box dropped BESIDE it ({kind}, dynamic "
+                 f"AVBD)\nbox rings the slab → the ring KICKS the tower", fontsize=13)
+    # left: the DRIVE — box lands & rings the slab (own large scale)
+    ax[0].plot(L["t"], L[f"KE_body{imp}"], lw=2.0, color="#e0635a",
+               label="box (lands beside)")
+    ax[0].plot(L["t"], L["KE_slab"], lw=1.6, color="#888", ls="--",
+               label="slab modal KE (the ring)")
+    ax[0].set_title("Drive: box lands on bare slab → slab rings")
+    ax[0].set_ylabel("kinetic energy [J]")
+    # right: the REACTION — the stack kicked by the ring (own small scale)
     for k, bi in enumerate(stack):
-        ax.plot(L["t"], L[f"KE_body{bi}"], lw=1.5,
-                color=cmap(0.15 + 0.7 * k / max(1, len(stack) - 1)), label=labels[k])
-    ax.plot(L["t"], L["KE_slab"], lw=1.5, color="#888", ls="--", label="slab (modal)")
-    ax.set_xlabel("t [s]")
-    ax.set_ylabel("kinetic energy [J]")
-    ax.set_title(f"Stack reaction to a heavy fast box ({kind}, dynamic AVBD)\n"
-                 "box slams stack → stiff cubes transmit → slab rings → "
-                 "energy returns to the box (two-way)")
-    ax.legend(fontsize=9)
-    ax.grid(alpha=0.25)
-    # zoom the x-axis to the first ~120 ms where the wave is
-    t_imp = L["t"][int(np.argmax(L[f"KE_body{stack[-1]}"] > 1e-3))]
-    ax.set_xlim(max(0, t_imp - 0.01), t_imp + 0.12)
-    fig.tight_layout()
+        lab = (f"stack #{k} (bottom)" if k == 0 else
+               (f"stack #{k} (top)" if bi == stack[-1] else f"stack #{k}"))
+        ax[1].plot(L["t"], L[f"KE_body{bi}"], lw=1.7,
+                   color=cmap(0.15 + 0.7 * k / max(1, len(stack) - 1)), label=lab)
+    ax[1].plot(L["t"], L["KE_slab"], lw=1.0, color="#bbb", ls="--", label="slab (ref)")
+    ax[1].set_title("Reaction: the slab ring KICKS the tower (own scale)")
+    ax[1].set_ylabel("stack kinetic energy [J]")
+    by = max(1e-6, max(L[f"KE_body{b}"][int(xlim[0] / (L['t'][1] - L['t'][0])):].max()
+                       for b in stack))
+    ax[1].set_ylim(-0.05 * by, 1.25 * by)
+    for a in ax:
+        a.set_xlabel("t [s]"); a.set_xlim(*xlim); a.legend(fontsize=9); a.grid(alpha=0.25)
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
     _FIG.mkdir(parents=True, exist_ok=True)
     out = _FIG / f"stack_impact_reaction_{kind}.png"
     fig.savefig(out, dpi=130)

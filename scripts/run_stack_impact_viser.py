@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Viser: a HEAVY box dropped fast onto a 3-cube STACK — watch the stack react.
+"""Viser: a HEAVY box dropped BESIDE a 3-cube STACK — watch the stack react.
 
 A tower of `n_stack` cubes rests on the FEM-modal slab. A heavy, fast box is
-dropped onto the TOP of the stack (cube↔cube contacts all the way down, so it
-lands ON the tower, not through it). The impact propagates down the stack,
-compresses it, and rings the slab — the dynamic modal contact constraint
-(Approach B) makes the slab ring AND push back, two-way.
+dropped onto BARE SLAB next to the tower (box↔slab contact only — it does NOT
+touch the stack). The box rings the slab, and the ring KICKS the tower: the
+dynamic modal contact constraint (Approach B) carries the slab's ring back into
+the resting stack, so the tower jolts/rocks. Two-way, no velocity band.
 
-The HUD shows each cube's kinetic energy live, so you can watch the impact wave
-travel top → bottom through the stack and the slab ring.
+The HUD shows each cube's kinetic energy live, so you can watch the box land, the
+slab ring, and the stack get kicked. Try `--solver split`: its quasi-static slab
+can't ring, so the tower barely reacts (one-way).
 
     uv run python scripts/run_stack_impact_viser.py                 # AVBD, http://localhost:8199
     uv run python scripts/run_stack_impact_viser.py --solver gt

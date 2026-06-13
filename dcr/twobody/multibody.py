@@ -250,16 +250,19 @@ def build_stack_impact(kind: str, n_stack: int = 3, *, size: float = 0.1,
                        kappa_v: float = 2.0e3, damping: float = 0.5,
                        k_c: float = 1.0e6, material_rho: float = 600.0,
                        impactor_rho: float = 5000.0, impactor_size: float | None = None,
-                       impactor_v0: float = 5.0, impactor_gap: float = 0.02):
+                       impactor_v0: float = 5.0, impactor_x: float = 0.22,
+                       impactor_drop: float | None = None, stack_x: float = 0.0):
     """A resting tower of `n_stack` cubes on the slab + a HEAVY box dropped fast
-    onto the top of the stack, so the impact propagates DOWN the tower and rings
-    the slab.
+    onto the slab BESIDE the stack, so the box rings the slab and the ring kicks
+    the tower (the stack reacts — it jolts / rocks). The box does NOT touch the
+    stack: it lands on BARE slab in a gap at `impactor_x`, away from the tower at
+    `stack_x`.
 
-    Contacts: cube0↔slab, cube_i↔cube_{i-1} (the stack), and impactor↔top cube —
-    so the box actually lands ON the stack (not through it). The impactor starts
-    `impactor_gap` above the top face with a downward initial velocity
-    `impactor_v0` (m/s); it is `impactor_rho/material_rho`× as dense as the tower
-    cubes. Returns (system, info) with the impactor index and the stack indices.
+    Contacts: cube0↔slab + cube_i↔cube_{i-1} (the stack) and box↔slab (beside) —
+    no box↔stack. The box starts at height `impactor_drop` (default ≈ stack-top
+    height, so it falls alongside the tower) with a downward initial velocity
+    `impactor_v0` (m/s); it is `impactor_rho/material_rho`× as dense as the tower.
+    Returns (system, info) with the impactor index and the stack indices.
 
     bodies[0] = slab; bodies[1..n_stack] = stack (bottom→top); bodies[-1] = box.
     """
@@ -271,38 +274,48 @@ def build_stack_impact(kind: str, n_stack: int = 3, *, size: float = 0.1,
     slab_top = 0.025
     imp_size = impactor_size if impactor_size is not None else size
     imp_half = 0.5 * imp_size
+    if abs(impactor_x - stack_x) < 0.5 * (size + imp_size):
+        raise ValueError(
+            f"impactor_x={impactor_x:.3f} overlaps the stack at x={stack_x:.3f} "
+            f"(box should land BESIDE the tower on bare slab — increase impactor_x).")
+    if impactor_drop is None:                 # start beside the tower, ≈ its top
+        impactor_drop = slab_top + 2 * n_stack * half
 
+    # slab tracks two footprints: the stack base (pids 0–3) and the box (pids 4–7)
+    corner_xz = []
+    for cx in (stack_x, impactor_x):
+        for sx, sz in ((half, half), (half, -half), (-half, half), (-half, -half)):
+            corner_xz.append((cx + sx, sz))
     slab = build_fem_slab(material=Material(E=slab_E, nu=0.3, rho=material_rho),
-                          num_modes=16, alpha0=2.0 * damping, alpha1=1.0e-4 * damping)
+                          num_modes=16, alpha0=2.0 * damping, alpha1=1.0e-4 * damping,
+                          nx=20, ny=12, cube_corners_xz=np.array(corner_xz))
 
-    def make_cube(rho_, drop_y_, sz_):
+    def make_cube(rho_, drop_y_, sz_, cx_):
         mat = Material(E=cube_E, nu=0.3, rho=rho_)
         if kind == "abd":
             return build_abd_cube(size=sz_, material=mat, kappa_v=kappa_v,
-                                  drop_y=drop_y_, alpha0=damping)
+                                  drop_y=drop_y_, alpha0=damping, cx=cx_)
         return build_fem_cube(size=sz_, material=mat, drop_y=drop_y_,
-                              alpha0=damping, alpha1=5.0e-4 * damping)
+                              alpha0=damping, alpha1=5.0e-4 * damping, cx=cx_)
 
     # tower cubes resting exactly on each other (centroid i = slab_top+(2i+1)·half)
-    cubes = [make_cube(material_rho, slab_top + (2 * i + 1) * half, size)
+    cubes = [make_cube(material_rho, slab_top + (2 * i + 1) * half, size, stack_x)
              for i in range(n_stack)]
-    # heavy box just above the top face, slammed down
-    top_face = slab_top + 2 * n_stack * half
-    impactor = make_cube(impactor_rho, top_face + imp_half + impactor_gap, imp_size)
+    # heavy box dropped beside the tower, onto bare slab
+    impactor = make_cube(impactor_rho, impactor_drop, imp_size, impactor_x)
 
     bodies = [slab] + cubes + [impactor]
     imp_idx = 1 + n_stack
-    top_idx = n_stack                         # body index of the top tower cube
     contacts: list[Contact] = []
-    for j in range(4):                        # cube0 ↔ slab
+    for j in range(4):                        # cube0 ↔ slab (stack footprint, 0–3)
         contacts.append(Contact(upper=1, pid_upper=j, lower=0, pid_lower=j))
     for i in range(1, n_stack):               # cube_i ↔ cube_{i-1}
         for j in range(4):
             contacts.append(Contact(upper=1 + i, pid_upper=j,
                                     lower=i, pid_lower=4 + j))
-    for j in range(4):                        # box ↔ top tower cube
+    for j in range(4):                        # box ↔ slab (box footprint, 4–7)
         contacts.append(Contact(upper=imp_idx, pid_upper=j,
-                                lower=top_idx, pid_lower=4 + j))
+                                lower=0, pid_lower=4 + j))
 
     sysm = MultiBodySystem(bodies=bodies, contacts=contacts, k_c=k_c)
     # fast downward initial velocity on the box's translation carrier (y = dof 1)
