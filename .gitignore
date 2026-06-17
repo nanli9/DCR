@@ -21,3 +21,8 @@ imgui.ini
 
 # Benchmark CSV outputs
 benchmarks/output/
+
+# Large regenerable raw contact-force sweep CSVs (rebuild via
+# scripts/run_truck_bed_contact_force_sweep.py). Small summaries are kept.
+docs/twobody/contact_force_sweep/contact_forces_long.csv
+docs/twobody/contact_force_sweep/pile_forces_long.csv

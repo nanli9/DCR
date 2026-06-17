@@ -74,6 +74,7 @@ class SplitOneWaySystem:
         self.base = base
         self.newton_iters = newton_iters
         self.slab_body = slab_body
+        self.last_contact_force: NDArray[np.float64] | None = None
 
     def initial_state(self) -> MultiBodyState:
         return self.base.initial_state()
@@ -115,6 +116,9 @@ class SplitOneWaySystem:
             z += delta
             if np.linalg.norm(delta) < 1.0e-10:
                 break
+        # diagnostic: per-contact normal force [N] = k_c·max(0,−gap) (penalty).
+        gaps, _ = b._gaps(z)
+        self.last_contact_force = b.k_c * np.maximum(0.0, -gaps)
         v = (z - z_n) / h
         v[sl0] = 0.0   # quasi-static slab: no modal velocity / no kinetic energy
         return MultiBodyState(z=z, v=v)
@@ -161,6 +165,7 @@ class AVBDDynamicSystem:
         # last-step diagnostics
         self.last_max_penetration = 0.0
         self.last_lambda_max = 0.0
+        self.last_contact_force: NDArray[np.float64] | None = None
 
     # -- pass-throughs so the comparison harness treats all solvers alike --
     def initial_state(self) -> MultiBodyState:
@@ -218,6 +223,12 @@ class AVBDDynamicSystem:
         gaps, _ = b._gaps(z)
         self.last_max_penetration = float(max(0.0, -gaps.min())) if nC else 0.0
         self.last_lambda_max = float(np.max(np.abs(lam))) if nC else 0.0
+        # diagnostic: per-contact normal force [N]. The AL contact force is
+        # fc = lam + ρ·gap (≤0 compressive); the physical normal magnitude is
+        # max(0,−fc). The SAME scalar drives grads[c] = +Jac_upper / −Jac_lower,
+        # so it pushes the upper body up and the lower body down (two-way).
+        self.last_contact_force = np.maximum(0.0, -(lam + rho * gaps)) if nC \
+            else np.zeros(0)
         v = (z - z_n) / h
         return MultiBodyState(z=z, v=v)
 
@@ -259,6 +270,7 @@ class XPBDDynamicSystem:
         # per-body generalized inverse mass (block-diagonal)
         self._Minv_b = [np.linalg.inv(bd.M) for bd in base.bodies]
         self.last_max_penetration = 0.0
+        self.last_contact_force: NDArray[np.float64] | None = None
 
     def initial_state(self) -> MultiBodyState:
         return self.base.initial_state()
@@ -326,5 +338,10 @@ class XPBDDynamicSystem:
         gaps, _ = b._gaps(z)
         self.last_max_penetration = float(max(0.0, -gaps.min())) \
             if len(gaps) else 0.0
+        # diagnostic: per-contact normal force [N]. In XPBD the accumulated
+        # multiplier λ_c relates to force by f = ∇C·λ/h² (Macklin 2016); along
+        # the +y gap DOF ∇C = 1, so F_c = λ_c/h². λ_c ≥ 0 is compressive, and the
+        # shared ∇C (+upper / −lower) applies it as an equal/opposite pair.
+        self.last_contact_force = lam_c / (h * h)
         v = (z - z_n) / h
         return MultiBodyState(z=z, v=v)

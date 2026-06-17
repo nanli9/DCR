@@ -50,6 +50,9 @@ class MultiBodySystem:
 
     offsets: list[int] = field(init=False)        # start index of each body in z
     n: int = field(init=False)
+    # per-contact normal force [N] applied on the most recent step() (diagnostic;
+    # F_c = k_c·max(0,−gap_c) for the penalty GT). Set by step().
+    last_contact_force: NDArray[np.float64] = field(init=False, repr=False, default=None)
     _M: NDArray[np.float64] = field(init=False, repr=False)
     _D: NDArray[np.float64] = field(init=False, repr=False)
     _Minv: NDArray[np.float64] = field(init=False, repr=False)
@@ -127,6 +130,11 @@ class MultiBodySystem:
             z += delta
             if np.linalg.norm(delta) < self.newton_tol:
                 break
+        # diagnostic: per-contact normal force [N] = k_c·max(0,−gap) at converged z.
+        # Applied through grads[c] = +Jac_upper / −Jac_lower, so the SAME scalar
+        # pushes the upper body up and the lower body down (Newton's third law).
+        gaps, _ = self._gaps(z)
+        self.last_contact_force = self.k_c * np.maximum(0.0, -gaps)
         v = (z - z_n) / h
         return MultiBodyState(z=z, v=v)
 
@@ -332,6 +340,7 @@ def build_truck_bed(kind: str = "fem", *, size: float = 0.1,
                     k_c: float = 1.0e6, material_rho: float = 600.0,
                     impactor_rho: float = 6000.0, impactor_v0: float = 6.0,
                     impactor_x: float = 0.0, impactor_drop: float | None = None,
+                    slab_height: float = 0.05,
                     piles: list[tuple[float, float, int]] | None = None):
     """A *truck-bed / road* scene: the flexible bed slab (the modal support) with
     several resting cargo piles of varying mass at different x, plus a HEAVY box
@@ -357,7 +366,9 @@ def build_truck_bed(kind: str = "fem", *, size: float = 0.1,
                                           build_fem_slab)
 
     half = 0.5 * size
-    slab_top = 0.025
+    # slab is centered at y=0 with full height `slab_height`; its top surface
+    # (where cubes rest, the tracked contact points) is at +height/2.
+    slab_top = 0.5 * slab_height
     if piles is None:                         # default busy mixed truck load
         piles = [(-0.55, 800.0, 1),           # light crate
                  (-0.22, 700.0, 3),           # tall lumber stack (rocks visibly)
@@ -380,7 +391,7 @@ def build_truck_bed(kind: str = "fem", *, size: float = 0.1,
             corner_xz.append((cx + sx, sz))
     slab = build_fem_slab(material=Material(E=slab_E, nu=0.3, rho=material_rho),
                           num_modes=20, alpha0=2.0 * damping, alpha1=1.0e-4 * damping,
-                          length=1.6, width=0.8, nx=28, ny=14,
+                          length=1.6, width=0.8, height=slab_height, nx=28, ny=14,
                           cube_corners_xz=np.array(corner_xz))
 
     def make_cube(rho_, drop_y_, cx_):
