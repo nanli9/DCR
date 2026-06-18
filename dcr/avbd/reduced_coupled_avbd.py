@@ -329,6 +329,32 @@ class ReducedCoupledAVBDCoupler:
     # Body mass cache (filled at attach by world).
     body_mass: dict[int, float] = field(default_factory=dict)
 
+    # ---- fem_rigid cargo (Stage 3) ---------------------------------------
+    # Per-tracked-body elastic modes a∈R^k coupled at the body's FLOOR
+    # contact corners through the SAME dynamic modal block as the support
+    # (two_band_coupling.html), assembled into ONE AUGMENTED global modal
+    # vector  Q = [q_support(r); a_b(k_b); ...]  with BLOCK-DIAGONAL
+    # M_q/K_q/D_q. The per-body 6×6 rigid Schur blocks are UNCHANGED; the
+    # only generalization is the per-row modal gradient, which gains the
+    # co-rotated cube term  G_a = n̂ᵀ·R·Φ_c  (FEMRigidModalBody.point_jac_tan
+    # modal columns = R·Φ_c) in that body's a-columns. The cube's corner
+    # flex (R·Φ_c·â)_y folds into the contact anchor (staggered, exactly like
+    # the support's q̂), so the C/force computation is byte-identical to the
+    # pure-rigid path. Empty `cargo` ⇒ pure-rigid cargo: the existing CPU /
+    # device paths run verbatim (the Stage-1 parity stays bit-exact).
+    cargo: dict = field(default_factory=dict)          # body_idx -> FEMRigidModalBody
+    cargo_a: dict = field(default_factory=dict)         # body_idx -> (k,)  modal amp
+    cargo_adot: dict = field(default_factory=dict)      # body_idx -> (k,)  modal vel
+    cargo_a_prev: dict = field(default_factory=dict)    # body_idx -> (k,)  aⁿ snapshot
+    cargo_a_hat: dict = field(default_factory=dict)     # body_idx -> (k,)  predictor â
+    # Per-cargo-row caches (rebuilt each substep): nearest-corner modal block.
+    _row_cargo_modal: dict = field(default_factory=dict)  # row -> (3,k) Φ_c
+    # Augmented layout: support occupies [0:r]; cargo body b -> (start, k).
+    _cargo_off: dict = field(default_factory=dict)
+    _Q_dim: int = 0
+    last_cargo_modal_KE: float = 0.0
+    last_cargo_modal_PE: float = 0.0
+
     # ---- Substep-resolution logging ----
     # When True, every substep_end_hook pushes a dict snapshot to
     # `substep_log`. This is what's needed to see the impact transient
@@ -464,10 +490,29 @@ class ReducedCoupledAVBDCoupler:
     # all run on-device; topology is uploaded ONCE; the only host readback
     # is once per macro-step for the render/HUD). See reduced_coupled_kernels.
     # ------------------------------------------------------------------
+    def add_cargo(self, body_idx: int, body) -> None:
+        """Register a fem_rigid cargo body's elastic modes for two-way modal
+        coupling at its FLOOR contact corners (Stage 3). `body` is a
+        `dcr.avbd.cargo.fem_rigid.FEMRigidModalBody`; its `a` modal amplitude
+        becomes a block of the augmented dynamic modal vector Q. Must be a
+        tracked body (its FLOOR rows already couple to the support q)."""
+        b = int(body_idx)
+        k = int(body.k)
+        self.cargo[b] = body
+        self.cargo_a[b] = np.zeros(k, dtype=np.float64)
+        self.cargo_adot[b] = np.zeros(k, dtype=np.float64)
+        self.cargo_a_prev[b] = np.zeros(k, dtype=np.float64)
+        self.cargo_a_hat[b] = np.zeros(k, dtype=np.float64)
+
     def _use_device(self, solver) -> bool:
-        """True when the device-resident path should run for this solver."""
+        """True when the device-resident path should run for this solver.
+
+        Cargo (fem_rigid) bodies route through the CPU reference path until
+        the augmented-modal device kernels land (CLAUDE.md rule 6: reference
+        path first). Support-only scenes keep the GPU-resident path."""
         return bool(self.device_resident
-                    and str(solver.device).startswith("cuda"))
+                    and str(solver.device).startswith("cuda")
+                    and not self.cargo)
 
     def _ensure_device_buffers(self, solver) -> None:
         """Allocate the pre-sized device buffers once. Sized to scene capacity
@@ -966,7 +1011,60 @@ class ReducedCoupledAVBDCoupler:
         dy_all = self._U_y_stack @ self.rs.q_hat
         anchor_new[self._tracked_rows_arr, 1] = (
             self._floor_y_rest_arr + dy_all)
+
+        # fem_rigid cargo: form the per-body modal predictor â and fold the
+        # co-rotated corner flex (R·Φ_c·â)_y into the contact anchor so the
+        # gap stays  C = corner_rigid_y − (floor + U_y·q̂ − G_a·â)
+        #            = (deformed cube corner) − (deformed support surface).
+        # This mirrors the support's staggered q̂ seed exactly (the live a
+        # still updates through the augmented Schur block each iteration).
+        if self.cargo:
+            self._setup_cargo_substep(solver, orientations, anchor_new)
+
         solver.c_world_anchor.assign(anchor_new.astype(np.float32))
+
+    def _setup_cargo_substep(self, solver, orientations, anchor_new) -> None:
+        """Build the augmented-Q layout, the cargo modal predictors, and the
+        co-rotated corner-flex anchor offset for the current substep. See
+        `add_cargo` / the iteration_hook augmented path (two_band_coupling.html)."""
+        h = float(self.h_substep)
+        h_pred = 0.0 if self.freeze_qdot else h   # frozen control: â = aⁿ
+
+        # Augmented modal layout: support [0:r], then each cargo body's k modes.
+        self._cargo_off.clear()
+        off = int(self.rs.r)
+        for b in sorted(self.cargo.keys()):
+            k = int(self.cargo[b].k)
+            self._cargo_off[b] = (off, k)
+            off += k
+        self._Q_dim = off
+
+        # Inertial predictor per cargo body: snapshot aⁿ, â = aⁿ + h·ȧⁿ.
+        # # DEVIATION (two_band_coupling.html): the elastic modes are
+        # M-orthogonal to the 3 rigid translation modes, so Φᵀ(uniform
+        # gravity) ≈ 0 — the modal self-weight forcing f_q^grav vanishes,
+        # exactly as for the fixed support. Hence â = aⁿ + h·ȧⁿ (no h² term).
+        for b in self.cargo:
+            a = self.cargo_a[b]
+            self.cargo_a_prev[b] = a.copy()
+            self.cargo_a_hat[b] = a + h_pred * self.cargo_adot[b]
+
+        # Per cargo row: nearest cube corner's modal block Φ_c (3,k), and the
+        # co-rotated y-flex G_a·â subtracted from the anchor.
+        self._row_cargo_modal.clear()
+        for row in self.rs.tracked_row_indices:
+            ba = self._row_body_a[row]
+            body = self.cargo.get(ba)
+            if body is None:
+                continue
+            off_b = self._row_off_a[row]
+            cid = int(np.argmin(
+                np.linalg.norm(body.corner_body - off_b, axis=1)))
+            Phi_c = body.corner_modal[cid]                  # (3, k)
+            self._row_cargo_modal[row] = Phi_c
+            R = _quat_xyzw_to_R(orientations[ba].astype(np.float64))
+            G_a = R[1, :] @ Phi_c                            # (k,) co-rotated y-row
+            anchor_new[row, 1] -= float(G_a @ self.cargo_a_hat[ba])
 
     def iteration_hook(self, solver, iter_idx: int) -> None:
         """Schur solve over q_s (drift-fix v1).
@@ -989,6 +1087,12 @@ class ReducedCoupledAVBDCoupler:
         if self._use_device(solver) and self._device_ready:
             if self._dev_n_b > 0:
                 self._iteration_device(solver)
+            return
+
+        # fem_rigid cargo present ⇒ augmented-Q Schur (support q ⊕ per-body
+        # elastic a). The pure-rigid CPU body below stays byte-identical.
+        if self.cargo:
+            self._iteration_hook_augmented(solver, iter_idx)
             return
 
         lam_np = solver.c_lambda.numpy()
@@ -1258,6 +1362,285 @@ class ReducedCoupledAVBDCoupler:
         self.last_iter_dq_norms.append(self.last_dq_norm)
         self.last_rho_clip_hits = rho_hits
 
+    def _iteration_hook_augmented(self, solver, iter_idx: int) -> None:
+        """One coupled Schur iteration over the AUGMENTED modal vector
+        Q = [q_support(r); a_b(k_b); ...] (two_band_coupling.html, generalized
+        to moving cargo). Identical math to `iteration_hook`'s pure-rigid CPU
+        body, with three additions for each cargo body's FLOOR rows:
+
+          C unchanged (the cube's corner flex is already in the anchor);
+          per-row modal gradient grows from −U_y (support) to also carry the
+          co-rotated cube term G_a = n̂ᵀ·R·Φ_c (FEMRigidModalBody, modal cols
+          = R·Φ_c) in that body's a-columns; the dynamic modal block is
+          block-diagonal (support M_q/K_q/D_q ⊕ per-cube I/Ω²/D_modal).
+
+        # DEVIATION (plan §3 "solved in its per-body block"): the cube modes
+        # are eliminated as a GLOBAL block (augmented Q), not folded into the
+        # per-body 6×6. The two orderings are exact block-Gaussian re-orderings
+        # of the SAME monolithic Newton system ⇒ identical converged Δ; this
+        # one reuses the existing Schur machinery (per-body blocks unchanged).
+        """
+        rows = self.rs.tracked_row_indices
+
+        lam_np = solver.c_lambda.numpy()
+        pen_np = solver.c_penalty.numpy()
+        fmin_np = solver.c_fmin.numpy()
+        fmax_np = solver.c_fmax.numpy()
+        alpha_C0_np = solver.c_alpha_C0.numpy()
+        stiff_np = solver.c_stiffness.numpy()
+        anchor_np = solver.c_world_anchor.numpy().copy()
+        positions_np = solver.x.numpy().copy()
+        orientations_np = solver.q.numpy().copy()
+        mass_np          = self._mass_np
+        inertia_local_np = self._inertia_local_np
+        x_inertial_np    = self._x_inertial_np
+        q_inertial_np    = self._q_inertial_np
+
+        h = float(self.h_substep)
+        inv_dt2 = 1.0 / (h * h)
+        inv_dt = 1.0 / h
+        r = self.rs.r
+        R_dim = int(self._Q_dim)
+
+        # Augmented block-diagonal dynamic modal block (support ⊕ per-cube).
+        Mq_a = np.zeros((R_dim, R_dim), dtype=np.float64)
+        Kq_a = np.zeros((R_dim, R_dim), dtype=np.float64)
+        Dq_a = np.zeros((R_dim, R_dim), dtype=np.float64)
+        Mq_a[:r, :r] = self.rs.Mq
+        Kq_a[:r, :r] = self.rs.Kq
+        Dq_a[:r, :r] = self.rs.Dq
+        Q      = np.zeros(R_dim, dtype=np.float64)
+        Q_hat  = np.zeros(R_dim, dtype=np.float64)
+        Q_prev = np.zeros(R_dim, dtype=np.float64)
+        Q[:r], Q_hat[:r], Q_prev[:r] = (
+            self.rs.q, self.rs.q_hat, self.rs.q_prev_macro)
+        for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
+            Mq_a[s:s + k, s:s + k] = np.eye(k)               # mass-normalized
+            Kq_a[s:s + k, s:s + k] = np.diag(body.omega2)
+            Dq_a[s:s + k, s:s + k] = body.D_modal
+            Q[s:s + k]      = self.cargo_a[b]
+            Q_hat[s:s + k]  = self.cargo_a_hat[b]
+            Q_prev[s:s + k] = self.cargo_a_prev[b]
+
+        # H_Q = 1/h²M_q + 1/h D_q + K_q ;  g_Q = 1/h²M_q(Q−Q̂)+1/h D_q(Q−Qⁿ)+K_q Q
+        H_Q = inv_dt2 * Mq_a + inv_dt * Dq_a + Kq_a
+        g_Q = (inv_dt2 * (Mq_a @ (Q - Q_hat))
+               + inv_dt * (Dq_a @ (Q - Q_prev))
+               + Kq_a @ Q)
+
+        if (self._last_F_q_contact is None
+                or self._last_F_q_contact.shape[0] != r):
+            self._last_F_q_contact = np.zeros(r, dtype=np.float64)
+        else:
+            self._last_F_q_contact[:] = 0.0
+
+        per_body_Hx_inv: dict[int, NDArray[np.float64]] = {}
+        per_body_gx:     dict[int, NDArray[np.float64]] = {}
+        per_body_cross:  dict[int, NDArray[np.float64]] = {}
+
+        max_rho2_over_m = 0.0
+        rho_hits = 0
+        n_hat_const = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        rho_clip = self.rho_clip
+
+        for body_idx, rows_on_body in self._rows_per_body.items():
+            m = float(mass_np[body_idx])
+            if m <= 0.0 or not np.isfinite(m):
+                continue
+            q_xyzw = orientations_np[body_idx].astype(np.float64)
+            x_curr = positions_np[body_idx].astype(np.float64)
+            x_iner = x_inertial_np[body_idx].astype(np.float64)
+            q_iner = q_inertial_np[body_idx].astype(np.float64)
+
+            Rb = _quat_xyzw_to_R(q_xyzw)
+            I_local = inertia_local_np[body_idx].astype(np.float64)
+            I_world = Rb @ I_local @ Rb.T
+
+            A = m * inv_dt2 * np.eye(3)
+            D = I_world * inv_dt2
+            B = np.zeros((3, 3), dtype=np.float64)
+
+            r_lin = m * inv_dt2 * (x_curr - x_iner)
+            dq_iner = _quat_xyzw_mul(q_xyzw, _quat_xyzw_inv(q_iner))
+            dtheta_iner = _quat_xyzw_to_rotvec(dq_iner)
+            r_ang = I_world @ (dtheta_iner * inv_dt2)
+
+            cross_body = np.zeros((6, R_dim), dtype=np.float64)
+
+            row_idx_arr = self._row_idx_by_body[body_idx]
+            off_arr     = self._row_off_by_body[body_idx]
+            U_y_arr     = self._row_U_y_by_body[body_idx]
+            n_rows_b    = row_idx_arr.shape[0]
+
+            r_self_w_arr = off_arr @ Rb.T
+            j_lin_arr = np.broadcast_to(n_hat_const, (n_rows_b, 3))
+            j_ang_arr = np.empty((n_rows_b, 3), dtype=np.float64)
+            j_ang_arr[:, 0] = -r_self_w_arr[:, 2]
+            j_ang_arr[:, 1] = 0.0
+            j_ang_arr[:, 2] =  r_self_w_arr[:, 0]
+
+            C_arr        = (x_curr[1] + r_self_w_arr[:, 1]
+                            - anchor_np[row_idx_arr, 1])
+            s_stiff_arr  = stiff_np[row_idx_arr]
+            hard_arr     = np.isinf(s_stiff_arr)
+            C_arr        = np.where(
+                hard_arr, C_arr - alpha_C0_np[row_idx_arr], C_arr)
+            lam_eff_arr  = np.where(hard_arr, lam_np[row_idx_arr], 0.0)
+            rho_arr      = pen_np[row_idx_arr]
+            rho_used_arr = np.minimum(rho_arr, rho_clip)
+            rho_hits    += int(np.sum(rho_arr >= rho_clip))
+
+            f_lo_arr     = fmin_np[row_idx_arr]
+            f_hi_arr     = fmax_np[row_idx_arr]
+            lam_plus_arr = rho_used_arr * C_arr + lam_eff_arr
+            f_arr        = np.clip(lam_plus_arr, f_lo_arr, f_hi_arr)
+
+            abs_C_arr     = np.abs(C_arr)
+            below_mask    = (lam_plus_arr < f_lo_arr) & (abs_C_arr > 1.0e-12)
+            above_mask    = (lam_plus_arr > f_hi_arr) & (abs_C_arr > 1.0e-12)
+            safe_abs_C    = np.maximum(abs_C_arr, 1.0e-12)
+            k_for_lhs_arr = rho_used_arr.copy()
+            k_for_lhs_arr = np.where(
+                below_mask,
+                np.abs(f_lo_arr - lam_plus_arr) / safe_abs_C, k_for_lhs_arr)
+            k_for_lhs_arr = np.where(
+                above_mask,
+                np.abs(f_hi_arr - lam_plus_arr) / safe_abs_C, k_for_lhs_arr)
+
+            k_col      = k_for_lhs_arr[:, None]
+            k_j_lin    = k_col * j_lin_arr
+            k_j_ang    = k_col * j_ang_arr
+
+            A = A + j_lin_arr.T @ k_j_lin
+            B = B + j_ang_arr.T @ k_j_lin
+            D = D + j_ang_arr.T @ k_j_ang
+
+            f_mag_arr  = np.abs(f_arr)
+            geom_mask  = f_mag_arr > 0.0
+            if np.any(geom_mask):
+                g_diag_batch = _geom_stiffness_diag_batch(
+                    n_hat_const, r_self_w_arr)
+                weights = (f_mag_arr * geom_mask)[:, None]
+                D = D + np.diag((g_diag_batch * weights).sum(axis=0))
+
+            r_lin = r_lin + j_lin_arr.T @ f_arr
+            r_ang = r_ang + j_ang_arr.T @ f_arr
+
+            # Augmented per-row modal gradient G_row (n_rows_b, R_dim):
+            #   support cols [0:r] = −U_y  (∂C/∂q_support, raising surface)
+            #   cargo  cols [s:s+k] = +G_a = n̂ᵀ·R·Φ_c  (∂C/∂a, corner flex)
+            G_rows = np.zeros((n_rows_b, R_dim), dtype=np.float64)
+            G_rows[:, :r] = -U_y_arr
+            cargo_off = self._cargo_off.get(body_idx)
+            if cargo_off is not None:
+                s, kk = cargo_off
+                Phi_stack = np.stack(
+                    [self._row_cargo_modal[int(i)] for i in row_idx_arr])  # (n,3,k)
+                G_a_arr = np.einsum("j,ijk->ik", Rb[1, :], Phi_stack)     # (n,k)
+                G_rows[:, s:s + kk] = G_a_arr
+
+            k_G = k_col * G_rows
+            g_Q = g_Q + G_rows.T @ f_arr
+            H_Q = H_Q + G_rows.T @ k_G
+            cross_body[:3, :] += j_lin_arr.T @ k_G
+            cross_body[3:, :] += j_ang_arr.T @ k_G
+
+            # Support-only modal load diagnostic (back-compat): Σ U_y·f.
+            self._last_F_q_contact += U_y_arr.T @ f_arr
+
+            j_ang_sq_arr = (j_ang_arr * j_ang_arr).sum(axis=1)
+            jjsum_arr    = 1.0 + j_ang_sq_arr
+            row_score    = (rho_used_arr ** 2) * jjsum_arr / max(m, 1e-12)
+            if n_rows_b > 0:
+                max_rho2_over_m = max(max_rho2_over_m, float(row_score.max()))
+
+            H_x = np.block([[A, B.T], [B, D]])
+            g_x = np.concatenate([r_lin, r_ang])
+            H_x_reg = H_x + 1e-12 * np.eye(6)
+            try:
+                H_x_inv = np.linalg.inv(H_x_reg)
+            except np.linalg.LinAlgError:
+                continue
+            per_body_Hx_inv[body_idx] = H_x_inv
+            per_body_gx[body_idx] = g_x
+            # G_row already carries the support −U_y sign, so the cross block
+            # is used directly (no global negate — see iteration_hook note).
+            per_body_cross[body_idx] = cross_body
+
+        # Schur reduce over the augmented Q.
+        rhs_Q = -g_Q
+        S = H_Q.copy()
+        for body_idx in per_body_Hx_inv:
+            Mblk = per_body_cross[body_idx]
+            Hxi = per_body_Hx_inv[body_idx]
+            gxi = per_body_gx[body_idx]
+            S = S - Mblk.T @ (Hxi @ Mblk)
+            rhs_Q = rhs_Q + Mblk.T @ (Hxi @ gxi)
+
+        eps = max(
+            self.eps_baseline * (float(np.trace(Kq_a)) / max(R_dim, 1)),
+            self.eps_cross_factor * max_rho2_over_m,
+        )
+        S_reg = S + eps * np.eye(R_dim)
+        try:
+            dQ = np.linalg.solve(S_reg, rhs_Q)
+        except np.linalg.LinAlgError:
+            return
+
+        if self.diagnostic_mode:
+            try:
+                cond = float(np.linalg.cond(S_reg))
+            except Exception:
+                cond = float('inf')
+            self.last_Schur_condition_estimate = min(cond, 1e16)
+
+        # Apply ΔQ: support q ⊕ each cargo a.
+        self.rs.q = self.rs.q + dQ[:r]
+        for b, (s, k) in self._cargo_off.items():
+            self.cargo_a[b] = self.cargo_a[b] + dQ[s:s + k]
+
+        max_dx = 0.0
+        max_dtheta = 0.0
+        x_out = positions_np.copy()
+        q_out = orientations_np.copy()
+        for body_idx, Hxi in per_body_Hx_inv.items():
+            Mblk = per_body_cross[body_idx]
+            gxi = per_body_gx[body_idx]
+            delta = Hxi @ (-(gxi + Mblk @ dQ))
+            x_out[body_idx] = (positions_np[body_idx]
+                               + delta[:3].astype(np.float32))
+            dq_quat = _quat_xyzw_from_rotvec(delta[3:])
+            new_q = _quat_xyzw_mul(dq_quat, q_out[body_idx].astype(np.float64))
+            n = float(np.linalg.norm(new_q))
+            if n > 1e-12:
+                new_q = new_q / n
+            q_out[body_idx] = new_q.astype(np.float32)
+            max_dx = max(max_dx, float(np.linalg.norm(delta[:3])))
+            max_dtheta = max(max_dtheta, float(np.linalg.norm(delta[3:])))
+
+        solver.x.assign(x_out)
+        solver.q.assign(q_out)
+
+        if self.refresh_anchor_each_iter:
+            anchor_out = anchor_np.copy()
+            dy_all = self._U_y_stack @ self.rs.q
+            anchor_out[self._tracked_rows_arr, 1] = (
+                self._floor_y_rest_arr + dy_all)
+            # re-fold cargo corner flex (live a) for the monolithic variant.
+            for row, Phi_c in self._row_cargo_modal.items():
+                ba = self._row_body_a[row]
+                Rb = _quat_xyzw_to_R(q_out[ba].astype(np.float64))
+                anchor_out[row, 1] -= float((Rb[1, :] @ Phi_c) @ self.cargo_a[ba])
+            solver.c_world_anchor.assign(anchor_out.astype(np.float32))
+
+        self.last_max_dx_norm = max_dx
+        self.last_max_dtheta_norm = max_dtheta
+        self.last_dq_norm = float(np.linalg.norm(dQ[:r]))
+        self.last_n_iter_solves += 1
+        self.last_iter_dq_norms.append(float(np.linalg.norm(dQ)))
+        self.last_rho_clip_hits = rho_hits
+
     def substep_end_hook(self, solver) -> None:
         """Commit the dynamic modal velocity and log diagnostics
         (two_band_coupling.html — "After the step: q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h").
@@ -1285,6 +1668,21 @@ class ReducedCoupledAVBDCoupler:
         # holds q̇ ≡ 0 (no ring carried — the two-way counterfactual).
         if not self.freeze_qdot:
             self.rs.qdot = (self.rs.q - self.rs.q_prev_macro) / h
+
+        # fem_rigid cargo: commit each cube's modal velocity ȧⁿ⁺¹ = (aⁿ⁺¹−aⁿ)/h
+        # (same finite-difference ring-carrying mechanism, per cube) and log
+        # the total cargo modal energy E_cargo = Σ_b (½ȧᵀȧ + ½aᵀΩ²a).
+        self.last_cargo_modal_KE = 0.0
+        self.last_cargo_modal_PE = 0.0
+        for b in self.cargo:
+            if not self.freeze_qdot:
+                self.cargo_adot[b] = (
+                    self.cargo_a[b] - self.cargo_a_prev[b]) / h
+            adot = self.cargo_adot[b]
+            a = self.cargo_a[b]
+            om2 = self.cargo[b].omega2
+            self.last_cargo_modal_KE += 0.5 * float(adot @ adot)
+            self.last_cargo_modal_PE += 0.5 * float(a @ (om2 * a))
 
         # F_q_total = Σ U_y·f (the modal projection of the contact load) was
         # accumulated in the final iteration — kept as a diagnostic only.
