@@ -10,6 +10,11 @@ rings, and a two-way HUD — with LIVE dropdowns for:
   * material — fem_rigid | abd | fem.
   * device   — cpu | cuda:0 (GPU-resident on CUDA).
 
+Two render-only "deformation exaggeration" sliders (cube flex, slab deflection)
+default to 1.0 (TRUE SCALE) and are independent; the rigid drop/tumble is always
+true scale. The real flex is tiny (~1e-5 m), so raise the sliders (~300) to see
+the modal/affine deformation; --cube-exag / --support-exag set the initial values.
+
 This fuses the solver dropdown (Stage 6) onto the material × device cargo viser.
 abd + xpbd auto-routes to AVBD: abd's stiff nonlinear V⊥ is not Gauss–Seidel-
 stable in the substep sweep budget (the XPBDDynamicSystem oracle note), so the
@@ -42,9 +47,13 @@ from scenes.reduced_fem_rigid_cargo import build_cargo_scene, cube_state_world
 N_GRID_X, N_GRID_Z = 21, 11
 KINDS = ("fem_rigid", "abd", "fem")
 SOLVERS = ("avbd", "xpbd")
-_EXAG = {"fem_rigid": 300.0, "abd": 40.0, "fem": 300.0}
 _CUBE_COLOR = {"fem_rigid": (77, 140, 217), "abd": (217, 120, 77),
                "fem": (120, 200, 120)}
+# Exaggeration is a render-only scale on the DEFORMATION (cube modal flex /
+# affine shear; slab modal deflection) — the rigid drop/tumble is always true
+# scale. Default 1.0 (true scale); the real flex is tiny (~1e-5 m), so crank the
+# sliders to ~300 to see it. Cube and slab have INDEPENDENT factors.
+_EXAG_MAX = 2000.0
 
 
 def _effective_solver(solver: str, kind: str) -> str:
@@ -82,6 +91,9 @@ class UnifiedViser:
         self.solver = args.solver
         self.device = args.device
         self.paused = False
+        # Render-only deformation exaggeration (true scale = 1.0); live sliders.
+        self.cube_exag = float(args.cube_exag)
+        self.support_exag = float(args.support_exag)
         self._pending_rebuild = False
         self._support_faces = _support_faces(N_GRID_X, N_GRID_Z)
         self._build()
@@ -96,15 +108,14 @@ class UnifiedViser:
             device_resident=self.device.startswith("cuda"))
         self.rs = self.handle.rs
         self.cube = self.handle.cube
-        exag = _EXAG[self.kind]
         self.support = self.server.scene.add_mesh_simple(
-            "/support", vertices=_support_verts(self.rs, exag),
+            "/support", vertices=_support_verts(self.rs, self.support_exag),
             faces=self._support_faces, color=(150, 150, 150),
             flat_shading=False, side="double")
         z = cube_state_world(self.handle)
         self.cube_mesh = self.server.scene.add_mesh_simple(
             "/cube",
-            vertices=self.cube.deformed_surface(z, exag).astype(np.float32),
+            vertices=self.cube.deformed_surface(z, self.cube_exag).astype(np.float32),
             faces=self.cube.surf_faces.astype(np.int32),
             color=_CUBE_COLOR[self.kind], flat_shading=True, side="double")
 
@@ -127,6 +138,13 @@ class UnifiedViser:
                                              initial_value=self.device)
             self.gui_pause = g.add_checkbox("pause", initial_value=False)
             self.gui_reset = g.add_button("reset / rebuild")
+        with g.add_folder("deformation exaggeration (render only; 1 = true scale)"):
+            self.gui_cube_exag = g.add_slider(
+                "cube flex ×", min=1.0, max=_EXAG_MAX, step=1.0,
+                initial_value=self.cube_exag)
+            self.gui_support_exag = g.add_slider(
+                "slab deflection ×", min=1.0, max=_EXAG_MAX, step=1.0,
+                initial_value=self.support_exag)
         with g.add_folder("two-way HUD"):
             self.hud_eff = g.add_text("effective solver", initial_value="—")
             self.hud_ms = g.add_text("ms / step", initial_value="—")
@@ -143,6 +161,11 @@ class UnifiedViser:
         self.gui_reset.on_click(_request)
         self.gui_pause.on_update(
             lambda _: setattr(self, "paused", self.gui_pause.value))
+        # Exaggeration is a per-frame render scale — no rebuild; apply live.
+        self.gui_cube_exag.on_update(
+            lambda _: setattr(self, "cube_exag", self.gui_cube_exag.value))
+        self.gui_support_exag.on_update(
+            lambda _: setattr(self, "support_exag", self.gui_support_exag.value))
 
     def run(self):
         print(f"\n  unified viser: http://localhost:{self.args.port}")
@@ -159,11 +182,10 @@ class UnifiedViser:
                 t0 = time.perf_counter()
                 self.handle.world.step()
                 ms = (time.perf_counter() - t0) * 1e3
-                exag = _EXAG[self.kind]
                 z = cube_state_world(self.handle)
                 self.cube_mesh.vertices = self.cube.deformed_surface(
-                    z, exag).astype(np.float32)
-                self.support.vertices = _support_verts(self.rs, exag)
+                    z, self.cube_exag).astype(np.float32)
+                self.support.vertices = _support_verts(self.rs, self.support_exag)
                 eff = self._eff_solver
                 self.hud_eff.value = (
                     eff if eff == self.solver
@@ -187,6 +209,10 @@ def main():
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--drop", type=float, default=0.04)
     ap.add_argument("--spin", type=float, default=4.0)
+    ap.add_argument("--cube-exag", type=float, default=1.0,
+                    help="initial cube-flex render exaggeration (1 = true scale)")
+    ap.add_argument("--support-exag", type=float, default=1.0,
+                    help="initial slab-deflection render exaggeration (1 = true scale)")
     ap.add_argument("--port", type=int, default=8192)
     UnifiedViser(ap.parse_args()).run()
 
