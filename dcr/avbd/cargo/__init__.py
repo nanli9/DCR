@@ -13,9 +13,15 @@ from .fem_rigid import (
     build_fem_rigid_cube,
     cube_corner_ids,
 )
+from .abd import (
+    ABDAffineBody,
+    build_abd_cube,
+)
 
 __all__ = [
     "FEMRigidModalBody",
     "build_fem_rigid_cube",
     "cube_corner_ids",
+    "ABDAffineBody",
+    "build_abd_cube",
 ]

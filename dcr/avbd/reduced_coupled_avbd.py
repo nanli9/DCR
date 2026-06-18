@@ -511,9 +511,10 @@ class ReducedCoupledAVBDCoupler:
     def _use_device(self, solver) -> bool:
         """True when the device-resident path should run for this solver.
 
-        fem_rigid cargo bodies are handled on-device too (augmented modal
-        kernels: row_U_y grows to R = r + Σk, k_eval_cargo fills the co-rotated
-        cargo gradient). The numpy reference path stays the parity oracle."""
+        Both cargo materials are on-device: fem_rigid (LINEAR modes, K_q block)
+        and abd (NONLINEAR V⊥ via k_cargo_internal). The augmented modal kernels
+        grow row_U_y to R = r + Σk and k_eval_cargo fills the co-rotated cargo
+        gradient. The numpy path stays the parity oracle (CLAUDE.md rule 6)."""
         return bool(self.device_resident
                     and str(solver.device).startswith("cuda"))
 
@@ -558,9 +559,9 @@ class ReducedCoupledAVBDCoupler:
         Dq_a[:r, :r] = self.rs.Dq
         for b, (s, k) in self._cargo_off.items():
             body = self.cargo[b]
-            Mq_a[s:s + k, s:s + k] = np.eye(k)
-            Kq_a[s:s + k, s:s + k] = np.diag(body.omega2)
-            Dq_a[s:s + k, s:s + k] = body.D_modal
+            Mq_a[s:s + k, s:s + k] = body.Mq_block
+            Kq_a[s:s + k, s:s + k] = body.Kq_block
+            Dq_a[s:s + k, s:s + k] = body.Dq_block
 
         # ---- modal constants (uploaded once) ----
         d["Kq"] = wp.array(Kq_a, dtype=f64, device=dev)
@@ -603,6 +604,19 @@ class ReducedCoupledAVBDCoupler:
         d["row_cargo_k"] = wp.zeros(cap_rows, dtype=int, device=dev)
         d["row_corner_modal"] = wp.zeros(
             (cap_rows, 3, k_max), dtype=f64, device=dev)
+        # ---- nonlinear (abd V⊥) cargo: per-affine-body Q-offset + κ_v. ----
+        affine_offs, affine_kappas = [], []
+        for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
+            if getattr(body, "has_nonlinear_internal", False):
+                affine_offs.append(int(s))
+                affine_kappas.append(float(body.kappa_v))
+        self._dev_n_affine = len(affine_offs)
+        d["affine_off"] = wp.array(
+            np.array(affine_offs or [0], dtype=np.int32), dtype=int, device=dev)
+        d["affine_kappa"] = wp.array(
+            np.array(affine_kappas or [0.0], dtype=np.float64),
+            dtype=f64, device=dev)
         # ---- per-body block-inverse + cross scratch ----
         d["b_TL"] = wp.zeros(max_b, dtype=mat33d, device=dev)
         d["b_TR"] = wp.zeros(max_b, dtype=mat33d, device=dev)
@@ -826,6 +840,12 @@ class ReducedCoupledAVBDCoupler:
             f64(self._dev_inv_dt2), f64(self._dev_inv_dt),
             d["q"], d["q_hat"], d["q_prev"], d["row_U_y"], d["rowdata"],
             d["gq"], d["Fq"]])
+        # 2b. nonlinear abd V⊥ grad/Hess ADDED to the cargo block (after k_hq/k_g
+        #     wrote the inertia+contact part; before k_schur/k_rhs read them).
+        if self._dev_n_affine > 0:
+            wp.launch(K.k_cargo_internal, dim=self._dev_n_affine, device=dev,
+                      inputs=[self._dev_n_affine, d["affine_off"],
+                              d["affine_kappa"], d["q"], d["gq"], d["Hq"]])
         # 3. per-body H_x assembly + block inverse (scalar/3×3 part, dim=max_b)
         #    and the r-way cross-coupling block M (dim=(max_b, r)).
         wp.launch(K.k_body, dim=max_b, device=dev, inputs=[
@@ -925,12 +945,16 @@ class ReducedCoupledAVBDCoupler:
         self.last_cargo_modal_KE = 0.0
         self.last_cargo_modal_PE = 0.0
         for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
             self.cargo_a[b] = Q[s:s + k].copy()
             self.cargo_adot[b] = Qdot[s:s + k].copy()
-            self.last_cargo_modal_KE += 0.5 * float(
-                self.cargo_adot[b] @ self.cargo_adot[b])
-            self.last_cargo_modal_PE += 0.5 * float(
-                self.cargo_a[b] @ (self.cargo[b].omega2 * self.cargo_a[b]))
+            adot = self.cargo_adot[b]
+            self.last_cargo_modal_KE += 0.5 * float(adot @ (body.Mq_block @ adot))
+            if body.has_nonlinear_internal:
+                self.last_cargo_modal_PE += float(body.internal_energy(self.cargo_a[b]))
+            else:
+                self.last_cargo_modal_PE += 0.5 * float(
+                    self.cargo_a[b] @ (body.omega2 * self.cargo_a[b]))
         self._last_F_q_contact = d["Fq"].numpy().astype(np.float64)[:r].copy()
         diag = d["diag"].numpy()
         self.last_max_dx_norm = float(diag[0])
@@ -1505,9 +1529,11 @@ class ReducedCoupledAVBDCoupler:
             self.rs.q, self.rs.q_hat, self.rs.q_prev_macro)
         for b, (s, k) in self._cargo_off.items():
             body = self.cargo[b]
-            Mq_a[s:s + k, s:s + k] = np.eye(k)               # mass-normalized
-            Kq_a[s:s + k, s:s + k] = np.diag(body.omega2)
-            Dq_a[s:s + k, s:s + k] = body.D_modal
+            # Uniform cargo blocks: fem_rigid → (I, diag(ω²), D_modal); abd →
+            # (M_F, 0, α₀M_F) with the elastic in the NONLINEAR V⊥ added below.
+            Mq_a[s:s + k, s:s + k] = body.Mq_block
+            Kq_a[s:s + k, s:s + k] = body.Kq_block
+            Dq_a[s:s + k, s:s + k] = body.Dq_block
             Q[s:s + k]      = self.cargo_a[b]
             Q_hat[s:s + k]  = self.cargo_a_hat[b]
             Q_prev[s:s + k] = self.cargo_a_prev[b]
@@ -1517,6 +1543,16 @@ class ReducedCoupledAVBDCoupler:
         g_Q = (inv_dt2 * (Mq_a @ (Q - Q_hat))
                + inv_dt * (Dq_a @ (Q - Q_prev))
                + Kq_a @ Q)
+
+        # Nonlinear elastic (abd V⊥, ABD Eq. 6–8): add the per-body internal
+        # grad/Hess at the live deformation d. Re-linearized each iteration (the
+        # affine internal is genuinely nonlinear). fem_rigid is linear ⇒ no-op.
+        for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
+            if body.has_nonlinear_internal:
+                d = self.cargo_a[b]
+                g_Q[s:s + k] += body.internal_grad_d(d)
+                H_Q[s:s + k, s:s + k] += body.internal_hess_d(d)
 
         if (self._last_F_q_contact is None
                 or self._last_F_q_contact.shape[0] != r):
@@ -1763,15 +1799,19 @@ class ReducedCoupledAVBDCoupler:
         # the total cargo modal energy E_cargo = Σ_b (½ȧᵀȧ + ½aᵀΩ²a).
         self.last_cargo_modal_KE = 0.0
         self.last_cargo_modal_PE = 0.0
-        for b in self.cargo:
+        for b, body in self.cargo.items():
             if not self.freeze_qdot:
                 self.cargo_adot[b] = (
                     self.cargo_a[b] - self.cargo_a_prev[b]) / h
             adot = self.cargo_adot[b]
             a = self.cargo_a[b]
-            om2 = self.cargo[b].omega2
-            self.last_cargo_modal_KE += 0.5 * float(adot @ adot)
-            self.last_cargo_modal_PE += 0.5 * float(a @ (om2 * a))
+            # KE = ½ȧᵀ M_F ȧ (M_F = I for mass-normalized modes); PE is the
+            # body's elastic energy (linear ½aᵀΩ²a or the nonlinear V⊥).
+            self.last_cargo_modal_KE += 0.5 * float(adot @ (body.Mq_block @ adot))
+            if body.has_nonlinear_internal:
+                self.last_cargo_modal_PE += float(body.internal_energy(a))
+            else:
+                self.last_cargo_modal_PE += 0.5 * float(a @ (body.omega2 * a))
 
         # F_q_total = Σ U_y·f (the modal projection of the contact load) was
         # accumulated in the final iteration — kept as a diagnostic only.

@@ -21,26 +21,45 @@ import numpy as np
 from dcr.avbd.world import AVBDDCRWorld
 from dcr.avbd.reduced_support import ReducedSupport, make_debug_reduced_shelf_support
 from dcr.avbd.reduced_coupled_avbd import ReducedCoupledAVBDCoupler
-from dcr.avbd.cargo.fem_rigid import FEMRigidModalBody, build_fem_rigid_cube
+from dcr.avbd.cargo.fem_rigid import build_fem_rigid_cube
+from dcr.avbd.cargo.abd import build_abd_cube
 from dcr.fem.material import Material
 from scenes.reduced_support_shelf import N_GRID_X, N_GRID_Z
 
 
 @dataclass
 class FEMRigidCargoHandle:
-    """Everything needed to drive + render the fem_rigid cargo scene."""
+    """Everything needed to drive + render a cargo scene (any cube material)."""
     world: AVBDDCRWorld
     rs: ReducedSupport
     coupler: ReducedCoupledAVBDCoupler
-    cube: FEMRigidModalBody
+    cube: object                 # FEMRigidModalBody | ABDAffineBody | FEMModalBody
     avbd_idx: int
     support_top: float
     support_length: float
     support_width: float
-    name: str = "fem_rigid cargo on reduced-modal support"
+    kind: str = "fem_rigid"
+    name: str = "cargo on reduced-modal support"
 
 
-def build_fem_rigid_cargo(
+def _make_cube(kind, *, cube_size, cube_nx, cube_youngs, cube_density,
+               n_elastic):
+    """Build the requested cargo cube body (fem_rigid | abd)."""
+    if kind == "fem_rigid":
+        return build_fem_rigid_cube(
+            size=cube_size, nx=cube_nx, n_elastic=n_elastic,
+            material=Material(E=cube_youngs, nu=0.3, rho=cube_density),
+            drop_y=0.0)
+    if kind == "abd":
+        # κ_v controls the affine shear stiffness (V⊥); soft enough to shear
+        # visibly, stiff enough to stay near-rigid.
+        return build_abd_cube(size=cube_size, nx=cube_nx, kappa_v=2.0e3,
+                              alpha0=2.0, drop_y=0.0)
+    raise ValueError(f"unknown cargo kind {kind!r} (fem_rigid | abd)")
+
+
+def build_cargo_scene(
+    kind: str = "fem_rigid",
     *,
     h: float = 1.0 / 120.0,
     device: str = "cpu",
@@ -62,27 +81,23 @@ def build_fem_rigid_cargo(
     freeze_qdot: bool = False,
     device_resident: bool | None = None,
 ) -> FEMRigidCargoHandle:
-    """Build the scene + attach the dynamic coupler with one fem_rigid cube.
-
-    `spin` (rad/s about z) makes the cube tumble so the co-rotated R·Φ_c
-    modal Jacobian is exercised at non-trivial orientations. `cube_youngs`
-    is soft by default so the elastic flex is visible (the rigid SAT
-    collision is independent of modal softness — penetration is unaffected).
-    """
+    """Build a one-cube cargo scene (cube material = `kind`) + attach the
+    dynamic coupler. `spin` (rad/s about z) tumbles the cube so the co-rotated
+    contact Jacobian is exercised at non-trivial orientations."""
     world = AVBDDCRWorld(
         h=h, device=device,
         avbd_iterations=int(iterations), avbd_substeps=int(avbd_substeps))
     world.add_floor(floor_y=support_top, friction=0.5, name="support")
 
-    cube = build_fem_rigid_cube(
-        size=cube_size, nx=cube_nx, n_elastic=n_elastic,
-        material=Material(E=cube_youngs, nu=0.3, rho=cube_density), drop_y=0.0)
+    cube = _make_cube(kind, cube_size=cube_size, cube_nx=cube_nx,
+                      cube_youngs=cube_youngs, cube_density=cube_density,
+                      n_elastic=n_elastic)
     half = cube.half_extent
     dcr_idx = world.add_box(
         mass=cube.mass, half_extents=(half, half, half),
         position=(0.0, support_top + half + float(drop_height), 0.0),
         velocity_ang=(0.0, 0.0, float(spin)),
-        friction=0.5, name="fem_rigid_cube")
+        friction=0.5, name=f"{kind}_cube")
     avbd_idx = int(world._descs[dcr_idx].avbd_body.index)
 
     rs = make_debug_reduced_shelf_support(
@@ -104,7 +119,12 @@ def build_fem_rigid_cargo(
     return FEMRigidCargoHandle(
         world=world, rs=rs, coupler=coupler, cube=cube, avbd_idx=avbd_idx,
         support_top=support_top, support_length=support_length,
-        support_width=support_width)
+        support_width=support_width, kind=kind)
+
+
+def build_fem_rigid_cargo(**kwargs) -> FEMRigidCargoHandle:
+    """fem_rigid specialization of `build_cargo_scene` (back-compat)."""
+    return build_cargo_scene("fem_rigid", **kwargs)
 
 
 def cube_state_world(handle: FEMRigidCargoHandle) -> np.ndarray:

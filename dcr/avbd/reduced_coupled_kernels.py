@@ -985,3 +985,68 @@ def k_eval_cargo(
               + Rm[1, 2] * row_corner_modal[rr, 2, j])
         row_U_y[rr, off + j] = -ga
 
+
+@wp.kernel
+def k_cargo_internal(
+    n_affine: int,
+    affine_off: wp.array(dtype=int),
+    affine_kappa: wp.array(dtype=wp.float64),
+    q: wp.array(dtype=wp.float64),
+    gq: wp.array(dtype=wp.float64),
+    Hq: wp.array2d(dtype=wp.float64),
+):
+    """Nonlinear affine (abd) internal V⊥ grad/Hess ADDED to the augmented gq /
+    Hq cargo block (Lan et al. 2022, ABD Eq. 6–8). One thread per affine cargo
+    body; the abd block's linear K_q is 0, so this carries the entire elastic
+    response. Re-linearized at the live deformation each iteration (V⊥ is
+    genuinely nonlinear). Disjoint 9-blocks per body ⇒ no atomics. Mirrors the
+    CPU `ABDAffineBody.internal_grad_d / internal_hess_d` exactly.
+
+    a_i = e_i + d[3i:3i+3] (the affine rows); d = q[off:off+9] = vec(F−I)."""
+    t = wp.tid()
+    if t >= n_affine:
+        return
+    off = affine_off[t]
+    kv = affine_kappa[t]
+    A = mat33d(_ONE + q[off + 0], q[off + 1], q[off + 2],
+               q[off + 3], _ONE + q[off + 4], q[off + 5],
+               q[off + 6], q[off + 7], _ONE + q[off + 8])
+    four = wp.float64(4.0)
+    eight = wp.float64(8.0)
+    for i in range(3):
+        ai = vec3d(A[i, 0], A[i, 1], A[i, 2])
+        aii = wp.dot(ai, ai)
+        # gradient g_i = 4κ(‖a_i‖²−1)a_i + Σ_{j≠i} 4κ(a_i·a_j)a_j
+        gi = (four * kv * (aii - _ONE)) * ai
+        for j in range(3):
+            if j != i:
+                aj = vec3d(A[j, 0], A[j, 1], A[j, 2])
+                gi = gi + (four * kv * wp.dot(ai, aj)) * aj
+        for m in range(3):
+            gq[off + 3 * i + m] = gq[off + 3 * i + m] + gi[m]
+        # diagonal Hess block: 8κ a_i⊗a_i + 4κ(‖a_i‖²−1)I + Σ_{j≠i} 4κ a_j⊗a_j
+        for m in range(3):
+            for n in range(3):
+                val = eight * kv * ai[m] * ai[n]
+                if m == n:
+                    val = val + four * kv * (aii - _ONE)
+                Hq[off + 3 * i + m, off + 3 * i + n] = (
+                    Hq[off + 3 * i + m, off + 3 * i + n] + val)
+        for j in range(3):
+            if j != i:
+                aj = vec3d(A[j, 0], A[j, 1], A[j, 2])
+                aij = wp.dot(ai, aj)
+                for m in range(3):
+                    for n in range(3):
+                        Hq[off + 3 * i + m, off + 3 * i + n] = (
+                            Hq[off + 3 * i + m, off + 3 * i + n]
+                            + four * kv * aj[m] * aj[n])
+                # off-diagonal block ij: 4κ(a_j⊗a_i + (a_i·a_j)I)
+                for m in range(3):
+                    for n in range(3):
+                        val = four * kv * aj[m] * ai[n]
+                        if m == n:
+                            val = val + four * kv * aij
+                        Hq[off + 3 * i + m, off + 3 * j + n] = (
+                            Hq[off + 3 * i + m, off + 3 * j + n] + val)
+

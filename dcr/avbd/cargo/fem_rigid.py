@@ -207,6 +207,33 @@ class FEMRigidModalBody:
         D[6:, 6:] = self.D_modal
         return D
 
+    # -- uniform cargo-coupling interface (shared with ABDAffineBody) -------
+    # The dynamic coupler (`ReducedCoupledAVBDCoupler`) consumes any cargo body
+    # through this interface: a constant deformation mass/stiffness/damping
+    # block (k×k), per-corner co-rotation shape `corner_modal` (P,3,k) so the
+    # contact gradient is n̂ᵀ·R·corner_modal, and (for nonlinear bodies) an
+    # internal grad/Hess. The fem_rigid modes are LINEAR ⇒ the elastic block is
+    # the constant K_q = diag(ω²) and there is no nonlinear internal.
+    has_nonlinear_internal: bool = field(init=False, default=False)
+
+    @property
+    def Mq_block(self) -> NDArray[np.float64]:
+        return np.eye(self.k)                       # mass-normalized modes
+
+    @property
+    def Kq_block(self) -> NDArray[np.float64]:
+        return np.diag(self.omega2)                 # linear modal stiffness
+
+    @property
+    def Dq_block(self) -> NDArray[np.float64]:
+        return self.D_modal
+
+    def internal_grad_d(self, d: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.zeros(self.k)                     # linear ⇒ folded into K_q
+
+    def internal_hess_d(self, d: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.zeros((self.k, self.k))
+
     def internal_grad_tan(self, z: NDArray[np.float64]) -> NDArray[np.float64]:
         g = np.zeros(self.tdim)
         g[6:] = self.omega2 * z[7:]

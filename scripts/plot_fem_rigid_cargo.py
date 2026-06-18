@@ -32,17 +32,22 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
-from scenes.reduced_fem_rigid_cargo import build_fem_rigid_cargo, cube_state_world
+from scenes.reduced_fem_rigid_cargo import build_cargo_scene, cube_state_world
 
 OUT = ROOT / "docs" / "avbd_native"
 N_GRID_X, N_GRID_Z = 21, 11
+# Stage tag + GIF flex exaggeration per cube material.
+_KIND_META = {
+    "fem_rigid": dict(stage="stage3", exag=300.0, label="cube modal energy"),
+    "abd":       dict(stage="stage4", exag=40.0,  label="cube affine energy (V⊥)"),
+}
 
 
-def run(freeze: bool, n_steps: int, device: str = "cpu", spin: float = 6.0,
-        capture_surface: bool = False):
+def run(kind: str, freeze: bool, n_steps: int, device: str = "cpu",
+        spin: float = 6.0, capture_surface: bool = False):
     """Step the scene; return per-frame diagnostics (+ skinned surfaces)."""
-    h = build_fem_rigid_cargo(
-        device=device, freeze_qdot=freeze, drop_height=0.04, spin=spin,
+    h = build_cargo_scene(
+        kind, device=device, freeze_qdot=freeze, drop_height=0.04, spin=spin,
         device_resident=False)
     c, solver = h.coupler, h.world._solver
     t, com_y, cargo_E, supp_E, pen, a_norm = ([] for _ in range(6))
@@ -56,8 +61,9 @@ def run(freeze: bool, n_steps: int, device: str = "cpu", spin: float = 6.0,
         pen.append(c.last_contact_residual)
         a_norm.append(float(np.linalg.norm(c.cargo_a[h.avbd_idx])))
         if capture_surface:
+            exag = _KIND_META[kind]["exag"]
             z = cube_state_world(h)
-            cube_frames.append(h.cube.deformed_surface(z, exaggerate=300.0))
+            cube_frames.append(h.cube.deformed_surface(z, exaggerate=exag))
             dy = h.rs.U_points[:, 1, :] @ h.rs.q
             supp = h.rs.point_positions_rest.copy()
             supp[:, 1] += dy * 300.0
@@ -77,9 +83,10 @@ def make_plot(dyn, frz, path: Path):
     ax[0, 0].set_title("cube COM height (m)")
     ax[0, 0].set_xlabel("t (s)"); ax[0, 0].legend(); ax[0, 0].grid(alpha=0.3)
 
+    elabel = _KIND_META[dyn["handle"].kind]["label"]
     ax[0, 1].plot(dyn["t"], dyn["cargo_E"], label="dynamic", lw=1.6)
     ax[0, 1].plot(frz["t"], frz["cargo_E"], "--", label="frozen q̇≡0", lw=1.2)
-    ax[0, 1].set_title("cube modal energy ½ȧᵀȧ+½aᵀΩ²a (J) — the flex")
+    ax[0, 1].set_title(f"{elabel} (J) — the deformation")
     ax[0, 1].set_xlabel("t (s)"); ax[0, 1].legend(); ax[0, 1].grid(alpha=0.3)
 
     ax[1, 0].plot(dyn["t"], dyn["supp_E"], label="dynamic", lw=1.6)
@@ -93,7 +100,7 @@ def make_plot(dyn, frz, path: Path):
     ax[1, 1].set_title("contact penetration (mm) — zero = no interpenetration")
     ax[1, 1].set_xlabel("t (s)"); ax[1, 1].legend(); ax[1, 1].grid(alpha=0.3)
 
-    fig.suptitle("Stage 3 — fem_rigid cube on reduced-modal support: "
+    fig.suptitle(f"{dyn['handle'].kind} cube on reduced-modal support: "
                  "dynamic two-way constraint vs frozen counterfactual",
                  fontsize=11)
     fig.tight_layout()
@@ -109,6 +116,8 @@ def make_gif(dyn, path: Path, stride: int = 2):
         print(f"imageio unavailable ({e}); skipping GIF")
         return
     cube = dyn["handle"].cube
+    kind = dyn["handle"].kind
+    exag = _KIND_META[kind]["exag"]
     faces = cube.surf_faces
     L, W = dyn["handle"].support_length, dyn["handle"].support_width
     frames = []
@@ -133,7 +142,7 @@ def make_gif(dyn, path: Path, stride: int = 2):
         ax.set_xlim(-L / 2, L / 2); ax.set_ylim(-W / 2, W / 2)
         ax.set_zlim(-0.02, 0.18)
         ax.set_box_aspect((L, W, 0.2))
-        ax.set_title(f"fem_rigid cube (flex ×300)  t={dyn['t'][i]:.2f}s",
+        ax.set_title(f"{kind} cube (flex ×{exag:g})  t={dyn['t'][i]:.2f}s",
                      fontsize=9)
         ax.view_init(elev=12, azim=-72)
         ax.set_xticks([]); ax.set_yticks([]); ax.set_zticks([])
@@ -147,19 +156,24 @@ def make_gif(dyn, path: Path, stride: int = 2):
 
 
 def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--kind", default="fem_rigid", choices=list(_KIND_META))
+    args = ap.parse_args()
+    kind = args.kind
     OUT.mkdir(parents=True, exist_ok=True)
     n = 220
-    print("running dynamic ...")
-    dyn = run(freeze=False, n_steps=n, capture_surface=True)
-    print("running frozen ...")
-    frz = run(freeze=True, n_steps=n, capture_surface=False)
-    make_plot(dyn, frz, OUT / "stage3_fem_rigid_cargo.png")
-    make_gif(dyn, OUT / "stage3_fem_rigid_cargo.gif")
-    # console summary (the two-way tell-tale).
-    print(f"  dynamic peak cube modal E = {dyn['cargo_E'].max():.3e} J")
-    print(f"  frozen  peak cube modal E = {frz['cargo_E'].max():.3e} J")
-    print(f"  dynamic peak support E    = {dyn['supp_E'].max():.3e} J")
-    print(f"  max penetration dyn/frz   = "
+    print(f"[{kind}] running dynamic ...")
+    dyn = run(kind, freeze=False, n_steps=n, capture_surface=True)
+    print(f"[{kind}] running frozen ...")
+    frz = run(kind, freeze=True, n_steps=n, capture_surface=False)
+    tag = _KIND_META[kind]["stage"]
+    make_plot(dyn, frz, OUT / f"{tag}_{kind}_cargo.png")
+    make_gif(dyn, OUT / f"{tag}_{kind}_cargo.gif")
+    print(f"  dynamic peak cube deform E = {dyn['cargo_E'].max():.3e} J")
+    print(f"  frozen  peak cube deform E = {frz['cargo_E'].max():.3e} J")
+    print(f"  dynamic peak support E     = {dyn['supp_E'].max():.3e} J")
+    print(f"  max penetration dyn/frz    = "
           f"{dyn['pen'].max()*1e3:.4f} / {frz['pen'].max()*1e3:.4f} mm")
 
 
