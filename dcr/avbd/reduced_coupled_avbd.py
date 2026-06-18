@@ -25,13 +25,22 @@ Reduce by block-Gaussian elimination (H_x is per-body 6×6 — cheap to invert):
   Δx_i   = -H_x,i⁻¹·(g_x,i + ρ J_x,i J_q,i^T · Δq)
 
 The hook fires AFTER AVBD's per-iter primal+dual round, treating the update
-as the "k+½ corrector" warm-starting iter k+1. q is quasi-static — no
-M_q·qdot, no D_q·qdot, only K_q·q. `qdot` is held at zero.
+as the "k+½ corrector" warm-starting iter k+1.
 
-# DEVIATION (Plan §1, quasi-static q): the user's spec lists E_kin,q as
-# optional. We omit M_q/h² and D_q/h to keep H_q = K_q + Σ ρ J_q J_q^T,
-# which is unambiguously the static-rest Hessian. This is intentional;
-# adding dynamics is a later step.
+The support's modal amplitude q is a DYNAMIC second-order DOF (q, q̇) — the
+finalized two-way constraint of `two_band_coupling.html` ("Approach B").
+Each backward-Euler substep (size h = h_substep) minimizes the single
+incremental potential over (z, q); the modal block carries inertia and
+damping:
+    H_q = 1/h²·M_q + 1/h·D_q + K_q + Σ_j k_j U_y,j U_y,jᵀ
+    g_q = 1/h²·M_q(q − q̃) + 1/h·D_q(q − qⁿ) + K_q q − Σ_j U_y,j f_j
+with predictor q̃ = qⁿ + h q̇ⁿ (+ h² M_q⁻¹ f_q^grav, = 0 for the fixed
+support) and the velocity update q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h after the substep.
+The cross-block −ρ J_x U_yᵀ and the per-body Schur reduction are unchanged
+from the static coupler — the dynamic terms are diagonal additions to H_q.
+Two-way and passive BY CONSTRUCTION (one shared multiplier f_j carries both
+directions; backward Euler is dissipative) — no q_s/q_d split, no IIR
+resonator, no high-pass, no η/reservoir governor (all removed).
 
 # DEVIATION (anchor restoration vs static-only): unlike
 # `reduced_support_solve.ReducedSupportCoupler` which restores anchors to
@@ -50,10 +59,6 @@ from numpy.typing import NDArray
 
 from .reduced_support import ReducedSupport, evaluate_basis_at_point
 from .reduced_support_solve import _quat_rotate_xyzw
-from ..modal.exact_resonator import (
-    dynamic_compliance_step_precompute,
-    exact_modal_step_precompute,
-)
 
 
 FLOOR_CONTACT_6DOF = 0
@@ -307,37 +312,22 @@ class ReducedCoupledAVBDCoupler:
     # flat-support scene — is unchanged. False = legacy (anchor follows q_s).
     # # DEVIATION (foundation §15): static-sag low-pass of the contact reference;
     # no equation/mass/damping change, no host round-trip.
-    anchor_static_lowpass: bool = True
-    _q_s_anchor_lp: NDArray[np.float64] | None = None
+    # DEPRECATED no-op: the dynamic constraint REQUIRES the bodies to see the
+    # full ringing q (the static low-pass would filter the very ring that
+    # drives the two-way kick — two_band_coupling.html). Kept only so legacy
+    # constructor kwargs / diag scripts don't error; it has no effect.
+    anchor_static_lowpass: bool = False
+
+    # Two-way counterfactual control (two_band_coupling.html — "Measured: the
+    # constraint really does couple both ways"). When True, hold q̇ ≡ 0: the
+    # predictor carries NO ring (q̃ = qⁿ) and the velocity update is skipped.
+    # This is the `SplitOneWay` control that "deletes exactly that inertia
+    # term" — energy then flows only rigid→support and the bystander cargo
+    # gets ~0 kick. Default False = the full dynamic two-way constraint.
+    freeze_qdot: bool = False
 
     # Body mass cache (filled at attach by world).
     body_mass: dict[int, float] = field(default_factory=dict)
-
-    # ---- IIR exact-resonator workspace ----
-    # Populated by substep_begin_hook for the q_d dynamic-component step.
-    #   q_free, qdot_free  — analytical free-decay response of each mode
-    #                        over the substep (no contact force).
-    #   S_h, T_h           — full (r×r) displacement compliance and
-    #                        velocity force gain over the substep. Dense
-    #                        because Mq/Kq/Dq are not in the eigenbasis
-    #                        for the synthetic plate-bending + bump basis.
-    #   S_h_inv            — cached r×r inverse of S_h; enters H_q.
-    #   last_modal_F       — implied per-mode force at substep end,
-    #                        F = S_h⁻¹ · (q_{n+1} − q_free).
-    # All None until the first substep_begin_hook fires.
-    q_free:      NDArray[np.float64] | None = None
-    qdot_free:   NDArray[np.float64] | None = None
-    S_h:         NDArray[np.float64] | None = None
-    T_h:         NDArray[np.float64] | None = None
-    S_h_inv:     NDArray[np.float64] | None = None
-    last_modal_F: NDArray[np.float64] | None = None
-    # Eigenbasis fast-path: diagonal aliases of S_h, S_h_inv, T_h as
-    # length-r vectors. Set in substep_begin_hook when rs.is_eigenbasis;
-    # None on the synthetic path. Used in iteration_hook and
-    # substep_end_hook to replace dense r×r matvec with elementwise ops.
-    S_h_diag:     NDArray[np.float64] | None = None
-    S_h_inv_diag: NDArray[np.float64] | None = None
-    T_h_diag:     NDArray[np.float64] | None = None
 
     # ---- Substep-resolution logging ----
     # When True, every substep_end_hook pushes a dict snapshot to
@@ -434,12 +424,9 @@ class ReducedCoupledAVBDCoupler:
     # high-pass + q_d step. Reset to zeros at the start of each iteration
     # in `_iteration_split` (synthetic-basis size = r at attach time).
     _last_F_q_contact: NDArray[np.float64] | None = None
-    # Substep-start q_d energy snapshot (for the passivity log).
-    _E_q_d_substep_begin: float = 0.0
-    # First-substep flag: drives `α = 1` in the EMA on the very first
-    # substep so F_q_static_lp jumps to F_q_total instead of starting at
-    # zero and dumping the full static load into q_d.
-    _first_substep_split: bool = True
+    # Previous-substep total modal mechanical energy E = ½q̇ᵀM_qq̇ + ½qᵀK_qq,
+    # for the (logged, not enforced) backward-Euler passivity certificate.
+    _E_modal_prev: float | None = None
     # Defensive counter: incremented if any code path calls
     # `_apply_dcr_velocities` on a body the coupler tracks. In
     # --mode coupled_iir_modal this MUST stay 0 (Test 5). The old
@@ -505,33 +492,18 @@ class ReducedCoupledAVBDCoupler:
         d["Kq"] = wp.array(self.rs.Kq.astype(np.float64), dtype=f64, device=dev)
         d["Mq"] = wp.array(self.rs.Mq.astype(np.float64), dtype=f64, device=dev)
         d["Dq"] = wp.array(self.rs.Dq.astype(np.float64), dtype=f64, device=dev)
-        d["Mq_diag"] = wp.array(np.diag(self.rs.Mq).astype(np.float64),
-                                dtype=f64, device=dev)
-        d["eigen_omega"] = wp.array(
-            np.asarray(self.rs.eigen_omegas, dtype=np.float64), dtype=f64,
-            device=dev)
-        d["eigen_zeta"] = wp.array(
-            np.asarray(self.rs.eigen_zetas, dtype=np.float64), dtype=f64,
-            device=dev)
         d["grid_Uy"] = wp.array(
             self.rs.U_points[:, 1, :].astype(np.float64), dtype=f64,
             device=dev)
-        # ---- resident modal state ----
-        d["q_s"] = wp.zeros(r, dtype=f64, device=dev)
-        d["q_s_anchor_lp"] = wp.zeros(r, dtype=f64, device=dev)  # EMA for anchor
-        d["q_d"] = wp.zeros(r, dtype=f64, device=dev)
-        d["qdot_d"] = wp.zeros(r, dtype=f64, device=dev)
-        d["F_q_static_lp"] = wp.zeros(r, dtype=f64, device=dev)
-        d["q_free"] = wp.zeros(r, dtype=f64, device=dev)
-        d["qdot_free"] = wp.zeros(r, dtype=f64, device=dev)
-        d["S_h_diag"] = wp.zeros(r, dtype=f64, device=dev)
-        d["T_h_diag"] = wp.zeros(r, dtype=f64, device=dev)
-        d["F_q_dyn"] = wp.zeros(r, dtype=f64, device=dev)
-        d["q_total"] = wp.zeros(r, dtype=f64, device=dev)
-        d["qdot_total"] = wp.zeros(r, dtype=f64, device=dev)
-        d["escal"] = wp.zeros(4, dtype=f64, device=dev)        # [0]=E_q_d_begin
-        d["first_substep"] = wp.ones(1, dtype=int, device=dev)
-        d["pass_counter"] = wp.zeros(1, dtype=int, device=dev)
+        # ---- resident DYNAMIC modal state (q, q̇) + per-substep predictor ----
+        # The single second-order DOF of the finalized two-way constraint
+        # (two_band_coupling.html). q̇ carries the ring across substeps; q_prev
+        # = qⁿ snapshot, q_hat = predictor q̃. No q_s/q_d split, no IIR/EMA
+        # buffers (eigen_omega/zeta/Mq_diag/q_free/S_h_diag/... all removed).
+        d["q"]      = wp.zeros(r, dtype=f64, device=dev)
+        d["qdot"]   = wp.zeros(r, dtype=f64, device=dev)
+        d["q_prev"] = wp.zeros(r, dtype=f64, device=dev)
+        d["q_hat"]  = wp.zeros(r, dtype=f64, device=dev)
         # ---- iteration scratch ----
         d["Hq"] = wp.zeros((r, r), dtype=f64, device=dev)
         d["S"] = wp.zeros((r, r), dtype=f64, device=dev)
@@ -568,6 +540,7 @@ class ReducedCoupledAVBDCoupler:
 
         # Cached scalars.
         self._dev_inv_dt2 = 1.0 / (float(self.h_substep) ** 2)
+        self._dev_inv_dt = 1.0 / float(self.h_substep)
         self._dev_rho_clip = float(self.rho_clip)
         self._dev_eps_base = (self.eps_baseline
                               * float(np.trace(self.rs.Kq)) / max(r, 1))
@@ -593,10 +566,9 @@ class ReducedCoupledAVBDCoupler:
                 block_dim=int(self._eps_block_dim), inputs=[
                     d["counts"], d["rho_score"], wp.float64(self._dev_eps_base),
                     wp.float64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"],
-                    d["q_s"], d["diag"]])
+                    d["q"], d["diag"]])
             wp.synchronize_device(dev)
         self._dev_h_sub = float(self.h_substep)
-        self._dev_tau = float(self.modal_static_lp_tau)
         # substeps per macro step (for once-per-step host readback).
         n_sub = int(round(self.h_macro / self.h_substep)) if self.h_substep > 0 \
             else 1
@@ -664,18 +636,16 @@ class ReducedCoupledAVBDCoupler:
         d["row_body"].assign(row_body)
         d["row_off"].assign(row_off)
         d["floor_y_rest"].assign(floor_y)
-        # Seed resident modal state from the host truth (zeros at sim start, or
-        # whatever the coupler/rs carry on a mid-run switch).
-        d["q_s"].assign(self.rs.q_s.astype(np.float64))
-        d["q_s_anchor_lp"].assign(self.rs.q_s.astype(np.float64))
-        d["q_d"].assign(self.rs.q_d.astype(np.float64))
-        d["qdot_d"].assign(self.rs.qdot_d.astype(np.float64))
-        d["F_q_static_lp"].assign(self.rs.F_q_static_lp.astype(np.float64))
+        # Seed resident dynamic modal state from the host truth (zeros at sim
+        # start, or whatever the coupler/rs carry on a mid-run switch).
+        d["q"].assign(self.rs.q.astype(np.float64))
+        d["qdot"].assign(self.rs.qdot.astype(np.float64))
 
     def _substep_begin_device(self, solver) -> None:
-        """Device substep_begin: (one-time) identify rows + alloc + upload;
-        then per substep recompute U_y, snapshot modal energy, run the eigen
-        IIR precompute, and seed the contact anchor from q_s — all on-device."""
+        """Device substep_begin (two_band_coupling.html): (one-time) identify
+        rows + alloc + upload; then per substep recompute U_y, form the
+        inertial predictor (snapshot qⁿ, q̃ = qⁿ + h q̇ⁿ), and seed the contact
+        anchor from the FULL q̃ — all on-device, launch-only."""
         import warp as wp
         from . import reduced_coupled_kernels as K
         if not self._device_ready:
@@ -695,30 +665,17 @@ class ReducedCoupledAVBDCoupler:
             solver.x, solver.q, d["counts"], r, d["row_index"], d["row_body"],
             d["row_off"], d["grid_Uy"], int(self.n_grid_x), int(self.n_grid_z),
             f64(self.shelf_length), f64(self.shelf_width), d["row_U_y"]])
-        # Snapshot q_d modal energy (passivity reference).
-        wp.launch(K.k_modal_energy, dim=1, device=dev, inputs=[
-            r, d["q_d"], d["qdot_d"], d["Mq"], d["Kq"], d["escal"], int(0)])
-        # Eigen exact-resonator precompute on (q_d, q̇_d).
-        wp.launch(K.k_iir_precompute, dim=r, device=dev, inputs=[
-            r, d["q_d"], d["qdot_d"], d["eigen_omega"], d["eigen_zeta"],
-            d["Mq_diag"], f64(self._dev_h_sub), d["q_free"], d["qdot_free"],
-            d["S_h_diag"], d["T_h_diag"]])
-        # Seed anchors from q_s (k_anchor; diag[3]==0 in the normal case).
-        # Optional static low-pass: EMA q_s into q_s_anchor_lp and seed the
-        # anchor from THAT, so an impact spike in q_s does not jump the surface
-        # under a body and kick it (collision angular-kick + rock fix). REUSES
-        # modal_static_lp_tau — no new knob. See `anchor_static_lowpass`.
-        lp_tau = self.modal_static_lp_tau if self.anchor_static_lowpass else 0.0
-        if lp_tau > 0.0:
-            a_lp = min(1.0, float(self.h_substep) / lp_tau)
-            wp.launch(K.k_anchor_lp, dim=r, device=dev, inputs=[
-                r, d["q_s"], f64(a_lp), d["q_s_anchor_lp"]])
-            q_s_anchor = d["q_s_anchor_lp"]
-        else:
-            q_s_anchor = d["q_s"]
+        # Inertial predictor: snapshot qⁿ = q, q̃ = qⁿ + h q̇ⁿ (carries the
+        # ring; f_q^grav = 0 for the fixed support). Frozen control passes
+        # h = 0 ⇒ q̃ = qⁿ (no ring).
+        h_pred = 0.0 if self.freeze_qdot else self._dev_h_sub
+        wp.launch(K.k_predict, dim=r, device=dev, inputs=[
+            r, f64(h_pred), d["q"], d["qdot"], d["q_prev"], d["q_hat"]])
+        # Seed the contact anchor from the FULL predictor q̃ (deformed surface
+        # y_rest + U_y·q̃ — sag AND ring). diag[3]==0 in the normal case.
         wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
             r, d["counts"], d["row_index"], d["row_U_y"], d["floor_y_rest"],
-            q_s_anchor, d["diag"], solver.c_world_anchor])
+            d["q_hat"], d["diag"], solver.c_world_anchor])
 
     def _iteration_device(self, solver) -> None:
         """One coupled Schur iteration as a sequence of parallel device-kernel
@@ -739,11 +696,18 @@ class ReducedCoupledAVBDCoupler:
             solver.c_penalty, solver.c_fmin, solver.c_fmax, solver.c_alpha_C0,
             solver.c_stiffness, d["counts"], d["row_index"], d["row_body"],
             d["row_off"], f64(self._dev_rho_clip), d["rowdata"]])
-        # 2. modal Hessian + gradient (parallel, deterministic).
+        # 2. dynamic modal Hessian + gradient (parallel, deterministic). The
+        #    1/h²·M_q and 1/h·D_q terms make q a second-order DOF
+        #    (two_band_coupling.html). g_q uses the predictor q̃ (q_hat) and
+        #    substep-start qⁿ (q_prev).
         wp.launch(K.k_hq, dim=(r, r), device=dev, inputs=[
-            r, d["counts"], d["Kq"], d["row_U_y"], d["rowdata"], d["Hq"]])
+            r, d["counts"], d["Mq"], d["Kq"], d["Dq"],
+            f64(self._dev_inv_dt2), f64(self._dev_inv_dt),
+            d["row_U_y"], d["rowdata"], d["Hq"]])
         wp.launch(K.k_g, dim=r, device=dev, inputs=[
-            r, d["counts"], d["Kq"], d["q_s"], d["row_U_y"], d["rowdata"],
+            r, d["counts"], d["Mq"], d["Kq"], d["Dq"],
+            f64(self._dev_inv_dt2), f64(self._dev_inv_dt),
+            d["q"], d["q_hat"], d["q_prev"], d["row_U_y"], d["rowdata"],
             d["gq"], d["Fq"]])
         # 3. per-body H_x assembly + block inverse (scalar/3×3 part, dim=max_b)
         #    and the r-way cross-coupling block M (dim=(max_b, r)).
@@ -766,7 +730,7 @@ class ReducedCoupledAVBDCoupler:
         wp.launch(K.k_rhs, dim=r, device=dev, inputs=[
             r, d["counts"], d["gq"], d["b_hg0"], d["b_hg1"], d["M"],
             d["rhs"]])
-        # 5. ε-regularize + r×r solve + q_s update. Block-cooperative Cholesky
+        # 5. ε-regularize + r×r solve + q update. Block-cooperative Cholesky
         # (tile API) when available — replaces the single-thread GE that the
         # profiler flagged as the dominant cost; falls back to k_eps_solve on
         # CPU / when the tiled kernel is unavailable.
@@ -776,11 +740,11 @@ class ReducedCoupledAVBDCoupler:
                 block_dim=self._eps_block_dim, inputs=[
                     d["counts"], d["rho_score"], f64(self._dev_eps_base),
                     f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"],
-                    d["q_s"], d["diag"]])
+                    d["q"], d["diag"]])
         else:
             wp.launch(K.k_eps_solve, dim=1, device=dev, inputs=[
                 r, d["counts"], d["rho_score"], f64(self._dev_eps_base),
-                f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"], d["q_s"],
+                f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"], d["q"],
                 d["diag"]])
         # 6. back-substitute body deltas + diagnostics + anchor refresh.
         wp.launch(K.k_backsub, dim=max_b, device=dev, inputs=[
@@ -789,19 +753,22 @@ class ReducedCoupledAVBDCoupler:
             d["M"], d["dq"], d["diag"], d["b_dxn"], d["b_dthn"]])
         wp.launch(K.k_reduce_diag, dim=1, device=dev, inputs=[
             d["counts"], d["b_dxn"], d["b_dthn"], d["diag"]])
-        # Anchor refresh: only when monolithic (legacy). Staggered mode keeps
-        # the substep_begin seed fixed through the iteration loop to kill the
-        # rocking limit cycle (see `refresh_anchor_each_iter`).
+        # Anchor refresh from the updated full q: only when monolithic
+        # (legacy). Staggered mode keeps the substep_begin q̃ seed fixed
+        # through the iteration loop to kill the rocking limit cycle (the
+        # Δx↔Δq cross block still transmits q within the substep).
         if self.refresh_anchor_each_iter:
             wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
                 r, d["counts"], d["row_index"], d["row_U_y"],
-                d["floor_y_rest"], d["q_s"], d["diag"], solver.c_world_anchor])
+                d["floor_y_rest"], d["q"], d["diag"], solver.c_world_anchor])
         self.last_n_iter_solves += 1
 
     def _substep_end_device(self, solver) -> None:
-        """Device substep_end: EMA high-pass + eigen-IIR force of q_d, passivity
-        log, and q = q_s + q_d sync — all on-device. Host readback happens only
-        ONCE per macro-step (on the last substep) for the render/HUD."""
+        """Device substep_end (two_band_coupling.html — "After the step"):
+        commit q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h on-device. That single finite-difference
+        IS the ring-carrying mechanism (it feeds the next substep's predictor).
+        Host readback happens only ONCE per macro-step (last substep) for the
+        render/HUD."""
         import warp as wp
         from . import reduced_coupled_kernels as K
         if not self._device_ready or self._dev_n_b == 0:
@@ -811,20 +778,11 @@ class ReducedCoupledAVBDCoupler:
         dev = solver.device
         r = int(self._dev_r)
         f64 = wp.float64
-        # EMA high-pass + force q_d/q̇_d through the exact resonator.
-        wp.launch(K.k_iir_apply, dim=r, device=dev, inputs=[
-            r, d["Fq"], d["F_q_static_lp"], d["q_free"], d["qdot_free"],
-            d["S_h_diag"], d["T_h_diag"], d["first_substep"],
-            f64(self._dev_h_sub), f64(self._dev_tau),
-            d["q_d"], d["qdot_d"], d["F_q_dyn"]])
-        # Passivity log (per substep) + clear the first-substep EMA flag.
-        wp.launch(K.k_passivity, dim=1, device=dev, inputs=[
-            r, d["q_d"], d["qdot_d"], d["Mq"], d["Kq"], d["F_q_dyn"],
-            d["escal"], f64(self._dev_h_sub), d["first_substep"],
-            d["pass_counter"]])
-        # q = q_s + q_d ; q̇ = q̇_d.
-        wp.launch(K.k_sync_total, dim=r, device=dev, inputs=[
-            r, d["q_s"], d["q_d"], d["qdot_d"], d["q_total"], d["qdot_total"]])
+        # Modal velocity update: q̇ = (q − qⁿ)/h. Frozen control skips it
+        # (q̇ stays 0 — the two-way counterfactual).
+        if not self.freeze_qdot:
+            wp.launch(K.k_qdot, dim=r, device=dev, inputs=[
+                r, f64(self._dev_inv_dt), d["q"], d["q_prev"], d["qdot"]])
 
         # Once-per-macro-step host readback for render/HUD (the only host
         # round-trip; substep boundaries are otherwise device-only). Also when
@@ -836,117 +794,78 @@ class ReducedCoupledAVBDCoupler:
         self._substep_index += 1
 
     def _sync_device_to_host(self, solver) -> None:
-        """Pull resident modal state + diagnostics to host and recompute the
-        host-side logged scalars (norms, deflection, residual). Once per step."""
+        """Pull the resident dynamic modal state (q, q̇) + diagnostics to host
+        and recompute the host-side logged scalars (norms, deflection, energy,
+        passivity). This is the ONLY host round-trip — once per macro-step."""
         d = self._dbuf
-        self.rs.q_s = d["q_s"].numpy().astype(np.float64).copy()
-        self.rs.q_d = d["q_d"].numpy().astype(np.float64).copy()
-        self.rs.qdot_d = d["qdot_d"].numpy().astype(np.float64).copy()
-        self.rs.F_q_static_lp = d["F_q_static_lp"].numpy().astype(
-            np.float64).copy()
+        self.rs.q = d["q"].numpy().astype(np.float64).copy()
+        self.rs.qdot = d["qdot"].numpy().astype(np.float64).copy()
         self._last_F_q_contact = d["Fq"].numpy().astype(np.float64).copy()
-        F_q_dyn = d["F_q_dyn"].numpy().astype(np.float64)
-        self.rs.sync_total_from_split()
         diag = d["diag"].numpy()
         self.last_max_dx_norm = float(diag[0])
         self.last_max_dtheta_norm = float(diag[1])
         self.last_dq_norm = float(diag[2])
-        self.last_passivity_violations = int(d["pass_counter"].numpy()[0])
 
         Mq, Kq, Dq = self.rs.Mq, self.rs.Kq, self.rs.Dq
-        self.last_q_s_norm = float(np.linalg.norm(self.rs.q_s))
-        self.last_q_d_norm = float(np.linalg.norm(self.rs.q_d))
-        self.last_qdot_d_norm = float(np.linalg.norm(self.rs.qdot_d))
+        self.last_q_s_norm = float(np.linalg.norm(self.rs.q))
+        self.last_q_d_norm = 0.0
+        self.last_qdot_d_norm = float(np.linalg.norm(self.rs.qdot))
         self.last_F_q_total_norm = float(np.linalg.norm(self._last_F_q_contact))
-        self.last_F_q_static_norm = float(np.linalg.norm(self.rs.F_q_static_lp))
-        self.last_F_q_dyn_norm = float(np.linalg.norm(F_q_dyn))
-        self.last_q_norm = float(np.linalg.norm(self.rs.q))
+        self.last_F_q_static_norm = 0.0
+        self.last_F_q_dyn_norm = self.last_F_q_total_norm
+        self.last_q_norm = self.last_q_s_norm
         self.last_qdot_norm = self.last_qdot_d_norm
         if self.rs.U_points.shape[0] > 0:
             disp = np.einsum("kij,j->ki", self.rs.U_points, self.rs.q)
             self.last_max_support_deflection = float(
                 np.linalg.norm(disp, axis=1).max())
-        self.last_modal_KE = 0.5 * float(self.rs.qdot_d @ (Mq @ self.rs.qdot_d))
-        self.last_modal_PE = 0.5 * float(self.rs.q_d @ (Kq @ self.rs.q_d))
-        self.last_damp_power = float(self.rs.qdot_d @ (Dq @ self.rs.qdot_d))
+        # Total modal mechanical energy + backward-Euler passivity certificate
+        # (two_band_coupling.html "Passive for free"): E = ½q̇ᵀM_qq̇ + ½qᵀK_qq
+        # may rise only up to the contact work |h·F_qᵀq̇|. Logged, not governed.
+        self.last_modal_KE = 0.5 * float(self.rs.qdot @ (Mq @ self.rs.qdot))
+        self.last_modal_PE = 0.5 * float(self.rs.q @ (Kq @ self.rs.q))
+        self.last_damp_power = float(self.rs.qdot @ (Dq @ self.rs.qdot))
+        E_now = self.last_modal_KE + self.last_modal_PE
+        W_bound = abs(float(self.h_substep)
+                      * float(self._last_F_q_contact @ self.rs.qdot))
+        if (self._E_modal_prev is not None
+                and E_now > self._E_modal_prev + W_bound + 1e-9):
+            self.last_passivity_violations += 1
+        self._E_modal_prev = E_now
         rows = self.rs.tracked_row_indices
         if rows:
             lam = solver.c_lambda.numpy()
             self.last_contact_lambda_max = float(np.max(np.abs(lam[rows])))
 
     def substep_begin_hook(self, solver) -> None:
-        """Static / dynamic split substep_begin (drift-fix v1).
+        """Dynamic-constraint substep_begin (two_band_coupling.html).
 
-        # DEVIATION (foundation §15, plan ~/.claude/plans/...fizzy-waffle):
-        the anchor is seeded from `rs.q_s` (algebraic static-sag coord)
-        instead of `q_hat = q_free` (oscillating IIR predictor). The IIR
-        precompute runs on (q_d, qdot_d), not (q, qdot), and only sets up
-        the q_d evolution that fires in substep_end. Removing the dynamic
-        component from the contact anchor closes the position-level
-        rectification loop that produced the +108 mm drift.
+        Snapshot qⁿ = q, form the inertial predictor q̃ that carries the
+        ring history q̇ⁿ, and seed the contact anchor from the FULL q̃ (the
+        deformed surface y_rest + U_y·q̃ the bodies rest on — no static
+        low-pass, no split). One backward-Euler substep of size h_substep.
         """
         # Full GPU-resident path: all substep_begin work runs on-device (basis
-        # eval, energy snapshot, eigen IIR precompute, anchor seed). The numpy
-        # body below is the reference (CLAUDE.md rule 6); CPU / device_resident
-        # off use it.
+        # eval, predictor, anchor seed). The numpy body below is the reference
+        # (CLAUDE.md rule 6); CPU / device_resident off use it.
         if self._use_device(solver):
             self._substep_begin_device(solver)
             return
 
-        # 1. Snapshot dynamic state for the passivity log + EMA wake-up.
-        self.rs.q_d_prev_macro    = self.rs.q_d.copy()
-        self.rs.qdot_d_prev_macro = self.rs.qdot_d.copy()
+        # 1. Snapshot qⁿ and form the inertial predictor (two_band_coupling
+        #    "Inertial predictors"):  q̃ = qⁿ + h q̇ⁿ + h² M_q⁻¹ f_q^grav.
+        #    The predictor carries q̇ⁿ — NOT zeroed — which is the whole point
+        #    of the dynamic constraint (the ring persists across substeps).
+        #    # DEVIATION (two_band_coupling.html): f_q^grav = Uᵀf_grav = 0 for
+        #    the fixed support — its modes are zero-mean about the undeformed
+        #    rest slab (the sag is produced by the contact load at equilibrium,
+        #    not modal self-weight), so q̃ = qⁿ + h q̇ⁿ.
+        h = float(self.h_substep)
+        h_pred = 0.0 if self.freeze_qdot else h   # frozen control: q̃ = qⁿ
+        self.rs.q_prev_macro = self.rs.q.copy()
+        self.rs.q_hat = self.rs.q + h_pred * self.rs.qdot
 
-        # 2. q_d energy snapshot (q_s is quasi-static, no kinetic term).
-        Mq_ = self.rs.Mq
-        Kq_ = self.rs.Kq
-        qd0 = self.rs.qdot_d
-        qn0 = self.rs.q_d
-        self._E_q_d_substep_begin = (
-            0.5 * float(qd0 @ (Mq_ @ qd0))
-          + 0.5 * float(qn0 @ (Kq_ @ qn0)))
-
-        # 3. IIR precompute on (q_d, qdot_d). Same eigenbasis / dense
-        # branching as the legacy IIR path, fed with the DYNAMIC state.
-        if getattr(self.rs, "is_eigenbasis", False):
-            mass_diag = np.diag(self.rs.Mq)
-            (q_d_free, qdot_d_free, S_diag, T_diag
-             ) = exact_modal_step_precompute(
-                self.rs.q_d, self.rs.qdot_d,
-                self.rs.eigen_omegas, self.rs.eigen_zetas,
-                mass_diag, self.h_substep)
-            S_h_inv_diag = 1.0 / S_diag
-            S_h     = np.diag(S_diag)
-            T_h     = np.diag(T_diag)
-            S_h_inv = np.diag(S_h_inv_diag)
-            self.last_min_S_h = float(S_diag.min())
-            self.last_max_S_h = float(S_diag.max())
-            self.S_h_diag     = S_diag
-            self.S_h_inv_diag = S_h_inv_diag
-            self.T_h_diag     = T_diag
-        else:
-            q_d_free, qdot_d_free, S_h, T_h = (
-                dynamic_compliance_step_precompute(
-                    self.rs.q_d, self.rs.qdot_d,
-                    self.rs.Mq, self.rs.Kq, self.rs.Dq,
-                    self.h_substep))
-            S_h_inv = np.linalg.inv(S_h)
-            diag_S = np.diag(S_h)
-            self.last_min_S_h = float(diag_S.min())
-            self.last_max_S_h = float(diag_S.max())
-            self.S_h_diag     = None
-            self.S_h_inv_diag = None
-            self.T_h_diag     = None
-        self.q_free    = q_d_free
-        self.qdot_free = qdot_d_free
-        self.S_h       = S_h
-        self.T_h       = T_h
-        self.S_h_inv   = S_h_inv
-        # DO NOT overwrite rs.q_d with q_d_free — q_d stays at its prev
-        # value during the iteration loop, and is committed in
-        # _substep_end_split using the converged F_q_dyn.
-
-        # Allocate the F_q_contact accumulator (one-shot at first use).
+        # Allocate the F_q_contact diagnostic accumulator (one-shot).
         r = self.rs.r
         if (self._last_F_q_contact is None
                 or self._last_F_q_contact.shape[0] != r):
@@ -1036,22 +955,15 @@ class ReducedCoupledAVBDCoupler:
             dtype=np.float64, count=n_tracked)
         self._v_lift_arr = np.zeros(n_tracked, dtype=np.float64)
 
-        # 7. Seed anchors using q_s ONLY. No q_free, no q_d, no v_lift.
-        #    Optional static low-pass: route only the smooth (static-sag) part
-        #    of q_s into the contact anchor so an impact spike in q_s does not
-        #    jump the surface under a landing body and kick it. See
-        #    `anchor_static_lowpass`. # DEVIATION (foundation §15).
-        lp_tau = self.modal_static_lp_tau if self.anchor_static_lowpass else 0.0
-        if lp_tau > 0.0:
-            if self._q_s_anchor_lp is None:
-                self._q_s_anchor_lp = self.rs.q_s.copy()
-            a_lp = min(1.0, float(self.h_substep) / lp_tau)
-            self._q_s_anchor_lp += a_lp * (self.rs.q_s - self._q_s_anchor_lp)
-            q_s_anchor = self._q_s_anchor_lp
-        else:
-            q_s_anchor = self.rs.q_s
+        # 7. Seed anchors from the FULL inertial predictor q̃ (the deformed
+        #    surface y_rest + U_y·q̃ — sag AND ring, one curve). The dynamic
+        #    constraint REQUIRES the bodies to see the full ringing q so the
+        #    mode's inertia can push them back; the old static low-pass would
+        #    filter exactly the ring that drives the two-way kick, so it is
+        #    removed (two_band_coupling.html — "cubes ride the FULL dynamic
+        #    surface").
         anchor_new = anchor_np.copy()
-        dy_all = self._U_y_stack @ q_s_anchor
+        dy_all = self._U_y_stack @ self.rs.q_hat
         anchor_new[self._tracked_rows_arr, 1] = (
             self._floor_y_rest_arr + dy_all)
         solver.c_world_anchor.assign(anchor_new.astype(np.float32))
@@ -1095,14 +1007,33 @@ class ReducedCoupledAVBDCoupler:
 
         h = float(self.h_substep)
         inv_dt2 = 1.0 / (h * h)
+        inv_dt = 1.0 / h
         r = self.rs.r
-        Kq = self.rs.Kq
+        Mq, Kq, Dq = self.rs.Mq, self.rs.Kq, self.rs.Dq
 
-        # Baseline H_{q_s} / g_{q_s} — algebraic (no IIR predictor).
-        # At convergence: K_q · q_s = Σ U_y · f  (the modal equilibrium
-        # under the contact load).
-        H_q = Kq.copy()
-        g_q = Kq @ self.rs.q_s
+        # Dynamic two-way modal block (two_band_coupling.html — "The Newton /
+        # Schur block — only H_q gains two terms"). The support's modal
+        # amplitude is a SECOND-ORDER DOF (q, q̇); one backward-Euler substep
+        # of size h = h_substep:
+        #   H_q = 1/h²·M_q + 1/h·D_q + K_q + Σ_j k_j U_y,j U_y,jᵀ
+        #   g_q = 1/h²·M_q(q − q̃) + 1/h·D_q(q − qⁿ) + K_q q − Σ_j U_y,j f_j
+        # with predictor q̃ = qⁿ + h q̇ⁿ + h² M_q⁻¹ f_q^grav (set in
+        # substep_begin) and qⁿ = q at substep start (`q_prev_macro`).
+        # The contact terms (− Σ U_y f, + Σ k U_y U_yᵀ) are added below in the
+        # per-body row walk, identically to the quasi-static path.
+        # # DEVIATION (two_band_coupling.html "Honest boundary"): the damping
+        # gradient is the IMPLICIT 1/h·D_q(q−qⁿ) (consistent with the 1/h·D_q
+        # Hessian and the Ė = −q̇ᵀD_qq̇ ≤ 0 passivity proof) — NOT the older
+        # support-only explicit form D_q·q̇ⁿ at reduced_support_solve.py:368,
+        # whose D_q/h Hessian term is only a regulariser. Both share the same
+        # Hessian; this form is the finalized, passive one.
+        q = self.rs.q
+        q_hat = self.rs.q_hat
+        q_prev = self.rs.q_prev_macro
+        H_q = inv_dt2 * Mq + inv_dt * Dq + Kq
+        g_q = (inv_dt2 * (Mq @ (q - q_hat))
+               + inv_dt * (Dq @ (q - q_prev))
+               + Kq @ q)
 
         # Reset the modal-load accumulator at the START of every
         # iteration. Only the LAST iteration's value persists into
@@ -1277,9 +1208,10 @@ class ReducedCoupledAVBDCoupler:
                 cond = float('inf')
             self.last_Schur_condition_estimate = min(cond, 1e16)
 
-        # Apply Δq_s and back-substitute for body deltas.
-        q_s_new = self.rs.q_s + dq
-        self.rs.q_s = q_s_new
+        # Apply Δq to the dynamic modal coordinate, then back-substitute
+        # for the body deltas through the cross block.
+        q_new = self.rs.q + dq
+        self.rs.q = q_new
 
         max_dx = 0.0
         max_dtheta = 0.0
@@ -1306,12 +1238,15 @@ class ReducedCoupledAVBDCoupler:
         solver.x.assign(x_out)
         solver.q.assign(q_out)
 
-        # Refresh anchors with q_s_new — NO v_lift term in split mode. Only in
-        # monolithic (legacy) mode; staggered mode holds the substep_begin seed
-        # to kill the rocking limit cycle (see `refresh_anchor_each_iter`).
+        # Refresh anchors with the updated FULL q (the deformed surface the
+        # bodies rest on, y_rest + U_y·q). Only in monolithic mode; the
+        # staggered default holds the substep_begin q̃ seed through the
+        # iteration loop to kill the rocking limit cycle (the Δx↔Δq cross
+        # block still transmits q within the substep). See
+        # `refresh_anchor_each_iter`.
         if self.refresh_anchor_each_iter:
             anchor_out = anchor_np.copy()
-            dy_all = self._U_y_stack @ q_s_new
+            dy_all = self._U_y_stack @ q_new
             anchor_out[self._tracked_rows_arr, 1] = (
                 self._floor_y_rest_arr + dy_all)
             solver.c_world_anchor.assign(anchor_out.astype(np.float32))
@@ -1324,28 +1259,19 @@ class ReducedCoupledAVBDCoupler:
         self.last_rho_clip_hits = rho_hits
 
     def substep_end_hook(self, solver) -> None:
-        """Apply the high-passed modal load to q_d, sync `rs.q` for
-        back-compat, log passivity (drift-fix v1).
+        """Commit the dynamic modal velocity and log diagnostics
+        (two_band_coupling.html — "After the step: q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h").
 
-        # DEVIATION (foundation §15, plan ~/.claude/plans/...fizzy-waffle):
-        the implied force in the legacy IIR commit was
-            F_implied = S_h^{-1}·(q_solved − q_free)
-        which converts AVBD's per-iteration q residual into a modal velocity
-        kick via T_h. That route makes q_d non-passive whenever the AL hasn't
-        fully converged. Here we replace the implied F with the FILTERED
-        actual contact load:
-            F_q_dyn = F_q_total − F_q_static_lp
-        where F_q_total = Σ U_y · f was accumulated during the final
-        iteration of `_iteration_split` and F_q_static_lp is the EMA
-        low-pass thereof. The static component flows through q_s (algebraic,
-        already absorbed into the anchor each iter); only the high-passed
-        residue forces q_d. Resting load → F_q_dyn = 0 → q_d homogeneous,
-        decays through Rayleigh damping. Impact transient → F_q_dyn ≠ 0
-        briefly → q_d rings.
+        The converged q already carries the full sag+ring (the iteration
+        solved the coupled (z, q) block); here we just finite-difference the
+        new velocity from the substep's q delta, which feeds the next
+        substep's predictor q̃ — that is the entire ring-carrying mechanism.
+        No EMA, no IIR, no separate q_d. Passivity is automatic (backward
+        Euler), so the per-substep energy is logged, not governed.
         """
-        # Full GPU-resident path: EMA + eigen-IIR q_d step + passivity + sync
-        # all run on-device; host readback is once per macro-step (render/HUD).
-        # The numpy body below is the reference (CLAUDE.md rule 6).
+        # Full GPU-resident path: qdot update + diagnostics run on-device;
+        # host readback is once per macro-step (render/HUD). The numpy body
+        # below is the reference (CLAUDE.md rule 6).
         if self._use_device(solver):
             self.last_n_iter_solves = int(solver.iterations) + (
                 1 if getattr(solver, "post_stabilize", False) else 0)
@@ -1353,77 +1279,44 @@ class ReducedCoupledAVBDCoupler:
             return
 
         h = float(self.h_substep)
-        Mq = self.rs.Mq
-        Kq = self.rs.Kq
+        Mq, Kq, Dq = self.rs.Mq, self.rs.Kq, self.rs.Dq
 
-        # F_q_total = Σ U_y · f as accumulated in the FINAL iteration of
-        # _iteration_split. Defensive: if no rows were tracked or the
-        # accumulator was never sized, treat as zero.
+        # Modal velocity update: q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h. The frozen control
+        # holds q̇ ≡ 0 (no ring carried — the two-way counterfactual).
+        if not self.freeze_qdot:
+            self.rs.qdot = (self.rs.q - self.rs.q_prev_macro) / h
+
+        # F_q_total = Σ U_y·f (the modal projection of the contact load) was
+        # accumulated in the final iteration — kept as a diagnostic only.
         if self._last_F_q_contact is None:
             F_q_total = np.zeros(self.rs.r, dtype=np.float64)
         else:
             F_q_total = self._last_F_q_contact.copy()
 
-        # EMA update of F_q_static_lp. Frame-rate-aware α; one-shot
-        # init (α=1) on the very first substep so the LP latches to
-        # F_q_total instead of starting at zero (which would dump the
-        # static load into q_d and produce a spurious wake-up ring).
-        tau = float(self.modal_static_lp_tau)
-        if getattr(self, "_first_substep_split", True):
-            alpha_ema = 1.0
-            self._first_substep_split = False
-        else:
-            alpha_ema = 1.0 - float(np.exp(-h / max(tau, 1e-9)))
-        self.rs.F_q_static_lp = (
-            (1.0 - alpha_ema) * self.rs.F_q_static_lp
-          + alpha_ema * F_q_total)
-        F_q_dyn = F_q_total - self.rs.F_q_static_lp
-
-        # Apply F_q_dyn through the IIR precompute prepared at substep_begin.
-        # q_d_new   = q_d_free   + S_h · F_q_dyn
-        # qdot_d_new = qdot_d_free + T_h · F_q_dyn
-        if (self.q_free is not None and self.qdot_free is not None
-                and self.S_h is not None and self.T_h is not None):
-            if self.S_h_diag is not None:
-                q_d_new    = self.q_free    + self.S_h_diag * F_q_dyn
-                qdot_d_new = self.qdot_free + self.T_h_diag * F_q_dyn
-            else:
-                q_d_new    = self.q_free    + self.S_h @ F_q_dyn
-                qdot_d_new = self.qdot_free + self.T_h @ F_q_dyn
-            self.rs.q_d    = q_d_new
-            self.rs.qdot_d = qdot_d_new
-        else:
-            # Pre-warm fallback (first substep before any precompute).
-            self.rs.q_d[:]    = 0.0
-            self.rs.qdot_d[:] = 0.0
-
-        # Passivity log — does q_d energy change exceed the work upper
-        # bound h · F_q_dyn^T · qdot_d? Logged, NOT enforced (the
-        # passivity bound is asymptotic; iteration-noise can briefly
-        # violate it without affecting long-run stability).
-        dE_q_d = ((0.5 * float(self.rs.qdot_d @ (Mq @ self.rs.qdot_d))
-                 + 0.5 * float(self.rs.q_d   @ (Kq @ self.rs.q_d)))
-                 - self._E_q_d_substep_begin)
-        W_q_d_bound = abs(h * float(F_q_dyn @ self.rs.qdot_d))
-        if dE_q_d > W_q_d_bound + 1e-12:
+        # Passivity certificate — total modal mechanical energy
+        # E = ½q̇ᵀM_q q̇ + ½qᵀK_q q. Backward Euler is dissipative, so absent
+        # contact forcing E is monotone non-increasing; with forcing it may
+        # rise but only up to the contact work. Logged, not enforced (no
+        # governor — passivity is structural). A violation here means E rose
+        # by more than the substep contact work |h·F_qᵀq̇|.
+        E_now = (0.5 * float(self.rs.qdot @ (Mq @ self.rs.qdot))
+                 + 0.5 * float(self.rs.q @ (Kq @ self.rs.q)))
+        W_bound = abs(h * float(F_q_total @ self.rs.qdot))
+        if (self._E_modal_prev is not None
+                and E_now > self._E_modal_prev + W_bound + 1e-12):
             self.last_passivity_violations += 1
+        self._E_modal_prev = E_now
 
-        # Sync the canonical (q, qdot) views for downstream callers
-        # (viser surface render, HUD readouts, the last_max_support_deflection
-        # diagnostic). In split mode, q_s and q_d are the truth.
-        self.rs.sync_total_from_split()
-
-        # Diagnostics.
-        self.last_q_s_norm        = float(np.linalg.norm(self.rs.q_s))
-        self.last_q_d_norm        = float(np.linalg.norm(self.rs.q_d))
-        self.last_qdot_d_norm     = float(np.linalg.norm(self.rs.qdot_d))
+        # Diagnostics on the single dynamic (q, q̇).
+        self.last_q_s_norm        = float(np.linalg.norm(self.rs.q))
+        self.last_q_d_norm        = 0.0
+        self.last_qdot_d_norm     = float(np.linalg.norm(self.rs.qdot))
         self.last_F_q_total_norm  = float(np.linalg.norm(F_q_total))
-        self.last_F_q_static_norm = float(np.linalg.norm(self.rs.F_q_static_lp))
-        self.last_F_q_dyn_norm    = float(np.linalg.norm(F_q_dyn))
+        self.last_F_q_static_norm = 0.0
+        self.last_F_q_dyn_norm    = float(np.linalg.norm(F_q_total))
         self.last_q_norm    = float(np.linalg.norm(self.rs.q))
         self.last_qdot_norm = self.last_qdot_d_norm
 
-        # max_support_deflection on the full visual q (q_s + q_d).
         if self.rs.U_points.shape[0] > 0:
             disp = np.einsum("kij,j->ki", self.rs.U_points, self.rs.q)
             self.last_max_support_deflection = float(
@@ -1431,13 +1324,10 @@ class ReducedCoupledAVBDCoupler:
         else:
             self.last_max_support_deflection = 0.0
 
-        # Modal energy diagnostics — on q_d only (q_s has no kinetic).
-        self.last_modal_KE = 0.5 * float(
-            self.rs.qdot_d @ (Mq @ self.rs.qdot_d))
-        self.last_modal_PE = 0.5 * float(
-            self.rs.q_d @ (Kq @ self.rs.q_d))
-        self.last_damp_power = float(
-            self.rs.qdot_d @ (self.rs.Dq @ self.rs.qdot_d))
+        # Modal energy diagnostics on the full (q, q̇).
+        self.last_modal_KE = 0.5 * float(self.rs.qdot @ (Mq @ self.rs.qdot))
+        self.last_modal_PE = 0.5 * float(self.rs.q @ (Kq @ self.rs.q))
+        self.last_damp_power = float(self.rs.qdot @ (Dq @ self.rs.qdot))
         self.last_q_acc_norm = 0.0
 
         # Track λ across tracked rows (back-compat with legacy diagnostics).
@@ -1459,16 +1349,12 @@ class ReducedCoupledAVBDCoupler:
                 "q_acc_norm":    self.last_q_acc_norm,
                 "KE_modal_J":    self.last_modal_KE,
                 "PE_modal_J":    self.last_modal_PE,
+                "E_modal_J":     E_now,
                 "P_damp_W":      self.last_damp_power,
                 "contact_lambda_max": self.last_contact_lambda_max,
                 "max_support_deflection_m": self.last_max_support_deflection,
                 "n_iter_solves": int(self.last_n_iter_solves),
-                # split-mode extras
-                "q_s_norm":      self.last_q_s_norm,
-                "q_d_norm":      self.last_q_d_norm,
                 "F_q_total_norm":  self.last_F_q_total_norm,
-                "F_q_static_norm": self.last_F_q_static_norm,
-                "F_q_dyn_norm":    self.last_F_q_dyn_norm,
             })
         self._substep_index += 1
 

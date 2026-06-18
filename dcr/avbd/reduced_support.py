@@ -97,50 +97,36 @@ class ReducedSupport:
     overlay_enabled: bool = True
     restart_overlay_each_step: bool = True
 
-    # ---- Static / dynamic split state (used by ReducedCoupledAVBDCoupler).
+    # ---- Dynamic modal state (used by ReducedCoupledAVBDCoupler).
     #
-    # # DEVIATION (foundation §15 / drift-fix v1, 2026-06-08):
-    # the paper's Eq. 10 evolves a single q via the IIR resonator and feeds
-    # U_y·q directly into the contact anchor. That is non-passive at finite
-    # iteration counts under unilateral contact (position-level ratchet —
-    # zero-mean q oscillation produces +∞ probe drift). We split:
-    #     q = q_s + q_d
-    # q_s is the algebraic static-sag coordinate (solved coupled with x in
-    # the AVBD iteration, baseline H_q = K_q), used in the contact anchor.
-    # q_d is the dynamic IIR oscillator forced by a high-passed modal load
-    # (F_dyn = F_total − low_pass(F_total)), used only in the visual surface.
-    # q_d NEVER enters the contact constraint nor H_xq, so the ratchet cannot
-    # form. See plan ~/.claude/plans/you-are-working-in-fizzy-waffle.md and
-    # the diagnostic variant table that locates the bug.
-    q_s:                NDArray[np.float64] | None = None   # (r,)
-    q_d:                NDArray[np.float64] | None = None   # (r,)
-    qdot_d:             NDArray[np.float64] | None = None   # (r,)
-    q_d_prev_macro:     NDArray[np.float64] | None = None   # (r,) snapshot
-    qdot_d_prev_macro:  NDArray[np.float64] | None = None   # (r,) snapshot
-    F_q_static_lp:      NDArray[np.float64] | None = None   # (r,) EMA LP
-
-    def __post_init__(self) -> None:
-        """Allocate the static/dynamic-split scratch arrays if the caller
-        didn't (the common case — only the canonical state vectors q/qdot
-        are required positional fields)."""
-        n = int(self.q.shape[0])
-        if self.q_s is None:
-            self.q_s = np.zeros(n, dtype=np.float64)
-        if self.q_d is None:
-            self.q_d = np.zeros(n, dtype=np.float64)
-        if self.qdot_d is None:
-            self.qdot_d = np.zeros(n, dtype=np.float64)
-        if self.q_d_prev_macro is None:
-            self.q_d_prev_macro = np.zeros(n, dtype=np.float64)
-        if self.qdot_d_prev_macro is None:
-            self.qdot_d_prev_macro = np.zeros(n, dtype=np.float64)
-        if self.F_q_static_lp is None:
-            self.F_q_static_lp = np.zeros(n, dtype=np.float64)
+    # The earlier two-band split (q = q_s + q_d, with q_s the algebraic
+    # static-sag coordinate fed to the contact and q_d a separately-evolved
+    # IIR ring injected one-way) has been REMOVED in favour of the finalized
+    # dynamic two-way modal constraint (`two_band_coupling.html`, "Approach
+    # B"). The support now carries a SINGLE second-order modal DOF `(q, qdot)`
+    # — declared above as the canonical `q`, `qdot`, predictor `q_hat`, and
+    # per-substep snapshot `q_prev_macro`. The contact sees the FULL dynamic
+    # q (sag + ring), and the ring's inertia pushes the bodies back through
+    # the same shared multiplier — two-way and passive by construction
+    # (backward Euler), with no split, no EMA high-pass, no IIR resonator, no
+    # η/reservoir governor. See `two_band_coupling.html` ("What changed").
 
     @property
     def r(self) -> int:
         """Total number of reduced coordinates."""
         return int(self.q.shape[0])
+
+    # ---- Back-compat read aliases (deprecated; the two-band split is gone).
+    # Diagnostic scripts / the legacy viser HUD still read `q_s` / `q_d`. The
+    # dynamic constraint carries a single `q`, so `q_s` aliases the full `q`
+    # (sag + ring is no longer split) and `q_d` is zero. New code reads `q`.
+    @property
+    def q_s(self) -> NDArray[np.float64]:
+        return self.q
+
+    @property
+    def q_d(self) -> NDArray[np.float64]:
+        return np.zeros(self.r, dtype=np.float64)
 
     @property
     def n_points(self) -> int:
@@ -150,31 +136,13 @@ class ReducedSupport:
     def n_probes(self) -> int:
         return int(self.probe_points.shape[0])
 
-    def sync_total_from_split(self) -> None:
-        """In `static_dynamic_split` mode the coupler owns q_s and q_d, and
-        the canonical `q` field is a mirror `q_s + q_d` (similarly for
-        `qdot` = `qdot_d`, since q_s is algebraic with no velocity).
-        Downstream callers (viser surface render, HUD `last_q_norm`, the
-        `last_max_support_deflection` diagnostic) read `rs.q` directly,
-        so the coupler must call this after every iteration_hook /
-        substep_end_hook commit to keep the views consistent."""
-        np.copyto(self.q, self.q_s + self.q_d)
-        np.copyto(self.qdot, self.qdot_d)
-
     def reset_state(self) -> None:
-        """Zero q, qdot, q_hat and the static/dynamic-split scratch
-        arrays. Useful between scenes / for repeated runs."""
+        """Zero the dynamic modal state (q, qdot, predictor, snapshot).
+        Useful between scenes / for repeated runs."""
         self.q[:] = 0.0
         self.qdot[:] = 0.0
         self.q_prev_macro[:] = 0.0
         self.q_hat[:] = 0.0
-        # Split-mode state (no-op in legacy mode but cheap and consistent).
-        self.q_s[:] = 0.0
-        self.q_d[:] = 0.0
-        self.qdot_d[:] = 0.0
-        self.q_d_prev_macro[:] = 0.0
-        self.qdot_d_prev_macro[:] = 0.0
-        self.F_q_static_lp[:] = 0.0
 
 
 # ---------------------------------------------------------------------------
