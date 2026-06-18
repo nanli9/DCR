@@ -942,3 +942,46 @@ def k_eval_basis(
         row_U_y[rr, c] = (w00 * grid_Uy[i00, c] + w10 * grid_Uy[i10, c]
                           + w01 * grid_Uy[i01, c] + w11 * grid_Uy[i11, c])
 
+
+@wp.kernel
+def k_eval_cargo(
+    q: wp.array(dtype=wp.quat),
+    counts: wp.array(dtype=int),
+    r: int,
+    R_tot: int,
+    row_body: wp.array(dtype=int),
+    row_cargo_off: wp.array(dtype=int),
+    row_cargo_k: wp.array(dtype=int),
+    row_corner_modal: wp.array3d(dtype=wp.float64),
+    row_U_y: wp.array2d(dtype=wp.float64),
+):
+    """Co-rotated fem_rigid cargo modal gradient into the AUGMENTED row_U_y
+    cargo columns [r:R] (Stage 3, two_band_coupling.html generalized):
+
+        row_U_y[rr, off+j] = −G_a[j] = −(R·Φ_c)[1, j] = −Σ_d R[1,d]·Φ_c[d,j]
+
+    The device row_U_y convention is +U_y in the support cols / −G_a in the
+    cargo cols, so the existing `−Σ f·U_y` (k_g), `Σ k·U_y·U_y` (k_hq) and
+    `−k·U_y` (k_body_cross / k_anchor) reductions produce, for the cargo block,
+    exactly the CPU augmented per-row gradient G_row = [−U_y | +G_a] — no kernel
+    logic changes, only the modal dimension grows r → R. R is frozen for the
+    substep (computed here at substep begin) — the per-cube analogue of the
+    support's frozen U_y. dim = cap_rows; non-cargo rows just zero [r:R]."""
+    rr = wp.tid()
+    if rr >= counts[2]:
+        return
+    for c in range(r, R_tot):
+        row_U_y[rr, c] = wp.float64(0.0)
+    off = row_cargo_off[rr]
+    if off < 0:
+        return
+    kk = row_cargo_k[rr]
+    qq = q[row_body[rr]]
+    Rm = _quat_to_R(wp.float64(qq[0]), wp.float64(qq[1]),
+                    wp.float64(qq[2]), wp.float64(qq[3]))
+    for j in range(kk):
+        ga = (Rm[1, 0] * row_corner_modal[rr, 0, j]
+              + Rm[1, 1] * row_corner_modal[rr, 1, j]
+              + Rm[1, 2] * row_corner_modal[rr, 2, j])
+        row_U_y[rr, off + j] = -ga
+

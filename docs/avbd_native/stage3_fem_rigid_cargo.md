@@ -42,16 +42,49 @@ carries both directions, backward Euler is dissipative ⇒ passive by constructi
   cube corner's `Φ_c`. SAT box contacts are corner/edge contacts and the modal
   field is smooth, so this is faithful for the box geometry.
 
-## Reference-first (CLAUDE.md rule 6)
+## Reference-first (CLAUDE.md rule 6), then GPU residency
 
-This stage lands the **CPU reference** path. The cargo path is a separate branch
-(`_iteration_hook_augmented` / `_setup_cargo_substep`) that activates only when
-cargo bodies are registered — the cargo-EMPTY path (every support-only scene)
-runs the existing CPU/GPU code **verbatim**, so the Stage-1 CPU↔GPU parity stays
-bit-exact (`tests/avbd_native/test_dynamic_coupling.py` still green). The
-augmented-modal **device kernels** (GPU residency + CPU↔GPU parity for cargo)
-land next; until then `fem_rigid` scenes route through the CPU reference
-(`_use_device` returns False when cargo is present).
+The **CPU reference** lands first (`_iteration_hook_augmented` /
+`_setup_cargo_substep`, a branch that activates only when cargo is registered —
+the cargo-EMPTY path runs the existing code verbatim, so Stage-1 parity stays
+bit-exact). The **GPU-resident device path** follows, justified by a measured
+slowdown (below) per rule 6.
+
+### GPU-resident augmented-modal device path
+
+The device kernels generalize for free: with the convention `row_U_y = [+U_y
+(support) | −G_a (cargo)]`, the existing `−Σ f·U_y` / `Σ k·U_y·U_y` / `−k·U_y`
+reductions (`k_g` / `k_hq` / `k_body_cross` / `k_anchor`) produce exactly the
+augmented per-row gradient `G_row = [−U_y | +G_a]` for the cargo block — so
+every modal kernel just takes `R = r + Σk` instead of `r`, the block-diagonal
+`Mq/Kq/Dq` are uploaded `R×R` once, and `k_anchor` auto-yields `floor + U_y·q̂ −
+G_a·â`. The **only new kernel** is `k_eval_cargo` (dim `cap_rows`): the
+co-rotated cargo gradient `−G_a = −(R·Φ_c)[1,:]`, frozen per substep (the
+support's frozen-`U_y` staggering, per cube). For support-only scenes `R == r`,
+so the path is byte-identical (`test_dynamic_coupling` still green).
+
+**Measured (RTX 3060, 1 fem_rigid cube, iters=8 × substeps=4):**
+
+| path | ms/step | host readbacks/step |
+|---|---:|---:|
+| CPU coupler on GPU solver (`device_resident=False`) | 40.6 | ~244 `.numpy()` + 28 sync |
+| **GPU-resident augmented-modal** (`device_resident=True`) | **4.41** | 10 `.numpy()`, **0 sync** in the 32-iter hot loop |
+
+A **9.2× speedup**, on par with the support-only GPU baseline (~4 ms, Stage 2).
+The CPU-coupler-on-GPU regression (the per-iteration device→host→device drains)
+is exactly what justified the port (rule 6). `hooks_device_resident=True` ⇒ the
+iteration loop is CUDA-graph captured; the readbacks are the once-per-macro-step
+HUD/state sync (splitting the augmented `Q` back into `rs.q` ⊕ cargo `a`), not
+scaling with the 32 inner iterations. **Residency gate: pass.**
+
+**CPU↔GPU parity** (`test_cpu_gpu_cargo_parity_machine_precision`): the
+augmented-modal device path matches the numpy reference to fp64 round-off —
+`max|Δq|, max|Δa| ≤ 1e-11`, `max|Δȧ| ≤ 1e-8`, body `x` (f32) `≤ 1e-6` at a short
+horizon (same build-twice / toggle-`device_resident` gate as Stage 1).
+
+**Profile → optimize → profile:** the cargo kernels reuse the already-floored
+support kernels (block-cooperative tiled Cholesky etc.); the one new kernel is a
+trivial `dim=cap_rows` elementwise launch. No new >10% lever — profiling stopped.
 
 ## Acceptance (CPU)
 

@@ -141,6 +141,56 @@ def test_free_modal_ringdown_is_energy_monotone():
     assert E_prev < 0.5 * E0, (E_prev, E0)
 
 
+def _cuda_or_skip():
+    import warp as wp
+    try:
+        if wp.get_cuda_device_count() < 1:
+            import pytest
+            pytest.skip("no CUDA device")
+    except Exception:
+        import pytest
+        pytest.skip("warp CUDA unavailable")
+    return "cuda:0"
+
+
+def _run_device(device, device_resident, n_steps, spin=4.0):
+    """Build on `device` with the given residency flag; return modal + body
+    state after n_steps. CPU reference vs GPU-resident augmented-modal path."""
+    from scenes.reduced_fem_rigid_cargo import build_fem_rigid_cargo
+    h = build_fem_rigid_cargo(
+        device=device, drop_height=0.03, spin=spin,
+        device_resident=device_resident)
+    solver = h.world._solver
+    for _ in range(n_steps):
+        h.world.step()
+    return {
+        "q": h.rs.q.copy(),
+        "a": h.coupler.cargo_a[h.avbd_idx].copy(),
+        "adot": h.coupler.cargo_adot[h.avbd_idx].copy(),
+        "x": solver.positions()[h.avbd_idx].copy(),
+    }
+
+
+def test_cpu_gpu_cargo_parity_machine_precision():
+    """The GPU-resident augmented-modal path (row_U_y grows to R=r+k, the
+    co-rotated cargo gradient from k_eval_cargo, block-diagonal Mq/Kq/Dq)
+    matches the numpy reference to fp64 round-off at a short horizon — the
+    same build-twice / toggle-device_resident gate as the support-only Stage 1
+    parity, now exercising the cube's elastic block."""
+    dev = _cuda_or_skip()
+    ref = _run_device(dev, False, 3)
+    gpu = _run_device(dev, True, 3)
+    # Augmented modal coords are f64 ⇒ tight; body x is f32 in the solver.
+    assert np.max(np.abs(gpu["q"] - ref["q"])) <= 1e-11, \
+        np.max(np.abs(gpu["q"] - ref["q"]))
+    assert np.max(np.abs(gpu["a"] - ref["a"])) <= 1e-11, \
+        np.max(np.abs(gpu["a"] - ref["a"]))
+    assert np.max(np.abs(gpu["adot"] - ref["adot"])) <= 1e-8, \
+        np.max(np.abs(gpu["adot"] - ref["adot"]))
+    assert np.max(np.abs(gpu["x"] - ref["x"])) <= 1e-6, \
+        np.max(np.abs(gpu["x"] - ref["x"]))
+
+
 def test_two_way_counterfactual_freeze_vs_dynamic():
     """freeze_qdot ⇒ the cube's modal velocity is held at 0, so its modal KE
     is exactly 0 every step; the full dynamic constraint rings (>0) and

@@ -347,8 +347,12 @@ class ReducedCoupledAVBDCoupler:
     cargo_adot: dict = field(default_factory=dict)      # body_idx -> (k,)  modal vel
     cargo_a_prev: dict = field(default_factory=dict)    # body_idx -> (k,)  aⁿ snapshot
     cargo_a_hat: dict = field(default_factory=dict)     # body_idx -> (k,)  predictor â
-    # Per-cargo-row caches (rebuilt each substep): nearest-corner modal block.
+    # Per-cargo-row caches (rebuilt each substep): nearest-corner modal block
+    # and the co-rotated y-gradient G_a = n̂ᵀ·R·Φ_c FROZEN at substep begin
+    # (the support's frozen-U_y staggering, per cube — so the CPU reference and
+    # the device k_eval_cargo agree: both compute G_a once per substep).
     _row_cargo_modal: dict = field(default_factory=dict)  # row -> (3,k) Φ_c
+    _row_cargo_Ga: dict = field(default_factory=dict)     # row -> (k,) frozen G_a
     # Augmented layout: support occupies [0:r]; cargo body b -> (start, k).
     _cargo_off: dict = field(default_factory=dict)
     _Q_dim: int = 0
@@ -507,12 +511,11 @@ class ReducedCoupledAVBDCoupler:
     def _use_device(self, solver) -> bool:
         """True when the device-resident path should run for this solver.
 
-        Cargo (fem_rigid) bodies route through the CPU reference path until
-        the augmented-modal device kernels land (CLAUDE.md rule 6: reference
-        path first). Support-only scenes keep the GPU-resident path."""
+        fem_rigid cargo bodies are handled on-device too (augmented modal
+        kernels: row_U_y grows to R = r + Σk, k_eval_cargo fills the co-rotated
+        cargo gradient). The numpy reference path stays the parity oracle."""
         return bool(self.device_resident
-                    and str(solver.device).startswith("cuda")
-                    and not self.cargo)
+                    and str(solver.device).startswith("cuda"))
 
     def _ensure_device_buffers(self, solver) -> None:
         """Allocate the pre-sized device buffers once. Sized to scene capacity
@@ -533,10 +536,36 @@ class ReducedCoupledAVBDCoupler:
         f64 = wp.float64
         d = self._dbuf
 
+        # ---- AUGMENTED modal layout (Stage 3): Q = [q_support(r); a_b(k); ...]
+        # with block-diagonal M_q/K_q/D_q. cargo-empty ⇒ R == r and these are
+        # exactly the support matrices, so support-only scenes are unchanged.
+        self._cargo_off.clear()
+        R_tot = r
+        k_max = 1
+        for b in sorted(self.cargo.keys()):
+            k = int(self.cargo[b].k)
+            self._cargo_off[b] = (R_tot, k)
+            R_tot += k
+            k_max = max(k_max, k)
+        self._Q_dim = R_tot
+        self._dev_R = R_tot
+        self._dev_kmax = k_max
+        Mq_a = np.zeros((R_tot, R_tot), dtype=np.float64)
+        Kq_a = np.zeros((R_tot, R_tot), dtype=np.float64)
+        Dq_a = np.zeros((R_tot, R_tot), dtype=np.float64)
+        Mq_a[:r, :r] = self.rs.Mq
+        Kq_a[:r, :r] = self.rs.Kq
+        Dq_a[:r, :r] = self.rs.Dq
+        for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
+            Mq_a[s:s + k, s:s + k] = np.eye(k)
+            Kq_a[s:s + k, s:s + k] = np.diag(body.omega2)
+            Dq_a[s:s + k, s:s + k] = body.D_modal
+
         # ---- modal constants (uploaded once) ----
-        d["Kq"] = wp.array(self.rs.Kq.astype(np.float64), dtype=f64, device=dev)
-        d["Mq"] = wp.array(self.rs.Mq.astype(np.float64), dtype=f64, device=dev)
-        d["Dq"] = wp.array(self.rs.Dq.astype(np.float64), dtype=f64, device=dev)
+        d["Kq"] = wp.array(Kq_a, dtype=f64, device=dev)
+        d["Mq"] = wp.array(Mq_a, dtype=f64, device=dev)
+        d["Dq"] = wp.array(Dq_a, dtype=f64, device=dev)
         d["grid_Uy"] = wp.array(
             self.rs.U_points[:, 1, :].astype(np.float64), dtype=f64,
             device=dev)
@@ -545,17 +574,18 @@ class ReducedCoupledAVBDCoupler:
         # (two_band_coupling.html). q̇ carries the ring across substeps; q_prev
         # = qⁿ snapshot, q_hat = predictor q̃. No q_s/q_d split, no IIR/EMA
         # buffers (eigen_omega/zeta/Mq_diag/q_free/S_h_diag/... all removed).
-        d["q"]      = wp.zeros(r, dtype=f64, device=dev)
-        d["qdot"]   = wp.zeros(r, dtype=f64, device=dev)
-        d["q_prev"] = wp.zeros(r, dtype=f64, device=dev)
-        d["q_hat"]  = wp.zeros(r, dtype=f64, device=dev)
+        # Augmented modal state/scratch are sized to R_tot (= r when no cargo).
+        d["q"]      = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["qdot"]   = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["q_prev"] = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["q_hat"]  = wp.zeros(R_tot, dtype=f64, device=dev)
         # ---- iteration scratch ----
-        d["Hq"] = wp.zeros((r, r), dtype=f64, device=dev)
-        d["S"] = wp.zeros((r, r), dtype=f64, device=dev)
-        d["gq"] = wp.zeros(r, dtype=f64, device=dev)
-        d["Fq"] = wp.zeros(r, dtype=f64, device=dev)
-        d["rhs"] = wp.zeros(r, dtype=f64, device=dev)
-        d["dq"] = wp.zeros(r, dtype=f64, device=dev)
+        d["Hq"] = wp.zeros((R_tot, R_tot), dtype=f64, device=dev)
+        d["S"] = wp.zeros((R_tot, R_tot), dtype=f64, device=dev)
+        d["gq"] = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["Fq"] = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["rhs"] = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["dq"] = wp.zeros(R_tot, dtype=f64, device=dev)
         d["diag"] = wp.zeros(8, dtype=f64, device=dev)
         d["counts"] = wp.zeros(3, dtype=int, device=dev)  # [n_b, n_tracked, tot]
         # ---- topology (uploaded once in _upload_topology_once) ----
@@ -564,9 +594,15 @@ class ReducedCoupledAVBDCoupler:
         d["row_index"] = wp.zeros(cap_rows, dtype=int, device=dev)
         d["row_body"] = wp.zeros(cap_rows, dtype=int, device=dev)
         d["row_off"] = wp.zeros(cap_rows, dtype=vec3d, device=dev)
-        d["row_U_y"] = wp.zeros((cap_rows, r), dtype=f64, device=dev)
+        d["row_U_y"] = wp.zeros((cap_rows, R_tot), dtype=f64, device=dev)
         d["rowdata"] = wp.zeros((cap_rows, 8), dtype=f64, device=dev)
         d["floor_y_rest"] = wp.zeros(cap_rows, dtype=f64, device=dev)
+        # ---- cargo topology (fem_rigid): per-row Q-offset (−1 if not cargo),
+        # mode count, and the nearest-corner co-rotation modal block Φ_c. ----
+        d["row_cargo_off"] = wp.full(cap_rows, -1, dtype=int, device=dev)
+        d["row_cargo_k"] = wp.zeros(cap_rows, dtype=int, device=dev)
+        d["row_corner_modal"] = wp.zeros(
+            (cap_rows, 3, k_max), dtype=f64, device=dev)
         # ---- per-body block-inverse + cross scratch ----
         d["b_TL"] = wp.zeros(max_b, dtype=mat33d, device=dev)
         d["b_TR"] = wp.zeros(max_b, dtype=mat33d, device=dev)
@@ -576,9 +612,9 @@ class ReducedCoupledAVBDCoupler:
         d["b_gx1"] = wp.zeros(max_b, dtype=vec3d, device=dev)
         d["b_hg0"] = wp.zeros(max_b, dtype=vec3d, device=dev)
         d["b_hg1"] = wp.zeros(max_b, dtype=vec3d, device=dev)
-        d["Hmb_top"] = wp.zeros((max_b, r), dtype=vec3d, device=dev)
-        d["Hmb_bot"] = wp.zeros((max_b, r), dtype=vec3d, device=dev)
-        d["M"] = wp.zeros((max_b, 6, r), dtype=f64, device=dev)
+        d["Hmb_top"] = wp.zeros((max_b, R_tot), dtype=vec3d, device=dev)
+        d["Hmb_bot"] = wp.zeros((max_b, R_tot), dtype=vec3d, device=dev)
+        d["M"] = wp.zeros((max_b, 6, R_tot), dtype=f64, device=dev)
         d["rho_score"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["b_dxn"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["b_dthn"] = wp.zeros(max_b, dtype=f64, device=dev)
@@ -588,7 +624,7 @@ class ReducedCoupledAVBDCoupler:
         self._dev_inv_dt = 1.0 / float(self.h_substep)
         self._dev_rho_clip = float(self.rho_clip)
         self._dev_eps_base = (self.eps_baseline
-                              * float(np.trace(self.rs.Kq)) / max(r, 1))
+                              * float(np.trace(Kq_a)) / max(R_tot, 1))
         self._dev_eps_cross = float(self.eps_cross_factor)
         self._dev_r = r
         self._dev_n_grid_pts = n_grid_pts
@@ -603,7 +639,7 @@ class ReducedCoupledAVBDCoupler:
         self._eps_block_dim = 64
         if is_cuda:
             from .reduced_coupled_kernels import make_k_eps_solve_tiled
-            self._k_eps_tiled = make_k_eps_solve_tiled(r)
+            self._k_eps_tiled = make_k_eps_solve_tiled(R_tot)
             # Warmup: S/rhs are freshly zeroed ⇒ solves ε·I·dq = 0 ⇒ dq = 0,
             # q_s unchanged (still zero). Forces an out-of-capture compile.
             wp.launch_tiled(
@@ -652,16 +688,29 @@ class ReducedCoupledAVBDCoupler:
         row_body = np.zeros(cap_rows, dtype=np.int32)
         row_off = np.zeros((cap_rows, 3), dtype=np.float64)
         floor_y = np.zeros(cap_rows, dtype=np.float64)
+        # fem_rigid cargo per-row topology (−1 / 0 / zeros for non-cargo rows).
+        k_max = int(self._dev_kmax)
+        row_cargo_off = np.full(cap_rows, -1, dtype=np.int32)
+        row_cargo_k = np.zeros(cap_rows, dtype=np.int32)
+        row_corner_modal = np.zeros((cap_rows, 3, k_max), dtype=np.float64)
         start = 0
         ordered_rows: list[int] = []
         for t, b in enumerate(bodies):
             body_ids[t] = b
             body_row_start[t] = start
+            cargo_body = self.cargo.get(b)
             for i in rows_per_body[b]:
                 row_index[start] = i
                 row_body[start] = b
                 row_off[start] = off_a_np[i].astype(np.float64)
                 floor_y[start] = self.rs.floor_y_rest[i]
+                if cargo_body is not None:
+                    off_q, k = self._cargo_off[b]
+                    cid = int(np.argmin(np.linalg.norm(
+                        cargo_body.corner_body - row_off[start], axis=1)))
+                    row_cargo_off[start] = off_q
+                    row_cargo_k[start] = k
+                    row_corner_modal[start, :, :k] = cargo_body.corner_modal[cid]
                 ordered_rows.append(i)
                 start += 1
         body_row_start[n_b] = start
@@ -681,10 +730,22 @@ class ReducedCoupledAVBDCoupler:
         d["row_body"].assign(row_body)
         d["row_off"].assign(row_off)
         d["floor_y_rest"].assign(floor_y)
-        # Seed resident dynamic modal state from the host truth (zeros at sim
-        # start, or whatever the coupler/rs carry on a mid-run switch).
-        d["q"].assign(self.rs.q.astype(np.float64))
-        d["qdot"].assign(self.rs.qdot.astype(np.float64))
+        d["row_cargo_off"].assign(row_cargo_off)
+        d["row_cargo_k"].assign(row_cargo_k)
+        d["row_corner_modal"].assign(row_corner_modal)
+        # Seed the resident AUGMENTED modal state Q = [q_support; a_cargo...]
+        # from the host truth (zeros at sim start, or carried on a mid-run
+        # switch). The support block, then each cargo body's a/ȧ block.
+        R_tot = int(self._dev_R)
+        q0 = np.zeros(R_tot, dtype=np.float64)
+        qdot0 = np.zeros(R_tot, dtype=np.float64)
+        q0[:self.rs.r] = self.rs.q
+        qdot0[:self.rs.r] = self.rs.qdot
+        for b, (s, k) in self._cargo_off.items():
+            q0[s:s + k] = self.cargo_a[b]
+            qdot0[s:s + k] = self.cargo_adot[b]
+        d["q"].assign(q0)
+        d["qdot"].assign(qdot0)
 
     def _substep_begin_device(self, solver) -> None:
         """Device substep_begin (two_band_coupling.html): (one-time) identify
@@ -703,23 +764,32 @@ class ReducedCoupledAVBDCoupler:
         d = self._dbuf
         dev = solver.device
         r = int(self._dev_r)
+        Rt = int(self._dev_R)
         cap_rows = int(self._dev_cap_rows)
         f64 = wp.float64
-        # Recompute basis U_y at the (moving) contact corners.
+        # Support basis U_y at the (moving) contact corners → row_U_y[:, 0:r].
         wp.launch(K.k_eval_basis, dim=cap_rows, device=dev, inputs=[
             solver.x, solver.q, d["counts"], r, d["row_index"], d["row_body"],
             d["row_off"], d["grid_Uy"], int(self.n_grid_x), int(self.n_grid_z),
             f64(self.shelf_length), f64(self.shelf_width), d["row_U_y"]])
-        # Inertial predictor: snapshot qⁿ = q, q̃ = qⁿ + h q̇ⁿ (carries the
-        # ring; f_q^grav = 0 for the fixed support). Frozen control passes
-        # h = 0 ⇒ q̃ = qⁿ (no ring).
+        # fem_rigid cargo co-rotated modal gradient → row_U_y[:, r:R] = −G_a
+        # (frozen for the substep). Skipped (no-op) when no cargo is registered.
+        if self.cargo:
+            wp.launch(K.k_eval_cargo, dim=cap_rows, device=dev, inputs=[
+                solver.q, d["counts"], r, Rt, d["row_body"],
+                d["row_cargo_off"], d["row_cargo_k"], d["row_corner_modal"],
+                d["row_U_y"]])
+        # Inertial predictor over the AUGMENTED Q: snapshot Qⁿ = Q, Q̃ = Qⁿ +
+        # h·Q̇ⁿ (carries the support ring AND each cube's modal ring; f_q^grav =
+        # 0). Frozen control passes h = 0 ⇒ Q̃ = Qⁿ (no ring).
         h_pred = 0.0 if self.freeze_qdot else self._dev_h_sub
-        wp.launch(K.k_predict, dim=r, device=dev, inputs=[
-            r, f64(h_pred), d["q"], d["qdot"], d["q_prev"], d["q_hat"]])
-        # Seed the contact anchor from the FULL predictor q̃ (deformed surface
-        # y_rest + U_y·q̃ — sag AND ring). diag[3]==0 in the normal case.
+        wp.launch(K.k_predict, dim=Rt, device=dev, inputs=[
+            Rt, f64(h_pred), d["q"], d["qdot"], d["q_prev"], d["q_hat"]])
+        # Seed the contact anchor from the FULL predictor Q̃: with row_U_y =
+        # [+U_y | −G_a] and Q̃ = [q̂ | â], k_anchor yields floor + U_y·q̂ −
+        # G_a·â (deformed support surface minus the cube's corner flex).
         wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
-            r, d["counts"], d["row_index"], d["row_U_y"], d["floor_y_rest"],
+            Rt, d["counts"], d["row_index"], d["row_U_y"], d["floor_y_rest"],
             d["q_hat"], d["diag"], solver.c_world_anchor])
 
     def _iteration_device(self, solver) -> None:
@@ -730,7 +800,9 @@ class ReducedCoupledAVBDCoupler:
         from . import reduced_coupled_kernels as K
         d = self._dbuf
         dev = solver.device
-        r = int(self._dev_r)
+        # All modal-dimension kernels operate on the AUGMENTED Q (size R = r +
+        # Σ cargo k). For support-only scenes R == r, so this is unchanged.
+        r = int(self._dev_R)
         cap_rows = int(self._dev_cap_rows)
         max_b = int(self._dev_max_b)
         f64 = wp.float64
@@ -821,13 +893,14 @@ class ReducedCoupledAVBDCoupler:
             return
         d = self._dbuf
         dev = solver.device
-        r = int(self._dev_r)
+        Rt = int(self._dev_R)
         f64 = wp.float64
-        # Modal velocity update: q̇ = (q − qⁿ)/h. Frozen control skips it
-        # (q̇ stays 0 — the two-way counterfactual).
+        # Augmented modal velocity update: Q̇ = (Q − Qⁿ)/h (support ring AND
+        # each cube's modal ring). Frozen control skips it (Q̇ stays 0 — the
+        # two-way counterfactual).
         if not self.freeze_qdot:
-            wp.launch(K.k_qdot, dim=r, device=dev, inputs=[
-                r, f64(self._dev_inv_dt), d["q"], d["q_prev"], d["qdot"]])
+            wp.launch(K.k_qdot, dim=Rt, device=dev, inputs=[
+                Rt, f64(self._dev_inv_dt), d["q"], d["q_prev"], d["qdot"]])
 
         # Once-per-macro-step host readback for render/HUD (the only host
         # round-trip; substep boundaries are otherwise device-only). Also when
@@ -843,9 +916,22 @@ class ReducedCoupledAVBDCoupler:
         and recompute the host-side logged scalars (norms, deflection, energy,
         passivity). This is the ONLY host round-trip — once per macro-step."""
         d = self._dbuf
-        self.rs.q = d["q"].numpy().astype(np.float64).copy()
-        self.rs.qdot = d["qdot"].numpy().astype(np.float64).copy()
-        self._last_F_q_contact = d["Fq"].numpy().astype(np.float64).copy()
+        r = int(self.rs.r)
+        Q = d["q"].numpy().astype(np.float64).copy()
+        Qdot = d["qdot"].numpy().astype(np.float64).copy()
+        # Split the augmented Q back: support [0:r] ⊕ each cargo a-block.
+        self.rs.q = Q[:r].copy()
+        self.rs.qdot = Qdot[:r].copy()
+        self.last_cargo_modal_KE = 0.0
+        self.last_cargo_modal_PE = 0.0
+        for b, (s, k) in self._cargo_off.items():
+            self.cargo_a[b] = Q[s:s + k].copy()
+            self.cargo_adot[b] = Qdot[s:s + k].copy()
+            self.last_cargo_modal_KE += 0.5 * float(
+                self.cargo_adot[b] @ self.cargo_adot[b])
+            self.last_cargo_modal_PE += 0.5 * float(
+                self.cargo_a[b] @ (self.cargo[b].omega2 * self.cargo_a[b]))
+        self._last_F_q_contact = d["Fq"].numpy().astype(np.float64)[:r].copy()
         diag = d["diag"].numpy()
         self.last_max_dx_norm = float(diag[0])
         self.last_max_dtheta_norm = float(diag[1])
@@ -1049,9 +1135,11 @@ class ReducedCoupledAVBDCoupler:
             self.cargo_a_prev[b] = a.copy()
             self.cargo_a_hat[b] = a + h_pred * self.cargo_adot[b]
 
-        # Per cargo row: nearest cube corner's modal block Φ_c (3,k), and the
-        # co-rotated y-flex G_a·â subtracted from the anchor.
+        # Per cargo row: nearest cube corner's modal block Φ_c (3,k), the
+        # co-rotated y-gradient G_a = n̂ᵀ·R·Φ_c (frozen at substep begin), and
+        # the corner flex G_a·â subtracted from the anchor.
         self._row_cargo_modal.clear()
+        self._row_cargo_Ga.clear()
         for row in self.rs.tracked_row_indices:
             ba = self._row_body_a[row]
             body = self.cargo.get(ba)
@@ -1064,6 +1152,7 @@ class ReducedCoupledAVBDCoupler:
             self._row_cargo_modal[row] = Phi_c
             R = _quat_xyzw_to_R(orientations[ba].astype(np.float64))
             G_a = R[1, :] @ Phi_c                            # (k,) co-rotated y-row
+            self._row_cargo_Ga[row] = G_a
             anchor_new[row, 1] -= float(G_a @ self.cargo_a_hat[ba])
 
     def iteration_hook(self, solver, iter_idx: int) -> None:
@@ -1535,9 +1624,9 @@ class ReducedCoupledAVBDCoupler:
             cargo_off = self._cargo_off.get(body_idx)
             if cargo_off is not None:
                 s, kk = cargo_off
-                Phi_stack = np.stack(
-                    [self._row_cargo_modal[int(i)] for i in row_idx_arr])  # (n,3,k)
-                G_a_arr = np.einsum("j,ijk->ik", Rb[1, :], Phi_stack)     # (n,k)
+                # G_a frozen at substep begin (parity with device k_eval_cargo).
+                G_a_arr = np.stack(
+                    [self._row_cargo_Ga[int(i)] for i in row_idx_arr])    # (n,k)
                 G_rows[:, s:s + kk] = G_a_arr
 
             k_G = k_col * G_rows
