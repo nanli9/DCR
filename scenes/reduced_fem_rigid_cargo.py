@@ -86,10 +86,14 @@ def build_cargo_scene(
     spin: float = 0.0,
     freeze_qdot: bool = False,
     device_resident: bool | None = None,
+    solver: str = "avbd",
+    xpbd_contact_compliance: float = 1.0e-8,
 ) -> FEMRigidCargoHandle:
     """Build a one-cube cargo scene (cube material = `kind`) + attach the
     dynamic coupler. `spin` (rad/s about z) tumbles the cube so the co-rotated
-    contact Jacobian is exercised at non-trivial orientations."""
+    contact Jacobian is exercised at non-trivial orientations. `solver` selects
+    the per-iteration primal: "avbd" (Schur–Newton) or "xpbd" (compliant
+    Gauss–Seidel, Stage 6)."""
     world = AVBDDCRWorld(
         h=h, device=device,
         avbd_iterations=int(iterations), avbd_substeps=int(avbd_substeps))
@@ -114,11 +118,21 @@ def build_cargo_scene(
         y_rest=support_top, overlay_enabled=False,
         rayleigh_alpha0=2.0, rayleigh_alpha1=1.0e-5, to_eigenbasis=True)
 
-    coupler = world.attach_reduced_coupled_avbd(
-        rs, tracked_body_indices=[avbd_idx],
-        shelf_length=support_length, shelf_width=support_width,
-        shelf_y_rest=support_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z,
-        device_resident=device_resident)
+    if solver == "xpbd":
+        coupler = world.attach_reduced_coupled_xpbd(
+            rs, tracked_body_indices=[avbd_idx],
+            shelf_length=support_length, shelf_width=support_width,
+            shelf_y_rest=support_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z,
+            xpbd_contact_compliance=float(xpbd_contact_compliance),
+            device_resident=device_resident)
+    elif solver == "avbd":
+        coupler = world.attach_reduced_coupled_avbd(
+            rs, tracked_body_indices=[avbd_idx],
+            shelf_length=support_length, shelf_width=support_width,
+            shelf_y_rest=support_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z,
+            device_resident=device_resident)
+    else:
+        raise ValueError(f"unknown solver {solver!r} (avbd | xpbd)")
     coupler.freeze_qdot = bool(freeze_qdot)
     coupler.add_cargo(avbd_idx, cube)
 

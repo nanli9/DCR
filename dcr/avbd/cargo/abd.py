@@ -184,6 +184,42 @@ class ABDAffineBody:
                     H[bi:bi + 3, bj:bj + 3] = Hij
         return H
 
+    # -- elastic constraints for XPBD (compliant-constraint form) -----
+    def elastic_constraints(self, d: NDArray[np.float64]):
+        """V⊥ as XPBD compliant constraints (Macklin 2016 §3, ABD Eq. 6–7).
+
+        Ports `dcr/twobody/reduced_body.py:ABDAffineBody.elastic_constraints`
+        to the 9-DOF body-frame deformation `d = vec(F−I)` (the reference uses
+        the 12-DOF global affine; here ∂/∂a_i = ∂/∂d[3i:3i+3] since
+        a_i = e_i + d[3i:3i+3]). V⊥ = κ Σ_i[(‖a_i‖²−1)² + Σ_{j≠i}(a_i·a_j)²] is a
+        sum of squared scalar constraints with energy ½ k C²: 3 diagonal
+        C_ii = ‖a_i‖²−1 (each appears ONCE ⇒ k = 2κ ⇒ α = 1/(2κ)) and 3
+        off-diagonal C_ij = a_i·a_j (i<j; each appears TWICE in the j≠i double
+        sum ⇒ k = 4κ ⇒ α = 1/(4κ)). Returns ``(C, grad(9,), compliance,
+        damp_coeff)`` tuples; grad is re-linearized each XPBD projection (V⊥ is
+        genuinely nonlinear — standard PBD treatment).
+
+        # DEVIATION (XPBDDynamicSystem oracle): ABD's mass-proportional damping
+        # D = α₀ M_F is NOT wired through the per-constraint damp term (reported
+        # 0 here), exactly as the reference — so the AVBD path is the damped one
+        # for abd; XPBD-abd projects V⊥ without per-constraint ring-down.
+        """
+        a = self._A_rows(d)
+        alpha_diag = 1.0 / (2.0 * self.kappa_v)   # diagonal term once
+        alpha_off = 1.0 / (4.0 * self.kappa_v)    # off-diagonal counted twice
+        out = []
+        for i in range(3):
+            g = np.zeros(9)
+            g[3 * i:3 * i + 3] = 2.0 * a[i]
+            out.append((float(a[i] @ a[i] - 1.0), g, alpha_diag, 0.0))
+        for i in range(3):
+            for j in range(i + 1, 3):
+                g = np.zeros(9)
+                g[3 * i:3 * i + 3] = a[j]
+                g[3 * j:3 * j + 3] = a[i]
+                out.append((float(a[i] @ a[j]), g, alpha_off, 0.0))
+        return out
+
     # -- viewer skinning ----------------------------------------------
     def deformed_surface(self, z: NDArray[np.float64],
                          exaggerate: float = 1.0) -> NDArray[np.float64]:
