@@ -143,6 +143,11 @@ class FEMRigidModalBody:
     surf_modal: NDArray[np.float64]          # (Ns,3,k) modal blocks at surface verts
     surf_faces: NDArray[np.int32]            # (F,3) surface triangles
     half_extent: float = 0.05                # collision-box half-size
+    # Co-rotation of the modal contact gradient. True (fem_rigid): the modes
+    # ride the tumbling body, G_a = n̂ᵀ·R·Φ_c. False (fem material, Stage 5):
+    # world-fixed modes (a restriction of fem_rigid), G_a = n̂ᵀ·Φ_c — the
+    # reference FEMModalBody's rotation-dropped translation+modal body.
+    corotate: bool = True
 
     is_manifold: bool = field(init=False, default=True)
     k: int = field(init=False)
@@ -322,6 +327,7 @@ def build_fem_rigid_cube(
     alpha1: float = 5.0e-4,
     cx: float = 0.0,
     cz: float = 0.0,
+    corotate: bool = True,
 ) -> FEMRigidModalBody:
     """6-DOF rigid frame + `n_elastic` FEM elastic eigenmodes (the FFR cube).
 
@@ -392,4 +398,14 @@ def build_fem_rigid_cube(
         surf_modal=surf_modal,
         surf_faces=surf_faces,
         half_extent=half,
+        corotate=corotate,
     )
+
+
+def build_fem_cube(**kwargs) -> FEMRigidModalBody:
+    """The "fem" cube material (Stage 5): translation(3)+modal, NO co-rotation
+    — a restriction of fem_rigid (reference `reduced_body.py:FEMModalBody`). The
+    modal contact gradient is the world-fixed n̂ᵀ·Φ_c (the rigid frame may still
+    translate under the solver, but the modal subspace does not co-rotate)."""
+    kwargs.pop("corotate", None)
+    return build_fem_rigid_cube(corotate=False, **kwargs)

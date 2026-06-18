@@ -602,6 +602,7 @@ class ReducedCoupledAVBDCoupler:
         # mode count, and the nearest-corner co-rotation modal block Φ_c. ----
         d["row_cargo_off"] = wp.full(cap_rows, -1, dtype=int, device=dev)
         d["row_cargo_k"] = wp.zeros(cap_rows, dtype=int, device=dev)
+        d["row_cargo_corot"] = wp.zeros(cap_rows, dtype=int, device=dev)
         d["row_corner_modal"] = wp.zeros(
             (cap_rows, 3, k_max), dtype=f64, device=dev)
         # ---- nonlinear (abd V⊥) cargo: per-affine-body Q-offset + κ_v. ----
@@ -706,6 +707,7 @@ class ReducedCoupledAVBDCoupler:
         k_max = int(self._dev_kmax)
         row_cargo_off = np.full(cap_rows, -1, dtype=np.int32)
         row_cargo_k = np.zeros(cap_rows, dtype=np.int32)
+        row_cargo_corot = np.zeros(cap_rows, dtype=np.int32)
         row_corner_modal = np.zeros((cap_rows, 3, k_max), dtype=np.float64)
         start = 0
         ordered_rows: list[int] = []
@@ -724,6 +726,8 @@ class ReducedCoupledAVBDCoupler:
                         cargo_body.corner_body - row_off[start], axis=1)))
                     row_cargo_off[start] = off_q
                     row_cargo_k[start] = k
+                    row_cargo_corot[start] = int(
+                        getattr(cargo_body, "corotate", True))
                     row_corner_modal[start, :, :k] = cargo_body.corner_modal[cid]
                 ordered_rows.append(i)
                 start += 1
@@ -746,6 +750,7 @@ class ReducedCoupledAVBDCoupler:
         d["floor_y_rest"].assign(floor_y)
         d["row_cargo_off"].assign(row_cargo_off)
         d["row_cargo_k"].assign(row_cargo_k)
+        d["row_cargo_corot"].assign(row_cargo_corot)
         d["row_corner_modal"].assign(row_corner_modal)
         # Seed the resident AUGMENTED modal state Q = [q_support; a_cargo...]
         # from the host truth (zeros at sim start, or carried on a mid-run
@@ -791,8 +796,8 @@ class ReducedCoupledAVBDCoupler:
         if self.cargo:
             wp.launch(K.k_eval_cargo, dim=cap_rows, device=dev, inputs=[
                 solver.q, d["counts"], r, Rt, d["row_body"],
-                d["row_cargo_off"], d["row_cargo_k"], d["row_corner_modal"],
-                d["row_U_y"]])
+                d["row_cargo_off"], d["row_cargo_k"], d["row_cargo_corot"],
+                d["row_corner_modal"], d["row_U_y"]])
         # Inertial predictor over the AUGMENTED Q: snapshot Qⁿ = Q, Q̃ = Qⁿ +
         # h·Q̇ⁿ (carries the support ring AND each cube's modal ring; f_q^grav =
         # 0). Frozen control passes h = 0 ⇒ Q̃ = Qⁿ (no ring).
@@ -1174,8 +1179,11 @@ class ReducedCoupledAVBDCoupler:
                 np.linalg.norm(body.corner_body - off_b, axis=1)))
             Phi_c = body.corner_modal[cid]                  # (3, k)
             self._row_cargo_modal[row] = Phi_c
-            R = _quat_xyzw_to_R(orientations[ba].astype(np.float64))
-            G_a = R[1, :] @ Phi_c                            # (k,) co-rotated y-row
+            if getattr(body, "corotate", True):
+                R = _quat_xyzw_to_R(orientations[ba].astype(np.float64))
+                G_a = R[1, :] @ Phi_c                        # co-rotated y-row
+            else:
+                G_a = Phi_c[1, :].copy()                     # world-fixed (fem)
             self._row_cargo_Ga[row] = G_a
             anchor_new[row, 1] -= float(G_a @ self.cargo_a_hat[ba])
 

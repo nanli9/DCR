@@ -21,7 +21,7 @@ import numpy as np
 from dcr.avbd.world import AVBDDCRWorld
 from dcr.avbd.reduced_support import ReducedSupport, make_debug_reduced_shelf_support
 from dcr.avbd.reduced_coupled_avbd import ReducedCoupledAVBDCoupler
-from dcr.avbd.cargo.fem_rigid import build_fem_rigid_cube
+from dcr.avbd.cargo.fem_rigid import build_fem_rigid_cube, build_fem_cube
 from dcr.avbd.cargo.abd import build_abd_cube
 from dcr.fem.material import Material
 from scenes.reduced_support_shelf import N_GRID_X, N_GRID_Z
@@ -55,7 +55,13 @@ def _make_cube(kind, *, cube_size, cube_nx, cube_youngs, cube_density,
         # visibly, stiff enough to stay near-rigid.
         return build_abd_cube(size=cube_size, nx=cube_nx, kappa_v=2.0e3,
                               alpha0=2.0, drop_y=0.0)
-    raise ValueError(f"unknown cargo kind {kind!r} (fem_rigid | abd)")
+    if kind == "fem":
+        # translation+modal, NO co-rotation (a restriction of fem_rigid).
+        return build_fem_cube(
+            size=cube_size, nx=cube_nx, n_elastic=n_elastic,
+            material=Material(E=cube_youngs, nu=0.3, rho=cube_density),
+            drop_y=0.0)
+    raise ValueError(f"unknown cargo kind {kind!r} (fem_rigid | abd | fem)")
 
 
 def build_cargo_scene(

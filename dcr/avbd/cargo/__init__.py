@@ -11,6 +11,7 @@ dynamic two-way modal constraint as the support (`two_band_coupling.html`):
 from .fem_rigid import (
     FEMRigidModalBody,
     build_fem_rigid_cube,
+    build_fem_cube,
     cube_corner_ids,
 )
 from .abd import (
@@ -21,6 +22,7 @@ from .abd import (
 __all__ = [
     "FEMRigidModalBody",
     "build_fem_rigid_cube",
+    "build_fem_cube",
     "cube_corner_ids",
     "ABDAffineBody",
     "build_abd_cube",

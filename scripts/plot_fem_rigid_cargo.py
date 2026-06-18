@@ -40,6 +40,7 @@ N_GRID_X, N_GRID_Z = 21, 11
 _KIND_META = {
     "fem_rigid": dict(stage="stage3", exag=300.0, label="cube modal energy"),
     "abd":       dict(stage="stage4", exag=40.0,  label="cube affine energy (V⊥)"),
+    "fem":       dict(stage="stage5", exag=300.0, label="cube modal energy (no co-rot)"),
 }
 
 

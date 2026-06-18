@@ -952,6 +952,7 @@ def k_eval_cargo(
     row_body: wp.array(dtype=int),
     row_cargo_off: wp.array(dtype=int),
     row_cargo_k: wp.array(dtype=int),
+    row_cargo_corot: wp.array(dtype=int),
     row_corner_modal: wp.array3d(dtype=wp.float64),
     row_U_y: wp.array2d(dtype=wp.float64),
 ):
@@ -976,6 +977,11 @@ def k_eval_cargo(
     if off < 0:
         return
     kk = row_cargo_k[rr]
+    if row_cargo_corot[rr] == 0:
+        # world-fixed (fem): G_a = n̂ᵀ·Φ_c = the y-row of Φ_c (no co-rotation).
+        for j in range(kk):
+            row_U_y[rr, off + j] = -row_corner_modal[rr, 1, j]
+        return
     qq = q[row_body[rr]]
     Rm = _quat_to_R(wp.float64(qq[0]), wp.float64(qq[1]),
                     wp.float64(qq[2]), wp.float64(qq[3]))
