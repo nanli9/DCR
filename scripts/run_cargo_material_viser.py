@@ -67,6 +67,11 @@ class CargoViser:
         self.kind = args.kind
         self.device = args.device
         self.paused = False
+        # Rebuilding allocates warp arrays / captures a CUDA graph, which is NOT
+        # safe to do from viser's GUI-callback thread while the main loop is
+        # mid-world.step() on the same CUDA context. So GUI callbacks only RAISE
+        # this flag; the main loop performs the rebuild itself (single-threaded).
+        self._pending_rebuild = False
         self._support_faces = _support_faces(N_GRID_X, N_GRID_Z)
         self._build()
         self._init_gui()
@@ -116,13 +121,13 @@ class CargoViser:
             self.hud_pen = g.add_text("max penetration (mm)", initial_value="—")
             self.hud_back = g.add_text("backend", initial_value="—")
 
-        def _switch(_):
-            self.kind = self.gui_kind.value
-            self.device = self.gui_device.value
-            self._rebuild()
-        self.gui_kind.on_update(_switch)
-        self.gui_device.on_update(_switch)
-        self.gui_reset.on_click(lambda _: self._rebuild())
+        # GUI callbacks (server thread) only request a rebuild; the main loop
+        # performs it so all warp/CUDA + scene-graph mutation is single-threaded.
+        def _request(_=None):
+            self._pending_rebuild = True
+        self.gui_kind.on_update(_request)
+        self.gui_device.on_update(_request)
+        self.gui_reset.on_click(_request)
         self.gui_pause.on_update(lambda _: setattr(self, "paused",
                                                    self.gui_pause.value))
 
@@ -130,8 +135,15 @@ class CargoViser:
     def run(self):
         print(f"\n  cargo-material viser: http://localhost:{self.args.port}")
         print(f"  material={self.kind}  device={self.device}\n")
-        c = self.handle.coupler
         while True:
+            # Perform any GUI-requested rebuild HERE (main thread), reading the
+            # latest widget values, before touching the (now-current) handles.
+            if self._pending_rebuild:
+                self._pending_rebuild = False
+                self.kind = self.gui_kind.value
+                self.device = self.gui_device.value
+                self._rebuild()
+            c = self.handle.coupler
             if not self.paused:
                 t0 = time.perf_counter()
                 self.handle.world.step()
