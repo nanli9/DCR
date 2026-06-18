@@ -26,6 +26,7 @@ from dcr.avbd.reduced_support import (
 )
 
 from scenes.reduced_support_shelf import N_GRID_X, N_GRID_Z
+from scenes.reduced_scene_common import make_cargo_cube
 
 
 @dataclass
@@ -53,6 +54,9 @@ class DinnerSceneHandle:
     probe_indices: list[int]                # the place-setting plates
     bodies: list[DinnerBody] = field(default_factory=list)
     name: str = "Reduced-Coordinate AVBD Dinner Table"
+    cargo_cube: object = None
+    cargo_avbd_idx: int | None = None
+    cargo_material: str | None = None
 
 
 def build_reduced_dinner_table(
@@ -82,6 +86,8 @@ def build_reduced_dinner_table(
     modal_damping_scale: float = 1.0,
     to_eigenbasis: bool = True,
     modal_static_lp_tau: float = 0.05,
+    solver: str = "avbd",
+    cargo_material: str | None = None,
 ) -> DinnerSceneHandle:
     """Construct the dinner-table scene + attach the reduced-coupled AVBD
     support (the table). Returns a handle carrying per-body render
@@ -186,20 +192,34 @@ def build_reduced_dinner_table(
             tracked.append(int(desc.avbd_body.index))
     rs.probe_body_indices = list(tracked)
 
-    world.attach_reduced_coupled_avbd(
-        rs,
-        tracked_body_indices=tracked,
-        shelf_length=table_length,
-        shelf_width=table_width,
-        shelf_y_rest=table_top,
-        n_grid_x=N_GRID_X,
-        n_grid_z=N_GRID_Z,
-        modal_static_lp_tau=modal_static_lp_tau,
-    )
+    if solver == "xpbd":
+        coupler = world.attach_reduced_coupled_xpbd(
+            rs, tracked_body_indices=tracked,
+            shelf_length=table_length, shelf_width=table_width,
+            shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
+    elif solver == "avbd":
+        coupler = world.attach_reduced_coupled_avbd(
+            rs, tracked_body_indices=tracked,
+            shelf_length=table_length, shelf_width=table_width,
+            shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z,
+            modal_static_lp_tau=modal_static_lp_tau)
+    else:
+        raise ValueError(f"unknown solver {solver!r} (avbd | xpbd)")
+
+    cargo_cube = None
+    cargo_avbd_idx = None
+    if cargo_material is not None:
+        cargo_avbd_idx = int(world._descs[pot_idx].avbd_body.index)
+        size = 2.0 * float(min(pot_h))
+        cargo_cube = make_cargo_cube(cargo_material, size=size,
+                                     mass=float(pot_mass))
+        coupler.add_cargo(cargo_avbd_idx, cargo_cube)
 
     return DinnerSceneHandle(
         world=world, rs=rs,
         impactor_idx=pot_idx, probe_indices=plate_indices,
         bodies=bodies,
+        cargo_cube=cargo_cube, cargo_avbd_idx=cargo_avbd_idx,
+        cargo_material=cargo_material,
         name="Reduced-Coordinate AVBD Dinner Table",
     )

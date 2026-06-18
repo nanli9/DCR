@@ -85,22 +85,33 @@ CPU-coupler-on-GPU:
 
 ## Test suite
 
-`tests/avbd_native/` — one green suite, **40 tests**:
+`tests/avbd_native/` — one green suite, **50 tests**:
 - `test_dynamic_coupling.py` (6) — AVBD dynamic constraint + counterfactual
 - `test_fem_rigid_cargo.py` (4), `test_fem_rigid_coupling.py` (5),
   `test_abd_coupling.py`, `test_fem_coupling.py` — AVBD materials + parity
 - `test_xpbd_coupling.py` (12) — XPBD parity, residency, two-way, passivity,
   determinism, smoke (fem / fem_rigid), abd→AVBD routing
+- `test_production_scenes.py` (10) — the four scenes × solver × deformable
+  material (truck/ledge/shelf/dinner): finite, bounded penetration, the impactor
+  flexes + the support rings, rigid-default unchanged
+
+## Scenes × materials
+
+Every reduced-modal scene now takes `solver` (avbd|xpbd) and `cargo_material`
+(fem_rigid|abd|fem|None): the impactor becomes a deformable cargo cube coupled at
+its contact corners (sized to its footprint, mass matched), the rigid box stays
+the SAT collision proxy, bystanders rest rigid. `cargo_material=None` is the
+legacy rigid impactor. Shared seam: `scenes/reduced_scene_common.py:
+build_support_and_attach` (truck/ledge/shelf) + `reduced_dinner_table` directly.
+XPBD uses a higher iteration budget on the many-body scenes (no ρ-escalation;
+~16 iters vs AVBD's 6–10) — e.g. dinner+xpbd max penetration drops 31 mm → 1.8 mm.
 
 ## Viser
 
-- `scripts/run_native_scenes_viser.py` — live solver × material × device on the
-  cargo scene (flip avbd↔xpbd to compare the two primals).
-- `scripts/run_reduced_scene_viser.py` — the four production scenes
-  (truck/ledge/shelf/dinner) with rigid cargo on the reduced-modal support.
-
-## Remaining
-
-Wiring the deformable materials into the four production scenes (their impactors
-are currently rigid) is the open Stage-7 piece; the cargo scene exercises the
-full solver × material × device matrix today.
+- `scripts/run_native_scenes_viser.py` — live **scene × solver × material ×
+  device** (cargo + truck/ledge/shelf/dinner), with independent render-only
+  exaggeration sliders (cube flex, slab deflection; default 1.0 = true scale),
+  the deformable impactor skinned, bystanders as boxes, two-way HUD. Flip
+  avbd↔xpbd to compare the primals; abd+xpbd auto-routes to AVBD.
+- `scripts/run_reduced_scene_viser.py` — the four scenes with decorated
+  `model/<kind>/` assets (rigid cargo; no solver/material switching).
