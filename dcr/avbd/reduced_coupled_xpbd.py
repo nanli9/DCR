@@ -137,6 +137,15 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
         self._lam_a = {}
         self._lam_c = {row: 0.0 for row in rows}
         self._cargo_Minv = {}
+        # Bodies the coupler OWNS this substep = those whose FLOOR contact went
+        # active (λ_c > 0). Only these get their rigid pose/velocity written back
+        # to the solver (see `_write_rigid_and_anchor` / `_commit_rigid_velocity`)
+        # — separated / body-on-body stacked bodies are left to the solver's own
+        # box-box primal, matching how the AVBD coupler only writes the bodies in
+        # `per_body_Hx_inv`. Writing ALL tracked bodies (the previous behavior)
+        # clobbered the solver's box-box resolution for stacked bystanders (e.g.
+        # ledge pillars), forcing them to the free-flight predictor → blow-up.
+        self._active_bodies: set[int] = set()
 
         # frozen per-body rigid predictor + geometry (one substep linearization)
         self._xb.clear()
@@ -164,14 +173,15 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
                 self._cargo_Minv[b] = np.linalg.inv(Mqb)
             rdata = []
             for row in rows_on_body:
+                # Store the LOCAL corner offset; the world lever arm r_self_w and
+                # the angular Jacobian j_ang are recomputed from the LIVE qb each
+                # projection in `iteration_hook` (see the DEVIATION there).
                 off = self._row_off_a[row].astype(np.float64)
-                r_self_w = Rb @ off
-                j_ang = np.array([-r_self_w[2], 0.0, r_self_w[0]], dtype=np.float64)
                 U_y = self._U_at_row[row][1].astype(np.float64)        # (r,)
                 G_a = self._row_cargo_Ga.get(row)                       # (k,) | None
                 if G_a is not None:
                     G_a = np.asarray(G_a, dtype=np.float64)
-                rdata.append((int(row), r_self_w, j_ang, U_y, G_a,
+                rdata.append((int(row), off, U_y, G_a,
                               float(self._row_floor_y_rest[row])))
             self._b_rows[b] = rdata
 
@@ -262,7 +272,21 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
             body = self.cargo.get(b)
             a = self.cargo_a[b] if body is not None else None
             Minv_a = self._cargo_Minv.get(b)
-            for (row, r_self_w, j_ang, U_y, G_a, floor_y) in rdata:
+            for (row, off, U_y, G_a, floor_y) in rdata:
+                # DEVIATION (XPBD rigid positional constraint, Macklin et al.
+                # "Detailed Rigid Body Simulation with XPBD" 2020): recompute the
+                # corner world lever arm r_self_w = R(qb)·off and the angular
+                # Jacobian j_ang from the LIVE projected orientation qb every
+                # sweep, NOT the substep-begin freeze. With a frozen j_ang the
+                # rotational correction applied to qb never feeds back into the
+                # re-evaluated gap C, so serial Gauss–Seidel over a resting box's
+                # corners pumps angular momentum unboundedly (a flat resting body
+                # spun up to |ω|≈185 rad/s). The translation Jacobian n̂=e_y is
+                # constant; only the corner geometry is re-linearized.
+                Rb = _quat_xyzw_to_R(qb)
+                r_self_w = Rb @ off
+                j_ang = np.array([-r_self_w[2], 0.0, r_self_w[0]],
+                                 dtype=np.float64)
                 corner_y = xb[1] + r_self_w[1]
                 surf = floor_y + float(U_y @ q)
                 flex = float(G_a @ a) if G_a is not None else 0.0
@@ -286,6 +310,8 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
                     new = 0.0                      # compressive only (λ_c ≥ 0)
                 dlam = new - lam
                 self._lam_c[row] = new
+                if new > 0.0:
+                    self._active_bodies.add(b)     # coupler owns this body's pose
                 # apply Δz = M⁻¹ ∇C dlam
                 xb[1] += invm * dlam               # n̂ = e_y
                 dtheta = (Iinv @ j_ang) * dlam
@@ -310,7 +336,9 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
         substep_end residual both see the deformed two-way surface)."""
         x_out = solver.x.numpy().copy()
         q_out = solver.q.numpy().copy()
-        for b in self._xb:
+        # Only write the bodies the coupler owns (active FLOOR contact). Others
+        # keep the solver's box-box primal pose (see `_active_bodies`).
+        for b in self._active_bodies:
             x_out[b] = self._xb[b].astype(np.float32)
             q_out[b] = self._qb[b].astype(np.float32)
         solver.x.assign(x_out)
@@ -325,7 +353,7 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
             if body is None:
                 continue
             a = self.cargo_a[b]
-            for (row, _rw, _ja, _Uy, G_a, _fy) in rdata:
+            for (row, _off, _Uy, G_a, _fy) in rdata:
                 if G_a is not None:
                     anchor[row, 1] -= float(G_a @ a)
         solver.c_world_anchor.assign(anchor.astype(np.float32))
@@ -361,9 +389,9 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
         d["x_qb"] = wp.zeros(max_b, dtype=vec4d, device=dev)
         d["x_invm"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["x_Iinv"] = wp.zeros(max_b, dtype=mat33d, device=dev)
-        d["x_rsw"] = wp.zeros(cap_rows, dtype=vec3d, device=dev)
-        d["x_ja0"] = wp.zeros(cap_rows, dtype=f64, device=dev)
-        d["x_ja2"] = wp.zeros(cap_rows, dtype=f64, device=dev)
+        # Per-body owned-this-substep flag (FLOOR contact went active): only these
+        # bodies get their pose/velocity written back (mirrors `_active_bodies`).
+        d["x_active"] = wp.zeros(max_b, dtype=int, device=dev)
         d["x_lamc"] = wp.zeros(cap_rows, dtype=f64, device=dev)
         d["x_lamq"] = wp.zeros(R, dtype=f64, device=dev)
         d["x_rowtbody"] = wp.zeros(cap_rows, dtype=int, device=dev)
@@ -423,10 +451,10 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
         wp.launch(KX.k_xpbd_begin_body, dim=int(self._dev_max_b), device=dev,
                   inputs=[d["counts"], d["body_ids"], solver.x_inertial,
                           solver.q_inertial, solver.mass, solver.inertia_local,
-                          d["x_xb"], d["x_qb"], d["x_invm"], d["x_Iinv"]])
+                          d["x_xb"], d["x_qb"], d["x_invm"], d["x_Iinv"],
+                          d["x_active"]])
         wp.launch(KX.k_xpbd_begin_row, dim=cap_rows, device=dev, inputs=[
-            d["counts"], d["x_rowtbody"], d["row_off"], d["x_qb"],
-            d["x_rsw"], d["x_ja0"], d["x_ja2"], d["x_lamc"]])
+            d["counts"], d["x_lamc"]])
         # seed the contact anchor from the modal surface (q = q̃).
         wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
             Rt, d["counts"], d["row_index"], d["row_U_y"], d["floor_y_rest"],
@@ -449,12 +477,12 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
             f64(self._dev_h_sub), d["q"], d["q_prev"], d["x_lamq"]])
         wp.launch(KX.k_xpbd_contact, dim=1, device=dev, inputs=[
             d["counts"], Rt, d["x_rowtbody"], d["row_U_y"], d["floor_y_rest"],
-            d["x_rsw"], d["x_ja0"], d["x_ja2"], d["x_invm"], d["x_Iinv"],
+            d["row_off"], d["x_invm"], d["x_Iinv"],
             d["Mq"], f64(self._dev_at_c), d["x_xb"], d["x_qb"], d["q"],
-            d["x_lamc"]])
+            d["x_lamc"], d["x_active"]])
         wp.launch(KX.k_xpbd_write_rigid, dim=max_b, device=dev, inputs=[
-            d["counts"], d["body_ids"], d["x_xb"], d["x_qb"], solver.x,
-            solver.q])
+            d["counts"], d["body_ids"], d["x_xb"], d["x_qb"], d["x_active"],
+            solver.x, solver.q])
         wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
             Rt, d["counts"], d["row_index"], d["row_U_y"], d["floor_y_rest"],
             d["q"], d["diag"], solver.c_world_anchor])
@@ -478,8 +506,9 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
             wp.launch(K.k_qdot, dim=Rt, device=dev, inputs=[
                 Rt, f64(self._dev_inv_dt), d["q"], d["q_prev"], d["qdot"]])
         wp.launch(KX.k_xpbd_rigid_vel, dim=max_b, device=dev, inputs=[
-            d["counts"], d["body_ids"], d["x_xb"], d["x_qb"], solver.x_initial,
-            solver.q_initial, f64(self._dev_inv_dt), solver.v, solver.omega])
+            d["counts"], d["body_ids"], d["x_xb"], d["x_qb"], d["x_active"],
+            solver.x_initial, solver.q_initial, f64(self._dev_inv_dt),
+            solver.v, solver.omega])
         is_last = (self._substep_index % self._dev_n_sub) == (
             self._dev_n_sub - 1)
         if is_last or self.log_substeps:
@@ -491,7 +520,7 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
         bodies (XPBD velocity update; the solver's finalize used its own primal
         pose, which this overrides so the next predictor carries the contact-
         resolved velocity)."""
-        if not self._xb:
+        if not self._active_bodies:
             return
         from .reduced_coupled_avbd import _quat_xyzw_inv, _quat_xyzw_to_rotvec
         h = float(self.h_substep)
@@ -499,7 +528,9 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
         q_init = solver.q_initial.numpy()
         v = solver.v.numpy().copy()
         omega = solver.omega.numpy().copy()
-        for b in self._xb:
+        # Only the coupler-owned (active FLOOR contact) bodies get their velocity
+        # from the XPBD pose; the rest keep the solver's box-box velocity.
+        for b in self._active_bodies:
             v[b] = ((self._xb[b] - x_init[b].astype(np.float64)) / h).astype(np.float32)
             dq = _quat_xyzw_mul(self._qb[b], _quat_xyzw_inv(q_init[b].astype(np.float64)))
             omega[b] = (_quat_xyzw_to_rotvec(dq) / h).astype(np.float32)

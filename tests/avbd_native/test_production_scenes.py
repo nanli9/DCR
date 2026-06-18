@@ -40,6 +40,42 @@ def _iters_for(solver: str) -> dict:
     return {"iterations": 16, "avbd_substeps": 4} if solver == "xpbd" else {}
 
 
+def _avbd_idx(world, dcr):
+    return int(world._descs[dcr].avbd_body.index)
+
+
+@pytest.mark.parametrize("scene", SCENES)
+def test_xpbd_resting_bystanders_stay_at_rest(scene):
+    """Pre-impact, the bystanders rest quasi-statically under XPBD — they must
+    NOT fly off before the impactor lands.
+
+    Regression for the resting-contact blow-up: the XPBD coupler (a) froze the
+    contact corner geometry r_self_w/j_ang at substep-begin, so the rotational
+    correction never fed back into the gap and serial Gauss–Seidel pumped a
+    resting box up to |ω|≈185 rad/s; and (b) overwrote EVERY tracked body's pose
+    with the free-flight predictor, clobbering the solver's box-box resolution
+    for stacked bystanders. Both are fixed (live geometry + active-body-only
+    write-back, mirroring the AVBD coupler). The old finite/penetration test
+    missed this — a 6.5 m fly-off is still finite and the floor never penetrates.
+    """
+    h = BUILD[scene](device="cpu", solver="xpbd", cargo_material="fem_rigid",
+                     **_iters_for("xpbd"))
+    w = h.world
+    S = w._solver
+    imp = _avbd_idx(w, h.impactor_idx)
+    idxs = [_avbd_idx(w, b.dcr_idx) for b in h.bodies
+            if _avbd_idx(w, b.dcr_idx) != imp]
+    P0 = S.positions().copy()
+    drift = 0.0
+    for _ in range(12):                       # 0.1 s — well before any drop lands
+        w.step()
+        P = S.positions()
+        for i in idxs:
+            drift = max(drift, float(np.linalg.norm(P[i] - P0[i])))
+    # quasi-static settle is ~1–5 mm (matches AVBD); the old bug was metres.
+    assert drift < 1.0e-2, (scene, drift)
+
+
 def _run(scene, solver, material, n=80):
     h = BUILD[scene](device="cpu", solver=solver, cargo_material=material,
                      **_iters_for(solver))

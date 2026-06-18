@@ -42,6 +42,31 @@ the iteration primal and the device sweep. Both are fully GPU-resident: state in
 `wp.array` on `cuda:0`, the iteration loop captured into a CUDA graph, the only
 host readback once per macro-step for the HUD.
 
+### Resting multi-body stability (XPBD)
+
+Two corrections were needed for the XPBD primal to hold a quasi-static
+multi-body scene at rest (the AVBD primal already did, via its Schur solve + AL
+ρ-escalation):
+
+1. **Live contact geometry** (`# DEVIATION`, Macklin et al. *Detailed Rigid Body
+   Simulation with XPBD* 2020): the corner lever arm `r = R(qb)·off` and the
+   angular Jacobian `j_ang` are recomputed from the **live** projected
+   orientation each Gauss–Seidel sweep, not frozen at substep-begin. With a
+   frozen `j_ang` the rotational correction applied to `qb` never feeds back
+   into the re-evaluated gap `C`, so serial GS over a resting box's corners
+   pumps angular momentum unboundedly (a flat resting body spun up to
+   `|ω|≈185 rad/s` → flew 6.5 m before the impactor even dropped).
+2. **Active-body write-back**: the coupler writes its projected pose/velocity
+   back to the solver **only for bodies whose FLOOR contact went active**
+   (`λ_c>0`) this substep — matching the AVBD coupler, which only writes the
+   bodies in `per_body_Hx_inv`. Writing *every* tracked body (the earlier
+   behavior) clobbered the solver's box-box resolution for stacked/separated
+   bystanders (e.g. ledge pillars) with the free-flight predictor.
+
+After both, XPBD pre-impact bystander drift matches AVBD to sub-mm on all four
+scenes (e.g. ledge pedestal 6558 mm → 1.26 mm). Both the CPU reference and the
+device kernels carry the fix and stay CPU↔GPU bit-identical.
+
 ## Materials
 
 | material | body | XPBD | AVBD |
@@ -85,15 +110,16 @@ CPU-coupler-on-GPU:
 
 ## Test suite
 
-`tests/avbd_native/` — one green suite, **50 tests**:
+`tests/avbd_native/` — one green suite, **54 tests**:
 - `test_dynamic_coupling.py` (6) — AVBD dynamic constraint + counterfactual
 - `test_fem_rigid_cargo.py` (4), `test_fem_rigid_coupling.py` (5),
   `test_abd_coupling.py`, `test_fem_coupling.py` — AVBD materials + parity
 - `test_xpbd_coupling.py` (12) — XPBD parity, residency, two-way, passivity,
   determinism, smoke (fem / fem_rigid), abd→AVBD routing
-- `test_production_scenes.py` (10) — the four scenes × solver × deformable
+- `test_production_scenes.py` (14) — the four scenes × solver × deformable
   material (truck/ledge/shelf/dinner): finite, bounded penetration, the impactor
-  flexes + the support rings, rigid-default unchanged
+  flexes + the support rings, rigid-default unchanged, **and resting bystanders
+  stay quasi-static pre-impact under XPBD** (the resting-blow-up regression)
 
 ## Scenes × materials
 
@@ -109,9 +135,15 @@ XPBD uses a higher iteration budget on the many-body scenes (no ρ-escalation;
 ## Viser
 
 - `scripts/run_native_scenes_viser.py` — live **scene × solver × material ×
-  device** (cargo + truck/ledge/shelf/dinner), with independent render-only
-  exaggeration sliders (cube flex, slab deflection; default 1.0 = true scale),
-  the deformable impactor skinned, bystanders as boxes, two-way HUD. Flip
-  avbd↔xpbd to compare the primals; abd+xpbd auto-routes to AVBD.
+  device** (cargo + truck/ledge/shelf/dinner). The support renders as a **solid
+  slab of its true thickness** (the deflected top grid extruded down), the
+  deformable impactor is skinned, bystanders are boxes. Knobs mirror
+  `run_reduced_scene_viser.py`: Sim (speed), Scene (support thickness, impactor
+  mass / drop / launch velocity — reset to the scene preset on a scene change),
+  Reduced-modal solver (iterations live, substeps / modal impedance / damping on
+  rebuild), Visualization (cube-flex + slab-deflection exaggeration default 1.0 =
+  true scale, slab render thickness, full vs static modal view, impactor-as-
+  collision-proxy), and a two-way HUD + diagnostics block. Flip avbd↔xpbd to
+  compare the primals; abd+xpbd auto-routes to AVBD.
 - `scripts/run_reduced_scene_viser.py` — the four scenes with decorated
   `model/<kind>/` assets (rigid cargo; no solver/material switching).

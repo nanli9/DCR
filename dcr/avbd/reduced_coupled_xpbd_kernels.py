@@ -56,13 +56,16 @@ def k_xpbd_begin_body(
     qb: wp.array(dtype=vec4d),
     invm: wp.array(dtype=wp.float64),
     Iinv: wp.array(dtype=mat33d),
+    active: wp.array(dtype=int),
 ):
     """Per tracked body: snapshot the solver's free-flight predictor as the XPBD
-    start pose, the inverse mass and the (frozen) world inverse inertia. dim = max_b."""
+    start pose, the inverse mass and the (frozen) world inverse inertia, and
+    clear the owned-this-substep flag. dim = max_b."""
     t = wp.tid()
     if t >= counts[0]:
         return
     b = body_ids[t]
+    active[t] = 0
     qq = q_inertial[b]
     qx = wp.float64(qq[0]); qy = wp.float64(qq[1])
     qz = wp.float64(qq[2]); qw = wp.float64(qq[3])
@@ -84,26 +87,15 @@ def k_xpbd_begin_body(
 @wp.kernel
 def k_xpbd_begin_row(
     counts: wp.array(dtype=int),
-    row_tbody: wp.array(dtype=int),
-    row_off: wp.array(dtype=vec3d),
-    qb: wp.array(dtype=vec4d),
-    r_self_w: wp.array(dtype=vec3d),
-    ja0: wp.array(dtype=wp.float64),
-    ja2: wp.array(dtype=wp.float64),
     lam_c: wp.array(dtype=wp.float64),
 ):
-    """Per tracked FLOOR row: the frozen world corner offset r = R·off and the
-    angular Jacobian j_ang = r × n̂ = (−r_z, 0, r_x); reset λ_c. dim = cap_rows."""
+    """Per tracked FLOOR row: reset the contact multiplier λ_c. The corner lever
+    arm r = R·off and the angular Jacobian j_ang are NOT frozen here — they are
+    recomputed from the live qb each sweep in `k_xpbd_contact` (see the DEVIATION
+    there; mirrors the CPU reference). dim = cap_rows."""
     rr = wp.tid()
     if rr >= counts[2]:
         return
-    t = row_tbody[rr]
-    qf = qb[t]
-    R = _quat_to_R(qf[0], qf[1], qf[2], qf[3])
-    rsw = R * row_off[rr]
-    r_self_w[rr] = rsw
-    ja0[rr] = -rsw[2]
-    ja2[rr] = rsw[0]
     lam_c[rr] = _ZERO
 
 
@@ -168,9 +160,7 @@ def k_xpbd_contact(
     row_tbody: wp.array(dtype=int),
     row_U_y: wp.array2d(dtype=wp.float64),
     floor_y_rest: wp.array(dtype=wp.float64),
-    r_self_w: wp.array(dtype=vec3d),
-    ja0: wp.array(dtype=wp.float64),
-    ja2: wp.array(dtype=wp.float64),
+    row_off: wp.array(dtype=vec3d),
     invm: wp.array(dtype=wp.float64),
     Iinv: wp.array(dtype=mat33d),
     Mq: wp.array2d(dtype=wp.float64),
@@ -179,19 +169,29 @@ def k_xpbd_contact(
     qb: wp.array(dtype=vec4d),
     q: wp.array(dtype=wp.float64),
     lam_c: wp.array(dtype=wp.float64),
+    active: wp.array(dtype=int),
 ):
     """Unilateral FLOOR contact, one compliant constraint per tracked corner,
     projected SERIALLY (all share the support modal q) in the topology row
     order — identical to the CPU reference (single thread). C = corner_y −
     (floor + Σ row_U_y·q); ∂C/∂Q = −row_U_y (= [−U_y | +G_a]). Updates the cube
     rigid pose (translation + rotvec), the support modal q and the cargo modal a
-    through the one shared multiplier λ_c ≥ 0. dim = 1."""
+    through the one shared multiplier λ_c ≥ 0. dim = 1.
+
+    # DEVIATION (XPBD rigid positional constraint, Macklin et al. 2020): the
+    # corner lever arm rsw = R(qb)·off and the angular Jacobian j_ang are
+    # recomputed from the LIVE projected orientation qb every sweep (NOT frozen
+    # at substep begin), so the rotational correction feeds back into the next
+    # corner's gap — otherwise serial Gauss–Seidel pumps angular momentum and a
+    # resting box spins up. Mirrors the CPU reference exactly ⇒ parity holds."""
     if wp.tid() != 0:
         return
     n = counts[2]
     for rr in range(n):
         t = row_tbody[rr]
-        rsw = r_self_w[rr]
+        qf = qb[t]
+        Rb = _quat_to_R(qf[0], qf[1], qf[2], qf[3])
+        rsw = Rb * row_off[rr]
         corner_y = xb[t][1] + rsw[1]
         surf = floor_y_rest[rr]
         for c in range(R_tot):
@@ -200,7 +200,7 @@ def k_xpbd_contact(
         lam = lam_c[rr]
         if C >= _ZERO and lam == _ZERO:
             continue
-        jang = vec3d(ja0[rr], _ZERO, ja2[rr])
+        jang = vec3d(-rsw[2], _ZERO, rsw[0])
         # generalized inverse mass w = ∇Cᵀ M⁻¹ ∇C
         w = invm[t] + wp.dot(jang, Iinv[t] * jang)
         for c in range(R_tot):
@@ -214,6 +214,8 @@ def k_xpbd_contact(
             new = _ZERO
         dlam = new - lam
         lam_c[rr] = new
+        if new > _ZERO:
+            active[t] = 1                  # coupler owns this body's pose
         # apply Δz = M⁻¹ ∇C dlam
         xv = xb[t]
         xb[t] = vec3d(xv[0], xv[1] + invm[t] * dlam, xv[2])
@@ -236,13 +238,18 @@ def k_xpbd_write_rigid(
     body_ids: wp.array(dtype=int),
     xb: wp.array(dtype=vec3d),
     qb: wp.array(dtype=vec4d),
+    active: wp.array(dtype=int),
     x: wp.array(dtype=wp.vec3),
     q: wp.array(dtype=wp.quat),
 ):
     """Push the XPBD-projected pose to the solver state (rendering + the
-    substep_end penetration diagnostic + body-body SAT of other bodies). dim = max_b."""
+    substep_end penetration diagnostic + body-body SAT of other bodies). Only the
+    coupler-owned bodies (active FLOOR contact this substep) are written; the rest
+    keep the solver's box-box primal pose. dim = max_b."""
     t = wp.tid()
     if t >= counts[0]:
+        return
+    if active[t] == 0:
         return
     b = body_ids[t]
     xv = xb[t]
@@ -258,6 +265,7 @@ def k_xpbd_rigid_vel(
     body_ids: wp.array(dtype=int),
     xb: wp.array(dtype=vec3d),
     qb: wp.array(dtype=vec4d),
+    active: wp.array(dtype=int),
     x_initial: wp.array(dtype=wp.vec3),
     q_initial: wp.array(dtype=wp.quat),
     inv_dt: wp.float64,
@@ -266,9 +274,12 @@ def k_xpbd_rigid_vel(
 ):
     """XPBD velocity update for the coupler-owned tracked bodies: v = (x−xⁿ)/h,
     ω = log(q ⊗ qⁿ⁻¹)/h (overrides the solver's finalize, which used its own
-    primal pose). dim = max_b."""
+    primal pose). Only the active (owned) bodies; the rest keep the solver's
+    box-box velocity. dim = max_b."""
     t = wp.tid()
     if t >= counts[0]:
+        return
+    if active[t] == 0:
         return
     b = body_ids[t]
     xv = xb[t]
