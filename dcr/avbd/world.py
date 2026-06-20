@@ -478,12 +478,16 @@ class AVBDDCRWorld:
         if self.reduced_coupled_coupler is not None:
             raise RuntimeError("reduced_coupled_coupler already attached")
         body_mass = {}
+        body_friction = {}
         for d in self._descs:
             if d.avbd_body is None:
                 continue
             i = int(d.avbd_body.index)
             if i in tracked_body_indices:
                 body_mass[i] = float(d.dcr_body.mass)
+                # Coulomb μ for this body's FLOOR contact (matches the AVBD
+                # tangent rows, which use the body's own friction coefficient).
+                body_friction[i] = float(getattr(d.dcr_body, "friction", 0.5))
         coupler = ReducedCoupledXPBDCoupler(
             rs=rs,
             tracked_body_indices=list(tracked_body_indices),
@@ -495,6 +499,7 @@ class AVBDDCRWorld:
             h_macro=float(self.h),
             h_substep=float(self.h) / float(self.avbd_substeps),
             body_mass=body_mass,
+            body_friction=body_friction,
             rho_clip=float(rho_clip),
             xpbd_contact_compliance=float(xpbd_contact_compliance),
         )

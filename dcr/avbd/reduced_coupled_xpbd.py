@@ -105,6 +105,15 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
     _Kq_d: NDArray[np.float64] | None = field(default=None, repr=False)
     _Dq_d: NDArray[np.float64] | None = field(default=None, repr=False)
     _wq: NDArray[np.float64] | None = field(default=None, repr=False)
+    # ---- tangential (Coulomb) friction (Macklin et al. 2020 §3.5) ----
+    # Per-body μ for the FLOOR contact (combined coefficient = the contacting
+    # body's friction, set at attach). XPBD position-based friction clamps the
+    # tangent multiplier to the cone |λ_t| ≤ μ λ_n each sweep.
+    body_friction: dict = field(default_factory=dict, repr=False)  # body -> μ
+    _lam_t: dict = field(default_factory=dict, repr=False)         # row -> λ_t
+    _p0: dict = field(default_factory=dict, repr=False)  # row -> corner@substep-begin (3,)
+    # Body↔body stack exclusion (_stacked_body_indices) is inherited from the
+    # AVBD parent unchanged — it depends only on geometry, not the primal.
 
     # ------------------------------------------------------------------
     # substep_begin: inherit the AVBD caches, then seed the XPBD predictor
@@ -137,6 +146,15 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
         self._lam_a = {}
         self._lam_c = {row: 0.0 for row in rows}
         self._cargo_Minv = {}
+        # Tangential friction: reset λ_t and snapshot each corner's world
+        # position at the START of the substep (the pre-predictor committed
+        # pose x_initial / q_initial, written by predict_inertial_6dof just
+        # before this hook). Friction opposes the tangential slide accumulated
+        # from here, so the snapshot must precede the inertial drift.
+        self._lam_t = {row: 0.0 for row in rows}
+        self._p0 = {}
+        x_init = solver.x_initial.numpy()
+        q_init = solver.q_initial.numpy()
         # Bodies the coupler OWNS this substep = those whose FLOOR contact went
         # active (λ_c > 0). Only these get their rigid pose/velocity written back
         # to the solver (see `_write_rigid_and_anchor` / `_commit_rigid_velocity`)
@@ -181,6 +199,10 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
                 G_a = self._row_cargo_Ga.get(row)                       # (k,) | None
                 if G_a is not None:
                     G_a = np.asarray(G_a, dtype=np.float64)
+                # corner world pos at substep start (pre-predictor) for friction
+                self._p0[int(row)] = (
+                    x_init[b].astype(np.float64)
+                    + _quat_xyzw_to_R(q_init[b].astype(np.float64)) @ off)
                 rdata.append((int(row), off, U_y, G_a,
                               float(self._row_floor_y_rest[row])))
             self._b_rows[b] = rdata
@@ -272,6 +294,7 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
             body = self.cargo.get(b)
             a = self.cargo_a[b] if body is not None else None
             Minv_a = self._cargo_Minv.get(b)
+            mu = float(self.body_friction.get(b, 0.5))   # Coulomb μ
             for (row, off, U_y, G_a, floor_y) in rdata:
                 # DEVIATION (XPBD rigid positional constraint, Macklin et al.
                 # "Detailed Rigid Body Simulation with XPBD" 2020): recompute the
@@ -323,6 +346,44 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
                 q += (-U_y * wq) * dlam            # support modal (∂C/∂q = −U_y)
                 if G_a is not None:
                     a += MgG * dlam                # cargo modal (∂C/∂a = +G_a)
+
+                # --- tangential Coulomb friction (XPBD position-based) ---------
+                # DEVIATION (paper Eq. 10 forced-IIR carries NO friction; the
+                # XPBD coupler was likewise frictionless, so contacting bodies
+                # slid freely and never shed spin). Restore the tangent term
+                # per Macklin et al. 2020 "Detailed Rigid Body Simulation with
+                # XPBD" §3.5: oppose the corner's tangential slide accumulated
+                # since the substep-begin pose, with a separate multiplier λ_t
+                # clamped to the Coulomb cone |λ_t| ≤ μ·λ_n. The support contact
+                # point is treated as tangentially fixed (its modes are
+                # vertical-dominant), so friction couples ONLY the rigid 6-DOF
+                # (translation + spin), not the support q or cargo a.
+                # NOTE: CPU reference path only; the GPU device path
+                # (`_iteration_device`) does not yet carry friction — follow-up.
+                lam_n = self._lam_c[row]
+                if mu <= 0.0 or lam_n <= 0.0:
+                    continue
+                r_w = _quat_xyzw_to_R(qb) @ off    # live corner lever arm
+                dx = (xb + r_w) - self._p0[row]
+                dx[1] = 0.0                        # strip the normal (n̂ = e_y)
+                tmag = float(np.linalg.norm(dx))
+                if tmag < 1e-12:
+                    continue
+                t_hat = dx / tmag                  # tangent slide direction
+                j_t = np.cross(r_w, t_hat)         # angular Jacobian ∂(t̂·p)/∂θ
+                w_t = invm + float(j_t @ (Iinv @ j_t))
+                # hard static-friction target C_t = tmag → 0 (compliance α_t = 0)
+                dlam_t = -tmag / max(w_t, 1e-300)
+                bound = mu * lam_n                 # Coulomb cone
+                new_t = min(bound, max(-bound, self._lam_t[row] + dlam_t))
+                dlam_t = new_t - self._lam_t[row]
+                self._lam_t[row] = new_t
+                xb += (invm * dlam_t) * t_hat      # n̂-orthogonal translation
+                dtheta_t = (Iinv @ j_t) * dlam_t
+                nq = _quat_xyzw_mul(_quat_xyzw_from_rotvec(dtheta_t), qb)
+                nn = float(np.linalg.norm(nq))
+                if nn > 1e-12:
+                    qb[:] = nq / nn
 
         # write the projected rigid pose back + refresh the modal anchor for the
         # solver's next iteration / the substep_end penetration diagnostic.
