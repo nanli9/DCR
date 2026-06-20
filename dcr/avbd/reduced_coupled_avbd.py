@@ -326,6 +326,18 @@ class ReducedCoupledAVBDCoupler:
     # gets ~0 kick. Default False = the full dynamic two-way constraint.
     freeze_qdot: bool = False
 
+    # Body↔body stacks. The (z,q) contact (two_band_coupling.html) models
+    # body↔SUPPORT only — it has no body↔body term. Box↔box stacking is owned
+    # by the host AVBD self-collision solver. A tracked body that rests on
+    # ANOTHER tracked body must therefore NOT be claimed/overwritten by the
+    # coupler: otherwise the coupler's support-projection discards the solver's
+    # box-box resolution and the stack telescopes onto the support plane. When
+    # True (default), such stacked bodies are dropped from coupler ownership
+    # each substep and left entirely to the solver. CPU path only (the device
+    # path keeps its own substep_begin — same follow-up as the XPBD friction).
+    exclude_stacked_from_coupler: bool = True
+    last_n_excluded_stacked: int = 0
+
     # Body mass cache (filled at attach by world).
     body_mass: dict[int, float] = field(default_factory=dict)
 
@@ -997,6 +1009,63 @@ class ReducedCoupledAVBDCoupler:
             lam = solver.c_lambda.numpy()
             self.last_contact_lambda_max = float(np.max(np.abs(lam[rows])))
 
+    def _stacked_body_indices(self, solver) -> set[int]:
+        """Tracked bodies in a body↔body contact pile, to drop from coupler
+        ownership. The (z,q) contact models body↔support only
+        (two_band_coupling.html) — it has no body↔body term — so any tracked
+        body that is also touching ANOTHER tracked body (a stack or a toppled
+        pile) belongs to the host AVBD self-collision solver. If the coupler
+        kept it, its support-projection would discard the solver's box-box
+        resolution and the pile would telescope onto the support plane.
+
+        Whole-pile rule: BOTH members of every touching pair are dropped. (An
+        earlier base/upper split that kept the stack base coupler-owned — so the
+        stack still felt the support ring — only held for short STATIC stacks;
+        a toppling pile then penetrated, and on AVBD the base's load-blind
+        support-projection fought the box-box load. Whole-pile is the robust
+        choice.) Single bodies resting directly on the support touch no other
+        tracked body and stay coupler-owned, keeping their modal coupling.
+
+        Per-body world AABBs come from the FLOOR-row corner offsets (8 box
+        corners). A pair (a, b) is "touching" when their xz footprints overlap
+        and their y-ranges overlap/abut within `tol`.
+        """
+        bodies = list(self._rows_per_body.keys())
+        if len(bodies) < 2:
+            return set()
+        P = solver.positions()
+        Q = solver.orientations()
+        aabb: dict[int, tuple[NDArray, NDArray]] = {}
+        for b in bodies:
+            offs = np.stack([self._row_off_a[i]
+                             for i in self._rows_per_body[b]], axis=0)
+            R = _quat_xyzw_to_R(Q[b].astype(np.float64))
+            corners = offs @ R.T + P[b].astype(np.float64)
+            aabb[b] = (corners.min(axis=0), corners.max(axis=0))
+        tol = 0.02   # vertical contact tolerance [m]
+        excl: set[int] = set()
+        for ia in range(len(bodies)):
+            a = bodies[ia]
+            amin, amax = aabb[a]
+            for ib in range(ia + 1, len(bodies)):
+                b = bodies[ib]
+                bmin, bmax = aabb[b]
+                if amin[0] > bmax[0] or amax[0] < bmin[0]:    # strict x overlap
+                    continue
+                if amin[2] > bmax[2] or amax[2] < bmin[2]:    # strict z overlap
+                    continue
+                # y-ranges overlap or abut (one rests on / piles on the other)
+                if (amin[1] <= bmax[1] + tol) and (bmin[1] <= amax[1] + tol):
+                    excl.add(a)
+                    excl.add(b)
+        # Never drop a cargo (deformable impactor) body: it carries its own
+        # augmented modal block and the iteration_hook cargo loop indexes
+        # _lam_a / cargo_a by its body index, so excluding it (e.g. when the
+        # impactor lands on/against a bystander) would KeyError. The impactor is
+        # the active modal driver — it must stay coupler-owned regardless.
+        excl -= set(self.cargo.keys())
+        return excl
+
     def substep_begin_hook(self, solver) -> None:
         """Dynamic-constraint substep_begin (two_band_coupling.html).
 
@@ -1069,6 +1138,19 @@ class ReducedCoupledAVBDCoupler:
                 self.rs.floor_y_rest[i] = float(anchor_np[i, 1])
             self._row_floor_y_rest[i] = self.rs.floor_y_rest[i]
             self._rows_per_body.setdefault(ba, []).append(i)
+
+        # Drop body↔body-stacked tracked bodies from coupler ownership so the
+        # host solver's box-box keeps them (see `exclude_stacked_from_coupler`).
+        if self.exclude_stacked_from_coupler and len(self._rows_per_body) > 1:
+            stacked = self._stacked_body_indices(solver)
+            self.last_n_excluded_stacked = len(stacked)
+            if stacked:
+                for b in stacked:
+                    self._rows_per_body.pop(b, None)
+                tracked = [i for i in tracked
+                           if self._row_body_a[i] not in stacked]
+        else:
+            self.last_n_excluded_stacked = 0
 
         self.rs.tracked_row_indices = tracked
         self.last_n_tracked_rows = len(tracked)
