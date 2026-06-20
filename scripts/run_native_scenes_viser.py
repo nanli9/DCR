@@ -12,7 +12,8 @@ One viewer over the full matrix:
   * device   — cpu | cuda:0 (GPU-resident on CUDA).
 
 Knobs mirror `scripts/run_reduced_scene_viser.py` (the decorated-asset viewer):
-Sim (speed), Scene (support thickness, impactor mass / drop / launch velocity),
+Sim (speed), Scene (support material, support thickness, impactor mass / drop /
+launch velocity),
 Reduced-modal solver (iterations, substeps, modal impedance, modal damping),
 Visualization (cube-flex + slab-deflection exaggeration, support render
 thickness, full vs static modal view, impactor-as-collision-proxy), and a
@@ -43,6 +44,7 @@ import argparse
 import inspect
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
@@ -67,20 +69,57 @@ _CUBE_COLOR = {"fem_rigid": (77, 140, 217), "abd": (217, 120, 77),
                "fem": (120, 200, 120)}
 _EXAG_MAX = 2000.0
 
+
+@dataclass(frozen=True)
+class SupportMaterial:
+    """Physically representative (E, ρ) for the deformable support slab, plus a
+    render appearance so the slab LOOKS like the chosen material. Stiffer
+    materials deflect less — honest: at exaggeration=1 steel/glass barely move,
+    softer ones flex visibly. `flat` is a faceted(matte)-vs-smooth(metal) cue."""
+    youngs: float       # Young's modulus E [Pa]
+    density: float      # [kg/m³]
+    color: tuple        # render RGB in [0, 1]
+    flat: bool = True
+
+
+# Ordered stiff → soft. E / ρ are textbook values; colors evoke the material.
+# Mirrors scripts/run_reduced_scene_viser.py so the two viewers agree.
+_MATERIAL: dict[str, SupportMaterial] = {
+    "steel":    SupportMaterial(2.00e11, 7850.0, (0.60, 0.63, 0.67), flat=False),
+    "titanium": SupportMaterial(1.16e11, 4500.0, (0.52, 0.53, 0.57), flat=False),
+    "glass":    SupportMaterial(7.00e10, 2500.0, (0.66, 0.85, 0.88), flat=False),
+    "aluminum": SupportMaterial(6.90e10, 2700.0, (0.84, 0.86, 0.89), flat=False),
+    "concrete": SupportMaterial(3.00e10, 2400.0, (0.64, 0.62, 0.58), flat=True),
+    "wood":     SupportMaterial(1.00e10,  600.0, (0.55, 0.36, 0.20), flat=True),
+    "plastic":  SupportMaterial(1.00e9,  1200.0, (0.20, 0.38, 0.72), flat=True),
+    "soft":     SupportMaterial(1.00e8,  1000.0, (0.86, 0.46, 0.55), flat=True),
+    "rubber":   SupportMaterial(5.00e7,  1100.0, (0.13, 0.13, 0.15), flat=True),
+}
+
+
+def _mat_color_u8(material: str) -> tuple:
+    c = _MATERIAL.get(material, _MATERIAL["wood"]).color
+    return tuple(int(np.clip(round(v * 255), 0, 255)) for v in c)
+
 # Per-scene presets (defaults + the slider ranges scene-dependent knobs reset to
 # on a scene change). `mass`/`drop`/`v0` map onto whichever kwarg the builder
 # exposes (impactor_* / pot_* / drop_height) — filtered by signature at build.
 SCENE_SPEC = {
     "cargo":  dict(label="cube",    thickness=0.020, mass=None, mass_rng=(0.1, 5.0),
-                   drop=0.04, drop_rng=(0.0, 1.0), v0=0.0,  iters=8, subs=4),
+                   drop=0.04, drop_rng=(0.0, 1.0), v0=0.0,  iters=8, subs=4,
+                   material="wood"),
     "truck":  dict(label="crate",   thickness=0.060, mass=40.0, mass_rng=(1.0, 120.0),
-                   drop=0.70, drop_rng=(0.0, 2.0), v0=0.0,  iters=8, subs=4),
+                   drop=0.70, drop_rng=(0.0, 2.0), v0=0.0,  iters=8, subs=4,
+                   material="wood"),
     "ledge":  dict(label="boulder", thickness=0.080, mass=50.0, mass_rng=(1.0, 150.0),
-                   drop=0.80, drop_rng=(0.0, 2.0), v0=0.0,  iters=8, subs=4),
+                   drop=0.80, drop_rng=(0.0, 2.0), v0=0.0,  iters=8, subs=4,
+                   material="wood"),
     "shelf":  dict(label="box",     thickness=0.030, mass=6.0,  mass_rng=(0.5, 40.0),
-                   drop=0.50, drop_rng=(0.0, 1.5), v0=0.0,  iters=8, subs=4),
+                   drop=0.50, drop_rng=(0.0, 1.5), v0=0.0,  iters=8, subs=4,
+                   material="plastic"),
     "dinner": dict(label="pot",     thickness=0.020, mass=8.0,  mass_rng=(1.0, 40.0),
-                   drop=0.50, drop_rng=(0.0, 1.5), v0=0.0,  iters=6, subs=2),
+                   drop=0.50, drop_rng=(0.0, 1.5), v0=0.0,  iters=6, subs=2,
+                   material="wood"),
 }
 
 # unit-box corner table (x,y,z bits) + 12-triangle faces for that ordering.
@@ -184,6 +223,7 @@ class UnifiedViser:
         self._pending_rebuild = False
         # scene-dependent knobs (seeded from the scene preset; reset on rebuild)
         sp = SCENE_SPEC[self.scene]
+        self.material = args.material or sp["material"]
         self.knob_thickness = sp["thickness"]
         self.knob_mass = sp["mass"]
         self.knob_drop = sp["drop"]
@@ -202,11 +242,17 @@ class UnifiedViser:
         eff = _effective_solver(self.solver, self.kind)
         self._eff_solver = eff
         rd = self.device.startswith("cuda")
+        mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
         # Candidate kwargs; mass/drop map onto whatever name the builder exposes.
+        # Support material → (E, ρ): production scenes take youngs/density, the
+        # cargo builder takes support_youngs/support_density — pass both, the
+        # signature filter below keeps whichever the chosen builder accepts.
         cand = dict(
             device=self.device, solver=eff, cargo_material=self.kind,
             iterations=int(self.knob_iters), avbd_substeps=int(self.knob_subs),
             support_thickness=float(self.knob_thickness),
+            youngs=float(mat.youngs), density=float(mat.density),
+            support_youngs=float(mat.youngs), support_density=float(mat.density),
             impactor_drop_height=float(self.knob_drop),
             pot_drop_height=float(self.knob_drop),
             drop_height=float(self.knob_drop),
@@ -273,12 +319,15 @@ class UnifiedViser:
                         (int(desc.avbd_body.index), b.half_extents, col))
 
     def _make_meshes(self):
+        # Skin the slab to the selected support material (color + flat/smooth
+        # shading), so steel looks like steel and wood like wood.
+        mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
         self.support = self.server.scene.add_mesh_simple(
             "/support",
             vertices=_slab_verts(self.rs, self._render_q(), self.support_exag,
                                  self.render_thick),
-            faces=self._slab_faces, color=(150, 150, 150),
-            flat_shading=True, side="double")
+            faces=self._slab_faces, color=_mat_color_u8(self.material),
+            flat_shading=mat.flat, side="double")
         P, Q = self.world._solver.positions(), self.world._solver.orientations()
         self._box_meshes = []
         for i, (idx, half, col) in enumerate(self._boxes):
@@ -343,6 +392,11 @@ class UnifiedViser:
             self.gui_speed = g.add_slider("speed", 0.05, 2.0, 0.05, self.speed)
             self.gui_reset = g.add_button("reset / rebuild")
         with g.add_folder("Scene (press reset / rebuild to apply)"):
+            self.gui_material = g.add_dropdown(
+                "support material", tuple(_MATERIAL.keys()),
+                initial_value=self.material,
+                hint="slab Young's modulus + density (+ render look). Stiffer = "
+                     "less deflection. Press reset / rebuild to apply.")
             self.gui_thickness = g.add_slider(
                 "support thickness [mm]", 5.0, 120.0, 1.0,
                 float(self.knob_thickness) * 1e3)
@@ -442,6 +496,7 @@ class UnifiedViser:
                 flat_shading=True, side="double")
 
     def _apply_knobs_from_gui(self):
+        self.material = self.gui_material.value
         self.knob_thickness = float(self.gui_thickness.value) / 1e3
         self.knob_mass = (None if self.scene == "cargo"
                           else float(self.gui_mass.value))
@@ -454,6 +509,7 @@ class UnifiedViser:
 
     def _reset_knobs_to_scene(self):
         sp = SCENE_SPEC[self.scene]
+        self.material = sp["material"]
         self.knob_thickness = sp["thickness"]
         self.knob_mass = sp["mass"]
         self.knob_drop = sp["drop"]
@@ -530,6 +586,9 @@ def main():
     ap.add_argument("--scene", default="cargo", choices=SCENES)
     ap.add_argument("--solver", default="xpbd", choices=SOLVERS)
     ap.add_argument("--kind", default="fem_rigid", choices=KINDS)
+    ap.add_argument("--material", default=None, choices=tuple(_MATERIAL.keys()),
+                    help="initial support-slab material → Young's modulus + "
+                         "density (default: per-scene preset)")
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--spin", type=float, default=4.0)
     ap.add_argument("--cube-exag", type=float, default=1.0,
