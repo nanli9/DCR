@@ -45,6 +45,11 @@ FLOOR_CONTACT_6DOF = wp.constant(0)     # C = y(x + R·off_a) − floor_y, fmax=
 CONTACT_TANGENT_6DOF = wp.constant(1)   # friction tangent row paired with sibling normal
 PIN_6DOF = wp.constant(2)               # body-local point pinned to world point (3 rows, one per axis)
 BOX_BOX_CONTACT_6DOF = wp.constant(3)   # C = n̂·(r_a − r_b) with body-local anchors (placeholder)
+SUPPORT_CONTACT_6DOF = wp.constant(4)   # C = corner_y − (y_rest + U_y·q): rests on the LIVE modal surface
+#   (two_band_coupling.html — "Contact as a constraint on (z, q)"). Same body
+#   Jacobian as FLOOR ([n̂; r×n̂], n̂=ŷ); the only difference is the surface
+#   height is the dynamic modal surface y_rest + U_y·q read against the live q
+#   modal DOF — NOT a pre-baked anchor. ∂g/∂q = −U_y feeds the q-block.
 
 # Same penalty floors as the 3-DOF kernels (see kernels.py PENALTY_MIN docstring).
 PENALTY_MIN = wp.constant(1.0e6)
@@ -359,6 +364,15 @@ def primal_update_6dof(
     color_bodies: wp.array(dtype=int),
     color_id: int,
     dt: float,
+    # Native modal support (two_band_coupling.html). `c_support_idx[cj]` is the
+    # support-slot for a SUPPORT_CONTACT row (−1 otherwise); `support_U_y[s,k]`
+    # is the mode-shape U_y of slot s, mode k, sampled where the body touches;
+    # `q_modal` is the live modal amplitude DOF; `n_modes` = r. These let the
+    # support row evaluate g = corner_y − (y_rest + U_y·q) against the LIVE q.
+    c_support_idx: wp.array(dtype=int),
+    support_U_y: wp.array(dtype=float, ndim=2),
+    q_modal: wp.array(dtype=float),
+    n_modes: int,
 ):
     tid = wp.tid()
     base = color_starts[color_id]
@@ -501,6 +515,24 @@ def primal_update_6dof(
                            (x[ba] + r_other_w) - (xi + r_self_w))
                 j_lin = -n_hat
                 j_ang = -wp.cross(r_self_w, n_hat)
+            n_for_G = n_hat
+            have_G = True
+        elif t == SUPPORT_CONTACT_6DOF:
+            # The body rests on the deformed modal surface (foundation
+            # "Contact as a constraint on (z, q)"). Body Jacobian is the FLOOR
+            # Jacobian (n̂ = ŷ); the surface height is read LIVE from q:
+            #   surf = y_rest + U_y·q ,  C = corner_y − surf.
+            # The opposite-sign reaction −U_y·f loads the mode in the q-block
+            # (one shared multiplier f → Newton's third law).
+            r_self_w = wp.quat_rotate(qi, off_a)
+            n_hat = wp.vec3(0.0, 1.0, 0.0)
+            j_lin = n_hat
+            j_ang = wp.cross(r_self_w, n_hat)
+            sidx = c_support_idx[cj]
+            surf = anchor[1]                       # y_rest stored in anchor.y
+            for kk in range(n_modes):
+                surf = surf + support_U_y[sidx, kk] * q_modal[kk]
+            C = (xi[1] + r_self_w[1]) - surf
             n_for_G = n_hat
             have_G = True
 
@@ -1474,6 +1506,11 @@ def dual_update_6dof(
     c_friction_static: wp.array(dtype=float),
     c_was_static: wp.array(dtype=int),
     beta: float,
+    # Native modal support (see primal_update_6dof).
+    c_support_idx: wp.array(dtype=int),
+    support_U_y: wp.array(dtype=float, ndim=2),
+    q_modal: wp.array(dtype=float),
+    n_modes: int,
 ):
     j = wp.tid()
     if j >= n_active_rows[0]:
@@ -1503,6 +1540,14 @@ def dual_update_6dof(
         n_hat = c_world_anchor[j]
         C = eval_box_box_C(x[c_body_a[j]], q[c_body_a[j]], c_off_a[j],
                            x[c_body_b[j]], q[c_body_b[j]], c_off_b[j], n_hat)
+    elif t == SUPPORT_CONTACT_6DOF:
+        # g = corner_y − (y_rest + U_y·q): same live modal surface as primal.
+        sidx = c_support_idx[j]
+        surf = c_world_anchor[j][1]
+        for kk in range(n_modes):
+            surf = surf + support_U_y[sidx, kk] * q_modal[kk]
+        r_world = x[c_body_a[j]] + wp.quat_rotate(q[c_body_a[j]], c_off_a[j])
+        C = r_world[1] - surf
 
     s = c_stiffness[j]
     if s >= wp.inf:

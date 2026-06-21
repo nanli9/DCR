@@ -42,6 +42,7 @@ from .solver_6dof import (
     CONTACT_TANGENT_6DOF,
     PIN_6DOF,
     BOX_BOX_CONTACT_6DOF,
+    SUPPORT_CONTACT_6DOF,
 )
 
 __all__ = [
@@ -53,4 +54,5 @@ __all__ = [
     "CONTACT_TANGENT_6DOF",
     "PIN_6DOF",
     "BOX_BOX_CONTACT_6DOF",
+    "SUPPORT_CONTACT_6DOF",
 ]

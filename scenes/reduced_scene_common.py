@@ -197,7 +197,25 @@ def build_support_and_attach(
             tracked.append(int(desc.avbd_body.index))
     rs.probe_body_indices = list(tracked)
 
-    if solver == "xpbd":
+    if solver == "native":
+        # Native dynamic two-way modal constraint (two_band_coupling.html,
+        # Approach B): q is a solver DOF, no coupler. M1 supports rigid
+        # impactors only (cargo deformation is M2).
+        if cargo_material is not None:
+            raise ValueError(
+                "solver='native' does not support deformable cargo yet "
+                "(M2). Use cargo_material=None for the native modal path.")
+        world.enable_reduced_modal_support(
+            rs,
+            tracked_body_indices=tracked,
+            shelf_length=support_length,
+            shelf_width=support_width,
+            shelf_y_rest=support_top,
+            n_grid_x=N_GRID_X,
+            n_grid_z=N_GRID_Z,
+        )
+        return rs
+    elif solver == "xpbd":
         coupler = world.attach_reduced_coupled_xpbd(
             rs,
             tracked_body_indices=tracked,

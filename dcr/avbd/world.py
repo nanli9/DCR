@@ -42,6 +42,7 @@ from ._solver import (
     Solver6DOF,
     RigidBody as AVBDRigidBody,
     FLOOR_CONTACT_6DOF,
+    SUPPORT_CONTACT_6DOF,
 )
 from .contact_extract import extract_contacts
 from .diagnostics import EnergyLedger
@@ -184,6 +185,12 @@ class AVBDDCRWorld:
         default=None, init=False, repr=False)
     reduced_coupled_log: list[dict] = field(
         default_factory=list, init=False, repr=False)
+    # ---- Native modal support DOF (two_band_coupling.html, Approach B) --
+    # When enabled via `enable_reduced_modal_support`, the support's modal
+    # amplitude q is a native solver DOF co-solved with the bodies in the
+    # same backward-Euler step — NO coupler, NO hook. Mutually exclusive
+    # with the coupled coupler above.
+    _native_modal_enabled: bool = field(default=False, init=False, repr=False)
     # ---- Legacy DCR post-step Δv kick (--mode old_dcr_postkick) -------
     # Attached only when the user explicitly asks for the legacy
     # ablation. The coupler reads contact impulses at end-of-step,
@@ -448,6 +455,81 @@ class AVBDDCRWorld:
         self._solver.iteration_hook = coupler.iteration_hook
         self._solver.substep_end_hook = coupler.substep_end_hook
         return coupler
+
+    def enable_reduced_modal_support(
+        self,
+        rs: ReducedSupport,
+        *,
+        tracked_body_indices: list[int],
+        shelf_length: float,
+        shelf_width: float,
+        shelf_y_rest: float,
+        n_grid_x: int,
+        n_grid_z: int,
+        support_stiffness: float = 1.0e9,
+    ) -> None:
+        """Install the support's modal amplitude q as a NATIVE solver DOF — the
+        finalized dynamic two-way constraint (two_band_coupling.html, Approach
+        B). No coupler, no hook: q is co-solved with the bodies in the same
+        backward-Euler step (the in-solver q-block).
+
+        Each tracked body's support-height FLOOR rows are retyped to
+        SUPPORT_CONTACT rows and given the mode shape U_y sampled where the
+        corner touches; the body then rests on the LIVE deformed surface
+        y_rest + U_y·q (read in-kernel, no pre-baked anchor). Box-box stacks are
+        unaffected — they stay native rigid contacts and ride the ring through
+        their grounded support rows.
+        """
+        from .reduced_support import evaluate_basis_at_point
+        from ._solver.solver_6dof import _modal_quat_to_R
+
+        if self._solver is None:
+            raise RuntimeError("AVBDDCRWorld._solver is not initialized")
+        if self.reduced_coupled_coupler is not None:
+            raise RuntimeError(
+                "Cannot enable native modal support: a reduced_coupled_coupler "
+                "is already attached (mutually exclusive).")
+        s = self._solver
+        # Modal matrices (mass-normalized ⇒ M_q = I, K_q = diag(ω²); D_q
+        # Rayleigh). q/q̇ carry over from the support's current state.
+        s.set_modal_support(rs.Mq, rs.Kq, rs.Dq, q0=rs.q, qdot0=rs.qdot)
+
+        tracked = set(int(i) for i in tracked_body_indices)
+        y_tol = 1.0e-6
+        n_converted = 0
+        for cidx, row in enumerate(s._rows):
+            if row.type != FLOOR_CONTACT_6DOF:
+                continue
+            if int(row.body_a) not in tracked:
+                continue
+            if abs(float(row.world_anchor[1]) - float(shelf_y_rest)) > y_tol:
+                continue
+            # World (x, z) of this corner at rest → sample U_y there.
+            pos = np.asarray(s._x[row.body_a], dtype=np.float64)
+            R = _modal_quat_to_R(np.asarray(s._q[row.body_a], dtype=np.float64))
+            r_w = R @ np.asarray(row.off_a, dtype=np.float64)
+            cx = float(pos[0] + r_w[0])
+            cz = float(pos[2] + r_w[2])
+            U3r = evaluate_basis_at_point(
+                rs, (cx, cz), length=shelf_length, width=shelf_width,
+                n_grid_x=n_grid_x, n_grid_z=n_grid_z)
+            U_y_row = np.asarray(U3r[1, :], dtype=np.float64)   # y-row of U
+            # Retype FLOOR → SUPPORT (soft, so it skips hard stabilization; the
+            # surface height is evaluated live against q in-kernel).
+            row.type = SUPPORT_CONTACT_6DOF
+            row.stiffness = float(support_stiffness)
+            s._support_row_cidx.append(cidx)
+            s._support_U_y_rows.append(U_y_row)
+            n_converted += 1
+        if n_converted == 0:
+            raise RuntimeError(
+                "enable_reduced_modal_support: no support-height FLOOR rows "
+                f"found for tracked bodies at y={shelf_y_rest}.")
+        rs.overlay_enabled = False
+        rs.restart_overlay_each_step = False
+        self.reduced_support = rs
+        self._native_modal_enabled = True
+        s._dirty = True
 
     def attach_reduced_coupled_xpbd(
         self,

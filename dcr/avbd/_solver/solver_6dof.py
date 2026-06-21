@@ -26,12 +26,14 @@ import warp as wp
 
 from . import kernels_6dof as K
 from .coloring import build_body_edges, color_summary, greedy_color, spatial_8color
+from ..modal_qblock import _quat_to_R as _modal_quat_to_R
 
 # Re-export the constraint type codes for callers / tests.
 FLOOR_CONTACT_6DOF = 0
 CONTACT_TANGENT_6DOF = 1
 PIN_6DOF = 2
 BOX_BOX_CONTACT_6DOF = 3
+SUPPORT_CONTACT_6DOF = 4   # rests on the live modal surface y_rest + U_y·q
 
 
 def _obb_sat(c_A: np.ndarray, R_A: np.ndarray, e_A: np.ndarray,
@@ -459,6 +461,53 @@ class Solver6DOF:
         # the coupler's device-residency path; see reduced_coupled_kernels.py.
         self.hooks_device_resident = False
 
+        # ---- Native modal support DOF (two_band_coupling.html, Approach B) --
+        # The support's modal amplitude q ∈ R^r is a genuine second-order DOF
+        # (q, q̇) co-solved with the bodies in the SAME backward-Euler step — a
+        # native solver state, NOT a hook-owned object. Disabled by default
+        # (all rigid scenes unaffected). Enabled via `set_modal_support`.
+        self._modal_enabled = False
+        self._n_modes = 1                       # r (1 = inert placeholder)
+        self._Mq = None                         # (r,r) modal mass (host)
+        self._Kq = None                         # (r,r) stiffness = diag(ω²)
+        self._Dq = None                         # (r,r) Rayleigh damping
+        self._q_modal_host = None               # (r,) amplitude qⁿ
+        self._qdot_modal_host = None            # (r,) velocity q̇ⁿ
+        self._modal_f_q_grav = None             # (r,) Uᵀ f_grav (static sag), opt
+        self._modal_freeze_qdot = False         # counterfactual: q̇≡0 predictor
+        self._modal_eps_reg = 1.0e-12           # r×r solve regularizer
+        # Under-relaxation of the per-iteration q update (block-GS damping). The
+        # q-block takes a full Newton step each iteration while the colored
+        # primal advances z by only one Gauss–Seidel step; un-relaxed, q
+        # over-shoots on a stiff impact transient and shakes nearby stacked
+        # piles apart (the truck 4-high lumber topples). ω≤0.15 damps the chase
+        # into a stable regime (holds the stack to <0.5° tilt over 500 steps,
+        # robust to impactor mass), while still ringing two-way and staying
+        # passive. # DEVIATION (foundation): this is a NUMERICAL solver setting
+        # (like the iteration count / SOR relaxation), NOT a physical modal
+        # parameter — q still has only M_q/K_q/D_q. It under-converges q within
+        # the substep, so the ring is gentler than a fully-converged solve; the
+        # principled fully-converged fix is the cross-term grounded-body
+        # co-solve (S = H_q − Σ Mᵀ H_x⁻¹ M with box-box in H_x and the Δz
+        # back-substitution), which keeps box-box native — see
+        # native-modal-qblock-design memory. 1.0 = un-relaxed.
+        self._modal_relax = 0.1
+        # Predictor / snapshot scratch, set each substep.
+        self._q_hat = None                      # (r,) q̃ predictor
+        self._q_n = None                        # (r,) qⁿ snapshot
+        # Support-row tables (filled by add_support_contact_corner, uploaded
+        # to device at _flush). Parallel arrays, one entry per support slot.
+        self._support_row_cidx: list[int] = []  # c-row index per support slot
+        self._support_U_y_rows: list[np.ndarray] = []   # (r,) U_y per slot
+        # Device arrays (always allocated; dummies when disabled).
+        self.c_support_idx = None               # (n_cap,) slot per row, −1 else
+        self.support_U_y = None                 # (n_sup, r) mode shapes
+        self.q_modal = None                     # (r,) live amplitude on device
+        # Last-substep modal diagnostics (read by viewer / tests).
+        self.last_modal_KE = 0.0
+        self.last_modal_PE = 0.0
+        self.last_q_norm = 0.0
+
     # ---- Scene building -----------------------------------------------------
 
     def add_box(
@@ -557,6 +606,73 @@ class Solver6DOF:
                         self._rows[t_z_idx].partner = t_x_idx
         self._dirty = True
         return normal_indices
+
+    def set_modal_support(
+        self,
+        Mq: np.ndarray,
+        Kq: np.ndarray,
+        Dq: np.ndarray,
+        *,
+        q0: np.ndarray | None = None,
+        qdot0: np.ndarray | None = None,
+        f_q_grav: np.ndarray | None = None,
+    ) -> None:
+        """Install the support's modal DOF (q, q̇) as native solver state
+        (two_band_coupling.html — "The two kinds of unknowns"). Mass-normalized
+        modes give M_q = I, K_q = diag(ω²); D_q is the Rayleigh damping. The
+        contact then sees the FULL dynamic q via SUPPORT_CONTACT rows added with
+        `add_support_contact_corner`. No coupler, no hook — q is advanced by the
+        same implicit step as the bodies (the native q-block in `_run_iter_loop`).
+        """
+        Mq = np.asarray(Mq, dtype=np.float64)
+        Kq = np.asarray(Kq, dtype=np.float64)
+        Dq = np.asarray(Dq, dtype=np.float64)
+        r = int(Mq.shape[0])
+        if Mq.shape != (r, r) or Kq.shape != (r, r) or Dq.shape != (r, r):
+            raise ValueError("Mq/Kq/Dq must be square and equal-sized (r×r)")
+        self._n_modes = r
+        self._Mq, self._Kq, self._Dq = Mq, Kq, Dq
+        self._q_modal_host = (np.zeros(r) if q0 is None
+                              else np.asarray(q0, dtype=np.float64).copy())
+        self._qdot_modal_host = (np.zeros(r) if qdot0 is None
+                                 else np.asarray(qdot0, dtype=np.float64).copy())
+        self._modal_f_q_grav = (None if f_q_grav is None
+                                else np.asarray(f_q_grav, dtype=np.float64).copy())
+        self._modal_enabled = True
+        self._dirty = True
+
+    def add_support_contact_corner(
+        self,
+        body: RigidBody,
+        off_a: tuple[float, float, float],
+        y_rest: float,
+        U_y_row: np.ndarray,
+        stiffness: float = 1.0e9,
+    ) -> int:
+        """Add one SUPPORT_CONTACT row: body corner `off_a` rests on the live
+        modal surface `y_rest + U_y·q` (foundation "Contact as a constraint on
+        (z, q)"). `U_y_row` is the (r,) mode shape sampled where the corner
+        touches. Returns the row index. The row is a soft (large-but-finite
+        stiffness) unilateral push-up contact (fmin=−∞, fmax=0) so it skips the
+        hard-constraint stabilization path; the surface height is evaluated
+        against the LIVE q in-kernel (no pre-baked anchor)."""
+        U_y_row = np.asarray(U_y_row, dtype=np.float64).reshape(-1)
+        n_idx = len(self._rows)
+        self._rows.append(
+            _Row(
+                type=SUPPORT_CONTACT_6DOF,
+                body_a=body.index,
+                world_anchor=(0.0, float(y_rest), 0.0),
+                off_a=tuple(float(v) for v in off_a),
+                stiffness=float(stiffness),
+                fmin=-math.inf,
+                fmax=0.0,
+            )
+        )
+        self._support_row_cidx.append(n_idx)
+        self._support_U_y_rows.append(U_y_row)
+        self._dirty = True
+        return n_idx
 
     def add_pin_corner(
         self,
@@ -1146,6 +1262,28 @@ class Solver6DOF:
         self.c_active = wp.array(act_np, dtype=int, device=dev)
         self.c_was_static = wp.zeros(n_cap, dtype=int, device=dev)
 
+        # ---- Native modal support tables -----------------------------------
+        # c_support_idx maps each row to its support slot (−1 if not a support
+        # row); support_U_y[s] is the (r,) mode shape of slot s; q_modal is the
+        # live amplitude DOF. Always allocated (dummies when disabled) so the
+        # primal/dual launches have valid inputs unconditionally.
+        r = self._n_modes
+        sup_idx_np = np.full(n_cap, -1, dtype=np.int32)
+        n_sup = len(self._support_row_cidx)
+        if self._modal_enabled and n_sup > 0:
+            U_y_np = np.zeros((n_sup, r), dtype=np.float32)
+            for s, cidx in enumerate(self._support_row_cidx):
+                sup_idx_np[cidx] = s
+                U_y_np[s, :] = self._support_U_y_rows[s][:r]
+        else:
+            U_y_np = np.zeros((1, max(r, 1)), dtype=np.float32)
+        self.c_support_idx = wp.array(sup_idx_np, dtype=int, device=dev)
+        self.support_U_y = wp.array(U_y_np, dtype=float, device=dev)
+        q0 = (self._q_modal_host.astype(np.float32)
+              if self._modal_enabled and self._q_modal_host is not None
+              else np.zeros(max(r, 1), dtype=np.float32))
+        self.q_modal = wp.array(q0, dtype=float, device=dev)
+
         # ---- GPU-resident pool scratch -------------------------------------
         # CSR adjacency: rebuilt by the gpu_csr_* kernels each substep so it
         # tracks dynamic contacts; capacity covers worst-case (each row
@@ -1470,9 +1608,16 @@ class Solver6DOF:
                 wp.synchronize_device(dev)
             self.substep_begin_hook(self)
 
+        # Native modal predictor q̃ = qⁿ + h q̇ⁿ (+ h² M_q⁻¹ f_q^grav). Carries
+        # the ring history q̇ⁿ into the substep (the whole point). Uploads the
+        # current q to the device for the primal's live-surface evaluation.
+        if self._modal_enabled:
+            self._modal_predict()
+
         use_graph = (n_active > 0
                      and str(dev).startswith("cuda")
                      and self._graph_cuda_supported()
+                     and not self._modal_enabled   # host q-block ⇒ eager (M1)
                      and (self.hooks_device_resident
                           or (self.iteration_hook is None
                               and self.substep_end_hook is None)))
@@ -1489,6 +1634,11 @@ class Solver6DOF:
             if not self.hooks_device_resident:
                 wp.synchronize_device(dev)
             self.substep_end_hook(self)
+
+        # Native modal commit q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h (backward-Euler finite
+        # difference) — carries the ring forward. Passive by construction.
+        if self._modal_enabled:
+            self._modal_commit()
 
         # ---- 7. Refresh pair hash for next-substep warm-start ----
         if self._self_collide and self._gpu_pool_hash_cap > 0:
@@ -1692,7 +1842,9 @@ class Solver6DOF:
                                 self.c_friction_static, self.c_was_static,
                                 self.body_con_starts, self.body_con_indices,
                                 self.color_starts, self.color_bodies,
-                                color_id, self.dt],
+                                color_id, self.dt,
+                                self.c_support_idx, self.support_U_y,
+                                self.q_modal, self._n_modes],
                         device=dev,
                     )
 
@@ -1709,9 +1861,25 @@ class Solver6DOF:
                             self.c_alpha_C0, self.c_active, self.c_fracture,
                             self.c_sibling, self.c_friction,
                             self.c_friction_static, self.c_was_static,
-                            self.beta],
+                            self.beta,
+                            self.c_support_idx, self.support_U_y,
+                            self.q_modal, self._n_modes],
                     device=dev,
                 )
+
+            # Native modal q-block (two_band_coupling.html — block coordinate
+            # descent on E(z,q)): after the bodies move and the contact duals
+            # update, solve the r×r modal system for Δq with z held at its
+            # current value. The next color's bodies then see the updated
+            # surface y_rest + U_y·q directly. No hook, no coupler.
+            # # DEVIATION (foundation "Newton/Schur block"): this is block
+            # Gauss–Seidel (z-blocks via the colored primal, then the q-block)
+            # rather than one simultaneous Newton step with the explicit
+            # cross-Hessian Schur — the interleave the prompt's ARCHITECTURE
+            # section authorizes. Box-box bodies are handled natively by the
+            # colored primal; the q-block only updates q.
+            if self._modal_enabled and it < self.iterations:
+                self._solve_q_block(dev)
 
             if it == self.iterations - 1:
                 wp.launch(
@@ -1731,6 +1899,115 @@ class Solver6DOF:
                 if not self.hooks_device_resident:
                     wp.synchronize_device(dev)
                 self.iteration_hook(self, it)
+
+    # ---- Native modal support DOF (q, q̇) ----------------------------------
+    def _modal_predict(self) -> None:
+        """Inertial predictor q̃ = qⁿ + h q̇ⁿ + h² M_q⁻¹ f_q^grav and qⁿ snapshot
+        (foundation "Inertial predictors"). Uploads qⁿ to the device so the
+        primal evaluates the live surface y_rest + U_y·q this substep. With the
+        frozen-q̇ counterfactual the h·q̇ⁿ term is dropped (quasi-static mode)."""
+        h = float(self.dt)
+        self._q_n = self._q_modal_host.copy()
+        h_pred = 0.0 if self._modal_freeze_qdot else h
+        q_hat = self._q_n + h_pred * self._qdot_modal_host
+        if self._modal_f_q_grav is not None:
+            q_hat = q_hat + h * h * np.linalg.solve(self._Mq, self._modal_f_q_grav)
+        self._q_hat = q_hat
+        self.q_modal.assign(self._q_modal_host.astype(np.float32))
+
+    def _solve_q_block(self, dev) -> None:
+        """One modal step of the block coordinate descent on E(z,q) — the
+        q-block of the architecture's block descent (the colored primal owns z):
+
+            H_q = 1/h²·M_q + 1/h·D_q + K_q + Σ_j k_j U_y,j U_y,jᵀ
+            g_q = 1/h²·M_q(q−q̃) + 1/h·D_q(q−qⁿ) + K_q q − Σ_j U_y,j f_j
+
+        with z held at the colored primal's current value, solve H_q Δq = −g_q
+        for the modal amplitude (under-relaxed by `_modal_relax`). The bodies
+        then see the updated surface y_rest + U_y·q directly in the next color.
+        The SAME clamped multiplier f_j enters the body gradient (+J_x f, in the
+        primal) and the modal gradient (−U_y f, here) — Newton's third law.
+
+        # DEVIATION (foundation "Newton/Schur block"): this is block Gauss–Seidel
+        # (z-blocks via the colored primal, then this q-block) rather than one
+        # simultaneous Newton step with the explicit cross-Hessian Schur — the
+        # interleave the prompt's ARCHITECTURE section authorizes. The explicit
+        # cross-term Schur (−ρ J_x U_yᵀ) was implemented and REJECTED: applied
+        # without its Δz back-substitution it injects energy; applied WITH a full
+        # Δz it double-steps the grounded body against the colored primal and
+        # flips stacks; applied as a cross-only Δz it softens H_q → larger Δq →
+        # a more vivid ring that topples the truck stack at every relaxation.
+        # The fully-converged cross-term needs grounded bodies REMOVED from the
+        # colored primal so the q-block solely owns them (an invasive coloring
+        # change) — out of scope. See docs/native_modal_support.md and the
+        # native-modal-qblock-design memory.
+        # # DEVIATION: gather only ENGAGED (compressive, f<0) support contacts —
+        # a separated corner exerts no load on the mode and must not stiffen it;
+        # the body primal keeps its own warm penalty.
+        """
+        h = float(self.dt)
+        inv_dt = 1.0 / h
+        inv_dt2 = inv_dt * inv_dt
+        r = self._n_modes
+        Mq, Kq, Dq = self._Mq, self._Kq, self._Dq
+        q = self._q_modal_host
+        H_q = inv_dt2 * Mq + inv_dt * Dq + Kq
+        g_q = (inv_dt2 * (Mq @ (q - self._q_hat))
+               + inv_dt * (Dq @ (q - self._q_n))
+               + Kq @ q)
+
+        x = self.x.numpy()
+        quat = self.q.numpy()
+        pen = self.c_penalty.numpy()
+        lam = self.c_lambda.numpy()
+        stiff = self.c_stiffness.numpy()
+        alpha_C0 = self.c_alpha_C0.numpy()
+        act = self.c_active.numpy()
+        for s, cidx in enumerate(self._support_row_cidx):
+            if act[cidx] == 0:
+                continue
+            row = self._rows[cidx]
+            bi = row.body_a
+            R = _modal_quat_to_R(np.asarray(quat[bi], dtype=np.float64))
+            r_w = R @ np.asarray(row.off_a, dtype=np.float64)
+            corner_y = float(x[bi][1]) + float(r_w[1])
+            U = self._support_U_y_rows[s][:r]
+            C = corner_y - (float(row.world_anchor[1]) + float(U @ q))
+            hard = np.isinf(stiff[cidx])
+            if hard:
+                C = C - float(alpha_C0[cidx])
+            lam_eff = float(lam[cidx]) if hard else 0.0
+            rho = float(pen[cidx])
+            f = min(rho * C + lam_eff, 0.0)     # clamp(ρC+λ, −∞, 0): compressive
+            if f >= 0.0:                        # engaged contacts only
+                continue
+            g_q = g_q - U * f
+            H_q = H_q + rho * np.outer(U, U)
+
+        dq = np.linalg.solve(H_q + self._modal_eps_reg * np.eye(r), -g_q)
+        self._q_modal_host = q + self._modal_relax * dq
+        self.q_modal.assign(self._q_modal_host.astype(np.float32))
+
+    def _modal_commit(self) -> None:
+        """q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h (backward Euler). Frozen counterfactual keeps
+        q̇ ≡ 0. Also refreshes modal diagnostics."""
+        h = float(self.dt)
+        if not self._modal_freeze_qdot:
+            self._qdot_modal_host = (self._q_modal_host - self._q_n) / h
+        q = self._q_modal_host
+        qd = self._qdot_modal_host
+        self.last_modal_KE = float(0.5 * qd @ self._Mq @ qd)
+        self.last_modal_PE = float(0.5 * q @ self._Kq @ q)
+        self.last_q_norm = float(np.linalg.norm(q))
+
+    @property
+    def modal_q(self) -> np.ndarray:
+        """Current modal amplitude qⁿ (read-only view copy)."""
+        return None if self._q_modal_host is None else self._q_modal_host.copy()
+
+    @property
+    def modal_qdot(self) -> np.ndarray:
+        return None if self._qdot_modal_host is None else self._qdot_modal_host.copy()
 
     def _ensure_pair_buffers(self, cap: int) -> None:
         """Allocate or grow the broadphase pair-buffer set to at least `cap`.
@@ -1799,6 +2076,12 @@ class Solver6DOF:
         self.c_alpha_C0 = _grow_f32(self.c_alpha_C0)
         self.c_active = _grow_int(self.c_active)
         self.c_was_static = _grow_int(self.c_was_static)
+        # Support-row slot map: −1 in the grown tail (support rows are static,
+        # so the preserved prefix keeps their slot indices).
+        supp_np = np.full(new_cap, -1, dtype=np.int32)
+        old_supp = self.c_support_idx.numpy()
+        supp_np[: old_supp.shape[0]] = old_supp
+        self.c_support_idx = wp.array(supp_np, dtype=int, device=dev)
         # sibling / partner default to -1 in the grown tail.
         sib_np = np.full(new_cap, -1, dtype=np.int32)
         old_sib = self.c_sibling.numpy()

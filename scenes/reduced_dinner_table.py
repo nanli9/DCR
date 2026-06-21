@@ -192,7 +192,19 @@ def build_reduced_dinner_table(
             tracked.append(int(desc.avbd_body.index))
     rs.probe_body_indices = list(tracked)
 
-    if solver == "xpbd":
+    coupler = None
+    if solver == "native":
+        # Native dynamic two-way modal constraint (two_band_coupling.html): q is
+        # a solver DOF, no coupler. M1 is rigid-impactor only (cargo_material
+        # must be None); the deformable pot path stays on the coupler.
+        if cargo_material is not None:
+            raise ValueError(
+                "solver='native' does not support deformable cargo yet (M2)")
+        world.enable_reduced_modal_support(
+            rs, tracked_body_indices=tracked,
+            shelf_length=table_length, shelf_width=table_width,
+            shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
+    elif solver == "xpbd":
         coupler = world.attach_reduced_coupled_xpbd(
             rs, tracked_body_indices=tracked,
             shelf_length=table_length, shelf_width=table_width,
@@ -204,7 +216,7 @@ def build_reduced_dinner_table(
             shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z,
             modal_static_lp_tau=modal_static_lp_tau)
     else:
-        raise ValueError(f"unknown solver {solver!r} (avbd | xpbd)")
+        raise ValueError(f"unknown solver {solver!r} (native | avbd | xpbd)")
 
     cargo_cube = None
     cargo_avbd_idx = None

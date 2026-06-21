@@ -61,7 +61,7 @@ from scenes.reduced_dinner_table import build_reduced_dinner_table
 
 N_GRID_X, N_GRID_Z = 21, 11
 KINDS = ("fem_rigid", "abd", "fem")
-SOLVERS = ("avbd", "xpbd")
+SOLVERS = ("avbd", "xpbd", "native")
 SCENES = ("cargo", "truck", "ledge", "shelf", "dinner")
 _PROD = {"truck": build_reduced_truck, "ledge": build_reduced_ledge,
          "shelf": build_reduced_shelf, "dinner": build_reduced_dinner_table}
@@ -248,6 +248,12 @@ class UnifiedViser:
     # ---- scene + render setup ---------------------------------------
     def _build(self):
         eff = _effective_solver(self.solver, self.kind)
+        # The "cargo" scene is a fully-deformable impactor demo — the native
+        # dynamic modal path is rigid-impactor only in M1, so fall back to the
+        # coupler there (mirrors the abd→avbd routing). truck/ledge/shelf/dinner
+        # run native with rigid bystanders + a rigid impactor.
+        if eff == "native" and self.scene == "cargo":
+            eff = "avbd"
         self._eff_solver = eff
         rd = self.device.startswith("cuda")
         mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
@@ -269,6 +275,11 @@ class UnifiedViser:
             modal_damping_scale=float(self.knob_damping),
             device_resident=rd,
         )
+        if eff == "native":
+            # Native dynamic two-way modal constraint (two_band_coupling.html):
+            # q is a solver DOF, no coupler. M1 supports rigid impactors only
+            # (cargo deformation is M2), so force the impactor rigid.
+            cand["cargo_material"] = None
         if self.knob_mass is not None:
             cand["impactor_mass"] = float(self.knob_mass)
             cand["pot_mass"] = float(self.knob_mass)
@@ -286,11 +297,13 @@ class UnifiedViser:
         self.handle = builder(**kwargs)
         self.rs = self.handle.rs
         self.world = self.handle.world
-        self.coupler = self.world.reduced_coupled_coupler
+        self.coupler = self.world.reduced_coupled_coupler   # None on native path
         # Route A opt-in: enable the stacked-pile↔modal co-solve (AVBD only; the
         # XPBD coupler keeps its own default-off). Read live each substep_begin,
-        # so the GUI checkbox below can toggle it without a rebuild.
-        self.coupler.cosolve_stacked_q = bool(self.knob_cosolve)
+        # so the GUI checkbox below can toggle it without a rebuild. The native
+        # path needs no opt-in — the slab ALWAYS rings two-way (intrinsic).
+        if self.coupler is not None:
+            self.coupler.cosolve_stacked_q = bool(self.knob_cosolve)
         self._q_static = self.rs.q.copy()
         self._collect_render()
         self._make_meshes()
@@ -577,6 +590,11 @@ class UnifiedViser:
                 t0 = time.perf_counter()
                 self.world.step()
                 ms = (time.perf_counter() - t0) * 1e3
+                # Native path: q lives on the solver (no coupler). Mirror it into
+                # rs.q so the existing rs.q-based slab render + HUD work unchanged.
+                if c is None and getattr(self.world._solver,
+                                         "_modal_enabled", False):
+                    self.rs.q[:] = self.world._solver.modal_q
                 # static modal view = a low-pass EMA of q (resting sag only)
                 self._q_static += 0.05 * (self.rs.q - self._q_static)
                 P, Q = (self.world._solver.positions(),
@@ -601,10 +619,17 @@ class UnifiedViser:
                     f"{self.device} {'(GPU-resident)' if resident else ''}")
                 self.hud_q.value = f"{np.linalg.norm(q):.3e}"
                 self.hud_defl.value = f"{defl:.4f}"
-                self.hud_cube.value = (
-                    f"{c.last_cargo_modal_KE + c.last_cargo_modal_PE:.3e}")
-                self.hud_supp.value = f"{c.last_modal_KE:.3e}"
-                self.hud_pen.value = f"{c.last_contact_residual * 1e3:.4f}"
+                if c is not None:
+                    self.hud_cube.value = (
+                        f"{c.last_cargo_modal_KE + c.last_cargo_modal_PE:.3e}")
+                    self.hud_supp.value = f"{c.last_modal_KE:.3e}"
+                    self.hud_pen.value = f"{c.last_contact_residual * 1e3:.4f}"
+                else:
+                    # Native path: modal state on the solver, no cargo (M1).
+                    sv = self.world._solver
+                    self.hud_cube.value = "n/a (rigid impactor)"
+                    self.hud_supp.value = f"{sv.last_modal_KE:.3e}"
+                    self.hud_pen.value = "—"
             time.sleep(max(0.0, (1.0 / 120.0) / max(self.speed, 1e-3)))
 
 
