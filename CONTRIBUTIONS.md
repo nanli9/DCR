@@ -408,6 +408,79 @@ reservoir + bank wiring in `dcr/dcr/passive_dcr.py`.
 
 ---
 
+## Phase D — body↔body stacks ride the modal ring (Option 2 / Route A)
+
+**Problem.** The reduced two-band contact (`two_band_coupling.html`) models
+body↔**support** only — it has no body↔body term. A stacked pile (truck lumber,
+ledge pedestal+pillars) is therefore a host-solver concern, and the coupler's
+support-only pose projection, if it owned a stacked body, would discard the
+host's box-box resolution and the pile would telescope onto the slab. The
+shipped stop-gap (`exclude_stacked_from_coupler`, default ON) drops whole piles
+from the coupler so the host keeps them — robust, but the pile then rests on the
+**static** slab and never feels the ring. The goal of Option 2 is to make a
+stack both **(a) ride the slab's modal ring** and **(b) stay intact**.
+
+**What does NOT work** (each was implemented and measured, then removed/disabled):
+- *Box-box co-solve in the coupler (literal Route B).* Re-owning the pile and
+  projecting the host's `BOX_BOX_CONTACT_6DOF` rows inside the coupler sweep: the
+  coupler's in-sweep box-box is weaker than the host's and loses contact during
+  the ring, and once the penetration passes the host SAT margin the rows vanish —
+  the pile telescopes (truck −0.05 m).
+- *Anchor-include (one-way).* Keep the pile host-owned but feed its FLOOR anchors
+  the modal surface. The ringing surface does work on the base with **no reaction
+  onto q** — not passive — so it injects energy and telescopes, and *worse* with
+  more iterations (energy pumped per sweep).
+
+**What works — Route A (q co-solved with the host), `cosolve_stacked_q`.** Make
+the single shared modal amplitude `q` a quantity the host's iteration co-solves,
+two-way and passively, without the coupler ever overwriting a stacked body's
+pose. Implemented in `dcr/avbd/reduced_coupled_avbd.py`:
+- `_grounded_bodies` splits a detected pile (`_stacked_body_indices`) into the
+  **grounded base** (lowest corner on the slab) and the **upper** bodies. Upper
+  bodies are pose-excluded **and** dropped from `tracked` (pure host box-box, no
+  spurious slab anchor that would otherwise yank them down as they settle).
+- The grounded base stays in the per-body loop but is **tagged** (`_stacked_set`):
+  its FLOOR contact still contributes the modal load `g_q −= U_y·f`,
+  `H_q += k U_y U_yᵀ` to `q`, but its 6×6 z-block, the cross block, and the Δz
+  back-substitution are **skipped** — the host owns its rigid pose (box-box keeps
+  the pile intact and rides it on the coupler-written modal anchor). This is a
+  block Gauss–Seidel coupling: `q` sees the host-solved pose frozen for the q
+  solve. The base pressing the ringing surface loads/**drains** `q`, so the loop
+  is passive (the AVBD modal block is the regularized implicit Schur solve).
+- The augmented (fem_rigid/abd cargo) path carries the same skip.
+
+**Validated (AVBD, iterations ≥ 8, CPU):** ledge pillars **rock ~2 cm** from the
+boulder with no telescoping (the ydrop matches the stable baseline); truck lumber
+stays intact (min gap −0.001 m) while riding the ring; shelf and the
+fem_rigid/abd cargo scenes stay finite. Full suite is unchanged with the flag off
+(44 passed / 9 skipped / 1 known pre-existing energy-monotone failure).
+
+**Why it is opt-in (default OFF), and the honest limits:**
+- *Global-mode over-loading.* The grounded base reacts the **whole pile's**
+  weight into its FLOOR contact, so the full `−U_y·f` statically over-deflects the
+  low-frequency global ("seesaw") mode under heavy concentrated loads — a 60 kg
+  truck impact lifts **distant** cones 0.24 m, and this breaks the calibrated
+  `test_two_way_counterfactual`. An η transfer-efficiency on the stacked load
+  (`stacked_q_load_scale`) was swept to tame it but **backfires**: the full load
+  *is* the passivity drain, so η<1 lets the ring run away (η=0.5 → truck
+  telescopes −0.05 m, ledge pillars over-react 0.30 m). η=1 is the only stable,
+  passive value; the over-deflection is its intrinsic price. Hence default OFF.
+- *XPBD: not supported.* The XPBD primal's ring is ~4× livelier (single-body
+  reaction 33 mm vs AVBD 4.5 mm), so tall piles telescope on it, and the
+  per-sweep Gauss–Seidel q-load is caught between runaway and over-damping. The
+  XPBD coupler keeps `cosolve_stacked_q = False`. A regularized/implicit XPBD
+  modal load is a follow-up.
+- *CPU reference only.* The device (`_substep_begin_device`) does not run the
+  split or the tagged q-load (same class of follow-up as the device friction
+  kernel and the stacking gate).
+
+**Where to see it:** `scripts/run_native_scenes_viser.py --scene ledge --solver
+avbd`, then tick **"stacked pile rides ring (AVBD)"** in the *Reduced-modal
+solver* GUI folder (live, no rebuild). Default off so the truck scene does not
+show the heavy-impact over-deflection.
+
+---
+
 ## Math formulation
 
 All section numbers below refer to `prompts/avbd_native_dcr_followup_spec_v2.md`.

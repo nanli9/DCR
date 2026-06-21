@@ -337,6 +337,46 @@ class ReducedCoupledAVBDCoupler:
     # path keeps its own substep_begin — same follow-up as the XPBD friction).
     exclude_stacked_from_coupler: bool = True
     last_n_excluded_stacked: int = 0
+    # Route A (Option 2 — q co-solved with the host, CPU reference). When True,
+    # a body↔body-stacked pile is split by `_grounded_bodies`: the GROUNDED base
+    # stays in `_rows_per_body` + `tracked` but is TAGGED in `_stacked_set`,
+    # while the UPPER bodies are pose-excluded AND dropped from `tracked` (pure
+    # host box-box, no slab anchor). For a tagged base the host owns its rigid
+    # pose (its box-box keeps the pile intact and rides it on the modal anchor),
+    # while its FLOOR contacts still contribute the modal load (g_q −= U_y·f,
+    # H_q += k U_y U_yᵀ) to the single shared q. This closes the two-way loop —
+    # the stack pressing the ringing surface loads/damps q — so the coupling is
+    # passive (block Gauss–Seidel: q sees the host-solved pose, frozen for the q
+    # solve), unlike a one-way anchor-ride which injects energy and telescopes.
+    # The cross-block / Δz back-substitution is skipped for tagged bodies. See
+    # the per-body loop in iteration_hook. Result: ledge pillars rock ~2 cm and
+    # the truck lumber stays intact while riding the ring — both with no
+    # telescoping (validated). CPU path only; the warp/device q-DOF and the XPBD
+    # primal (where the livelier ring still telescopes tall piles) are documented
+    # follow-ups (CLAUDE.md rule 6).
+    #
+    # Default OFF (opt-in). Enabling it changes the rigid dynamics of any
+    # body↔body pile in a coupled scene, which legitimately shifts calibrated
+    # scene metrics (e.g. test_two_way_counterfactual measures peak rise over ALL
+    # bystanders, the lumber pile included), and the coupling needs a few solver
+    # iterations to settle (validated at iterations≥8). Scenes/viewer opt in via
+    # `coupler.cosolve_stacked_q = True`; the XPBD subclass keeps it OFF (its
+    # livelier ring telescopes tall piles — see ReducedCoupledXPBDCoupler).
+    cosolve_stacked_q: bool = False
+    _stacked_set: set = field(default_factory=set)
+    # Transfer efficiency on the GROUNDED-base modal load only (η ∈ [0,1]).
+    # # DEVIATION (two_band_coupling.html, foundation §15 η): a stack's grounded
+    # base reacts the WHOLE pile's weight into its FLOOR contact, so the full
+    # −U_y·f also statically over-deflects the low-frequency global ("seesaw")
+    # mode under heavy concentrated loads (a 60 kg impact lifted distant cones
+    # 0.24 m). η<1 was investigated to tame that — but it BACKFIRES: the full
+    # load IS the two-way passivity drain, so lowering it lets the ring run away
+    # (η=0.5 → truck pile telescopes −0.05 m and ledge pillars over-react 0.30 m).
+    # η=1 is therefore the only stable, passive value and is kept; the static
+    # global-mode over-deflection is the intrinsic price and is the main reason
+    # `cosolve_stacked_q` is opt-in (default off). The knob is retained at 1.0
+    # for diagnostics, NOT as a tuning lever.
+    stacked_q_load_scale: float = 1.0
 
     # Body mass cache (filled at attach by world).
     body_mass: dict[int, float] = field(default_factory=dict)
@@ -1066,6 +1106,31 @@ class ReducedCoupledAVBDCoupler:
         excl -= set(self.cargo.keys())
         return excl
 
+    def _grounded_bodies(self, solver, candidates: set[int],
+                         tol: float = 0.012) -> set[int]:
+        """Subset of `candidates` whose lowest box corner sits on the SUPPORT
+        slab (within `tol`). Used by the Route-A cosolve split: only a stack's
+        GROUNDED base should ride the modal surface (anchor-include + drive q);
+        the UPPER bodies rest on the body below via the host's box-box and must
+        NOT be anchored to the slab, or — as they sink under the ring — their own
+        FLOOR rows re-activate and the host yanks them down onto the slab,
+        accelerating a telescope. Grounding is decided from the substep-begin
+        predictor pose: min corner-y minus the row's rest floor level."""
+        P = solver.positions()
+        Q = solver.orientations()
+        grounded: set[int] = set()
+        for b in candidates:
+            rows = self._rows_per_body.get(b)
+            if not rows:
+                continue
+            offs = np.stack([self._row_off_a[i] for i in rows], axis=0)
+            R = _quat_xyzw_to_R(Q[b].astype(np.float64))
+            corners = offs @ R.T + P[b].astype(np.float64)
+            floor_level = min(self._row_floor_y_rest[i] for i in rows)
+            if float(corners[:, 1].min()) - floor_level < tol:
+                grounded.add(b)
+        return grounded
+
     def substep_begin_hook(self, solver) -> None:
         """Dynamic-constraint substep_begin (two_band_coupling.html).
 
@@ -1139,16 +1204,37 @@ class ReducedCoupledAVBDCoupler:
             self._row_floor_y_rest[i] = self.rs.floor_y_rest[i]
             self._rows_per_body.setdefault(ba, []).append(i)
 
-        # Drop body↔body-stacked tracked bodies from coupler ownership so the
-        # host solver's box-box keeps them (see `exclude_stacked_from_coupler`).
+        # Body↔body-stacked tracked bodies: the (z,q) contact has no body↔body
+        # term (two_band_coupling.html), so the host solver must own a stack's
+        # rigid pose (its box-box keeps the pile intact). Two modes:
+        #   * cosolve_stacked_q (Route A, default for AVBD): split the pile —
+        #     the GROUNDED base stays in `_rows_per_body` + `tracked` but TAGGED
+        #     in `_stacked_set` (host owns z; q still gets its two-way modal
+        #     load, see iteration_hook), while UPPER bodies are pose-excluded AND
+        #     dropped from `tracked` (pure host box-box, no spurious slab anchor
+        #     pulling them down as they settle — see `_grounded_bodies`). Passive
+        #     two-way: the stack rides the ring without telescoping.
+        #   * else (XPBD default): pose-exclude the WHOLE pile AND drop it from
+        #     `tracked` — the validated stable fallback (pile rests on the static
+        #     slab, does not feel the ring).
+        self._stacked_set = set()
         if self.exclude_stacked_from_coupler and len(self._rows_per_body) > 1:
             stacked = self._stacked_body_indices(solver)
             self.last_n_excluded_stacked = len(stacked)
             if stacked:
-                for b in stacked:
-                    self._rows_per_body.pop(b, None)
-                tracked = [i for i in tracked
-                           if self._row_body_a[i] not in stacked]
+                if self.cosolve_stacked_q:
+                    grounded = self._grounded_bodies(solver, stacked)
+                    upper = stacked - grounded
+                    self._stacked_set = grounded
+                    for b in upper:
+                        self._rows_per_body.pop(b, None)
+                    tracked = [i for i in tracked
+                               if self._row_body_a[i] not in upper]
+                else:
+                    for b in stacked:
+                        self._rows_per_body.pop(b, None)
+                    tracked = [i for i in tracked
+                               if self._row_body_a[i] not in stacked]
         else:
             self.last_n_excluded_stacked = 0
 
@@ -1430,9 +1516,35 @@ class ReducedCoupledAVBDCoupler:
                 k_for_lhs_arr)
 
             k_col      = k_for_lhs_arr[:, None]
+            k_U_y      = k_col * U_y_arr
+
+            # Modal-side contributions to g_{q_s} and H_{q_s}.
+            #   g_{q_s} -= U_y · f          (J_{q_s}^T · f gradient)
+            #   H_{q_s} += ρ · U_y U_y^T    (AL Hessian)
+            # A grounded-stacked base scales its modal load by η (see
+            # `stacked_q_load_scale`); owned single bodies use η=1.
+            q_scale = (self.stacked_q_load_scale
+                       if body_idx in self._stacked_set else 1.0)
+            g_q = g_q - q_scale * (U_y_arr.T @ f_arr)
+            H_q = H_q + q_scale * (U_y_arr.T @ k_U_y)
+
+            # Accumulate Σ U_y · f for the substep-end F_q_total.
+            # This is the modal-frame projection of the actual contact
+            # force at the current iteration's state; the LAST iteration
+            # writes the value `_substep_end_split` reads.
+            self._last_F_q_contact += U_y_arr.T @ f_arr
+
+            # Route A: a TAGGED stacked body contributes the modal load above
+            # (two-way: its press on the ringing surface loads/damps q) but the
+            # host owns its rigid pose, so skip the z-block, the cross block, and
+            # the Δz back-substitution (block Gauss–Seidel — q sees its pose
+            # frozen at the host's current solve). The host's own FLOOR + box-box
+            # then ride the intact pile on the modal anchor.
+            if body_idx in self._stacked_set:
+                continue
+
             k_j_lin    = k_col * j_lin_arr
             k_j_ang    = k_col * j_ang_arr
-            k_U_y      = k_col * U_y_arr
 
             A = A + j_lin_arr.T @ k_j_lin
             B = B + j_ang_arr.T @ k_j_lin
@@ -1448,18 +1560,6 @@ class ReducedCoupledAVBDCoupler:
 
             r_lin = r_lin + j_lin_arr.T @ f_arr
             r_ang = r_ang + j_ang_arr.T @ f_arr
-
-            # Modal-side contributions to g_{q_s} and H_{q_s}.
-            #   g_{q_s} -= U_y · f          (J_{q_s}^T · f gradient)
-            #   H_{q_s} += ρ · U_y U_y^T    (AL Hessian)
-            g_q = g_q - U_y_arr.T @ f_arr
-            H_q = H_q + U_y_arr.T @ k_U_y
-
-            # Accumulate Σ U_y · f for the substep-end F_q_total.
-            # This is the modal-frame projection of the actual contact
-            # force at the current iteration's state; the LAST iteration
-            # writes the value `_substep_end_split` reads.
-            self._last_F_q_contact += U_y_arr.T @ f_arr
 
             # Cross block H_{x q_s} = ρ J_x · J_{q_s}^T = −ρ J_x · U_y^T.
             cross_body[:3, :] += j_lin_arr.T @ k_U_y
@@ -1756,13 +1856,26 @@ class ReducedCoupledAVBDCoupler:
                 G_rows[:, s:s + kk] = G_a_arr
 
             k_G = k_col * G_rows
-            g_Q = g_Q + G_rows.T @ f_arr
-            H_Q = H_Q + G_rows.T @ k_G
-            cross_body[:3, :] += j_lin_arr.T @ k_G
-            cross_body[3:, :] += j_ang_arr.T @ k_G
+            # Grounded-stacked base scales its modal load by η (see
+            # `stacked_q_load_scale`); owned bodies (incl. cargo) use η=1.
+            q_scale = (self.stacked_q_load_scale
+                       if body_idx in self._stacked_set else 1.0)
+            g_Q = g_Q + q_scale * (G_rows.T @ f_arr)
+            H_Q = H_Q + q_scale * (G_rows.T @ k_G)
 
             # Support-only modal load diagnostic (back-compat): Σ U_y·f.
             self._last_F_q_contact += U_y_arr.T @ f_arr
+
+            # Route A: a TAGGED stacked body contributes the modal load above
+            # (two-way q coupling) but the host owns its rigid pose — skip the
+            # cross block and the per-body z-solve / Δz back-substitution (block
+            # Gauss–Seidel, q sees its host-solved pose frozen). See the
+            # non-augmented iteration_hook for the rationale.
+            if body_idx in self._stacked_set:
+                continue
+
+            cross_body[:3, :] += j_lin_arr.T @ k_G
+            cross_body[3:, :] += j_ang_arr.T @ k_G
 
             j_ang_sq_arr = (j_ang_arr * j_ang_arr).sum(axis=1)
             jjsum_arr    = 1.0 + j_ang_sq_arr

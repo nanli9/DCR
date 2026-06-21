@@ -112,8 +112,24 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
     body_friction: dict = field(default_factory=dict, repr=False)  # body -> μ
     _lam_t: dict = field(default_factory=dict, repr=False)         # row -> λ_t
     _p0: dict = field(default_factory=dict, repr=False)  # row -> corner@substep-begin (3,)
-    # Body↔body stack exclusion (_stacked_body_indices) is inherited from the
-    # AVBD parent unchanged — it depends only on geometry, not the primal.
+    # ---- Route A on XPBD: OFF by default (honest limitation) -----------------
+    # The grounded-stacked two-way q-load (see iteration_hook §3) is wired here
+    # and works in isolation, but the XPBD primal's modal ring is ~4× livelier
+    # than AVBD's (single-body reaction 33 mm vs 4.5 mm at the same scene), so a
+    # TALL vertical pile (e.g. the truck's 4-high lumber) telescopes while riding
+    # it, and the per-sweep Gauss–Seidel q-load is caught between over-driving
+    # (runaway) and over-damping. The AVBD primal solves the modal block
+    # implicitly (regularized Schur) and is stable, so Route A defaults ON there.
+    # On XPBD it defaults OFF (stacks use the stable static-slab fallback). A
+    # robust XPBD path — a regularized/implicit modal load, or the device q-DOF —
+    # is a documented follow-up (CLAUDE.md rule 6).
+    cosolve_stacked_q: bool = False
+    # Per grounded-stacked body: its FLOOR rows' (row, U_y, floor_y, off) for the
+    # q-only projection, and the per-row compressive multiplier λ. The host owns
+    # these bodies' rigid pose; the coupler only loads/drains q from their
+    # contact. Populated in substep_begin from the parent's `_stacked_set` tag.
+    _stacked_rows: dict = field(default_factory=dict, repr=False)
+    _lam_cs: dict = field(default_factory=dict, repr=False)     # row -> λ (≥0)
 
     # ------------------------------------------------------------------
     # substep_begin: inherit the AVBD caches, then seed the XPBD predictor
@@ -171,8 +187,25 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
         self._b_invm.clear()
         self._b_Iinv.clear()
         self._b_rows.clear()
+        # Route A: grounded-stacked bodies (tagged in `_stacked_set` by the
+        # parent gate) are owned by the HOST for pose; the coupler only adds
+        # their FLOOR contact's two-way modal load to q (see iteration_hook).
+        # Collect their per-row geometry separately (no friction / no frozen
+        # pose — q-only) and reset their q-load multipliers.
+        self._stacked_rows = {}
+        self._lam_cs = {}
         n_hat = np.array([0.0, 1.0, 0.0], dtype=np.float64)
         for b, rows_on_body in self._rows_per_body.items():
+            if b in self._stacked_set:
+                srows = []
+                for row in rows_on_body:
+                    srows.append((int(row),
+                                  self._U_at_row[row][1].astype(np.float64),
+                                  float(self._row_floor_y_rest[row]),
+                                  self._row_off_a[row].astype(np.float64)))
+                    self._lam_cs[int(row)] = 0.0
+                self._stacked_rows[b] = srows
+                continue
             m = float(self._mass_np[b])
             if m <= 0.0 or not np.isfinite(m):
                 continue
@@ -384,6 +417,61 @@ class ReducedCoupledXPBDCoupler(ReducedCoupledAVBDCoupler):
                 nn = float(np.linalg.norm(nq))
                 if nn > 1e-12:
                     qb[:] = nq / nn
+
+        # --- (3) Route A: two-way modal load from GROUNDED-STACKED bodies ----
+        # DEVIATION (two_band_coupling.html: body↔SUPPORT only, no body↔body
+        # term — a stack cannot be a coupler DOF). The host owns a grounded
+        # stack's rigid pose (its box-box keeps the pile intact and rides it on
+        # the modal anchor), and here we close the two-way loop: the stack's
+        # FLOOR contact, evaluated against the host's LIVE pose, loads q exactly
+        # like an owned body's contact — but we update ONLY q (the body is
+        # host-owned, held fixed for this projection). This makes the coupling
+        # passive (the stack pressing the ringing surface drains q), unlike the
+        # one-way anchor-include which injects energy and telescopes. The base
+        # then feels the ring through the HOST FLOOR contact against the
+        # coupler-written anchor, and the host box-box transmits it up the pile.
+        # Block Gauss–Seidel: q sees the host pose frozen for this sub-step.
+        if self._stacked_rows:
+            x_host = solver.x.numpy()
+            q_host = solver.q.numpy()
+            for b, srows in self._stacked_rows.items():
+                xb_h = x_host[b].astype(np.float64)
+                Rb_h = _quat_xyzw_to_R(q_host[b].astype(np.float64))
+                m = float(self._mass_np[b])
+                if m <= 0.0 or not np.isfinite(m):
+                    continue
+                invm = 1.0 / m
+                I_local = self._inertia_local_np[b].astype(np.float64)
+                Iinv = np.linalg.inv(Rb_h @ I_local @ Rb_h.T + 1e-12 * np.eye(3))
+                for (row, U_y, floor_y, off) in srows:
+                    r_self_w = Rb_h @ off
+                    corner_y = xb_h[1] + float(r_self_w[1])
+                    surf = floor_y + float(U_y @ q)
+                    C = corner_y - surf
+                    lam = self._lam_cs[row]
+                    if C >= 0.0 and lam == 0.0:
+                        continue              # separated, inactive
+                    # FULL coupled inverse mass — the SAME w an owned body would
+                    # see (rigid + support modal). Holding the body fixed for the
+                    # q-only update (w = U_yᵀM_q⁻¹U_y alone) dumps ALL the
+                    # near-rigid contact compliance into q and the per-sweep
+                    # Gauss–Seidel over-drives the ring into a runaway (react→8 m).
+                    # Sharing the impulse with the body's inverse mass damps dlam
+                    # to the physical value; we then apply only the q part (the
+                    # body is host-owned — the host's own FLOOR contact moves it).
+                    j_ang = np.array([-r_self_w[2], 0.0, r_self_w[0]],
+                                     dtype=np.float64)
+                    w = (invm + float(j_ang @ (Iinv @ j_ang))
+                         + float(np.sum(U_y * U_y * wq)))
+                    if w <= 0.0:
+                        continue
+                    dlam = (-C - at_c * lam) / (w + at_c)
+                    new = lam + dlam
+                    if new < 0.0:
+                        new = 0.0             # compressive only (λ ≥ 0)
+                    dlam = new - lam
+                    self._lam_cs[row] = new
+                    q += (-U_y * wq) * dlam   # load/drain the modal surface
 
         # write the projected rigid pose back + refresh the modal anchor for the
         # solver's next iteration / the substep_end penetration diagnostic.
