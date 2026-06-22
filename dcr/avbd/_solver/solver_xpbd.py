@@ -202,6 +202,22 @@ class SolverXPBD:
         self.contact_compliance = float(contact_compliance)  # α (m/N); 0 ⇒ rigid
         self.contact_margin = float(contact_margin)
         self.friction_static_mult = float(friction_static_mult)
+        # A small compliance on the reduced-modal support contact (vs hard for
+        # rigid box-box/floor): the real eigenbasis support has extremely stiff
+        # modes (K_q up to ~3e11), and a hard support contact over-loads q in the
+        # GS sweep and can blow it up on multi-body scenes. Softening the
+        # contact→modal load (Macklin-style compliant unilateral) tames it; the
+        # XPBD coupler used the same trick (xpbd_contact_compliance≈1e-8).
+        self.support_compliance = 1.0e-8
+        # Conservative under-relaxation of the support→modal load. The reduced
+        # q-block coupled to many support contacts is a stiff linear system;
+        # AVBD solves it implicitly (unconditionally stable), but XPBD's
+        # Gauss-Seidel over (q ↔ many contacts) DIVERGES on stiff multi-body
+        # scenes (q → ∞). Under-relaxing the per-contact q increment (the
+        # cross-coupling term) damps the GS to convergence — the XPBD analogue
+        # of the AVBD native path's conservative block-GS relaxation (memory
+        # truck-stack-collapse-is-host-boxbox). 1.0 = no relaxation.
+        self.modal_relax = 0.25
 
         # Host accumulation (add_box); finalized into numpy state on first step.
         self._pos: list[list[float]] = []
@@ -471,8 +487,9 @@ class SolverXPBD:
                 self._project_modal_elastic(modal_qn, h, inv_h2)
                 for bi in self._cargo:
                     self._project_cargo_elastic(bi, cargo_an[bi], h, inv_h2)
+                at_sup = self.support_compliance * inv_h2   # soften the support contact
                 for sc in self._support:
-                    self._project_support(sc, a_tilde)
+                    self._project_support(sc, at_sup)
 
         # ---- velocity update v = (x − x_prev)/h, ω = log(Δq)/h ----------
         for i in range(n):
@@ -697,9 +714,10 @@ class SolverXPBD:
             return
         X[bi][1] += invm[bi] * dlam
         Q[bi] = _quat_apply_rotvec(Q[bi], (inv_Iw @ j_ang) * dlam)
-        q += (-sc.U_y * wq) * dlam
+        rel = self.modal_relax
+        q += rel * (-sc.U_y * wq) * dlam               # under-relaxed (GS stability)
         if g_a is not None:
-            self._cargo_a[sc.cargo_bi] += g_a[1] * dlam   # ∂C/∂a = +G_a (Δa = M_a⁻¹G_a·dλ)
+            self._cargo_a[sc.cargo_bi] += rel * g_a[1] * dlam   # ∂C/∂a = +G_a
 
     def _cargo_support_grad(self, sc: _SupportContact):
         """Co-rotated cargo gradient for a support-contact row reading the cube's

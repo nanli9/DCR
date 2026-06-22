@@ -55,17 +55,16 @@ def test_make_solver_avbd_resolves():
 
 
 def test_make_solver_xpbd_constructs_and_conforms():
-    """solver='xpbd' now resolves to the standalone SolverXPBD (Stage 2 rigid
-    core). It satisfies the shared Solver Protocol; modal/cargo raise until
-    Stage 3/4."""
+    """solver='xpbd' resolves to the standalone SolverXPBD, which satisfies the
+    shared Solver Protocol and carries the full native surface (rigid + modal +
+    cargo, Stages 2–4)."""
     from dcr.avbd._solver.solver_xpbd import SolverXPBD
     s = make_solver("xpbd", device="cpu", iterations=8, substeps=4)
     assert isinstance(s, SolverXPBD)
     assert isinstance(s, Solver)  # structural conformance to the shared interface
-    with pytest.raises(NotImplementedError, match="Stage 3"):
-        s.set_modal_support(np.eye(1), np.eye(1), np.zeros((1, 1)))
-    with pytest.raises(NotImplementedError, match="Stage 4"):
-        s.add_cargo(0, object(), [])
+    # the modal/cargo surface is implemented (no longer a stub)
+    s.set_modal_support(np.eye(1), np.array([[1.0]]), np.zeros((1, 1)))
+    assert s.modal_q is not None and s.modal_q.shape == (1,)
 
 
 def test_make_solver_unknown_kind():

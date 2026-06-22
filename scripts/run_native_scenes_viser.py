@@ -1,16 +1,21 @@
-"""Stage 7 — unified viser: scene × solver × material × device (live switching).
+"""Unified viser: scene × solver × material × device, two NATIVE solvers, NO coupler.
 
-One viewer over the full matrix:
+One viewer over the full matrix (native dual-solver build):
 
   * scene    — cargo (single deformable cube on the support) | the four
                production scenes truck / ledge / shelf / dinner (a deformable
                impactor + rigid bystanders on the reduced-modal support).
-  * solver   — avbd (Schur–Newton, Stages 3–5) | xpbd (compliant Gauss–Seidel,
-               Stage 6). Flip to compare the two device-resident primals of the
-               SAME dynamic two-way constraint (two_band_coupling.html).
+  * solver   — avbd (SolverAVBD, Augmented-Lagrangian) | xpbd (SolverXPBD,
+               compliant Gauss–Seidel). BOTH are genuinely independent NATIVE
+               solvers: each solves rigid + box-box/floor + the reduced-modal
+               support + cargo in its own formulation, with NO coupler and NO
+               shared solver segment. Flip live to compare the two realizations
+               of the SAME dynamic two-way constraint (two_band_coupling.html).
+               Both carry full cargo (rigid/fem_rigid/fem/abd) in every scene.
   * material — rigid | fem_rigid | abd | fem (the impactor's body model; "rigid"
                is the plain 6-DOF k=0 baseline that carries no deformation).
-  * device   — cpu | cuda:0 (GPU-resident on CUDA).
+  * device   — cpu | cuda:0. AVBD is GPU-resident on CUDA; SolverXPBD is CPU
+               only for now (its device/CUDA-graph pass is deferred).
 
 Knobs mirror `scripts/run_reduced_scene_viser.py` (the decorated-asset viewer):
 Sim (speed), Scene (support material, support thickness, impactor mass / drop /
@@ -62,7 +67,7 @@ from scenes.reduced_dinner_table import build_reduced_dinner_table
 
 N_GRID_X, N_GRID_Z = 21, 11
 KINDS = ("rigid", "fem_rigid", "abd", "fem")
-SOLVERS = ("avbd", "xpbd", "native")
+SOLVERS = ("avbd", "xpbd")
 SCENES = ("cargo", "truck", "ledge", "shelf", "dinner")
 _PROD = {"truck": build_reduced_truck, "ledge": build_reduced_ledge,
          "shelf": build_reduced_shelf, "dinner": build_reduced_dinner_table}
@@ -242,13 +247,11 @@ class UnifiedViser:
 
     # ---- scene + render setup ---------------------------------------
     def _build(self):
+        # Both "avbd" and "xpbd" are NATIVE solvers (no coupler); each carries
+        # full cargo (rigid/fem_rigid/fem/abd) in every scene. The only routing
+        # is the documented abd → AVBD fallback (abd's stiff nonlinear V⊥ is the
+        # XPBD caveat; _effective_solver handles it).
         eff = _effective_solver(self.solver, self.kind)
-        # The "cargo" scene is a fully-deformable impactor demo — the native
-        # dynamic modal path is rigid-impactor only in M1, so fall back to the
-        # coupler there (mirrors the abd→avbd routing). truck/ledge/shelf/dinner
-        # run native with rigid bystanders + a rigid impactor.
-        if eff == "native" and self.scene == "cargo":
-            eff = "avbd"
         self._eff_solver = eff
         rd = self.device.startswith("cuda")
         mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
@@ -270,11 +273,6 @@ class UnifiedViser:
             modal_damping_scale=float(self.knob_damping),
             device_resident=rd,
         )
-        if eff == "native":
-            # Native dynamic two-way modal constraint (two_band_coupling.html):
-            # q is a solver DOF, no coupler. M1 supports rigid impactors only
-            # (cargo deformation is M2), so force the impactor rigid.
-            cand["cargo_material"] = None
         if self.knob_mass is not None:
             cand["impactor_mass"] = float(self.knob_mass)
             cand["pot_mass"] = float(self.knob_mass)
@@ -292,7 +290,13 @@ class UnifiedViser:
         self.handle = builder(**kwargs)
         self.rs = self.handle.rs
         self.world = self.handle.world
-        self.coupler = self.world.reduced_coupled_coupler   # None on native path
+        # No coupler: both solvers are native. The deformable cube state and all
+        # HUD diagnostics come from self.world._solver directly.
+        self._cargo_idx = (getattr(self.handle, "avbd_idx", None)
+                           if self.scene == "cargo"
+                           else getattr(self.handle, "cargo_avbd_idx", None))
+        if self._cargo_idx is None:
+            self._cargo_idx = getattr(self.rs, "_native_cargo_avbd_idx", None)
         self._q_static = self.rs.q.copy()
         self._collect_render()
         self._make_meshes()
@@ -374,7 +378,7 @@ class UnifiedViser:
         z = np.zeros(7 + cube.k)
         z[0:3] = P[idx].astype(np.float64)
         z[3:7] = (qx[3], qx[0], qx[1], qx[2])           # xyzw -> wxyz
-        z[7:] = self.coupler.cargo_a[idx]
+        z[7:] = self.world._solver.cargo_a(idx)          # native: cube state from the solver
         return cube.deformed_surface(z, self.cube_exag).astype(np.float32)
 
     def _rebuild(self):
@@ -559,16 +563,15 @@ class UnifiedViser:
                 else:
                     self._apply_knobs_from_gui()
                     self._rebuild()
-            c = self.coupler
             if not self.paused:
                 t0 = time.perf_counter()
                 self.world.step()
                 ms = (time.perf_counter() - t0) * 1e3
-                # Native path: q lives on the solver (no coupler). Mirror it into
-                # rs.q so the existing rs.q-based slab render + HUD work unchanged.
-                if c is None and getattr(self.world._solver,
-                                         "_modal_enabled", False):
-                    self.rs.q[:] = self.world._solver.modal_q
+                # Both solvers are native: q lives on the solver (no coupler).
+                # Mirror it into rs.q so the rs.q-based slab render + HUD work.
+                mq = self.world._solver.modal_q
+                if mq is not None:
+                    self.rs.q[:] = mq
                 # static modal view = a low-pass EMA of q (resting sag only)
                 self._q_static += 0.05 * (self.rs.q - self._q_static)
                 P, Q = (self.world._solver.positions(),
@@ -593,17 +596,19 @@ class UnifiedViser:
                     f"{self.device} {'(GPU-resident)' if resident else ''}")
                 self.hud_q.value = f"{np.linalg.norm(q):.3e}"
                 self.hud_defl.value = f"{defl:.4f}"
-                if c is not None:
-                    self.hud_cube.value = (
-                        f"{c.last_cargo_modal_KE + c.last_cargo_modal_PE:.3e}")
-                    self.hud_supp.value = f"{c.last_modal_KE:.3e}"
-                    self.hud_pen.value = f"{c.last_contact_residual * 1e3:.4f}"
+                # HUD from the native solver (no coupler). Cube deform = ‖a‖ of
+                # the cargo block; support modal KE = ½q̇ᵀM_q q̇; max penetration
+                # if the solver exposes it (SolverXPBD does).
+                sv = self.world._solver
+                if self._cargo_idx is not None:
+                    a = sv.cargo_a(self._cargo_idx)
+                    self.hud_cube.value = (f"{np.linalg.norm(a):.3e}"
+                                           if a.size else "rigid (k=0)")
                 else:
-                    # Native path: modal state on the solver, no cargo (M1).
-                    sv = self.world._solver
-                    self.hud_cube.value = "n/a (rigid impactor)"
-                    self.hud_supp.value = f"{sv.last_modal_KE:.3e}"
-                    self.hud_pen.value = "—"
+                    self.hud_cube.value = "n/a"
+                self.hud_supp.value = f"{getattr(sv, 'last_modal_KE', 0.0):.3e}"
+                pen = getattr(sv, "max_penetration", None)
+                self.hud_pen.value = f"{pen * 1e3:.4f}" if pen is not None else "—"
             time.sleep(max(0.0, (1.0 / 120.0) / max(self.speed, 1e-3)))
 
 

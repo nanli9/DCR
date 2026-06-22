@@ -57,6 +57,7 @@ def build_reduced_shelf(
     world = AVBDDCRWorld(
         h=h, device=device,
         avbd_iterations=int(iterations), avbd_substeps=int(avbd_substeps),
+        solver_kind="xpbd" if solver == "xpbd" else "avbd",
     )
     world.add_floor(floor_y=support_top, friction=0.5, name="shelf")
 

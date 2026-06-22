@@ -95,6 +95,7 @@ def build_reduced_dinner_table(
     world = AVBDDCRWorld(
         h=h, device=device,
         avbd_iterations=int(iterations), avbd_substeps=int(avbd_substeps),
+        solver_kind="xpbd" if solver == "xpbd" else "avbd",
     )
     # Table-as-floor: AVBD's floor is +y up; objects rest at y = table_top.
     world.add_floor(floor_y=table_top, friction=0.5, name="table")
@@ -193,18 +194,17 @@ def build_reduced_dinner_table(
     rs.probe_body_indices = list(tracked)
 
     coupler = None
-    if solver in ("avbd", "native"):
+    if solver in ("avbd", "native", "xpbd"):
         # Native dynamic two-way modal constraint (two_band_coupling.html): q is
-        # a solver DOF, NO coupler. Deformable cargo (M2) joins the augmented
-        # modal vector via add_native_cargo (fem_rigid/fem/abd). Stage-1 repoint:
-        # solver="avbd" is the native AVBD path; the AVBD coupler is
-        # "avbd_coupler" (transitional, deleted Stage 6); "native" is a back-
-        # compat alias dropped in Stage 5.
+        # a solver DOF, NO coupler. The World's solver_kind ("xpbd"|"avbd")
+        # routes this native wiring to SolverXPBD or SolverAVBD. Deformable cargo
+        # (M2) joins via add_native_cargo. Couplers are "avbd_coupler" /
+        # "xpbd_coupler" (transitional, deleted Stage 6).
         world.enable_reduced_modal_support(
             rs, tracked_body_indices=tracked,
             shelf_length=table_length, shelf_width=table_width,
             shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
-    elif solver == "xpbd":
+    elif solver == "xpbd_coupler":
         coupler = world.attach_reduced_coupled_xpbd(
             rs, tracked_body_indices=tracked,
             shelf_length=table_length, shelf_width=table_width,
@@ -217,7 +217,8 @@ def build_reduced_dinner_table(
             modal_static_lp_tau=modal_static_lp_tau)
     else:
         raise ValueError(
-            f"unknown solver {solver!r} (avbd | xpbd | avbd_coupler)")
+            f"unknown solver {solver!r} "
+            "(avbd | xpbd | avbd_coupler | xpbd_coupler)")
 
     cargo_cube = None
     cargo_avbd_idx = None

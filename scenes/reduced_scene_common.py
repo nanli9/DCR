@@ -208,15 +208,17 @@ def build_support_and_attach(
             tracked.append(int(desc.avbd_body.index))
     rs.probe_body_indices = list(tracked)
 
-    if solver in ("avbd", "native"):
+    if solver in ("avbd", "native", "xpbd"):
         # Native dynamic two-way modal constraint (two_band_coupling.html,
         # Approach B): q is a solver DOF, NO coupler. Deformable cargo (M2) joins
         # the augmented modal vector via add_native_cargo (fem_rigid/fem/abd).
+        # The World was created with solver_kind = "xpbd"|"avbd", so this same
+        # native wiring drives SolverXPBD or SolverAVBD (Stage 5).
         #
-        # Stage-1 repoint (native dual-solver plan): solver="avbd" now selects
-        # this native AVBD path. The old AVBD *coupler* is reachable as
-        # "avbd_coupler" (transitional; deleted in Stage 6). "native" is kept as
-        # a back-compat alias and is dropped in Stage 5.
+        # Repoints (native dual-solver plan): solver="avbd" and solver="xpbd"
+        # both select the NATIVE solver of that kind. The external reduced
+        # couplers are reachable as "avbd_coupler" / "xpbd_coupler"
+        # (transitional; deleted in Stage 6). "native" is a back-compat alias.
         world.enable_reduced_modal_support(
             rs,
             tracked_body_indices=tracked,
@@ -238,7 +240,10 @@ def build_support_and_attach(
             rs._native_cargo_cube = cube           # read back by the scene
             rs._native_cargo_avbd_idx = avbd_idx
         return rs
-    elif solver == "xpbd":
+    elif solver == "xpbd_coupler":
+        # Transitional: the XPBD reduced *coupler* (external hook riding the AVBD
+        # host), kept for comparison until Stage 6 removes the coupler. The
+        # native XPBD path above ("xpbd") is the production path now.
         coupler = world.attach_reduced_coupled_xpbd(
             rs,
             tracked_body_indices=tracked,
@@ -264,7 +269,8 @@ def build_support_and_attach(
         )
     else:
         raise ValueError(
-            f"unknown solver {solver!r} (avbd | xpbd | avbd_coupler)")
+            f"unknown solver {solver!r} "
+            "(avbd | xpbd | avbd_coupler | xpbd_coupler)")
 
     # Deformable cargo: make the impactor a modal/affine cube coupled at its
     # contact corners (Stage 7). The cube is sized to the impactor footprint and

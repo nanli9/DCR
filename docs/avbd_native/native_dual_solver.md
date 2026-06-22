@@ -210,3 +210,41 @@ material (rigid/fem_rigid/fem/abd) the support rings two-way, no tunnel, and the
 cube flexes (k>0) or carries no modes (rigid k=0); fem_rigid two-way-vs-frozen.
 abd flexes on CPU XPBD (gentle drop); long-run stiff-abd stability under
 sustained contact remains the documented XPBD-abd caveat. Device parity deferred.
+
+## Stage 5 — both native solvers in every scene + viser (CPU) ✅
+
+`World.solver_kind` ("avbd" | "xpbd") selects the backend via `make_solver` in
+`__post_init__`. `World.add_box`/`add_floor` already used only the shared Solver
+interface, so they host either backend unchanged; `enable_reduced_modal_support`
+and `add_native_cargo` gained an XPBD branch (swap the tracked bodies' floor
+contacts for support-contact rows sampling U_y; map cube corners → support rows
+for cargo). Scene builders pass `solver_kind` and route `solver="xpbd"` to the
+native path. Repoints: `solver="xpbd"` now selects SolverXPBD-native; the XPBD
+coupler is the transitional `"xpbd_coupler"` (deleted Stage 6). XPBD-coupler
+tests migrated to `"xpbd_coupler"`.
+
+**Viser** (`scripts/run_native_scenes_viser.py`) directly rewritten: `SOLVERS =
+("avbd", "xpbd")` (dropped the "native" pseudo-solver + the `solver="avbd"`=
+coupler meaning); deleted the cargo→avbd fallback and the `cargo_material=None`
+rigid-impactor block (both natives carry full cargo); removed `self.coupler` and
+every `self.coupler.*` read — the cube state comes from `solver.cargo_a(idx)`,
+the modal mirror from `solver.modal_q`, and the HUD (cube deform ‖a‖, support
+modal KE, max penetration) from the native solver. Kept only the documented
+abd→avbd routing in `_effective_solver`.
+
+XPBD GS stability on the real support: the eigenbasis support is extremely stiff
+(K_q up to ~3e11) and the q-block coupled to many support contacts is a stiff
+linear system. AVBD solves it implicitly (unconditionally stable); XPBD's
+Gauss-Seidel over (q ↔ many contacts) DIVERGES on the multi-body scenes (q→∞,
+worse with more substeps — a divergence, not a stiffness limit). Fixed with a
+**conservative under-relaxation** of the support→modal load
+(`SolverXPBD.modal_relax = 0.25`) — the XPBD analogue of the AVBD native path's
+conservative block-GS relaxation. A small support-contact compliance
+(`support_compliance = 1e-8`) softens the contact→modal load too.
+
+**Accept (CPU):** `tests/avbd_native/test_stage5_native_scenes.py` (16 tests)
+green — the 4 production scenes × {avbd, xpbd} and the cargo scene × 4 materials
+× {avbd, xpbd} all build & step with `reduced_coupled_coupler is None`, no NaN,
+and the cube deforms (peak). The XPBD-native cuda-residency matrix is the
+deferred device pass; AVBD-native cuda stays covered by
+`test_native_production_cargo`.

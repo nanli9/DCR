@@ -105,6 +105,10 @@ class AVBDDCRWorld:
     device: str = "cpu"
     avbd_iterations: int = 10
     avbd_substeps: int = 1
+    # Which native solver backs this world: "avbd" (SolverAVBD; the reduced
+    # couplers also ride this) or "xpbd" (the standalone SolverXPBD, native
+    # rigid + modal + cargo, no coupler). Native dual-solver plan, Stage 5.
+    solver_kind: str = "avbd"
     enforce_rigid_energy_bound: bool = False
 
     # ---- Phase B: moving-support AVBD pass (spec §7 + §12) -----------------
@@ -203,12 +207,14 @@ class AVBDDCRWorld:
         default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        # SolverAVBD is the canonical name for the native AVBD backend of the
-        # shared constraint interface (== Solver6DOF behaviour; a subclass with
-        # no solve overrides). Native modal/cargo and the (transitional)
-        # reduced couplers all ride this AVBD solver. The standalone SolverXPBD
-        # becomes selectable here in Stage 5 (native dual-solver plan).
-        self._solver = SolverAVBD(
+        # The world hosts whichever native solver `solver_kind` selects, via the
+        # shared make_solver factory: "avbd" -> SolverAVBD (== Solver6DOF
+        # behaviour; the reduced couplers also ride this), "xpbd" -> the
+        # standalone SolverXPBD (native rigid + modal + cargo, no coupler).
+        # Both implement the shared constraints.Solver surface World wires to.
+        from ._solver import make_solver
+        self._solver = make_solver(
+            self.solver_kind,
             dt=self.h,
             iterations=self.avbd_iterations,
             substeps=self.avbd_substeps,
@@ -500,6 +506,36 @@ class AVBDDCRWorld:
         # Rayleigh). q/q̇ carry over from the support's current state.
         s.set_modal_support(rs.Mq, rs.Kq, rs.Dq, q0=rs.q, qdot0=rs.qdot)
 
+        if self.solver_kind == "xpbd":
+            # XPBD-native: the standalone solver has no AVBD row pool to retype.
+            # Instead, swap each tracked body's floor registration for
+            # support-contact rows on its bottom corners, each reading the live
+            # surface y_rest + U_y·q (two_band_coupling.html). No coupler.
+            from ._solver.solver_xpbd import _quat_to_R as _xR
+            s._ensure_arrays()
+            tracked = set(int(i) for i in tracked_body_indices)
+            s._floors = [f for f in s._floors if f[0] not in tracked]
+            for bi in (int(i) for i in tracked_body_indices):
+                hx, hy, hz = s._he[bi]
+                R = _xR(np.asarray(s._Q[bi], dtype=np.float64))
+                pos = np.asarray(s._X[bi], dtype=np.float64)
+                for sx in (-1.0, 1.0):
+                    for sz in (-1.0, 1.0):
+                        off = (sx * hx, -hy, sz * hz)
+                        r_w = R @ np.asarray(off, dtype=np.float64)
+                        cx, cz = float(pos[0] + r_w[0]), float(pos[2] + r_w[2])
+                        U3r = evaluate_basis_at_point(
+                            rs, (cx, cz), length=shelf_length, width=shelf_width,
+                            n_grid_x=n_grid_x, n_grid_z=n_grid_z)
+                        s.add_support_contact_corner(
+                            bi, off, shelf_y_rest,
+                            np.asarray(U3r[1, :], dtype=np.float64))
+            rs.overlay_enabled = False
+            rs.restart_overlay_each_step = False
+            self.reduced_support = rs
+            self._native_modal_enabled = True
+            return
+
         tracked = set(int(i) for i in tracked_body_indices)
         y_tol = 1.0e-6
         n_converted = 0
@@ -547,10 +583,26 @@ class AVBDDCRWorld:
         rest corners) and installs the cube's elastic block into the augmented
         modal vector (Solver6DOF.add_cargo_native). No coupler."""
         s = self._solver
-        if not s._modal_enabled:
-            raise RuntimeError("add_native_cargo requires enable_reduced_modal_support")
         cb = np.asarray(cargo_body.corner_body, dtype=np.float64)
         support_rows: list[tuple[int, int]] = []
+
+        if self.solver_kind == "xpbd":
+            # XPBD-native: match the cube's rest corners to this body's
+            # support-contact rows (by offset) → (slot, pid), then add_cargo.
+            for slot, sc in enumerate(s._support):
+                if sc.bi != int(body_avbd_idx):
+                    continue
+                pid = int(np.argmin(np.linalg.norm(cb - sc.off, axis=1)))
+                support_rows.append((slot, pid))
+            if not support_rows:
+                raise RuntimeError(
+                    f"add_native_cargo: no support-contact rows for body "
+                    f"{body_avbd_idx} (call enable_reduced_modal_support first).")
+            s.add_cargo(int(body_avbd_idx), cargo_body, support_rows)
+            return
+
+        if not s._modal_enabled:
+            raise RuntimeError("add_native_cargo requires enable_reduced_modal_support")
         for slot, cidx in enumerate(s._support_row_cidx):
             row = s._rows[cidx]
             if int(row.body_a) != int(body_avbd_idx):

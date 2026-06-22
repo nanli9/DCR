@@ -107,7 +107,8 @@ def build_cargo_scene(
     Gauss–Seidel, Stage 6)."""
     world = AVBDDCRWorld(
         h=h, device=device,
-        avbd_iterations=int(iterations), avbd_substeps=int(avbd_substeps))
+        avbd_iterations=int(iterations), avbd_substeps=int(avbd_substeps),
+        solver_kind="xpbd" if solver == "xpbd" else "avbd")
     world.add_floor(floor_y=support_top, friction=0.5, name="support")
 
     cube = _make_cube(kind, cube_size=cube_size, cube_nx=cube_nx,
@@ -129,31 +130,36 @@ def build_cargo_scene(
         y_rest=support_top, overlay_enabled=False,
         rayleigh_alpha0=2.0, rayleigh_alpha1=1.0e-5, to_eigenbasis=True)
 
-    if solver in ("avbd", "native"):
+    if solver in ("avbd", "native", "xpbd"):
         # Native cargo (M2): the cube's elastic modes are a NATIVE modal block of
-        # the AVBD solver (two_band_coupling.html, Approach B). No coupler, no
+        # the chosen solver (two_band_coupling.html, Approach B). No coupler, no
         # hook — the cube's support contacts and its a-modes are co-solved in the
-        # same backward-Euler step (the augmented q-block). rigid (k=0) reduces
-        # this to the support-only modal solve. Stage-1 repoint: solver="avbd"
-        # is this native path; the AVBD coupler is "avbd_coupler" (transitional,
-        # deleted Stage 6); "native" is a back-compat alias dropped in Stage 5.
+        # same step. The World's solver_kind routes to SolverXPBD or SolverAVBD.
+        # rigid (k=0) reduces this to the support-only modal solve. Couplers are
+        # "avbd_coupler" / "xpbd_coupler" (transitional, deleted Stage 6).
         if kind not in ("rigid", "fem_rigid", "fem", "abd"):
             raise ValueError(
-                f"native AVBD supports kind in (rigid, fem_rigid, fem, abd) "
+                f"native solver supports kind in (rigid, fem_rigid, fem, abd) "
                 f"(got {kind!r}).")
-        if device_resident is not None:
+        # device residency is an AVBD-native knob (SolverXPBD is CPU-only here).
+        if device_resident is not None and solver != "xpbd":
             world._solver._modal_device_resident = bool(device_resident)
         world.enable_reduced_modal_support(
             rs, tracked_body_indices=[avbd_idx],
             shelf_length=support_length, shelf_width=support_width,
             shelf_y_rest=support_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
         world.add_native_cargo(avbd_idx, cube)
-        world._solver._modal_freeze_qdot = bool(freeze_qdot)
+        # freeze-q̇ counterfactual flag: SolverAVBD uses _modal_freeze_qdot,
+        # SolverXPBD uses _freeze_qdot.
+        if solver == "xpbd":
+            world._solver._freeze_qdot = bool(freeze_qdot)
+        else:
+            world._solver._modal_freeze_qdot = bool(freeze_qdot)
         return FEMRigidCargoHandle(
             world=world, rs=rs, coupler=None, cube=cube, avbd_idx=avbd_idx,
             support_top=support_top, support_length=support_length,
             support_width=support_width, kind=kind)
-    elif solver == "xpbd":
+    elif solver == "xpbd_coupler":
         coupler = world.attach_reduced_coupled_xpbd(
             rs, tracked_body_indices=[avbd_idx],
             shelf_length=support_length, shelf_width=support_width,
@@ -168,7 +174,8 @@ def build_cargo_scene(
             device_resident=device_resident)
     else:
         raise ValueError(
-            f"unknown solver {solver!r} (avbd | xpbd | avbd_coupler)")
+            f"unknown solver {solver!r} "
+            "(avbd | xpbd | avbd_coupler | xpbd_coupler)")
     coupler.freeze_qdot = bool(freeze_qdot)
     coupler.add_cargo(avbd_idx, cube)
 

@@ -37,7 +37,7 @@ SCENES = ["truck", "ledge", "shelf", "dinner"]
 
 def _iters_for(solver: str) -> dict:
     # XPBD GS needs more sweeps than AVBD AL for the many-body scenes.
-    return {"iterations": 16, "avbd_substeps": 4} if solver == "xpbd" else {}
+    return {"iterations": 16, "avbd_substeps": 4} if solver in ("xpbd", "xpbd_coupler") else {}
 
 
 def _avbd_idx(world, dcr):
@@ -58,7 +58,7 @@ def test_xpbd_resting_bystanders_stay_at_rest(scene):
     write-back, mirroring the AVBD coupler). The old finite/penetration test
     missed this — a 6.5 m fly-off is still finite and the floor never penetrates.
     """
-    h = BUILD[scene](device="cpu", solver="xpbd", cargo_material="fem_rigid",
+    h = BUILD[scene](device="cpu", solver="xpbd_coupler", cargo_material="fem_rigid",
                      **_iters_for("xpbd"))
     w = h.world
     S = w._solver
@@ -95,7 +95,7 @@ def _run(scene, solver, material, n=80):
 def test_xpbd_production_scene_fem_rigid(scene):
     """Each production scene runs with an XPBD-coupled fem_rigid impactor:
     finite, bounded penetration, the impactor flexes, the support rings."""
-    r = _run(scene, "xpbd", "fem_rigid", n=80)
+    r = _run(scene, "xpbd_coupler", "fem_rigid", n=80)
     assert np.all(np.isfinite(r["P"])) and np.all(np.isfinite(r["q"]))
     assert np.all(np.isfinite(r["a"]))
     assert r["max_pen"] < 5e-3, (scene, r["max_pen"])
@@ -119,7 +119,7 @@ def test_avbd_production_scene_fem_rigid(scene):
 def test_production_scene_rigid_default_unchanged():
     """cargo_material=None keeps the impactor rigid (no cargo registered) on
     both solvers — the legacy behavior is the default."""
-    for solver in ("avbd_coupler", "xpbd"):
+    for solver in ("avbd_coupler", "xpbd_coupler"):
         h = BUILD["truck"](device="cpu", solver=solver, cargo_material=None,
                            **_iters_for(solver))
         assert not h.world.reduced_coupled_coupler.cargo   # no cargo bodies
@@ -131,7 +131,7 @@ def test_production_scene_rigid_default_unchanged():
 
 def test_fem_material_on_one_scene():
     """The fem material (world-fixed modes) also couples on a production scene."""
-    r = _run("shelf", "xpbd", "fem", n=80)
+    r = _run("shelf", "xpbd_coupler", "fem", n=80)
     assert np.all(np.isfinite(r["a"]))
     assert r["max_pen"] < 5e-3, r["max_pen"]
     assert np.abs(r["a"]).max() > 1e-8

@@ -47,7 +47,7 @@ def _cuda_or_skip():
 
 def _run(kind, *, device="cpu", device_resident=False, freeze=False,
          n=150, drop=0.03, spin=0.0, pluck=0.0):
-    h = build_cargo_scene(kind, device=device, solver="xpbd", freeze_qdot=freeze,
+    h = build_cargo_scene(kind, device=device, solver="xpbd_coupler", freeze_qdot=freeze,
                           drop_height=drop, spin=spin,
                           device_resident=device_resident)
     if pluck != 0.0:
@@ -93,7 +93,7 @@ def test_xpbd_free_ringdown_energy_monotone():
     """Free (no fresh contact) modal ring-down: total modal energy is monotone
     non-increasing (XPBD backward-Euler + the modal damping ⇒ passive) and
     decays well below the initial pluck."""
-    h = build_cargo_scene("fem", device="cpu", solver="xpbd", drop_height=2.0)
+    h = build_cargo_scene("fem", device="cpu", solver="xpbd_coupler", drop_height=2.0)
     h.coupler.cargo_adot[h.avbd_idx][:] = 5.0e-3
     E_prev = E0 = None
     for step in range(60):
@@ -127,7 +127,7 @@ def test_xpbd_residency_graph_capture():
     for the HUD)."""
     import warp as wp
     _cuda_or_skip()
-    h = build_cargo_scene("fem_rigid", device="cuda:0", solver="xpbd",
+    h = build_cargo_scene("fem_rigid", device="cuda:0", solver="xpbd_coupler",
                           device_resident=True, drop_height=0.03, spin=1.0)
     solver = h.world._solver
     h.world.step()                       # warmup → capture
