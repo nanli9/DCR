@@ -191,3 +191,22 @@ applies a conservative block-GS relaxation — it must, to keep box stacks uprig
 the compliant XPBD projection. The cross-solver agreement is **qualitative** (the
 two_band_coupling.html signature), not quantitative; magnitudes are
 solver-dependent. Device parity deferred (batched pass).
+
+## Stage 4 — XPBD-native cargo materials (CPU) ✅
+
+`SolverXPBD.add_cargo(body, cargo_body, support_rows)` registers the cube's
+elastic block a ∈ R^k as its own block in Q = [q_support; a_cube], reusing
+`dcr/avbd/cargo/*` body models:
+* each support-contact row reads the cube's deformed corner — the gap gains
+  flex = (R·Φ_c[pid]·a)_y and loads a via G_a = (R·Φ_c[pid])_y
+  (`_cargo_support_grad`), w += G_aᵀ M_a⁻¹ G_a;
+* the elastic block is projected compliant in the same GS sweep
+  (`_project_cargo_elastic`): per-mode (α_i=1/K_q[i,i], Macklin §3.5) for the
+  linear materials, abd's nonlinear V⊥ as the re-linearized compliant
+  constraints from `body.elastic_constraints(a)`; ȧ=(a−aⁿ)/h.
+
+**Accept (CPU):** `tests/avbd_native/test_xpbd_cargo.py` (5 tests) green — per
+material (rigid/fem_rigid/fem/abd) the support rings two-way, no tunnel, and the
+cube flexes (k>0) or carries no modes (rigid k=0); fem_rigid two-way-vs-frozen.
+abd flexes on CPU XPBD (gentle drop); long-run stiff-abd stability under
+sustained contact remains the documented XPBD-abd caveat. Device parity deferred.

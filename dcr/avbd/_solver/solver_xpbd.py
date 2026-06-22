@@ -243,6 +243,8 @@ class SolverXPBD:
         self._cargo: dict = {}        # body_idx -> cargo body model
         self._cargo_a: dict = {}      # body_idx -> (k,) amplitude
         self._cargo_adot: dict = {}   # body_idx -> (k,) velocity
+        self._cargo_Minv: dict = {}   # body_idx -> (k,k) M_a⁻¹ (dense; eye for fem)
+        self._cargo_lam: dict = {}    # body_idx -> (k,) elastic multipliers
 
     # -- scene building -----------------------------------------------------
     def add_box(
@@ -346,11 +348,43 @@ class SolverXPBD:
         return idx
 
     # -- cargo (Stage 4) ----------------------------------------------------
-    def add_cargo(self, *args, **kwargs) -> None:
-        raise NotImplementedError(_STAGE4)
+    def add_cargo(self, body, cargo_body,
+                  support_rows: list[tuple[int, int]]) -> None:
+        """Register a deformable cargo cube as native XPBD modal DOFs (M2,
+        two_band_coupling.html). The cube's elastic a ∈ R^k joins the augmented
+        modal vector Q = [q_support; …; a_cube] as its own block. `cargo_body`
+        exposes the uniform interface (Mq_block/Kq_block/Dq_block k×k,
+        corner_modal (P,3,k) = Φ_c, has_nonlinear_internal, and — for abd —
+        elastic_constraints(a)). `support_rows` maps each of the cube's
+        support-contact rows to its corner pid `(slot, pid)`, so each row's gap
+        reads the cube's deformed corner (R·Φ_c[pid]·a)_y and loads a via
+        G_a = (R·Φ_c[pid])_y. Requires set_modal_support first."""
+        if not self._modal:
+            raise RuntimeError("add_cargo requires set_modal_support first")
+        bi = int(body.index) if hasattr(body, "index") else int(body)
+        Mq = np.asarray(cargo_body.Mq_block, dtype=np.float64)
+        k = int(Mq.shape[0])
+        self._cargo[bi] = cargo_body
+        self._cargo_a[bi] = np.zeros(k)
+        self._cargo_adot[bi] = np.zeros(k)
+        # multipliers: one per linear mode, or per nonlinear V⊥ constraint (abd)
+        if getattr(cargo_body, "has_nonlinear_internal", False):
+            n_lam = len(list(cargo_body.elastic_constraints(np.zeros(k))))
+        else:
+            n_lam = k
+        self._cargo_lam[bi] = np.zeros(max(n_lam, 1))
+        # M_a⁻¹ (dense; eye for the mass-normalized fem_rigid/fem blocks).
+        if k > 0:
+            self._cargo_Minv[bi] = np.linalg.inv(Mq + 1e-12 * np.eye(k))
+        else:
+            self._cargo_Minv[bi] = np.zeros((0, 0))
+        for slot, pid in support_rows:
+            self._support[slot].cargo_bi = bi
+            self._support[slot].pid = int(pid)
 
-    def add_cargo_native(self, *args, **kwargs) -> None:
-        raise NotImplementedError(_STAGE4)
+    # AVBD-name alias (the AVBD backend exposes add_cargo_native); accept both.
+    def add_cargo_native(self, body, cargo_body, support_rows) -> None:
+        self.add_cargo(body, cargo_body, support_rows)
 
     # -- state finalization -------------------------------------------------
     def _ensure_arrays(self) -> None:
@@ -402,6 +436,7 @@ class SolverXPBD:
         # term, so q cannot ring (KE ≈ 0). The per-mode elastic constraint pulls
         # q̃ back in the GS sweep.
         modal_qn = None
+        cargo_an: dict = {}
         if self._modal:
             modal_qn = self._q.copy()
             h_pred = 0.0 if self._freeze_qdot else h
@@ -410,6 +445,11 @@ class SolverXPBD:
             self._lam_q = np.zeros(self._r)
             for sc in self._support:
                 sc.lam = 0.0
+            for bi in self._cargo:                      # cargo predict (Stage 4)
+                cargo_an[bi] = self._cargo_a[bi].copy()
+                self._cargo_a[bi] = (self._cargo_a[bi]
+                                     + h_pred * self._cargo_adot[bi])
+                self._cargo_lam[bi][:] = 0.0
 
         # ---- generate contacts at the predicted pose --------------------
         contacts = self._collect_contacts()
@@ -429,6 +469,8 @@ class SolverXPBD:
                 self._project_normal(c, a_tilde)
             if self._modal:
                 self._project_modal_elastic(modal_qn, h, inv_h2)
+                for bi in self._cargo:
+                    self._project_cargo_elastic(bi, cargo_an[bi], h, inv_h2)
                 for sc in self._support:
                     self._project_support(sc, a_tilde)
 
@@ -453,6 +495,11 @@ class SolverXPBD:
                 self.last_modal_KE = 0.5 * float(
                     self._qdot @ (self._mq * self._qdot))
             self.last_modal_PE = 0.5 * float(self._q @ (self._kq * self._q))
+            for bi in self._cargo:                      # cargo ȧ = (a − aⁿ)/h
+                if self._freeze_qdot:
+                    self._cargo_adot[bi] = np.zeros_like(self._cargo_a[bi])
+                else:
+                    self._cargo_adot[bi] = (self._cargo_a[bi] - cargo_an[bi]) / h
 
         # ---- velocity solve (Müller 2020 §SolveVelocities) --------------
         # Per active contact: (1) inelastic normal restitution — null the
@@ -652,7 +699,64 @@ class SolverXPBD:
         Q[bi] = _quat_apply_rotvec(Q[bi], (inv_Iw @ j_ang) * dlam)
         q += (-sc.U_y * wq) * dlam
         if g_a is not None:
-            self._cargo_a[sc.cargo_bi] += g_a[1] * dlam   # ∂C/∂a = +G_a
+            self._cargo_a[sc.cargo_bi] += g_a[1] * dlam   # ∂C/∂a = +G_a (Δa = M_a⁻¹G_a·dλ)
+
+    def _cargo_support_grad(self, sc: _SupportContact):
+        """Co-rotated cargo gradient for a support-contact row reading the cube's
+        deformed corner. Returns ((G_a, M_a⁻¹G_a), flex) with
+        G_a = (R·Φ_c[pid])_y = ∂(corner_y)/∂a and flex = G_a·a."""
+        bi = sc.cargo_bi
+        body = self._cargo[bi]
+        a = self._cargo_a[bi]
+        R = _quat_to_R(self._Q[sc.bi])
+        Phi = np.asarray(body.corner_modal[sc.pid], dtype=np.float64)  # (3,k)
+        G_a = (R @ Phi)[1, :]                   # y-row
+        flex = float(G_a @ a)
+        MgG = self._cargo_Minv[bi] @ G_a
+        return (G_a, MgG), flex
+
+    def _project_cargo_elastic(self, bi: int, an, h: float,
+                               inv_h2: float) -> None:
+        """Compliant cargo elastic block (re-expressed from
+        reduced_coupled_avbd.iteration_hook's per-cargo block). Linear materials
+        (fem_rigid/fem): per-mode C_i = a_i, α_i = 1/K_q[i,i], Macklin §3.5
+        damped. abd: the nonlinear quartic V⊥ as re-linearized compliant
+        constraints from body.elastic_constraints(a)."""
+        body = self._cargo[bi]
+        a = self._cargo_a[bi]
+        lam = self._cargo_lam[bi]
+        if getattr(body, "has_nonlinear_internal", False):
+            Minv = self._cargo_Minv[bi]
+            for kc, (C, grad, alpha, damp) in enumerate(
+                    body.elastic_constraints(a)):
+                if alpha <= 0.0:
+                    continue
+                at = alpha * inv_h2
+                Mg = Minv @ np.asarray(grad, dtype=np.float64)
+                w = float(np.asarray(grad) @ Mg)
+                gamma = at * (damp * alpha) * h if damp > 0.0 else 0.0
+                Cdot = float(np.asarray(grad) @ (a - an))
+                denom = (1.0 + gamma) * w + at
+                dlam = (-C - at * lam[kc] - gamma * Cdot) / denom
+                lam[kc] += dlam
+                a += Mg * dlam
+        else:
+            kq = np.diag(np.asarray(body.Kq_block, dtype=np.float64))
+            mq = np.diag(np.asarray(body.Mq_block, dtype=np.float64))
+            dq = np.diag(np.asarray(body.Dq_block, dtype=np.float64))
+            for i in range(a.shape[0]):
+                ki = kq[i]
+                if ki <= 0.0:
+                    continue
+                alpha = 1.0 / ki
+                at = alpha * inv_h2
+                w = 1.0 / mq[i] if mq[i] > 0.0 else 0.0
+                gamma = at * (dq[i] * alpha) * h if dq[i] > 0.0 else 0.0
+                Cdot = a[i] - an[i]
+                denom = (1.0 + gamma) * w + at
+                dlam = (-a[i] - at * lam[i] - gamma * Cdot) / denom
+                lam[i] += dlam
+                a[i] += w * dlam
 
     def _project_normal(self, c: _Contact, a_tilde: float) -> None:
         """One compliant projection of the NORMAL contact (unilateral, λ_n ≥ 0).
@@ -781,10 +885,12 @@ class SolverXPBD:
         return np.asarray(self._W, dtype=np.float32).reshape(-1, 3)
 
     def cargo_a(self, body_idx: int) -> np.ndarray:
-        return np.zeros(0, dtype=np.float64)
+        a = self._cargo_a.get(int(body_idx))
+        return np.zeros(0, dtype=np.float64) if a is None else a.copy()
 
     def cargo_adot(self, body_idx: int) -> np.ndarray:
-        return np.zeros(0, dtype=np.float64)
+        ad = self._cargo_adot.get(int(body_idx))
+        return np.zeros(0, dtype=np.float64) if ad is None else ad.copy()
 
     @property
     def modal_q(self) -> np.ndarray | None:
