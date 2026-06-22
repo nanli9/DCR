@@ -512,6 +512,7 @@ class Solver6DOF:
         # substep begin (staggered, G_a frozen there) so the primal/dual kernels
         # stay UNCHANGED — they only ever see the support q[0:r]. No coupler.
         self._cargo_enabled = False
+        self._cargo_nonlinear = False                # any cargo has nonlinear V⊥
         self._cargo_bodies: dict[int, object] = {}   # avbd body_idx → cargo body
         self._cargo_offset: dict[int, int] = {}      # body_idx → a-block offset
         self._n_modes_tot = 1                        # R_tot = r + Σ k (= r else)
@@ -1402,6 +1403,12 @@ class Solver6DOF:
         # support-only (R_tot=r, W=U_y, y_rest=anchor.y, no per-substep freeze)
         # and native cargo (R_tot=r+Σk, W=[U_y|−G_a] rebuilt each substep, the
         # cube flex baked into the anchor). The host numpy path is the reference.
+        # All cargo materials are device-resident: linear (fem_rigid/fem) via the
+        # constant K_q block, abd via the per-iteration V⊥ device kernel
+        # (k_cargo_internal). The host augmented q-block stays the parity oracle.
+        self._cargo_nonlinear = any(
+            getattr(b, "has_nonlinear_internal", False)
+            for b in self._cargo_bodies.values())
         self._modal_resident = (
             self._modal_enabled and self._modal_device_resident_for(dev))
         if self._modal_enabled:
@@ -1446,8 +1453,22 @@ class Solver6DOF:
             self._d_dq = wp.zeros(R_tot, dtype=wp.float64, device=dev)
             self._d_diag = wp.zeros(2, dtype=wp.float64, device=dev)
             self._n_sup_dev = n_sup
+            # Nonlinear-cargo (abd V⊥) device tables: a-block offset + κ_v per
+            # abd cube, consumed by k_cargo_internal in the device q-block.
+            nl_off, nl_kap = [], []
+            for bi, body in self._cargo_bodies.items():
+                if getattr(body, "has_nonlinear_internal", False):
+                    nl_off.append(self._cargo_offset[bi])
+                    nl_kap.append(float(getattr(body, "kappa_v", 0.0)))
+            self._n_cargo_nl = len(nl_off)
+            self._d_cargo_nl_off = wp.array(
+                np.asarray(nl_off or [0], dtype=np.int32), dtype=int, device=dev)
+            self._d_cargo_nl_kappa = wp.array(
+                np.asarray(nl_kap or [0.0], dtype=np.float64), dtype=wp.float64,
+                device=dev)
         else:
             self._n_sup_dev = 0
+            self._n_cargo_nl = 0
 
         # ---- GPU-resident pool scratch -------------------------------------
         # CSR adjacency: rebuilt by the gpu_csr_* kernels each substep so it
@@ -2246,6 +2267,14 @@ class Solver6DOF:
                     self._d_q, self._d_qhat, self._d_qn,
                     self._d_U_y, self._d_rowdata, self._d_gq],
             device=dev)
+        # abd nonlinear V⊥: add ∂V⊥/∂d to gq and ∂²V⊥/∂d² to the cube's a-block of
+        # Hq (the device counterpart of the host loop in _solve_q_block_cargo).
+        if self._n_cargo_nl > 0:
+            wp.launch(
+                MK.k_cargo_internal, dim=self._n_cargo_nl,
+                inputs=[self._d_cargo_nl_off, self._d_cargo_nl_kappa,
+                        self._d_q, self._d_gq, self._d_Hq],
+                device=dev)
         wp.launch(
             MK.k_modal_solve, dim=1,
             inputs=[R, wp.float64(self._modal_eps_reg),
@@ -2320,7 +2349,7 @@ class Solver6DOF:
             k = int(body.Mq_block.shape[0])
             Phi_c = np.asarray(body.corner_modal[pid], dtype=np.float64)   # (3,k)
             a = self._a_cargo_host[bi]
-            if body.corotate:
+            if getattr(body, "corotate", True):    # abd has no field ⇒ co-rotated
                 Rm = _modal_quat_to_R(np.asarray(quat[bi], dtype=np.float64))
                 G_a = (Rm @ Phi_c)[1, :]                  # y-row of R·Φ_c
                 flex_y = float((Rm @ (Phi_c @ a))[1])     # (R·Φ_c·a)_y
@@ -2391,6 +2420,19 @@ class Solver6DOF:
                 continue
             g = g - Ws * f
             H = H + rho * np.outer(Ws, Ws)
+        # Nonlinear cargo internal (abd V⊥, ABD Eq.6-8): Kq_block = 0, so the
+        # elastic stiffness is the quartic V⊥, linearized at the CURRENT a each
+        # iteration — a damped Newton step on V⊥ inside the block-GS q-block (the
+        # AVBD-style implicit solve the abd coupler note recommends). Linear
+        # materials (fem_rigid/fem) skip this (has_nonlinear_internal = False).
+        for bi, body in self._cargo_bodies.items():
+            if not getattr(body, "has_nonlinear_internal", False):
+                continue
+            o = self._cargo_offset[bi]
+            k = int(body.Mq_block.shape[0])
+            d = Q[o:o + k]
+            g[o:o + k] = g[o:o + k] + body.internal_grad_d(d)
+            H[o:o + k, o:o + k] = H[o:o + k, o:o + k] + body.internal_hess_d(d)
         dQ = np.linalg.solve(H + self._modal_eps_reg * np.eye(R), -g)
         self._q_aug = Q + self._modal_relax * dQ
         self.q_modal.assign(self._q_aug.astype(np.float32))

@@ -173,6 +173,71 @@ def k_modal_gq(
 # ---------------------------------------------------------------------------
 # r×r solve  (Gaussian elimination, partial pivot — mirrors coupler k_eps_solve)
 # ---------------------------------------------------------------------------
+@wp.func
+def _abd_row(q: wp.array(dtype=wp.float64), o: int, i: int) -> vec3d:
+    """Affine row aᵢ = eᵢ + d[3i:3i+3] of the ABD deformation d = vec(F−I)."""
+    if i == 0:
+        return vec3d(_ONE + q[o + 0], q[o + 1], q[o + 2])
+    if i == 1:
+        return vec3d(q[o + 3], _ONE + q[o + 4], q[o + 5])
+    return vec3d(q[o + 6], q[o + 7], _ONE + q[o + 8])
+
+
+@wp.kernel
+def k_cargo_internal(
+    off: wp.array(dtype=int),          # (n_nl,) a-block offset of each abd cube
+    kappa: wp.array(dtype=wp.float64),  # (n_nl,) κ_v
+    q: wp.array(dtype=wp.float64),      # (R,) augmented Q (reads the d-block)
+    gq: wp.array(dtype=wp.float64),     # (R,) gradient — += V⊥ gradient
+    Hq: wp.array2d(dtype=wp.float64),   # (R,R) Hessian — += V⊥ Hessian
+):
+    """ABD orthogonality potential V⊥ (ABD Eq. 6-8) linearized at the current d:
+    add ∂V⊥/∂d to gq and ∂²V⊥/∂d² to the cube's 9×9 a-block of Hq, EACH q-block
+    iteration (a damped Newton step on the quartic V⊥). One thread per abd cube;
+    blocks are disjoint so the plain += after k_modal_hq/k_modal_gq is race-free.
+    Mirrors ABDAffineBody.internal_grad_d / internal_hess_d exactly. dim = n_nl."""
+    t = wp.tid()
+    o = off[t]
+    kap = kappa[t]
+    four = wp.float64(4.0) * kap
+    eight = wp.float64(8.0) * kap
+    for i in range(3):
+        ai = _abd_row(q, o, i)
+        aii = wp.dot(ai, ai)
+        # gradient gᵢ = 4κ(aᵢ·aᵢ−1)aᵢ + Σ_{j≠i} 4κ(aᵢ·aⱼ)aⱼ
+        gi = (four * (aii - _ONE)) * ai
+        for j in range(3):
+            if j != i:
+                aj = _abd_row(q, o, j)
+                gi = gi + (four * wp.dot(ai, aj)) * aj
+        gq[o + 3 * i + 0] = gq[o + 3 * i + 0] + gi[0]
+        gq[o + 3 * i + 1] = gq[o + 3 * i + 1] + gi[1]
+        gq[o + 3 * i + 2] = gq[o + 3 * i + 2] + gi[2]
+        # diagonal Hessian block Hᵢᵢ = 8κ aᵢaᵢᵀ + 4κ(aᵢ·aᵢ−1)I + Σ_{j≠i} 4κ aⱼaⱼᵀ
+        for p in range(3):
+            for c in range(3):
+                val = eight * ai[p] * ai[c]
+                if p == c:
+                    val = val + four * (aii - _ONE)
+                for j in range(3):
+                    if j != i:
+                        aj = _abd_row(q, o, j)
+                        val = val + four * aj[p] * aj[c]
+                Hq[o + 3 * i + p, o + 3 * i + c] = Hq[o + 3 * i + p, o + 3 * i + c] + val
+        # off-diagonal Hᵢⱼ = 4κ(aⱼaᵢᵀ + (aᵢ·aⱼ)I)  (j ≠ i)
+        for j in range(3):
+            if j != i:
+                aj = _abd_row(q, o, j)
+                aij = wp.dot(ai, aj)
+                for p in range(3):
+                    for c in range(3):
+                        val = four * aj[p] * ai[c]
+                        if p == c:
+                            val = val + four * aij
+                        Hq[o + 3 * i + p, o + 3 * j + c] = (
+                            Hq[o + 3 * i + p, o + 3 * j + c] + val)
+
+
 @wp.kernel
 def k_modal_solve(
     r: int,

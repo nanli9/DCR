@@ -123,10 +123,10 @@ def build_cargo_scene(
         # Solver6DOF (two_band_coupling.html, Approach B). No coupler, no hook —
         # the cube's support contacts and its a-modes are co-solved in the same
         # backward-Euler step (the augmented q-block). fem_rigid only for now.
-        if kind not in ("fem_rigid", "fem"):
+        if kind not in ("fem_rigid", "fem", "abd"):
             raise ValueError(
-                f"solver='native' supports kind in (fem_rigid, fem) (got {kind!r}); "
-                "abd native cargo (nonlinear V⊥) is a follow-on M2 increment.")
+                f"solver='native' supports kind in (fem_rigid, fem, abd) "
+                f"(got {kind!r}).")
         if device_resident is not None:
             world._solver._modal_device_resident = bool(device_resident)
         world.enable_reduced_modal_support(

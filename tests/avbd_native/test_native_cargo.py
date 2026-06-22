@@ -20,9 +20,17 @@ import warp as wp
 
 from dcr.avbd._solver.solver_6dof import Solver6DOF
 from dcr.avbd.cargo.fem_rigid import build_fem_rigid_cube, build_fem_cube
+from dcr.avbd.cargo.abd import build_abd_cube
 from dcr.fem.fem_model import Material
 
-_BUILDERS = {"fem_rigid": build_fem_rigid_cube, "fem": build_fem_cube}
+
+def _make_test_cube(kind, n_elastic, E):
+    """Build a cargo cube of the requested material (the builders differ)."""
+    if kind == "abd":
+        return build_abd_cube(size=0.1, nx=3, kappa_v=2.0e3, alpha0=1.0, drop_y=0.0)
+    builder = {"fem_rigid": build_fem_rigid_cube, "fem": build_fem_cube}[kind]
+    return builder(size=0.1, n_elastic=n_elastic, drop_y=0.0,
+                   material=Material(E=E, nu=0.3, rho=600.0))
 
 
 def _has_cuda() -> bool:
@@ -41,8 +49,7 @@ def _build(device="cpu", resident=None, *, kind="fem_rigid", drop=0.05,
                    gravity=gravity)
     size = 0.1
     half = 0.5 * size
-    cube = _BUILDERS[kind](size=size, n_elastic=n_elastic, drop_y=0.0,
-                           material=Material(E=E, nu=0.3, rho=600.0))
+    cube = _make_test_cube(kind, n_elastic, E)
     m = float(cube.mass) if mass is None else mass
     body = s.add_box(position=(0.0, half + drop, 0.0),
                      half_extents=(half,) * 3, mass=m)
@@ -72,7 +79,7 @@ def _build(device="cpu", resident=None, *, kind="fem_rigid", drop=0.05,
 # ---------------------------------------------------------------------------
 # Physics
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("kind", ["fem_rigid", "fem"])
+@pytest.mark.parametrize("kind", ["fem_rigid", "fem", "abd"])
 def test_cargo_deforms_and_rings_two_way_cpu(kind):
     """The cube deforms (a ≠ 0) AND the slab rings (modal KE > 0); the frozen-q̇
     counterfactual kills the slab ring. No tunneling. fem_rigid (co-rotated
@@ -95,6 +102,44 @@ def test_cargo_deforms_and_rings_two_way_cpu(kind):
     assert peak["dyn"] > 1e-7, f"dynamic slab should ring ({peak['dyn']:.2e})"
     assert peak["dyn"] > 10.0 * max(peak["frz"], 1e-30), (
         f"dynamic ring {peak['dyn']:.2e} should dwarf frozen {peak['frz']:.2e}")
+
+
+def test_abd_shears_under_impact_and_v_perp_passive():
+    """abd: the cube shears under impact (orthogonality defect ‖FᵀF−I‖ > 0) with
+    no tunneling, and a plucked affine deformation relaxes monotone (V⊥ + damping
+    is dissipative — the nonlinear internal is wired into the augmented q-block)."""
+    # impact → shear, no tunnel
+    s, body, cube = _build(kind="abd", drop=0.05)
+    s._modal_freeze_qdot = False
+    max_shear = 0.0
+    for _ in range(180):
+        s.step()
+        d = s.cargo_a(body.index)
+        F = np.eye(3) + d.reshape(3, 3)
+        max_shear = max(max_shear, float(np.linalg.norm(F.T @ F - np.eye(3))))
+    P = s.positions()
+    assert np.all(np.isfinite(P))
+    assert max_shear > 1e-9, "abd cube should shear under impact"
+    assert float(P[body.index][1]) > -0.02, "abd cube must not tunnel"
+    # V⊥ passivity: pluck a sheared F with a static body, energy monotone down
+    s2, b2, cube2 = _build(kind="abd", mass=0.0, drop=2.0)
+    s2._a_cargo_host[b2.index][:] = 0.05 * np.array(
+        [1, 0.2, 0, 0.2, -1, 0, 0, 0, 1.0])
+    s2._build_augmented_modal()
+    o = s2._cargo_offset[b2.index]
+
+    def E():
+        Qd = s2._qdot_aug
+        return 0.5 * float(Qd @ s2._Mq_aug @ Qd) + cube2.internal_energy(s2._q_aug[o:])
+    s2.step()
+    E_prev = E()
+    E0 = E_prev
+    for _ in range(120):
+        s2.step()
+        e = E()
+        assert e <= E_prev + 1e-7, f"V⊥ energy rose {E_prev:.3e} -> {e:.3e}"
+        E_prev = e
+    assert E_prev < 0.7 * E0, "the plucked affine deformation should relax"
 
 
 def test_cargo_passivity_free_ringdown_cpu():
@@ -158,7 +203,7 @@ def test_cargo_engaged_contact_tracks_cpu():
 # CUDA residency
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(not _has_cuda(), reason="no CUDA device")
-@pytest.mark.parametrize("kind", ["fem_rigid", "fem"])
+@pytest.mark.parametrize("kind", ["fem_rigid", "fem", "abd"])
 def test_cargo_cuda_resident_and_graph_captured(kind):
     s, body, cube = _build("cuda:0", resident=None, kind=kind)
     for _ in range(40):
