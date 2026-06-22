@@ -77,7 +77,46 @@ so the ring is **gentler** than a fully-converged solve.
 The principled, no-relaxation fix is the foundation's explicit cross-term
 `S = H_q − Σ Mᵀ H_x⁻¹ M` with `M = −ρ J_x U_yᵀ`. It was implemented (each
 grounded body's full `H_x` incl. box-box, Schur, `Δq`) and **does not work** as a
-drop-in. Three successive attempts, each failing:
+drop-in. Three successive attempts, each failing.
+
+### What `Δz` and `Δq` are (reading the table)
+
+The monolithic coupled step is one Newton solve of the 2×2 block system for
+**both** unknowns at once:
+
+```
+[ H_x   M  ] [Δz]   [ −g_x ]      M  = −ρ J_x U_yᵀ   (the cross block)
+[ Mᵀ   H_q ] [Δq] = [ −g_q ]      Δz = body pose update (6/body)
+                                  Δq = slab modal-amplitude update (r)
+```
+
+`Δz` and `Δq` come out as a **consistent pair**. Schur elimination solves
+`(H_q − Mᵀ H_x⁻¹ M) Δq = −g_q + Mᵀ H_x⁻¹ g_x` for `Δq`, then back-substitutes
+`Δz = H_x⁻¹(−g_x − M·Δq)`. That **full `Δz` has two parts**:
+
+- `−H_x⁻¹ g_x` — the body's **own** solve (its rigid inertia + its contacts),
+  independent of the mode. **This is exactly what the colored primal already
+  computes** for the body.
+- `−H_x⁻¹ M·Δq` — the **cross** part: the body moving *because* the surface `q`
+  moved.
+
+So the three variants differ only in how much of `Δz` the q-block applies on top
+of the primal:
+
+- **`Δq` only** — apply `Δq` to `q`, apply *no* `Δz`. Inconsistent: `Δq` was
+  computed assuming the bodies *also* move by `Δz`; they don't → energy injected.
+- **`Δq` + full `Δz`** — apply `Δq` and the *complete* `Δz` (both parts). But the
+  primal *also* does the `−H_x⁻¹ g_x` part, so it runs **twice** → the body
+  over-moves and fights the primal → 180° flip.
+- **`Δq` + cross-only `Δz`** — apply `Δq` and only `−H_x⁻¹ M·Δq`, leaving
+  `−H_x⁻¹ g_x` to the primal. No double-step — but still topples (the softening
+  tension below).
+
+**Why the shipped block-GS has no `Δz` at all:** its q-block computes **only
+`Δq`** and writes it to `q`; the bodies' *entire* pose update comes from the
+colored primal, which already sees the new surface through the live
+`y_rest + U_y·q` it reads in-kernel. "`Δq` is in the q-block, `Δz` is in the
+primal" — that clean split is what keeps box-box native and the step passive.
 
 | Variant | Result on truck lumber |
 |---|---|
