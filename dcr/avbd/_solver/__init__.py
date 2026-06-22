@@ -45,8 +45,36 @@ from .solver_6dof import (
     SUPPORT_CONTACT_6DOF,
 )
 
+# Native dual-solver scaffolding (prompts/native_dual_solver_build_plan.md):
+# the shared constraint interface + the two solver backends. `SolverAVBD` is
+# the canonical name for the AVBD path (== Solver6DOF behaviour); `SolverXPBD`
+# is the standalone XPBD solver (a Stage-0 stub until Stage 2). `make_solver`
+# resolves a selection string to a backend. `Solver6DOF` stays importable.
+from .solver_avbd import SolverAVBD
+from .solver_xpbd import SolverXPBD
+from .constraints import (
+    Solver,
+    make_solver,
+    BoxBody,
+    FloorContact,
+    SelfCollision,
+    ModalSupport,
+    SupportContactCorner,
+    Cargo,
+)
+
 __all__ = [
     "Solver6DOF",
+    "SolverAVBD",
+    "SolverXPBD",
+    "Solver",
+    "make_solver",
+    "BoxBody",
+    "FloorContact",
+    "SelfCollision",
+    "ModalSupport",
+    "SupportContactCorner",
+    "Cargo",
     "RigidBody",
     "box_inertia_local",
     "box_inv_inertia_local",
