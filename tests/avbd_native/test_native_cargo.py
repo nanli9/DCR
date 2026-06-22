@@ -19,8 +19,10 @@ import pytest
 import warp as wp
 
 from dcr.avbd._solver.solver_6dof import Solver6DOF
-from dcr.avbd.cargo.fem_rigid import build_fem_rigid_cube
+from dcr.avbd.cargo.fem_rigid import build_fem_rigid_cube, build_fem_cube
 from dcr.fem.fem_model import Material
+
+_BUILDERS = {"fem_rigid": build_fem_rigid_cube, "fem": build_fem_cube}
 
 
 def _has_cuda() -> bool:
@@ -31,15 +33,16 @@ def _has_cuda() -> bool:
         return False
 
 
-def _build(device="cpu", resident=None, *, drop=0.05, mass=None, E=1.0e6,
-           n_elastic=3, gravity=(0.0, -9.81, 0.0)):
-    """A fem_rigid cube on a 2-mode modal slab via the native cargo path."""
+def _build(device="cpu", resident=None, *, kind="fem_rigid", drop=0.05,
+           mass=None, E=1.0e6, n_elastic=3, gravity=(0.0, -9.81, 0.0)):
+    """A deformable cube (kind = fem_rigid | fem) on a 2-mode modal slab via the
+    native cargo path."""
     s = Solver6DOF(dt=1.0 / 60.0, iterations=10, substeps=4, device=device,
                    gravity=gravity)
     size = 0.1
     half = 0.5 * size
-    cube = build_fem_rigid_cube(size=size, n_elastic=n_elastic, drop_y=0.0,
-                                material=Material(E=E, nu=0.3, rho=600.0))
+    cube = _BUILDERS[kind](size=size, n_elastic=n_elastic, drop_y=0.0,
+                           material=Material(E=E, nu=0.3, rho=600.0))
     m = float(cube.mass) if mass is None else mass
     body = s.add_box(position=(0.0, half + drop, 0.0),
                      half_extents=(half,) * 3, mass=m)
@@ -69,12 +72,15 @@ def _build(device="cpu", resident=None, *, drop=0.05, mass=None, E=1.0e6,
 # ---------------------------------------------------------------------------
 # Physics
 # ---------------------------------------------------------------------------
-def test_cargo_deforms_and_rings_two_way_cpu():
+@pytest.mark.parametrize("kind", ["fem_rigid", "fem"])
+def test_cargo_deforms_and_rings_two_way_cpu(kind):
     """The cube deforms (a ≠ 0) AND the slab rings (modal KE > 0); the frozen-q̇
-    counterfactual kills the slab ring. No tunneling."""
+    counterfactual kills the slab ring. No tunneling. fem_rigid (co-rotated
+    modes) and fem (world-fixed modes, corotate=False) both via the native
+    cargo path."""
     peak = {}
     for name, frz in (("dyn", False), ("frz", True)):
-        s, body, cube = _build()
+        s, body, cube = _build(kind=kind)
         s._modal_freeze_qdot = frz
         pk = 0.0
         for _ in range(120):
@@ -152,8 +158,9 @@ def test_cargo_engaged_contact_tracks_cpu():
 # CUDA residency
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(not _has_cuda(), reason="no CUDA device")
-def test_cargo_cuda_resident_and_graph_captured():
-    s, body, cube = _build("cuda:0", resident=None)
+@pytest.mark.parametrize("kind", ["fem_rigid", "fem"])
+def test_cargo_cuda_resident_and_graph_captured(kind):
+    s, body, cube = _build("cuda:0", resident=None, kind=kind)
     for _ in range(40):
         s.step()
     assert s._modal_resident is True, "cargo path should be device-resident on cuda"
