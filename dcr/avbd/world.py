@@ -55,8 +55,6 @@ from ..dcr.deformed_normal_bj import compute_deformed_normal_barbic_james
 # numpy and free of GPU state; importing here is cheap.
 from .reduced_support import ReducedSupport
 from .reduced_support_solve import ReducedSupportCoupler
-from .reduced_coupled_avbd import ReducedCoupledAVBDCoupler
-from .reduced_coupled_xpbd import ReducedCoupledXPBDCoupler
 from .reduced_dcr_postkick import ReducedSupportDCRPostkickCoupler
 
 
@@ -186,7 +184,7 @@ class AVBDDCRWorld:
     # full monolithic Newton block [x; q] including the cross-coupling
     # ρ·J_x·J_q^T inside iteration_hook. Mutually exclusive with the
     # static-support coupler (`reduced_support_coupler`).
-    reduced_coupled_coupler: ReducedCoupledAVBDCoupler | None = field(
+    reduced_coupled_coupler: object | None = field(
         default=None, init=False, repr=False)
     reduced_coupled_log: list[dict] = field(
         default_factory=list, init=False, repr=False)
@@ -397,77 +395,6 @@ class AVBDDCRWorld:
         self._solver.substep_end_hook = coupler.substep_end_hook
         return coupler
 
-    def attach_reduced_coupled_avbd(
-        self,
-        rs: ReducedSupport,
-        *,
-        tracked_body_indices: list[int],
-        shelf_length: float,
-        shelf_width: float,
-        shelf_y_rest: float,
-        n_grid_x: int,
-        n_grid_z: int,
-        rho_clip: float = 1.0e9,
-        modal_static_lp_tau: float = 0.05,
-        device_resident: bool | None = None,
-    ) -> ReducedCoupledAVBDCoupler:
-        """Wire a `ReducedCoupledAVBDCoupler` into the AVBD substep loop.
-
-        This installs the Python-side monolithic primal coupler — every
-        AVBD iteration's primal+dual is followed by a hook that solves
-        the full [Δx_i; Δq] Newton block (Schur-eliminated) including the
-        cross-coupling ρ·J_x·J_q^T, then writes both Δx_i and Δq back to
-        solver state. This is the strongest coupling tier; it is mutually
-        exclusive with `attach_reduced_support` (the BCD path).
-        """
-        if self._solver is None:
-            raise RuntimeError("AVBDDCRWorld._solver is not initialized")
-        if self.reduced_support_coupler is not None:
-            raise RuntimeError(
-                "Cannot attach reduced_coupled_avbd: "
-                "reduced_support_coupler is already attached. The two "
-                "modes are mutually exclusive.")
-        if self.reduced_coupled_coupler is not None:
-            raise RuntimeError("reduced_coupled_coupler already attached")
-        body_mass = {}
-        for d in self._descs:
-            if d.avbd_body is None:
-                continue
-            i = int(d.avbd_body.index)
-            if i in tracked_body_indices:
-                body_mass[i] = float(d.dcr_body.mass)
-        coupler = ReducedCoupledAVBDCoupler(
-            rs=rs,
-            tracked_body_indices=list(tracked_body_indices),
-            shelf_length=float(shelf_length),
-            shelf_width=float(shelf_width),
-            shelf_y_rest=float(shelf_y_rest),
-            n_grid_x=int(n_grid_x),
-            n_grid_z=int(n_grid_z),
-            h_macro=float(self.h),
-            h_substep=float(self.h) / float(self.avbd_substeps),
-            body_mass=body_mass,
-            rho_clip=float(rho_clip),
-            modal_static_lp_tau=float(modal_static_lp_tau),
-        )
-        # Force overlay-related flags off — this coupler never reads them
-        # but downstream code (viewers, scene printouts) does.
-        rs.overlay_enabled = False
-        rs.restart_overlay_each_step = False
-        # GPU device-residency: default ON when the solver runs on CUDA so the
-        # per-iteration coupler solve stays on-device (no host round-trip).
-        # `device_resident=False` forces the numpy reference path (used by the
-        # parity test); on CPU it is a no-op either way.
-        if device_resident is None:
-            device_resident = str(self.device).startswith("cuda")
-        coupler.device_resident = bool(device_resident)
-        self.reduced_support = rs
-        self.reduced_coupled_coupler = coupler
-        self._solver.substep_begin_hook = coupler.substep_begin_hook
-        self._solver.iteration_hook = coupler.iteration_hook
-        self._solver.substep_end_hook = coupler.substep_end_hook
-        return coupler
-
     def enable_reduced_modal_support(
         self,
         rs: ReducedSupport,
@@ -615,72 +542,6 @@ class AVBDDCRWorld:
                 f"add_native_cargo: no SUPPORT_CONTACT rows for body "
                 f"{body_avbd_idx} (call enable_reduced_modal_support first).")
         s.add_cargo_native(int(body_avbd_idx), cargo_body, support_rows)
-
-    def attach_reduced_coupled_xpbd(
-        self,
-        rs: ReducedSupport,
-        *,
-        tracked_body_indices: list[int],
-        shelf_length: float,
-        shelf_width: float,
-        shelf_y_rest: float,
-        n_grid_x: int,
-        n_grid_z: int,
-        rho_clip: float = 1.0e9,
-        xpbd_contact_compliance: float = 1.0e-8,
-        device_resident: bool | None = None,
-    ) -> ReducedCoupledXPBDCoupler:
-        """Wire a `ReducedCoupledXPBDCoupler` into the AVBD substep loop — the
-        XPBD realization of the dynamic two-way modal contact constraint (Stage
-        6). Same coupled potential as `attach_reduced_coupled_avbd`, but the
-        per-iteration primal is XPBD compliant-constraint Gauss–Seidel (CPU
-        oracle `dcr/twobody/position_based.py:XPBDDynamicSystem`). Mutually
-        exclusive with the other reduced couplers."""
-        if self._solver is None:
-            raise RuntimeError("AVBDDCRWorld._solver is not initialized")
-        if self.reduced_support_coupler is not None:
-            raise RuntimeError(
-                "Cannot attach reduced_coupled_xpbd: "
-                "reduced_support_coupler is already attached.")
-        if self.reduced_coupled_coupler is not None:
-            raise RuntimeError("reduced_coupled_coupler already attached")
-        body_mass = {}
-        body_friction = {}
-        for d in self._descs:
-            if d.avbd_body is None:
-                continue
-            i = int(d.avbd_body.index)
-            if i in tracked_body_indices:
-                body_mass[i] = float(d.dcr_body.mass)
-                # Coulomb μ for this body's FLOOR contact (matches the AVBD
-                # tangent rows, which use the body's own friction coefficient).
-                body_friction[i] = float(getattr(d.dcr_body, "friction", 0.5))
-        coupler = ReducedCoupledXPBDCoupler(
-            rs=rs,
-            tracked_body_indices=list(tracked_body_indices),
-            shelf_length=float(shelf_length),
-            shelf_width=float(shelf_width),
-            shelf_y_rest=float(shelf_y_rest),
-            n_grid_x=int(n_grid_x),
-            n_grid_z=int(n_grid_z),
-            h_macro=float(self.h),
-            h_substep=float(self.h) / float(self.avbd_substeps),
-            body_mass=body_mass,
-            body_friction=body_friction,
-            rho_clip=float(rho_clip),
-            xpbd_contact_compliance=float(xpbd_contact_compliance),
-        )
-        rs.overlay_enabled = False
-        rs.restart_overlay_each_step = False
-        if device_resident is None:
-            device_resident = str(self.device).startswith("cuda")
-        coupler.device_resident = bool(device_resident)
-        self.reduced_support = rs
-        self.reduced_coupled_coupler = coupler
-        self._solver.substep_begin_hook = coupler.substep_begin_hook
-        self._solver.iteration_hook = coupler.iteration_hook
-        self._solver.substep_end_hook = coupler.substep_end_hook
-        return coupler
 
     def attach_reduced_dcr_postkick(
         self,

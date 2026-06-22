@@ -20,7 +20,7 @@ import numpy as np
 
 from dcr.avbd.world import AVBDDCRWorld
 from dcr.avbd.reduced_support import ReducedSupport, make_debug_reduced_shelf_support
-from dcr.avbd.reduced_coupled_avbd import ReducedCoupledAVBDCoupler
+# (the reduced coupler is removed — both solvers are native, no coupler)
 from dcr.avbd.cargo.fem_rigid import (
     build_fem_rigid_cube,
     build_fem_cube,
@@ -36,7 +36,7 @@ class FEMRigidCargoHandle:
     """Everything needed to drive + render a cargo scene (any cube material)."""
     world: AVBDDCRWorld
     rs: ReducedSupport
-    coupler: ReducedCoupledAVBDCoupler | None   # None on the native (no-coupler) path
+    coupler: object | None   # always None now (native path; the coupler is removed)
     cube: object                 # FEMRigidModalBody | ABDAffineBody | FEMModalBody
     avbd_idx: int
     support_top: float
@@ -159,30 +159,7 @@ def build_cargo_scene(
             world=world, rs=rs, coupler=None, cube=cube, avbd_idx=avbd_idx,
             support_top=support_top, support_length=support_length,
             support_width=support_width, kind=kind)
-    elif solver == "xpbd_coupler":
-        coupler = world.attach_reduced_coupled_xpbd(
-            rs, tracked_body_indices=[avbd_idx],
-            shelf_length=support_length, shelf_width=support_width,
-            shelf_y_rest=support_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z,
-            xpbd_contact_compliance=float(xpbd_contact_compliance),
-            device_resident=device_resident)
-    elif solver == "avbd_coupler":
-        coupler = world.attach_reduced_coupled_avbd(
-            rs, tracked_body_indices=[avbd_idx],
-            shelf_length=support_length, shelf_width=support_width,
-            shelf_y_rest=support_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z,
-            device_resident=device_resident)
-    else:
-        raise ValueError(
-            f"unknown solver {solver!r} "
-            "(avbd | xpbd | avbd_coupler | xpbd_coupler)")
-    coupler.freeze_qdot = bool(freeze_qdot)
-    coupler.add_cargo(avbd_idx, cube)
-
-    return FEMRigidCargoHandle(
-        world=world, rs=rs, coupler=coupler, cube=cube, avbd_idx=avbd_idx,
-        support_top=support_top, support_length=support_length,
-        support_width=support_width, kind=kind)
+    raise ValueError(f"unknown solver {solver!r} (avbd | xpbd)")
 
 
 def build_fem_rigid_cargo(**kwargs) -> FEMRigidCargoHandle:

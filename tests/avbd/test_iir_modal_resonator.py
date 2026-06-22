@@ -245,6 +245,8 @@ def test_iir_no_postkick_in_coupled_mode():
     Also asserts that the legacy `dcr_couplers` list on the world is
     empty under coupled-AVBD: there's no ModalDCRCoupler attached.
     """
+    pytest.skip("reduced coupler removed (native dual-solver Stage 6); the "
+                "coupled-mode toy scene is retired — native path covers this")
     pytest.importorskip("warp")
     from scenes.reduced_coupled_toy_minimum import build_toy_scene_1
 
@@ -363,6 +365,8 @@ def test_iir_energy_sanity():
       (b) trailing 30 frames show positive damping power (energy
           monotonically dissipated).
     """
+    pytest.skip("reduced coupler removed (native dual-solver Stage 6); the "
+                "coupled-mode toy scene is retired — native path covers this")
     pytest.importorskip("warp")
     from scenes.reduced_coupled_toy_minimum import build_toy_scene_1
 

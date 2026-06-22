@@ -248,3 +248,41 @@ green — the 4 production scenes × {avbd, xpbd} and the cargo scene × 4 mater
 and the cube deforms (peak). The XPBD-native cuda-residency matrix is the
 deferred device pass; AVBD-native cuda stays covered by
 `test_native_production_cargo`.
+
+## Stage 6 — remove the coupler architecture ✅
+
+The reduced *coupler* is gone from the codebase (the production path was already
+coupler-free after Stages 1+5). Deleted:
+* the 4 coupler modules — `reduced_coupled_avbd.py`, `reduced_coupled_xpbd.py`,
+  `reduced_coupled_kernels.py`, `reduced_coupled_xpbd_kernels.py`;
+* `World.attach_reduced_coupled_avbd` / `attach_reduced_coupled_xpbd` + their
+  imports (the `reduced_coupled_coupler` field stays, always `None`, so the dead
+  `if coupler is not None` diagnostics branches are harmless);
+* the `"avbd_coupler"` / `"xpbd_coupler"` scene selectors (scenes accept only
+  `avbd` | `xpbd` now);
+* the coupler-only `reduced_coupled_toy_minimum.py` scene;
+* the coupler test files — `tests/avbd_native/{test_dynamic_coupling,
+  test_xpbd_coupling, test_fem_coupling, test_abd_coupling,
+  test_fem_rigid_coupling, test_production_scenes}.py` and
+  `tests/avbd/{test_reduced_coupled_avbd, test_reduced_coupled_dynamics}.py`
+  (their coverage — rigid + modal + cargo two-way, production scenes × material —
+  is replaced by the native tests: `test_native_*`, `test_xpbd_*`,
+  `test_stage5_native_scenes`). The two coupled-mode `test_iir_modal_resonator`
+  functions are skipped (the coupled toy scene is retired).
+
+Kept (separate, out of scope): the legacy STATIC `reduced_support` path
+(`attach_reduced_support` + `reduced_support_solve.py` + the
+`Solver6DOF.substep_*_hook` attributes it shares) — it is not the dynamic
+reduced *coupled* coupler and still has live tests
+(`test_reduced_support`, `test_reduced_static_support`).
+
+**Accept:** the library + scenes import with no coupler (only a provenance
+*comment* in `solver_xpbd.py` cites the re-expressed XPBD math); pytest collects
+567 tests with no import errors; the legacy reduced_support + native + scaffold
+tests pass. Both native solvers cover every prior production use.
+
+Deferred (clearly noted): the XPBD device/CUDA-graph residency pass (Stage 2b +
+the device halves of Stages 3–4); a handful of coupler-only *scripts*
+(`run_coupled_*`, `run_reduced_coupled_avbd`, some `_diag_*`) still import the
+deleted modules and would error if run — they are out of the library import
+graph and the test suite, left for a scripts sweep.

@@ -193,32 +193,16 @@ def build_reduced_dinner_table(
             tracked.append(int(desc.avbd_body.index))
     rs.probe_body_indices = list(tracked)
 
-    coupler = None
-    if solver in ("avbd", "native", "xpbd"):
-        # Native dynamic two-way modal constraint (two_band_coupling.html): q is
-        # a solver DOF, NO coupler. The World's solver_kind ("xpbd"|"avbd")
-        # routes this native wiring to SolverXPBD or SolverAVBD. Deformable cargo
-        # (M2) joins via add_native_cargo. Couplers are "avbd_coupler" /
-        # "xpbd_coupler" (transitional, deleted Stage 6).
-        world.enable_reduced_modal_support(
-            rs, tracked_body_indices=tracked,
-            shelf_length=table_length, shelf_width=table_width,
-            shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
-    elif solver == "xpbd_coupler":
-        coupler = world.attach_reduced_coupled_xpbd(
-            rs, tracked_body_indices=tracked,
-            shelf_length=table_length, shelf_width=table_width,
-            shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
-    elif solver == "avbd_coupler":
-        coupler = world.attach_reduced_coupled_avbd(
-            rs, tracked_body_indices=tracked,
-            shelf_length=table_length, shelf_width=table_width,
-            shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z,
-            modal_static_lp_tau=modal_static_lp_tau)
-    else:
-        raise ValueError(
-            f"unknown solver {solver!r} "
-            "(avbd | xpbd | avbd_coupler | xpbd_coupler)")
+    if solver not in ("avbd", "native", "xpbd"):
+        raise ValueError(f"unknown solver {solver!r} (avbd | xpbd)")
+    # Native dynamic two-way modal constraint (two_band_coupling.html): q is a
+    # solver DOF, NO coupler. The World's solver_kind ("xpbd"|"avbd") routes this
+    # native wiring to SolverXPBD or SolverAVBD; deformable cargo (M2) joins via
+    # add_native_cargo.
+    world.enable_reduced_modal_support(
+        rs, tracked_body_indices=tracked,
+        shelf_length=table_length, shelf_width=table_width,
+        shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
 
     cargo_cube = None
     cargo_avbd_idx = None
@@ -227,10 +211,7 @@ def build_reduced_dinner_table(
         size = 2.0 * float(min(pot_h))
         cargo_cube = make_cargo_cube(cargo_material, size=size,
                                      mass=float(pot_mass))
-        if coupler is None:                       # native path (no coupler)
-            world.add_native_cargo(cargo_avbd_idx, cargo_cube)
-        else:
-            coupler.add_cargo(cargo_avbd_idx, cargo_cube)
+        world.add_native_cargo(cargo_avbd_idx, cargo_cube)
 
     return DinnerSceneHandle(
         world=world, rs=rs,
