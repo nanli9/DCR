@@ -227,13 +227,17 @@ hook (`Solver6DOF.add_cargo_native` / `world.add_native_cargo`).
 
 ## Status / next
 
-- M1.0–M1.5 + **M1.3** (GPU-resident device q-block) + **M2 fem_rigid** (native
-  cargo): **done.** The native `(z, q[, a])` path is GPU-resident on cuda
+- M1.0–M1.5 + **M1.3** (GPU-resident device q-block) + **M2 fem_rigid & fem**
+  (native cargo): **done.** The native `(z, q[, a])` path is GPU-resident on cuda
   (device float64 augmented q-block, CUDA-graph-captured) with CPU↔warp parity.
-- **M2 abd / fem cargo:** follow-on increments (fem = fem_rigid with
-  `corotate=False`, one flag; abd = nonlinear `V⊥` internal each iteration). The
-  4 production scenes (truck/ledge/shelf/dinner) with native cargo are the broader
-  Stage-7 integration; `build_cargo_scene(solver="native")` is the canonical demo.
+  `fem` (corotate=False, world-fixed modes) was free over fem_rigid — the path
+  already branches on `body.corotate`.
+- **M2 abd cargo:** follow-on increment — abd's stiffness is the nonlinear `V⊥`
+  (`Kq_block = 0`, `has_nonlinear_internal`), so the augmented q-block needs the
+  per-iteration `internal_grad_d`/`internal_hess_d` wired in (real work, not a
+  flag). The 4 production scenes (truck/ledge/shelf/dinner) with native cargo are
+  the broader Stage-7 integration; `build_cargo_scene(solver="native")` is the
+  canonical demo.
 - **Known pre-existing failure (NOT M1.3/M2):** `test_native_stacks.py::
   test_truck_lumber_stack_rides_ring_and_holds` topples to 180° on a clean tree
   (block-GS relax=0.1 no longer holds the truck 4-high lumber). Confirmed
