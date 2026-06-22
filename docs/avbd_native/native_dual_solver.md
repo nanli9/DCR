@@ -157,3 +157,37 @@ solve to warp kernels in `xpbd_kernels.py`, reuse the shared GPU SAT/face-clip
 manifold from `kernels_6dof.py` for box-box geometry, CUDA-graph-capture the hot
 loop, and add the CPU↔device parity test (≤ fp64 on a smooth drop) + the
 residency audit + ms/step speedup table.
+
+> **Device residency for SolverXPBD (2b + the device halves of Stages 3–4) is
+> deferred to one batched pass** (user direction: "just do stage 3 cpu", then
+> finish the remaining stages on the CPU path). The AVBD path stays
+> cuda-resident throughout; only the new XPBD solver is CPU-only for now.
+
+## Stage 3 — XPBD-native reduced-modal support (CPU) ✅
+
+`SolverXPBD.set_modal_support` / `add_support_contact_corner` carry q ∈ R^r as a
+native DOF (no coupler, no AVBD host), re-expressing the `reduced_coupled_xpbd`
+math now native:
+* modal predict q̃ = qⁿ + h·q̇ⁿ + h²·M_q⁻¹f_q^grav (freeze_qdot ⇒ h_pred=0);
+* per-mode compliant modal-elastic C_i = q_i, α_i = 1/K_q[i,i], Macklin §3.5
+  damped update via D_q[i,i] (`_project_modal_elastic`);
+* unilateral support-contact rows C = corner_y − (y_rest + U_y·q), n = e_y,
+  coupling the rigid 6-DOF and the modal q (∂C/∂q = −U_y) in the same GS sweep
+  (`_project_support`); q̇ = (q − qⁿ)/h after the sweeps.
+* freeze counterfactual: q̇ ≡ 0 exactly (the modal inertia term is deleted), so
+  the frozen run carries zero modal KE.
+
+**Accept (CPU):** `tests/avbd_native/test_xpbd_modal.py` (4 tests) green —
+two-way counterfactual (dynamic rings, modal KE ≈ 0.1 J; frozen q̇≡0 ≈ 0);
+free modal ring-down monotone non-increasing + decays (backward-Euler passive);
+the ring lifts a bystander > 1.5× the frozen quasi-static rise; cross-solver
+two-way SIGNATURE shared (both AVBD-native and XPBD-native ring under the drop
+and go quiet when frozen).
+
+Honesty note: the two native solvers do **not** agree to an order of magnitude
+(AVBD ≈ 3e-4 J vs XPBD ≈ 1e-1 J on the shared scene). The AVBD native q-block
+applies a conservative block-GS relaxation — it must, to keep box stacks upright
+(memory `truck-stack-collapse-is-host-boxbox`) — which damps its ring far below
+the compliant XPBD projection. The cross-solver agreement is **qualitative** (the
+two_band_coupling.html signature), not quantitative; magnitudes are
+solver-dependent. Device parity deferred (batched pass).

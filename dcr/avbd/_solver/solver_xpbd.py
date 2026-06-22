@@ -149,6 +149,26 @@ class _Contact:
         self.jt = np.zeros(3, dtype=np.float64)
 
 
+class _SupportContact:
+    """A unilateral support-contact row (Stage 3): body corner `off` (body-local)
+    rests on the LIVE reduced-modal surface y_rest + U_y·q (two_band_coupling.html
+    — "Contact as a constraint on (z, q)"). The contact normal is +e_y (the
+    support top is horizontal). Couples the rigid 6-DOF and the modal q
+    (∂C/∂q = −U_y). `cargo_g`/`cargo_bi` carry the cargo co-rotated gradient G_a
+    (Stage 4); None until then."""
+
+    __slots__ = ("bi", "off", "y_rest", "U_y", "lam", "cargo_bi", "pid")
+
+    def __init__(self, bi, off, y_rest, U_y):
+        self.bi = int(bi)
+        self.off = np.asarray(off, dtype=np.float64)
+        self.y_rest = float(y_rest)
+        self.U_y = np.asarray(U_y, dtype=np.float64).reshape(-1)
+        self.lam = 0.0
+        self.cargo_bi = -1    # cargo body index whose a-block this row reads (Stage 4)
+        self.pid = -1         # cargo corner pid for the co-rotated G_a (Stage 4)
+
+
 class SolverXPBD:
     """Standalone XPBD rigid solver (Stage 2 — CPU reference; device path next).
 
@@ -209,6 +229,21 @@ class SolverXPBD:
         self._self_friction = 0.0
         self._last_max_penetration = 0.0
 
+        # Reduced-modal support (Stage 3): q ∈ R^r as a native solver DOF.
+        self._modal = False
+        self._r = 0
+        self._mq = self._kq = self._dq = self._wq = None  # (r,) diagonals
+        self._q = self._qdot = None
+        self._modal_grav_acc = None
+        self._freeze_qdot = False
+        self._support: list[_SupportContact] = []
+        self.last_modal_KE = 0.0
+        self.last_modal_PE = 0.0
+        # Cargo (Stage 4): augmented modal vector Q = [q_support; a_cargo…].
+        self._cargo: dict = {}        # body_idx -> cargo body model
+        self._cargo_a: dict = {}      # body_idx -> (k,) amplitude
+        self._cargo_adot: dict = {}   # body_idx -> (k,) velocity
+
     # -- scene building -----------------------------------------------------
     def add_box(
         self,
@@ -257,11 +292,58 @@ class SolverXPBD:
         self._self_friction = float(default_friction)
 
     # -- reduced-modal support (Stage 3) -----------------------------------
-    def set_modal_support(self, *args, **kwargs) -> None:
-        raise NotImplementedError(_STAGE3)
+    def set_modal_support(
+        self,
+        Mq: np.ndarray,
+        Kq: np.ndarray,
+        Dq: np.ndarray,
+        *,
+        q0: np.ndarray | None = None,
+        qdot0: np.ndarray | None = None,
+        f_q_grav: np.ndarray | None = None,
+    ) -> None:
+        """Install the support's modal amplitude q ∈ ℝ^r as native XPBD DOF
+        (two_band_coupling.html — "the two kinds of unknowns"). Mass-normalized
+        modes ⇒ M_q = I, K_q = diag(ω²), D_q the Rayleigh modal damping. q is
+        carried with q̇ and projected per-mode (compliant α_i = 1/K_q[i,i],
+        Macklin §3.5 damped) in the same GS sweep as the rigid contacts; the
+        support-contact rows read the live surface y_rest + U_y·q. No coupler."""
+        Mq = np.asarray(Mq, dtype=np.float64)
+        Kq = np.asarray(Kq, dtype=np.float64)
+        Dq = np.asarray(Dq, dtype=np.float64)
+        r = int(Mq.shape[0])
+        self._r = r
+        self._mq = np.diag(Mq).copy()
+        self._kq = np.diag(Kq).copy()
+        self._dq = np.diag(Dq).copy()
+        self._wq = np.where(self._mq > 0.0, 1.0 / np.maximum(self._mq, 1e-300), 0.0)
+        self._q = (np.zeros(r) if q0 is None
+                   else np.asarray(q0, dtype=np.float64).copy())
+        self._qdot = (np.zeros(r) if qdot0 is None
+                      else np.asarray(qdot0, dtype=np.float64).copy())
+        # constant modal gravity acceleration M_q⁻¹ f_q^grav (added in predict)
+        if f_q_grav is None:
+            self._modal_grav_acc = np.zeros(r)
+        else:
+            self._modal_grav_acc = self._wq * np.asarray(f_q_grav, dtype=np.float64)
+        self._modal = True
 
-    def add_support_contact_corner(self, *args, **kwargs) -> int:
-        raise NotImplementedError(_STAGE3)
+    def add_support_contact_corner(
+        self,
+        body: RigidBody,
+        off_a: tuple[float, float, float],
+        y_rest: float,
+        U_y_row: np.ndarray,
+        stiffness: float = 1.0e9,  # accepted for interface parity (XPBD: compliance)
+    ) -> int:
+        """Add one unilateral support-contact row: body corner `off_a` rests on
+        the live modal surface y_rest + U_y·q (foundation "Contact as a constraint
+        on (z, q)"). Returns the row index in `self._support`."""
+        idx = len(self._support)
+        self._support.append(_SupportContact(
+            int(body.index) if hasattr(body, "index") else int(body),
+            off_a, y_rest, U_y_row))
+        return idx
 
     # -- cargo (Stage 4) ----------------------------------------------------
     def add_cargo(self, *args, **kwargs) -> None:
@@ -314,6 +396,21 @@ class SolverXPBD:
             X[i] += h * V[i]
             Q[i] = _quat_integrate(Q[i], W[i], h)
 
+        # ---- modal predict (two_band_coupling.html, Approach B) ---------
+        # q̃ = qⁿ + h·q̇ⁿ + h²·M_q⁻¹f_q^grav. freeze_qdot deletes the inertial
+        # advance (h_pred=0) — the counterfactual that removes the modal inertia
+        # term, so q cannot ring (KE ≈ 0). The per-mode elastic constraint pulls
+        # q̃ back in the GS sweep.
+        modal_qn = None
+        if self._modal:
+            modal_qn = self._q.copy()
+            h_pred = 0.0 if self._freeze_qdot else h
+            self._q = (self._q + h_pred * self._qdot
+                       + (h * h) * self._modal_grav_acc)
+            self._lam_q = np.zeros(self._r)
+            for sc in self._support:
+                sc.lam = 0.0
+
         # ---- generate contacts at the predicted pose --------------------
         contacts = self._collect_contacts()
 
@@ -326,9 +423,14 @@ class SolverXPBD:
         # delta it keys off).
         a_tilde = (self.contact_compliance / (h * h)
                    if self.contact_compliance > 0.0 else 0.0)
+        inv_h2 = 1.0 / (h * h)
         for _ in range(self.iterations):
             for c in contacts:
                 self._project_normal(c, a_tilde)
+            if self._modal:
+                self._project_modal_elastic(modal_qn, h, inv_h2)
+                for sc in self._support:
+                    self._project_support(sc, a_tilde)
 
         # ---- velocity update v = (x − x_prev)/h, ω = log(Δq)/h ----------
         for i in range(n):
@@ -337,6 +439,20 @@ class SolverXPBD:
             V[i] = (X[i] - x_prev[i]) / h
             dq = _quat_mul(Q[i], _quat_inv(q_prev[i]))
             W[i] = _quat_to_rotvec(dq) / h
+
+        # ---- modal velocity q̇ = (q − qⁿ)/h + diagnostics ---------------
+        if self._modal:
+            if self._freeze_qdot:
+                # Counterfactual: q̇ ≡ 0 (the modal inertia term is deleted), so
+                # q responds only quasi-statically and carries NO modal KE. q
+                # still deflects under load (it sags) but cannot ring.
+                self._qdot = np.zeros(self._r)
+                self.last_modal_KE = 0.0
+            else:
+                self._qdot = (self._q - modal_qn) / h
+                self.last_modal_KE = 0.5 * float(
+                    self._qdot @ (self._mq * self._qdot))
+            self.last_modal_PE = 0.5 * float(self._q @ (self._kq * self._q))
 
         # ---- velocity solve (Müller 2020 §SolveVelocities) --------------
         # Per active contact: (1) inelastic normal restitution — null the
@@ -478,6 +594,66 @@ class SolverXPBD:
         pb = X[c.b] + _quat_to_R(Q[c.b]) @ c.rb
         return max(0.0, float((pb - pa) @ c.n))
 
+    # -- reduced-modal projection (Stage 3; re-expressed from the XPBD coupler)
+    def _project_modal_elastic(self, qn, h: float, inv_h2: float) -> None:
+        """Per-mode compliant modal-elastic constraint C_i = q_i with compliance
+        α_i = 1/K_q[i,i] and the Macklin §3.5 damped update (modal Rayleigh
+        D_q[i,i]) — re-expressed from reduced_coupled_xpbd_kernels.k_xpbd_elastic,
+        now native. Drives q̃ toward the elastic equilibrium each sweep; the
+        M_q/h² term (via w) gives q its inertia, so it RINGS (two-way coupling)."""
+        q, kq, wq, dq, lam = self._q, self._kq, self._wq, self._dq, self._lam_q
+        for i in range(self._r):
+            ki = kq[i]
+            if ki <= 0.0:
+                continue
+            alpha = 1.0 / ki
+            at = alpha * inv_h2
+            w = wq[i]
+            damp = dq[i]
+            gamma = at * (damp * alpha) * h if damp > 0.0 else 0.0
+            Cdot = q[i] - qn[i]
+            denom = (1.0 + gamma) * w + at
+            dlam = (-q[i] - at * lam[i] - gamma * Cdot) / denom
+            lam[i] += dlam
+            q[i] += w * dlam
+
+    def _project_support(self, sc: _SupportContact, a_tilde: float) -> None:
+        """Unilateral support-contact row: body corner rests on the live modal
+        surface y_rest + U_y·q (+ cargo flex G_a·a, Stage 4). Couples the rigid
+        6-DOF (n = e_y) and the support modal q (∂C/∂q = −U_y). Re-expressed from
+        reduced_coupled_xpbd.iteration_hook's FLOOR-contact block, now native."""
+        X, Q, invm, q, wq = self._X, self._Q, self._invm, self._q, self._wq
+        bi = sc.bi
+        R = _quat_to_R(Q[bi])
+        r_w = R @ sc.off
+        corner_y = X[bi][1] + r_w[1]
+        surf = sc.y_rest + float(sc.U_y @ q)
+        # cargo flex (Stage 4): the cube's deformed corner adds (R·Φ_c·a)_y
+        g_a = None
+        if sc.cargo_bi >= 0:
+            g_a, flex = self._cargo_support_grad(sc)
+            surf += flex
+        C = corner_y - surf
+        if C >= 0.0 and sc.lam == 0.0:
+            return
+        j_ang = np.array([-r_w[2], 0.0, r_w[0]])   # cross(r_w, e_y)
+        inv_Iw = self._inv_I_world(bi, R)
+        w = invm[bi] + float(j_ang @ (inv_Iw @ j_ang))
+        w += float(np.sum(sc.U_y * sc.U_y * wq))
+        if g_a is not None:
+            w += float(g_a[0] @ g_a[1])   # G_aᵀ M_a⁻¹ G_a
+        dlam = (-C - a_tilde * sc.lam) / (w + a_tilde)
+        new = max(0.0, sc.lam + dlam)
+        dlam = new - sc.lam
+        sc.lam = new
+        if dlam == 0.0:
+            return
+        X[bi][1] += invm[bi] * dlam
+        Q[bi] = _quat_apply_rotvec(Q[bi], (inv_Iw @ j_ang) * dlam)
+        q += (-sc.U_y * wq) * dlam
+        if g_a is not None:
+            self._cargo_a[sc.cargo_bi] += g_a[1] * dlam   # ∂C/∂a = +G_a
+
     def _project_normal(self, c: _Contact, a_tilde: float) -> None:
         """One compliant projection of the NORMAL contact (unilateral, λ_n ≥ 0).
         Resolves penetration only (gap C < 0); friction is a velocity pass."""
@@ -612,11 +788,11 @@ class SolverXPBD:
 
     @property
     def modal_q(self) -> np.ndarray | None:
-        return None
+        return None if not self._modal else self._q.copy()
 
     @property
     def modal_qdot(self) -> np.ndarray | None:
-        return None
+        return None if not self._modal else self._qdot.copy()
 
     @property
     def max_penetration(self) -> float:
