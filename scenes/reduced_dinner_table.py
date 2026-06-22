@@ -193,13 +193,11 @@ def build_reduced_dinner_table(
     rs.probe_body_indices = list(tracked)
 
     coupler = None
+    coupler = None
     if solver == "native":
         # Native dynamic two-way modal constraint (two_band_coupling.html): q is
-        # a solver DOF, no coupler. M1 is rigid-impactor only (cargo_material
-        # must be None); the deformable pot path stays on the coupler.
-        if cargo_material is not None:
-            raise ValueError(
-                "solver='native' does not support deformable cargo yet (M2)")
+        # a solver DOF, no coupler. Deformable cargo (M2) joins the augmented
+        # modal vector via add_native_cargo (fem_rigid/fem/abd).
         world.enable_reduced_modal_support(
             rs, tracked_body_indices=tracked,
             shelf_length=table_length, shelf_width=table_width,
@@ -225,7 +223,10 @@ def build_reduced_dinner_table(
         size = 2.0 * float(min(pot_h))
         cargo_cube = make_cargo_cube(cargo_material, size=size,
                                      mass=float(pot_mass))
-        coupler.add_cargo(cargo_avbd_idx, cargo_cube)
+        if coupler is None:                       # native path (no coupler)
+            world.add_native_cargo(cargo_avbd_idx, cargo_cube)
+        else:
+            coupler.add_cargo(cargo_avbd_idx, cargo_cube)
 
     return DinnerSceneHandle(
         world=world, rs=rs,

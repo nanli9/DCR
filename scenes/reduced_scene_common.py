@@ -199,15 +199,8 @@ def build_support_and_attach(
 
     if solver == "native":
         # Native dynamic two-way modal constraint (two_band_coupling.html,
-        # Approach B): q is a solver DOF, no coupler. M1 supports rigid
-        # impactors only (cargo deformation is M2).
-        if cargo_material is not None:
-            raise ValueError(
-                "solver='native' deformable cargo in the 4 production scenes is "
-                "a follow-on (Stage-7) integration. Native fem_rigid cargo is "
-                "available now via scenes.reduced_fem_rigid_cargo.build_cargo_scene("
-                "solver='native'); use cargo_material=None here for the bare "
-                "native modal path.")
+        # Approach B): q is a solver DOF, no coupler. Deformable cargo (M2) joins
+        # the augmented modal vector via add_native_cargo (fem_rigid/fem/abd).
         world.enable_reduced_modal_support(
             rs,
             tracked_body_indices=tracked,
@@ -217,6 +210,17 @@ def build_support_and_attach(
             n_grid_x=N_GRID_X,
             n_grid_z=N_GRID_Z,
         )
+        if cargo_material is not None and cargo_impactor_dcr is not None:
+            desc = world._descs[cargo_impactor_dcr]
+            avbd_idx = int(desc.avbd_body.index)
+            imp = next(b for b in bodies if b.dcr_idx == cargo_impactor_dcr)
+            size = 2.0 * float(min(imp.half_extents))
+            mass = float(desc.dcr_body.mass)
+            cube = make_cargo_cube(cargo_material, size=size, mass=mass,
+                                   n_elastic=cargo_n_elastic)
+            world.add_native_cargo(avbd_idx, cube)
+            rs._native_cargo_cube = cube           # read back by the scene
+            rs._native_cargo_avbd_idx = avbd_idx
         return rs
     elif solver == "xpbd":
         coupler = world.attach_reduced_coupled_xpbd(

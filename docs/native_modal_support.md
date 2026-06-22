@@ -225,24 +225,41 @@ hook (`Solver6DOF.add_cargo_native` / `world.add_native_cargo`).
   coupler's cross-term Schur — the same M1 trade-off). The couplers are NEVER
   touched (additive native path).
 
+### All three materials + the production scenes
+
+- **fem** (corotate=False, world-fixed modes) — `_cargo_freeze_and_W` already
+  branches on `body.corotate` (`G_a = n̂ᵀ·Φ_c` vs `n̂ᵀ·R·Φ_c`), so it was free.
+- **abd** (`ABDAffineBody`, `d = vec(F−I) ∈ ℝ^9`) — same co-rotated contact
+  coupling (`corner_modal = B_c`), but its stiffness is the NONLINEAR quartic
+  V⊥ (`K_q = 0`): the augmented q-block adds `∂V⊥/∂d` to `g` and `∂²V⊥/∂d²` to
+  the 9×9 a-block EACH iteration (a damped Newton step). Host:
+  `internal_grad_d`/`internal_hess_d` in `_solve_q_block_cargo`. Device:
+  `k_cargo_internal` (1 thread/abd cube, disjoint blocks ⇒ race-free `+=`,
+  launched between `k_modal_gq`/`k_modal_hq` and `k_modal_solve`). abd is FULLY
+  GPU-resident + graph-captured; device V⊥ matches the host numpy V⊥ to fp64.
+  The cube shears under impact (‖FᵀF−I‖>0); V⊥ free relaxation is monotone.
+- **Production scenes** — truck/ledge/shelf/dinner take `solver="native"` +
+  `cargo_material ∈ {fem_rigid, fem, abd}` via `world.add_native_cargo` (replaces
+  the impactor's converted `SUPPORT_CONTACT` rows → cube corner pids). All 12
+  scene×material combos build/step/no-NaN, the cube deforms, cuda-resident
+  (`tests/avbd_native/test_native_production_cargo.py`, 16). The avbd/xpbd
+  couplers still drive the same scenes unchanged.
+
 ## Status / next
 
-- M1.0–M1.5 + **M1.3** (GPU-resident device q-block) + **M2 fem_rigid & fem**
-  (native cargo): **done.** The native `(z, q[, a])` path is GPU-resident on cuda
-  (device float64 augmented q-block, CUDA-graph-captured) with CPU↔warp parity.
-  `fem` (corotate=False, world-fixed modes) was free over fem_rigid — the path
-  already branches on `body.corotate`.
-- **M2 abd cargo:** follow-on increment — abd's stiffness is the nonlinear `V⊥`
-  (`Kq_block = 0`, `has_nonlinear_internal`), so the augmented q-block needs the
-  per-iteration `internal_grad_d`/`internal_hess_d` wired in (real work, not a
-  flag). The 4 production scenes (truck/ledge/shelf/dinner) with native cargo are
-  the broader Stage-7 integration; `build_cargo_scene(solver="native")` is the
-  canonical demo.
-- **Known pre-existing failure (NOT M1.3/M2):** `test_native_stacks.py::
+- **M1.3 + M2 (fem_rigid, fem, abd) — ALL DONE.** The native `(z, q[, a])` path
+  is GPU-resident on cuda (device float64 augmented q-block, CUDA-graph-captured)
+  with CPU↔warp parity to fp64, across all three cargo materials, in the dedicated
+  `build_cargo_scene(solver="native")` and the 4 production scenes. No coupler is
+  ever touched (additive path; avbd/xpbd still drive the same scenes).
+- **Known pre-existing failures (NOT M1.3/M2):** `test_native_stacks.py::
   test_truck_lumber_stack_rides_ring_and_holds` topples to 180° on a clean tree
-  (block-GS relax=0.1 no longer holds the truck 4-high lumber). Confirmed
-  independent of the device q-block and the cargo path. Plus 3 avbd/xpbd **coupler**
-  test failures pre-existing at HEAD (the no-touch path) — tracked separately.
+  (block-GS relax=0.1 no longer holds the truck 4-high lumber — a rigid-stack
+  scene-param issue, confirmed independent of the device q-block and cargo path).
+  Plus 3 avbd/xpbd **coupler** test failures pre-existing at HEAD (the no-touch
+  path) — tracked separately.
+- **Remaining polish (not blocking):** wire the deformable cube skinning into the
+  unified viser for the native cargo path; a native-cargo viser material dropdown.
 - **Known pre-existing failure (NOT M1.3):** `test_native_stacks.py::
   test_truck_lumber_stack_rides_ring_and_holds` topples to 180° on a clean tree
   (block-GS relax=0.1 no longer holds the truck 4-high lumber under the current
