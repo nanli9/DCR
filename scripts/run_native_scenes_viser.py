@@ -8,7 +8,8 @@ One viewer over the full matrix:
   * solver   — avbd (Schur–Newton, Stages 3–5) | xpbd (compliant Gauss–Seidel,
                Stage 6). Flip to compare the two device-resident primals of the
                SAME dynamic two-way constraint (two_band_coupling.html).
-  * material — fem_rigid | abd | fem (the deformable impactor's body model).
+  * material — rigid | fem_rigid | abd | fem (the impactor's body model; "rigid"
+               is the plain 6-DOF k=0 baseline that carries no deformation).
   * device   — cpu | cuda:0 (GPU-resident on CUDA).
 
 Knobs mirror `scripts/run_reduced_scene_viser.py` (the decorated-asset viewer):
@@ -60,13 +61,15 @@ from scenes.reduced_shelf import build_reduced_shelf
 from scenes.reduced_dinner_table import build_reduced_dinner_table
 
 N_GRID_X, N_GRID_Z = 21, 11
-KINDS = ("fem_rigid", "abd", "fem")
+KINDS = ("rigid", "fem_rigid", "abd", "fem")
 SOLVERS = ("avbd", "xpbd", "native")
 SCENES = ("cargo", "truck", "ledge", "shelf", "dinner")
 _PROD = {"truck": build_reduced_truck, "ledge": build_reduced_ledge,
          "shelf": build_reduced_shelf, "dinner": build_reduced_dinner_table}
-_CUBE_COLOR = {"fem_rigid": (77, 140, 217), "abd": (217, 120, 77),
-               "fem": (120, 200, 120)}
+# "rigid" (k=0) is the plain 6-DOF rigid cube — the no-deformation baseline; a
+# neutral gray distinguishes it from the deformable materials.
+_CUBE_COLOR = {"rigid": (150, 155, 165), "fem_rigid": (77, 140, 217),
+               "abd": (217, 120, 77), "fem": (120, 200, 120)}
 _EXAG_MAX = 2000.0
 
 
