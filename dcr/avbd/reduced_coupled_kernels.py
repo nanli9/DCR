@@ -233,14 +233,22 @@ def k_rowforce(
 def k_hq(
     r: int,
     counts: wp.array(dtype=int),
+    Mq: wp.array2d(dtype=wp.float64),
     Kq: wp.array2d(dtype=wp.float64),
+    Dq: wp.array2d(dtype=wp.float64),
+    inv_dt2: wp.float64,
+    inv_dt: wp.float64,
     row_U_y: wp.array2d(dtype=wp.float64),
     rowdata: wp.array2d(dtype=wp.float64),
     Hq: wp.array2d(dtype=wp.float64),
 ):
-    """H_q[a,b] = K_q[a,b] + Σ_row k·U_y[a]·U_y[b]. dim = (r, r)."""
+    """Dynamic modal Hessian (two_band_coupling.html):
+        H_q[a,b] = 1/h²·M_q[a,b] + 1/h·D_q[a,b] + K_q[a,b]
+                   + Σ_row k·U_y[a]·U_y[b].
+    The 1/h²·M_q and 1/h·D_q terms are the only change from the static
+    coupler. dim = (r, r)."""
     a, b = wp.tid()
-    acc = Kq[a, b]
+    acc = inv_dt2 * Mq[a, b] + inv_dt * Dq[a, b] + Kq[a, b]
     nrows = counts[2]
     for rr in range(nrows):
         acc += rowdata[rr, 0] * row_U_y[rr, a] * row_U_y[rr, b]
@@ -251,25 +259,70 @@ def k_hq(
 def k_g(
     r: int,
     counts: wp.array(dtype=int),
+    Mq: wp.array2d(dtype=wp.float64),
     Kq: wp.array2d(dtype=wp.float64),
-    q_s: wp.array(dtype=wp.float64),
+    Dq: wp.array2d(dtype=wp.float64),
+    inv_dt2: wp.float64,
+    inv_dt: wp.float64,
+    q: wp.array(dtype=wp.float64),
+    q_hat: wp.array(dtype=wp.float64),
+    q_prev: wp.array(dtype=wp.float64),
     row_U_y: wp.array2d(dtype=wp.float64),
     rowdata: wp.array2d(dtype=wp.float64),
     gq: wp.array(dtype=wp.float64),
     Fq: wp.array(dtype=wp.float64),
 ):
-    """g_q[a] = (K_q·q_s)[a] − Σ_row f·U_y[a];  F_q[a] = Σ_row f·U_y[a].
-    dim = r."""
+    """Dynamic modal gradient (two_band_coupling.html):
+        g_q[a] = Σ_b [1/h²·M_q[a,b]·(q[b]−q̃[b])
+                      + 1/h·D_q[a,b]·(q[b]−qⁿ[b])
+                      + K_q[a,b]·q[b]]  − Σ_row f·U_y[a]
+    with q̃ = q_hat (predictor) and qⁿ = q_prev (substep start). The damping
+    term is the IMPLICIT 1/h·D_q(q−qⁿ) — consistent with the 1/h·D_q Hessian
+    and the Ė = −q̇ᵀD_qq̇ ≤ 0 passivity proof. F_q[a] = Σ_row f·U_y[a] is the
+    modal contact-load projection (diagnostic). dim = r."""
     a = wp.tid()
-    kqs = wp.float64(0.0)
+    inertial = wp.float64(0.0)
     for b in range(r):
-        kqs += Kq[a, b] * q_s[b]
+        inertial += (inv_dt2 * Mq[a, b] * (q[b] - q_hat[b])
+                     + inv_dt * Dq[a, b] * (q[b] - q_prev[b])
+                     + Kq[a, b] * q[b])
     ff = wp.float64(0.0)
     nrows = counts[2]
     for rr in range(nrows):
         ff += rowdata[rr, 1] * row_U_y[rr, a]
-    gq[a] = kqs - ff
+    gq[a] = inertial - ff
     Fq[a] = ff
+
+
+@wp.kernel
+def k_predict(
+    r: int,
+    h: wp.float64,
+    q: wp.array(dtype=wp.float64),
+    qdot: wp.array(dtype=wp.float64),
+    q_prev: wp.array(dtype=wp.float64),
+    q_hat: wp.array(dtype=wp.float64),
+):
+    """Substep predictor (two_band_coupling.html — "Inertial predictors"):
+    snapshot qⁿ = q and form q̃ = qⁿ + h·q̇ⁿ (+ h²M_q⁻¹f_q^grav = 0 for the
+    fixed support). The predictor carries the ring velocity q̇ⁿ. dim = r."""
+    a = wp.tid()
+    q_prev[a] = q[a]
+    q_hat[a] = q[a] + h * qdot[a]
+
+
+@wp.kernel
+def k_qdot(
+    r: int,
+    inv_dt: wp.float64,
+    q: wp.array(dtype=wp.float64),
+    q_prev: wp.array(dtype=wp.float64),
+    qdot: wp.array(dtype=wp.float64),
+):
+    """Velocity update (two_band_coupling.html — "After the step"):
+    q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h. dim = r."""
+    a = wp.tid()
+    qdot[a] = (q[a] - q_prev[a]) * inv_dt
 
 
 @wp.func
@@ -547,11 +600,11 @@ def k_eps_solve(
     S: wp.array2d(dtype=wp.float64),
     rhs: wp.array(dtype=wp.float64),
     dq: wp.array(dtype=wp.float64),
-    q_s: wp.array(dtype=wp.float64),
+    q: wp.array(dtype=wp.float64),
     diag: wp.array(dtype=wp.float64),
 ):
     """ε-regularize S, solve S·dq = rhs (Gaussian elimination, partial pivot),
-    apply q_s += dq. Single thread (GE is sequential; r is small). dim = 1."""
+    apply q += dq. Single thread (GE is sequential; r is small). dim = 1."""
     tid = wp.tid()
     if tid != 0:
         return
@@ -607,7 +660,7 @@ def k_eps_solve(
 
     dqn = wp.float64(0.0)
     for a in range(r):
-        q_s[a] = q_s[a] + dq[a]
+        q[a] = q[a] + dq[a]
         dqn += dq[a] * dq[a]
     diag[2] = wp.sqrt(dqn)
 
@@ -671,7 +724,7 @@ def make_k_eps_solve_tiled(r: int):
         S: wp.array2d(dtype=wp.float64),
         rhs: wp.array(dtype=wp.float64),
         dq: wp.array(dtype=wp.float64),
-        q_s: wp.array(dtype=wp.float64),
+        q: wp.array(dtype=wp.float64),
         diag: wp.array(dtype=wp.float64),
     ):
         # ε from the per-body ρ scores (same reduction as k_eps_solve; n_b ≤ a
@@ -690,11 +743,11 @@ def make_k_eps_solve_tiled(r: int):
         bt = wp.tile_load(rhs, shape=R)
         xt = wp.tile_cholesky_solve(L, bt)
 
-        # dq = Δq_s ; q_s += dq ; ‖dq‖ → diag[2].
+        # dq = Δq ; q += dq ; ‖dq‖ → diag[2].
         wp.tile_store(dq, xt)
-        qt = wp.tile_load(q_s, shape=R)
+        qt = wp.tile_load(q, shape=R)
         qt = qt + xt
-        wp.tile_store(q_s, qt)
+        wp.tile_store(q, qt)
         sq = wp.tile_map(_sq_f64, xt)
         nrm = wp.tile_sum(sq)
         dqn2 = wp.tile_extract(nrm, 0)  # uniform across the block
@@ -813,11 +866,13 @@ def k_anchor(
     tracked_rows: wp.array(dtype=int),
     U_y_stack: wp.array2d(dtype=wp.float64),
     floor_y_rest: wp.array(dtype=wp.float64),
-    q_s: wp.array(dtype=wp.float64),
+    q_coord: wp.array(dtype=wp.float64),
     diag: wp.array(dtype=wp.float64),
     c_world_anchor: wp.array(dtype=wp.vec3),
 ):
-    """anchor.y = floor_y_rest + U_y_stack·q_s. dim = cap_rows."""
+    """anchor.y = floor_y_rest + U_y_stack·q_coord (the deformed surface the
+    bodies rest on). `q_coord` is the predictor q̃ at substep begin, or the
+    updated full q at an in-loop refresh. dim = cap_rows."""
     tr = wp.tid()
     if tr >= counts[1]:
         return
@@ -826,27 +881,10 @@ def k_anchor(
     ri = tracked_rows[tr]
     dy = wp.float64(0.0)
     for c1 in range(r):
-        dy += U_y_stack[tr, c1] * q_s[c1]
+        dy += U_y_stack[tr, c1] * q_coord[c1]
     anc = c_world_anchor[ri]
     c_world_anchor[ri] = wp.vec3(anc[0], wp.float32(floor_y_rest[tr] + dy),
                                  anc[2])
-
-
-@wp.kernel
-def k_anchor_lp(
-    r: int,
-    q_s: wp.array(dtype=wp.float64),
-    a_lp: wp.float64,
-    q_s_anchor_lp: wp.array(dtype=wp.float64),
-):
-    """EMA low-pass of q_s for the contact anchor (collision-kick + rock fix):
-        q_s_anchor_lp += a_lp·(q_s − q_s_anchor_lp).
-    Routes only the smooth static-sag part of q_s into the anchor so an impact
-    spike in q_s no longer jumps the surface under a body. dim = r."""
-    i = wp.tid()
-    if i >= r:
-        return
-    q_s_anchor_lp[i] = q_s_anchor_lp[i] + a_lp * (q_s[i] - q_s_anchor_lp[i])
 
 
 # ===========================================================================
@@ -906,209 +944,115 @@ def k_eval_basis(
 
 
 @wp.kernel
-def k_iir_precompute(
+def k_eval_cargo(
+    q: wp.array(dtype=wp.quat),
+    counts: wp.array(dtype=int),
     r: int,
-    q_d: wp.array(dtype=wp.float64),
-    qdot_d: wp.array(dtype=wp.float64),
-    omega: wp.array(dtype=wp.float64),
-    zeta: wp.array(dtype=wp.float64),
-    mass: wp.array(dtype=wp.float64),
-    h: wp.float64,
-    q_free: wp.array(dtype=wp.float64),
-    qdot_free: wp.array(dtype=wp.float64),
-    S_h_diag: wp.array(dtype=wp.float64),
-    T_h_diag: wp.array(dtype=wp.float64),
+    R_tot: int,
+    row_body: wp.array(dtype=int),
+    row_cargo_off: wp.array(dtype=int),
+    row_cargo_k: wp.array(dtype=int),
+    row_cargo_corot: wp.array(dtype=int),
+    row_corner_modal: wp.array3d(dtype=wp.float64),
+    row_U_y: wp.array2d(dtype=wp.float64),
 ):
-    """Per-mode exact resonator precompute (eigen path). Device port of
-    exact_modal_step_precompute (exact_resonator.py); branch ladder
-    frozen/rigid/critical/over/under. dim = r."""
-    i = wp.tid()
-    if i >= r:
+    """Co-rotated fem_rigid cargo modal gradient into the AUGMENTED row_U_y
+    cargo columns [r:R] (Stage 3, two_band_coupling.html generalized):
+
+        row_U_y[rr, off+j] = −G_a[j] = −(R·Φ_c)[1, j] = −Σ_d R[1,d]·Φ_c[d,j]
+
+    The device row_U_y convention is +U_y in the support cols / −G_a in the
+    cargo cols, so the existing `−Σ f·U_y` (k_g), `Σ k·U_y·U_y` (k_hq) and
+    `−k·U_y` (k_body_cross / k_anchor) reductions produce, for the cargo block,
+    exactly the CPU augmented per-row gradient G_row = [−U_y | +G_a] — no kernel
+    logic changes, only the modal dimension grows r → R. R is frozen for the
+    substep (computed here at substep begin) — the per-cube analogue of the
+    support's frozen U_y. dim = cap_rows; non-cargo rows just zero [r:R]."""
+    rr = wp.tid()
+    if rr >= counts[2]:
         return
-    q = q_d[i]
-    qd = qdot_d[i]
-    m = mass[i]
-    om = omega[i]
-    ze = zeta[i]
-
-    safe_mass = m
-    if not (m > wp.float64(0.0)):
-        safe_mass = wp.float64(1.0)
-    safe_omega = om
-    if not (om > wp.float64(1e-12)):
-        safe_omega = wp.float64(1.0)
-    frozen = not (wp.isfinite(m) != 0 and m > wp.float64(0.0))
-    rigid = (not frozen) and (
-        (om * h < wp.float64(1e-6)) or (om < wp.float64(1e-12)))
-    crit = (not frozen) and (not rigid) and (
-        wp.abs(ze - wp.float64(1.0)) < wp.float64(1e-6))
-    over = (not frozen) and (not rigid) and (not crit) and (
-        ze > wp.float64(1.0))
-
-    ai = ze * safe_omega
-    ki = safe_mass * safe_omega * safe_omega
-    safe_ki = wp.max(ki, wp.float64(1e-40))
-    E = wp.exp(-ai * h)
-
-    qf = q
-    qdf = qd
-    S = wp.float64(1e-18)
-    T = wp.float64(0.0)
-    if frozen:
-        qf = q
-        qdf = qd
-        S = wp.float64(1e-18)
-        T = wp.float64(0.0)
-    elif rigid:
-        qf = q + h * qd
-        qdf = qd
-        S = (h * h) / (wp.float64(2.0) * safe_mass)
-        T = h / safe_mass
-    elif crit:
-        wh = safe_omega * h
-        qf = E * ((wp.float64(1.0) + wh) * q + h * qd)
-        qdf = E * (-(safe_omega * safe_omega) * h * q
-                   + (wp.float64(1.0) - wh) * qd)
-        S = (wp.float64(1.0) - E * (wp.float64(1.0) + wh)) / safe_ki
-        T = E * h / safe_mass
-    elif over:
-        wd = safe_omega * wp.sqrt(wp.max(ze * ze - wp.float64(1.0),
-                                         wp.float64(1e-30)))
-        ch = wp.cosh(wd * h)
-        sh = wp.sinh(wd * h)
-        aow = ai / wd
-        qf = E * ((ch + aow * sh) * q + (sh / wd) * qd)
-        qdf = E * (-(safe_omega * safe_omega / wd) * sh * q
-                   + (ch - aow * sh) * qd)
-        S = (wp.float64(1.0) - E * (ch + aow * sh)) / safe_ki
-        T = E * sh / (safe_mass * wd)
-    else:
-        wd = safe_omega * wp.sqrt(wp.max(wp.float64(1.0) - ze * ze,
-                                         wp.float64(1e-30)))
-        c = wp.cos(wd * h)
-        s = wp.sin(wd * h)
-        aow = ai / wd
-        qf = E * ((c + aow * s) * q + (s / wd) * qd)
-        qdf = E * (-(safe_omega * safe_omega / wd) * s * q
-                   + (c - aow * s) * qd)
-        S = (wp.float64(1.0) - E * (c + aow * s)) / safe_ki
-        T = E * s / (safe_mass * wd)
-
-    q_free[i] = qf
-    qdot_free[i] = qdf
-    S_h_diag[i] = wp.max(S, wp.float64(1e-18))
-    T_h_diag[i] = T
+    for c in range(r, R_tot):
+        row_U_y[rr, c] = wp.float64(0.0)
+    off = row_cargo_off[rr]
+    if off < 0:
+        return
+    kk = row_cargo_k[rr]
+    if row_cargo_corot[rr] == 0:
+        # world-fixed (fem): G_a = n̂ᵀ·Φ_c = the y-row of Φ_c (no co-rotation).
+        for j in range(kk):
+            row_U_y[rr, off + j] = -row_corner_modal[rr, 1, j]
+        return
+    qq = q[row_body[rr]]
+    Rm = _quat_to_R(wp.float64(qq[0]), wp.float64(qq[1]),
+                    wp.float64(qq[2]), wp.float64(qq[3]))
+    for j in range(kk):
+        ga = (Rm[1, 0] * row_corner_modal[rr, 0, j]
+              + Rm[1, 1] * row_corner_modal[rr, 1, j]
+              + Rm[1, 2] * row_corner_modal[rr, 2, j])
+        row_U_y[rr, off + j] = -ga
 
 
 @wp.kernel
-def k_modal_energy(
-    r: int,
-    q_d: wp.array(dtype=wp.float64),
-    qdot_d: wp.array(dtype=wp.float64),
-    Mq: wp.array2d(dtype=wp.float64),
-    Kq: wp.array2d(dtype=wp.float64),
-    out: wp.array(dtype=wp.float64),
-    out_idx: int,
+def k_cargo_internal(
+    n_affine: int,
+    affine_off: wp.array(dtype=int),
+    affine_kappa: wp.array(dtype=wp.float64),
+    q: wp.array(dtype=wp.float64),
+    gq: wp.array(dtype=wp.float64),
+    Hq: wp.array2d(dtype=wp.float64),
 ):
-    """out[out_idx] = ½·q̇·Mq·q̇ + ½·q·Kq·q  (modal energy). dim = 1."""
-    if wp.tid() != 0:
+    """Nonlinear affine (abd) internal V⊥ grad/Hess ADDED to the augmented gq /
+    Hq cargo block (Lan et al. 2022, ABD Eq. 6–8). One thread per affine cargo
+    body; the abd block's linear K_q is 0, so this carries the entire elastic
+    response. Re-linearized at the live deformation each iteration (V⊥ is
+    genuinely nonlinear). Disjoint 9-blocks per body ⇒ no atomics. Mirrors the
+    CPU `ABDAffineBody.internal_grad_d / internal_hess_d` exactly.
+
+    a_i = e_i + d[3i:3i+3] (the affine rows); d = q[off:off+9] = vec(F−I)."""
+    t = wp.tid()
+    if t >= n_affine:
         return
-    ke = wp.float64(0.0)
-    pe = wp.float64(0.0)
-    for a in range(r):
-        mv = wp.float64(0.0)
-        kv = wp.float64(0.0)
-        for b in range(r):
-            mv += Mq[a, b] * qdot_d[b]
-            kv += Kq[a, b] * q_d[b]
-        ke += qdot_d[a] * mv
-        pe += q_d[a] * kv
-    out[out_idx] = wp.float64(0.5) * ke + wp.float64(0.5) * pe
+    off = affine_off[t]
+    kv = affine_kappa[t]
+    A = mat33d(_ONE + q[off + 0], q[off + 1], q[off + 2],
+               q[off + 3], _ONE + q[off + 4], q[off + 5],
+               q[off + 6], q[off + 7], _ONE + q[off + 8])
+    four = wp.float64(4.0)
+    eight = wp.float64(8.0)
+    for i in range(3):
+        ai = vec3d(A[i, 0], A[i, 1], A[i, 2])
+        aii = wp.dot(ai, ai)
+        # gradient g_i = 4κ(‖a_i‖²−1)a_i + Σ_{j≠i} 4κ(a_i·a_j)a_j
+        gi = (four * kv * (aii - _ONE)) * ai
+        for j in range(3):
+            if j != i:
+                aj = vec3d(A[j, 0], A[j, 1], A[j, 2])
+                gi = gi + (four * kv * wp.dot(ai, aj)) * aj
+        for m in range(3):
+            gq[off + 3 * i + m] = gq[off + 3 * i + m] + gi[m]
+        # diagonal Hess block: 8κ a_i⊗a_i + 4κ(‖a_i‖²−1)I + Σ_{j≠i} 4κ a_j⊗a_j
+        for m in range(3):
+            for n in range(3):
+                val = eight * kv * ai[m] * ai[n]
+                if m == n:
+                    val = val + four * kv * (aii - _ONE)
+                Hq[off + 3 * i + m, off + 3 * i + n] = (
+                    Hq[off + 3 * i + m, off + 3 * i + n] + val)
+        for j in range(3):
+            if j != i:
+                aj = vec3d(A[j, 0], A[j, 1], A[j, 2])
+                aij = wp.dot(ai, aj)
+                for m in range(3):
+                    for n in range(3):
+                        Hq[off + 3 * i + m, off + 3 * i + n] = (
+                            Hq[off + 3 * i + m, off + 3 * i + n]
+                            + four * kv * aj[m] * aj[n])
+                # off-diagonal block ij: 4κ(a_j⊗a_i + (a_i·a_j)I)
+                for m in range(3):
+                    for n in range(3):
+                        val = four * kv * aj[m] * ai[n]
+                        if m == n:
+                            val = val + four * kv * aij
+                        Hq[off + 3 * i + m, off + 3 * j + n] = (
+                            Hq[off + 3 * i + m, off + 3 * j + n] + val)
 
-
-@wp.kernel
-def k_iir_apply(
-    r: int,
-    Fq: wp.array(dtype=wp.float64),
-    F_q_static_lp: wp.array(dtype=wp.float64),
-    q_free: wp.array(dtype=wp.float64),
-    qdot_free: wp.array(dtype=wp.float64),
-    S_h_diag: wp.array(dtype=wp.float64),
-    T_h_diag: wp.array(dtype=wp.float64),
-    first_substep: wp.array(dtype=int),
-    h: wp.float64,
-    tau: wp.float64,
-    q_d: wp.array(dtype=wp.float64),
-    qdot_d: wp.array(dtype=wp.float64),
-    F_q_dyn: wp.array(dtype=wp.float64),
-):
-    """EMA high-pass of the modal load → force q_d via the exact resonator.
-    q_d = q_free + S_h·F_dyn; q̇_d = q̇_free + T_h·F_dyn. dim = r."""
-    i = wp.tid()
-    if i >= r:
-        return
-    if first_substep[0] != 0:
-        alpha = wp.float64(1.0)
-    else:
-        alpha = wp.float64(1.0) - wp.exp(-h / wp.max(tau, wp.float64(1e-9)))
-    f_total = Fq[i]
-    f_static = (wp.float64(1.0) - alpha) * F_q_static_lp[i] + alpha * f_total
-    F_q_static_lp[i] = f_static
-    f_dyn = f_total - f_static
-    F_q_dyn[i] = f_dyn
-    q_d[i] = q_free[i] + S_h_diag[i] * f_dyn
-    qdot_d[i] = qdot_free[i] + T_h_diag[i] * f_dyn
-
-
-@wp.kernel
-def k_passivity(
-    r: int,
-    q_d: wp.array(dtype=wp.float64),
-    qdot_d: wp.array(dtype=wp.float64),
-    Mq: wp.array2d(dtype=wp.float64),
-    Kq: wp.array2d(dtype=wp.float64),
-    F_q_dyn: wp.array(dtype=wp.float64),
-    E_begin: wp.array(dtype=wp.float64),
-    h: wp.float64,
-    first_substep: wp.array(dtype=int),
-    pass_counter: wp.array(dtype=int),
-):
-    """Passivity log: increment counter if ΔE_q_d exceeds the work bound
-    |h·F_dyn·q̇_d|. Also clears the first-substep EMA flag (once). dim = 1."""
-    if wp.tid() != 0:
-        return
-    ke = wp.float64(0.0)
-    pe = wp.float64(0.0)
-    work = wp.float64(0.0)
-    for a in range(r):
-        mv = wp.float64(0.0)
-        kv = wp.float64(0.0)
-        for b in range(r):
-            mv += Mq[a, b] * qdot_d[b]
-            kv += Kq[a, b] * q_d[b]
-        ke += qdot_d[a] * mv
-        pe += q_d[a] * kv
-        work += F_q_dyn[a] * qdot_d[a]
-    e_end = wp.float64(0.5) * ke + wp.float64(0.5) * pe
-    dE = e_end - E_begin[0]
-    w_bound = wp.abs(h * work)
-    if dE > w_bound + wp.float64(1e-12):
-        pass_counter[0] = pass_counter[0] + 1
-    first_substep[0] = 0
-
-
-@wp.kernel
-def k_sync_total(
-    r: int,
-    q_s: wp.array(dtype=wp.float64),
-    q_d: wp.array(dtype=wp.float64),
-    qdot_d: wp.array(dtype=wp.float64),
-    q_total: wp.array(dtype=wp.float64),
-    qdot_total: wp.array(dtype=wp.float64),
-):
-    """q = q_s + q_d; q̇ = q̇_d  (sync_total_from_split). dim = r."""
-    i = wp.tid()
-    if i >= r:
-        return
-    q_total[i] = q_s[i] + q_d[i]
-    qdot_total[i] = qdot_d[i]

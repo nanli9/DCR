@@ -51,6 +51,8 @@ def build_reduced_ledge(
     modal_damping_scale: float = 1.0,
     to_eigenbasis: bool = True,
     modal_static_lp_tau: float = 0.05,
+    solver: str = "avbd",
+    cargo_material: str | None = None,
 ) -> ReducedSceneHandle:
     """Construct the ledge scene + attach the reduced-coupled AVBD support
     (the ledge). Returns a handle with per-body render metadata."""
@@ -105,8 +107,11 @@ def build_reduced_ledge(
         modal_impedance_scale=modal_impedance_scale,
         modal_damping_scale=modal_damping_scale,
         to_eigenbasis=to_eigenbasis, modal_static_lp_tau=modal_static_lp_tau,
+        solver=solver, cargo_material=cargo_material,
+        cargo_impactor_dcr=impactor_idx,
     )
 
+    coupler = world.reduced_coupled_coupler
     return ReducedSceneHandle(
         world=world, rs=rs,
         impactor_idx=impactor_idx,
@@ -114,4 +119,7 @@ def build_reduced_ledge(
         bodies=bodies,
         name="Reduced-Coordinate AVBD Cliff Ledge Rockfall",
         impactor_label="boulder",
+        cargo_cube=getattr(coupler, "_scene_cargo_cube", None),
+        cargo_avbd_idx=getattr(coupler, "_scene_cargo_avbd_idx", None),
+        cargo_material=cargo_material,
     )

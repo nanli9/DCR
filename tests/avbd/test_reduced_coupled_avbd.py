@@ -343,12 +343,14 @@ def test_static_dynamic_split_no_drift():
 # T10 (drift-fix v1). q_d rings on impact (transient visibility).
 # ---------------------------------------------------------------------------
 
-def test_q_d_rings_on_impact_under_split():
-    """Drop a 5 kg impactor; q_d (the dynamic modal part) must spike
-    during the first 0.5 s impact transient and then decay through
-    Rayleigh damping. If `peak |q_d|` ≪ steady |q_d|, the high-pass
-    isn't producing transient excitation — q_d would be a silent
-    visual hack instead of carrying real vibration."""
+def test_dynamic_q_rings_on_impact():
+    """Drop a 5 kg impactor; the FULL dynamic modal coordinate q must ring —
+    its modal kinetic energy ½q̇ᵀM_qq̇ spikes during the impact transient and
+    then decays through Rayleigh + backward-Euler damping. The earlier design
+    split this ring into a separate q_d evolved by an IIR resonator; the
+    finalized dynamic constraint (`two_band_coupling.html`) carries the ring in
+    q itself (state (q, q̇)), so the tell-tale is the modal KE, not a q_d norm.
+    """
     pytest.importorskip("warp")
     from scenes.reduced_support_shelf import build_reduced_support_shelf
 
@@ -367,17 +369,17 @@ def test_q_d_rings_on_impact_under_split():
     transient_peak = 0.0
     for k in range(60):                # ~0.5 s
         w.step()
-        transient_peak = max(transient_peak, c.last_q_d_norm)
+        transient_peak = max(transient_peak, c.last_modal_KE)
     # Then settle out to steady state.
     for _ in range(540):
         w.step()
-    steady_q_d = c.last_q_d_norm
-    # q_d must have rung non-trivially during the impact transient.
-    assert transient_peak > 1.0e-4, (
-        f"q_d did not ring during impact (peak={transient_peak:.2e}). "
-        f"Either the high-pass is over-attenuating F_q_dyn or the IIR "
-        f"step isn't being driven.")
-    # And the transient must clearly exceed the steady-state residue.
-    assert transient_peak > 5.0 * max(steady_q_d, 1.0e-12), (
-        f"q_d transient {transient_peak:.2e} not ≫ steady {steady_q_d:.2e} "
+    steady_ke = c.last_modal_KE
+    # The dynamic q must have rung non-trivially during the impact transient.
+    assert transient_peak > 1.0e-6, (
+        f"q did not ring during impact (peak modal KE={transient_peak:.2e}). "
+        f"The M_q/h² inertia term should let the impact excite the modes.")
+    # And the transient ring must clearly exceed the steady-state residue
+    # (backward Euler damps it back toward the static sag).
+    assert transient_peak > 5.0 * max(steady_ke, 1.0e-18), (
+        f"modal-KE transient {transient_peak:.2e} not ≫ steady {steady_ke:.2e} "
         f"— the impact ring should dominate the steady residual by 5×+.")

@@ -25,13 +25,22 @@ Reduce by block-Gaussian elimination (H_x is per-body 6×6 — cheap to invert):
   Δx_i   = -H_x,i⁻¹·(g_x,i + ρ J_x,i J_q,i^T · Δq)
 
 The hook fires AFTER AVBD's per-iter primal+dual round, treating the update
-as the "k+½ corrector" warm-starting iter k+1. q is quasi-static — no
-M_q·qdot, no D_q·qdot, only K_q·q. `qdot` is held at zero.
+as the "k+½ corrector" warm-starting iter k+1.
 
-# DEVIATION (Plan §1, quasi-static q): the user's spec lists E_kin,q as
-# optional. We omit M_q/h² and D_q/h to keep H_q = K_q + Σ ρ J_q J_q^T,
-# which is unambiguously the static-rest Hessian. This is intentional;
-# adding dynamics is a later step.
+The support's modal amplitude q is a DYNAMIC second-order DOF (q, q̇) — the
+finalized two-way constraint of `two_band_coupling.html` ("Approach B").
+Each backward-Euler substep (size h = h_substep) minimizes the single
+incremental potential over (z, q); the modal block carries inertia and
+damping:
+    H_q = 1/h²·M_q + 1/h·D_q + K_q + Σ_j k_j U_y,j U_y,jᵀ
+    g_q = 1/h²·M_q(q − q̃) + 1/h·D_q(q − qⁿ) + K_q q − Σ_j U_y,j f_j
+with predictor q̃ = qⁿ + h q̇ⁿ (+ h² M_q⁻¹ f_q^grav, = 0 for the fixed
+support) and the velocity update q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h after the substep.
+The cross-block −ρ J_x U_yᵀ and the per-body Schur reduction are unchanged
+from the static coupler — the dynamic terms are diagonal additions to H_q.
+Two-way and passive BY CONSTRUCTION (one shared multiplier f_j carries both
+directions; backward Euler is dissipative) — no q_s/q_d split, no IIR
+resonator, no high-pass, no η/reservoir governor (all removed).
 
 # DEVIATION (anchor restoration vs static-only): unlike
 # `reduced_support_solve.ReducedSupportCoupler` which restores anchors to
@@ -50,10 +59,6 @@ from numpy.typing import NDArray
 
 from .reduced_support import ReducedSupport, evaluate_basis_at_point
 from .reduced_support_solve import _quat_rotate_xyzw
-from ..modal.exact_resonator import (
-    dynamic_compliance_step_precompute,
-    exact_modal_step_precompute,
-)
 
 
 FLOOR_CONTACT_6DOF = 0
@@ -307,82 +312,52 @@ class ReducedCoupledAVBDCoupler:
     # flat-support scene — is unchanged. False = legacy (anchor follows q_s).
     # # DEVIATION (foundation §15): static-sag low-pass of the contact reference;
     # no equation/mass/damping change, no host round-trip.
-    anchor_static_lowpass: bool = True
-    _q_s_anchor_lp: NDArray[np.float64] | None = None
+    # DEPRECATED no-op: the dynamic constraint REQUIRES the bodies to see the
+    # full ringing q (the static low-pass would filter the very ring that
+    # drives the two-way kick — two_band_coupling.html). Kept only so legacy
+    # constructor kwargs / diag scripts don't error; it has no effect.
+    anchor_static_lowpass: bool = False
 
-    # Static-channel integration mode (rocking limit-cycle CURE, not band-aid).
-    # The sustained rotational limit cycle (proposal §6) was traced to a
-    # structural omission: the split approximated the modal ODE
-    #   M_q q̈_s + D_q q̇_s + K_q q_s = F   (paper Eq. 7)
-    # by the LOSSLESS algebraic anchor  K_q q_s = F.  Dropping M_q q̈_s is the
-    # definition of a static channel; dropping D_q q̇_s is the bug — q_s is
-    # time-varying, so the surface does work through Φ q̇_s with NO dissipation
-    # term, a lossless follower-force in unilateral-contact feedback with a
-    # rocking body (the haptics "active virtual wall" instability; Colgate's
-    # passivity bound). No loop-gain lever (anchor τ, iters, under-relaxation)
-    # can fix it because they change loop gain, not the sign of the work
-    # integral; only restoring dissipation can.
-    #   "legacy"            — K_q q_s = F (lossless; default, parity-preserving)
-    #   "damped"   (Tier 1) — restore D_q q̇_s: backward-Euler quasi-static
-    #                         channel  D_q q̇_s + K_q q_s = F  IN the Newton
-    #                         solve (Kelvin–Voigt surface impedance). Anchor LP
-    #                         is then redundant — disabled in this mode.
-    #   "static_correction" (Tier 2) — damped channel takes the RAW dual force
-    #                         and the ring is forced by −q̈_s (classical
-    #                         static-correction decomposition); the EMA split
-    #                         filter is DERIVED away (zero split parameters).
-    # # DEVIATION (foundation §15): restores the dropped D_q q̇_s term of paper
-    # Eq. 7 on the static channel; integrated in-solve by backward Euler (its
-    # numerical dissipation adds passivity margin). ζ_i > 0 per retained mode
-    # becomes a model-admissibility condition (same class as E > 0).
-    static_channel_mode: str = "legacy"
-    _q_s_substep_begin: NDArray[np.float64] | None = None
-    _qdot_s_prev: NDArray[np.float64] | None = None
-
-    # DISCRIMINATOR (not a fix): pin the modal basis SAMPLE POINT per physical
-    # corner instead of re-projecting it to the moving contact each substep.
-    # The corner then sees a frozen (locally flat) modal shape, so the
-    # slope/re-anchoring injection family (corner sliding tangentially across a
-    # sloped height field, gap vertical-only ⇒ unaccounted work λ·s·v_t) is
-    # disabled. If the sustained rock DECAYS under this (and centered stays
-    # bit-identical, since slope=0 there), the re-anchored-vertical-contact
-    # mechanism is confirmed and the real fix is the slope term in J_x.
-    pin_contact_anchor: bool = False
-    _pinned_corner_xz: dict | None = None
-    # Pump-probe diagnostic: Σ_corners f_N·(s·v_corner_t), the slope power the
-    # vertical-only gap does on the body with no conjugate channel. Computed in
-    # iteration_hook (final iter) when diagnose_slope_power is on.
-    diagnose_slope_power: bool = False
-    last_W_slope: float = 0.0
+    # Two-way counterfactual control (two_band_coupling.html — "Measured: the
+    # constraint really does couple both ways"). When True, hold q̇ ≡ 0: the
+    # predictor carries NO ring (q̃ = qⁿ) and the velocity update is skipped.
+    # This is the `SplitOneWay` control that "deletes exactly that inertia
+    # term" — energy then flows only rigid→support and the bystander cargo
+    # gets ~0 kick. Default False = the full dynamic two-way constraint.
+    freeze_qdot: bool = False
 
     # Body mass cache (filled at attach by world).
     body_mass: dict[int, float] = field(default_factory=dict)
 
-    # ---- IIR exact-resonator workspace ----
-    # Populated by substep_begin_hook for the q_d dynamic-component step.
-    #   q_free, qdot_free  — analytical free-decay response of each mode
-    #                        over the substep (no contact force).
-    #   S_h, T_h           — full (r×r) displacement compliance and
-    #                        velocity force gain over the substep. Dense
-    #                        because Mq/Kq/Dq are not in the eigenbasis
-    #                        for the synthetic plate-bending + bump basis.
-    #   S_h_inv            — cached r×r inverse of S_h; enters H_q.
-    #   last_modal_F       — implied per-mode force at substep end,
-    #                        F = S_h⁻¹ · (q_{n+1} − q_free).
-    # All None until the first substep_begin_hook fires.
-    q_free:      NDArray[np.float64] | None = None
-    qdot_free:   NDArray[np.float64] | None = None
-    S_h:         NDArray[np.float64] | None = None
-    T_h:         NDArray[np.float64] | None = None
-    S_h_inv:     NDArray[np.float64] | None = None
-    last_modal_F: NDArray[np.float64] | None = None
-    # Eigenbasis fast-path: diagonal aliases of S_h, S_h_inv, T_h as
-    # length-r vectors. Set in substep_begin_hook when rs.is_eigenbasis;
-    # None on the synthetic path. Used in iteration_hook and
-    # substep_end_hook to replace dense r×r matvec with elementwise ops.
-    S_h_diag:     NDArray[np.float64] | None = None
-    S_h_inv_diag: NDArray[np.float64] | None = None
-    T_h_diag:     NDArray[np.float64] | None = None
+    # ---- fem_rigid cargo (Stage 3) ---------------------------------------
+    # Per-tracked-body elastic modes a∈R^k coupled at the body's FLOOR
+    # contact corners through the SAME dynamic modal block as the support
+    # (two_band_coupling.html), assembled into ONE AUGMENTED global modal
+    # vector  Q = [q_support(r); a_b(k_b); ...]  with BLOCK-DIAGONAL
+    # M_q/K_q/D_q. The per-body 6×6 rigid Schur blocks are UNCHANGED; the
+    # only generalization is the per-row modal gradient, which gains the
+    # co-rotated cube term  G_a = n̂ᵀ·R·Φ_c  (FEMRigidModalBody.point_jac_tan
+    # modal columns = R·Φ_c) in that body's a-columns. The cube's corner
+    # flex (R·Φ_c·â)_y folds into the contact anchor (staggered, exactly like
+    # the support's q̂), so the C/force computation is byte-identical to the
+    # pure-rigid path. Empty `cargo` ⇒ pure-rigid cargo: the existing CPU /
+    # device paths run verbatim (the Stage-1 parity stays bit-exact).
+    cargo: dict = field(default_factory=dict)          # body_idx -> FEMRigidModalBody
+    cargo_a: dict = field(default_factory=dict)         # body_idx -> (k,)  modal amp
+    cargo_adot: dict = field(default_factory=dict)      # body_idx -> (k,)  modal vel
+    cargo_a_prev: dict = field(default_factory=dict)    # body_idx -> (k,)  aⁿ snapshot
+    cargo_a_hat: dict = field(default_factory=dict)     # body_idx -> (k,)  predictor â
+    # Per-cargo-row caches (rebuilt each substep): nearest-corner modal block
+    # and the co-rotated y-gradient G_a = n̂ᵀ·R·Φ_c FROZEN at substep begin
+    # (the support's frozen-U_y staggering, per cube — so the CPU reference and
+    # the device k_eval_cargo agree: both compute G_a once per substep).
+    _row_cargo_modal: dict = field(default_factory=dict)  # row -> (3,k) Φ_c
+    _row_cargo_Ga: dict = field(default_factory=dict)     # row -> (k,) frozen G_a
+    # Augmented layout: support occupies [0:r]; cargo body b -> (start, k).
+    _cargo_off: dict = field(default_factory=dict)
+    _Q_dim: int = 0
+    last_cargo_modal_KE: float = 0.0
+    last_cargo_modal_PE: float = 0.0
 
     # ---- Substep-resolution logging ----
     # When True, every substep_end_hook pushes a dict snapshot to
@@ -473,22 +448,15 @@ class ReducedCoupledAVBDCoupler:
     last_F_q_total_norm:  float = 0.0
     last_F_q_static_norm: float = 0.0
     last_F_q_dyn_norm:    float = 0.0
-    # Static-channel dissipation ledger (Tier 1/2): q̇_sᵀ D_q q̇_s ≥ 0, the
-    # power bled off the support-deflection rate by the restored Kelvin–Voigt
-    # dashpot. Zero in legacy mode (lossless channel). Milestone-3 evidence.
-    last_static_damp_power: float = 0.0
     last_passivity_violations: int = 0
     # Modal-load accumulator (Σ U_y·(-f) across bodies during the FINAL
     # iteration of the substep). Read by `_substep_end_split` to drive the
     # high-pass + q_d step. Reset to zeros at the start of each iteration
     # in `_iteration_split` (synthetic-basis size = r at attach time).
     _last_F_q_contact: NDArray[np.float64] | None = None
-    # Substep-start q_d energy snapshot (for the passivity log).
-    _E_q_d_substep_begin: float = 0.0
-    # First-substep flag: drives `α = 1` in the EMA on the very first
-    # substep so F_q_static_lp jumps to F_q_total instead of starting at
-    # zero and dumping the full static load into q_d.
-    _first_substep_split: bool = True
+    # Previous-substep total modal mechanical energy E = ½q̇ᵀM_qq̇ + ½qᵀK_qq,
+    # for the (logged, not enforced) backward-Euler passivity certificate.
+    _E_modal_prev: float | None = None
     # Defensive counter: incremented if any code path calls
     # `_apply_dcr_velocities` on a body the coupler tracks. In
     # --mode coupled_iir_modal this MUST stay 0 (Test 5). The old
@@ -526,8 +494,27 @@ class ReducedCoupledAVBDCoupler:
     # all run on-device; topology is uploaded ONCE; the only host readback
     # is once per macro-step for the render/HUD). See reduced_coupled_kernels.
     # ------------------------------------------------------------------
+    def add_cargo(self, body_idx: int, body) -> None:
+        """Register a fem_rigid cargo body's elastic modes for two-way modal
+        coupling at its FLOOR contact corners (Stage 3). `body` is a
+        `dcr.avbd.cargo.fem_rigid.FEMRigidModalBody`; its `a` modal amplitude
+        becomes a block of the augmented dynamic modal vector Q. Must be a
+        tracked body (its FLOOR rows already couple to the support q)."""
+        b = int(body_idx)
+        k = int(body.k)
+        self.cargo[b] = body
+        self.cargo_a[b] = np.zeros(k, dtype=np.float64)
+        self.cargo_adot[b] = np.zeros(k, dtype=np.float64)
+        self.cargo_a_prev[b] = np.zeros(k, dtype=np.float64)
+        self.cargo_a_hat[b] = np.zeros(k, dtype=np.float64)
+
     def _use_device(self, solver) -> bool:
-        """True when the device-resident path should run for this solver."""
+        """True when the device-resident path should run for this solver.
+
+        Both cargo materials are on-device: fem_rigid (LINEAR modes, K_q block)
+        and abd (NONLINEAR V⊥ via k_cargo_internal). The augmented modal kernels
+        grow row_U_y to R = r + Σk and k_eval_cargo fills the co-rotated cargo
+        gradient. The numpy path stays the parity oracle (CLAUDE.md rule 6)."""
         return bool(self.device_resident
                     and str(solver.device).startswith("cuda"))
 
@@ -550,44 +537,56 @@ class ReducedCoupledAVBDCoupler:
         f64 = wp.float64
         d = self._dbuf
 
+        # ---- AUGMENTED modal layout (Stage 3): Q = [q_support(r); a_b(k); ...]
+        # with block-diagonal M_q/K_q/D_q. cargo-empty ⇒ R == r and these are
+        # exactly the support matrices, so support-only scenes are unchanged.
+        self._cargo_off.clear()
+        R_tot = r
+        k_max = 1
+        for b in sorted(self.cargo.keys()):
+            k = int(self.cargo[b].k)
+            self._cargo_off[b] = (R_tot, k)
+            R_tot += k
+            k_max = max(k_max, k)
+        self._Q_dim = R_tot
+        self._dev_R = R_tot
+        self._dev_kmax = k_max
+        Mq_a = np.zeros((R_tot, R_tot), dtype=np.float64)
+        Kq_a = np.zeros((R_tot, R_tot), dtype=np.float64)
+        Dq_a = np.zeros((R_tot, R_tot), dtype=np.float64)
+        Mq_a[:r, :r] = self.rs.Mq
+        Kq_a[:r, :r] = self.rs.Kq
+        Dq_a[:r, :r] = self.rs.Dq
+        for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
+            Mq_a[s:s + k, s:s + k] = body.Mq_block
+            Kq_a[s:s + k, s:s + k] = body.Kq_block
+            Dq_a[s:s + k, s:s + k] = body.Dq_block
+
         # ---- modal constants (uploaded once) ----
-        d["Kq"] = wp.array(self.rs.Kq.astype(np.float64), dtype=f64, device=dev)
-        d["Mq"] = wp.array(self.rs.Mq.astype(np.float64), dtype=f64, device=dev)
-        d["Dq"] = wp.array(self.rs.Dq.astype(np.float64), dtype=f64, device=dev)
-        d["Mq_diag"] = wp.array(np.diag(self.rs.Mq).astype(np.float64),
-                                dtype=f64, device=dev)
-        d["eigen_omega"] = wp.array(
-            np.asarray(self.rs.eigen_omegas, dtype=np.float64), dtype=f64,
-            device=dev)
-        d["eigen_zeta"] = wp.array(
-            np.asarray(self.rs.eigen_zetas, dtype=np.float64), dtype=f64,
-            device=dev)
+        d["Kq"] = wp.array(Kq_a, dtype=f64, device=dev)
+        d["Mq"] = wp.array(Mq_a, dtype=f64, device=dev)
+        d["Dq"] = wp.array(Dq_a, dtype=f64, device=dev)
         d["grid_Uy"] = wp.array(
             self.rs.U_points[:, 1, :].astype(np.float64), dtype=f64,
             device=dev)
-        # ---- resident modal state ----
-        d["q_s"] = wp.zeros(r, dtype=f64, device=dev)
-        d["q_s_anchor_lp"] = wp.zeros(r, dtype=f64, device=dev)  # EMA for anchor
-        d["q_d"] = wp.zeros(r, dtype=f64, device=dev)
-        d["qdot_d"] = wp.zeros(r, dtype=f64, device=dev)
-        d["F_q_static_lp"] = wp.zeros(r, dtype=f64, device=dev)
-        d["q_free"] = wp.zeros(r, dtype=f64, device=dev)
-        d["qdot_free"] = wp.zeros(r, dtype=f64, device=dev)
-        d["S_h_diag"] = wp.zeros(r, dtype=f64, device=dev)
-        d["T_h_diag"] = wp.zeros(r, dtype=f64, device=dev)
-        d["F_q_dyn"] = wp.zeros(r, dtype=f64, device=dev)
-        d["q_total"] = wp.zeros(r, dtype=f64, device=dev)
-        d["qdot_total"] = wp.zeros(r, dtype=f64, device=dev)
-        d["escal"] = wp.zeros(4, dtype=f64, device=dev)        # [0]=E_q_d_begin
-        d["first_substep"] = wp.ones(1, dtype=int, device=dev)
-        d["pass_counter"] = wp.zeros(1, dtype=int, device=dev)
+        # ---- resident DYNAMIC modal state (q, q̇) + per-substep predictor ----
+        # The single second-order DOF of the finalized two-way constraint
+        # (two_band_coupling.html). q̇ carries the ring across substeps; q_prev
+        # = qⁿ snapshot, q_hat = predictor q̃. No q_s/q_d split, no IIR/EMA
+        # buffers (eigen_omega/zeta/Mq_diag/q_free/S_h_diag/... all removed).
+        # Augmented modal state/scratch are sized to R_tot (= r when no cargo).
+        d["q"]      = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["qdot"]   = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["q_prev"] = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["q_hat"]  = wp.zeros(R_tot, dtype=f64, device=dev)
         # ---- iteration scratch ----
-        d["Hq"] = wp.zeros((r, r), dtype=f64, device=dev)
-        d["S"] = wp.zeros((r, r), dtype=f64, device=dev)
-        d["gq"] = wp.zeros(r, dtype=f64, device=dev)
-        d["Fq"] = wp.zeros(r, dtype=f64, device=dev)
-        d["rhs"] = wp.zeros(r, dtype=f64, device=dev)
-        d["dq"] = wp.zeros(r, dtype=f64, device=dev)
+        d["Hq"] = wp.zeros((R_tot, R_tot), dtype=f64, device=dev)
+        d["S"] = wp.zeros((R_tot, R_tot), dtype=f64, device=dev)
+        d["gq"] = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["Fq"] = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["rhs"] = wp.zeros(R_tot, dtype=f64, device=dev)
+        d["dq"] = wp.zeros(R_tot, dtype=f64, device=dev)
         d["diag"] = wp.zeros(8, dtype=f64, device=dev)
         d["counts"] = wp.zeros(3, dtype=int, device=dev)  # [n_b, n_tracked, tot]
         # ---- topology (uploaded once in _upload_topology_once) ----
@@ -596,9 +595,29 @@ class ReducedCoupledAVBDCoupler:
         d["row_index"] = wp.zeros(cap_rows, dtype=int, device=dev)
         d["row_body"] = wp.zeros(cap_rows, dtype=int, device=dev)
         d["row_off"] = wp.zeros(cap_rows, dtype=vec3d, device=dev)
-        d["row_U_y"] = wp.zeros((cap_rows, r), dtype=f64, device=dev)
+        d["row_U_y"] = wp.zeros((cap_rows, R_tot), dtype=f64, device=dev)
         d["rowdata"] = wp.zeros((cap_rows, 8), dtype=f64, device=dev)
         d["floor_y_rest"] = wp.zeros(cap_rows, dtype=f64, device=dev)
+        # ---- cargo topology (fem_rigid): per-row Q-offset (−1 if not cargo),
+        # mode count, and the nearest-corner co-rotation modal block Φ_c. ----
+        d["row_cargo_off"] = wp.full(cap_rows, -1, dtype=int, device=dev)
+        d["row_cargo_k"] = wp.zeros(cap_rows, dtype=int, device=dev)
+        d["row_cargo_corot"] = wp.zeros(cap_rows, dtype=int, device=dev)
+        d["row_corner_modal"] = wp.zeros(
+            (cap_rows, 3, k_max), dtype=f64, device=dev)
+        # ---- nonlinear (abd V⊥) cargo: per-affine-body Q-offset + κ_v. ----
+        affine_offs, affine_kappas = [], []
+        for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
+            if getattr(body, "has_nonlinear_internal", False):
+                affine_offs.append(int(s))
+                affine_kappas.append(float(body.kappa_v))
+        self._dev_n_affine = len(affine_offs)
+        d["affine_off"] = wp.array(
+            np.array(affine_offs or [0], dtype=np.int32), dtype=int, device=dev)
+        d["affine_kappa"] = wp.array(
+            np.array(affine_kappas or [0.0], dtype=np.float64),
+            dtype=f64, device=dev)
         # ---- per-body block-inverse + cross scratch ----
         d["b_TL"] = wp.zeros(max_b, dtype=mat33d, device=dev)
         d["b_TR"] = wp.zeros(max_b, dtype=mat33d, device=dev)
@@ -608,18 +627,19 @@ class ReducedCoupledAVBDCoupler:
         d["b_gx1"] = wp.zeros(max_b, dtype=vec3d, device=dev)
         d["b_hg0"] = wp.zeros(max_b, dtype=vec3d, device=dev)
         d["b_hg1"] = wp.zeros(max_b, dtype=vec3d, device=dev)
-        d["Hmb_top"] = wp.zeros((max_b, r), dtype=vec3d, device=dev)
-        d["Hmb_bot"] = wp.zeros((max_b, r), dtype=vec3d, device=dev)
-        d["M"] = wp.zeros((max_b, 6, r), dtype=f64, device=dev)
+        d["Hmb_top"] = wp.zeros((max_b, R_tot), dtype=vec3d, device=dev)
+        d["Hmb_bot"] = wp.zeros((max_b, R_tot), dtype=vec3d, device=dev)
+        d["M"] = wp.zeros((max_b, 6, R_tot), dtype=f64, device=dev)
         d["rho_score"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["b_dxn"] = wp.zeros(max_b, dtype=f64, device=dev)
         d["b_dthn"] = wp.zeros(max_b, dtype=f64, device=dev)
 
         # Cached scalars.
         self._dev_inv_dt2 = 1.0 / (float(self.h_substep) ** 2)
+        self._dev_inv_dt = 1.0 / float(self.h_substep)
         self._dev_rho_clip = float(self.rho_clip)
         self._dev_eps_base = (self.eps_baseline
-                              * float(np.trace(self.rs.Kq)) / max(r, 1))
+                              * float(np.trace(Kq_a)) / max(R_tot, 1))
         self._dev_eps_cross = float(self.eps_cross_factor)
         self._dev_r = r
         self._dev_n_grid_pts = n_grid_pts
@@ -634,7 +654,7 @@ class ReducedCoupledAVBDCoupler:
         self._eps_block_dim = 64
         if is_cuda:
             from .reduced_coupled_kernels import make_k_eps_solve_tiled
-            self._k_eps_tiled = make_k_eps_solve_tiled(r)
+            self._k_eps_tiled = make_k_eps_solve_tiled(R_tot)
             # Warmup: S/rhs are freshly zeroed ⇒ solves ε·I·dq = 0 ⇒ dq = 0,
             # q_s unchanged (still zero). Forces an out-of-capture compile.
             wp.launch_tiled(
@@ -642,10 +662,9 @@ class ReducedCoupledAVBDCoupler:
                 block_dim=int(self._eps_block_dim), inputs=[
                     d["counts"], d["rho_score"], wp.float64(self._dev_eps_base),
                     wp.float64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"],
-                    d["q_s"], d["diag"]])
+                    d["q"], d["diag"]])
             wp.synchronize_device(dev)
         self._dev_h_sub = float(self.h_substep)
-        self._dev_tau = float(self.modal_static_lp_tau)
         # substeps per macro step (for once-per-step host readback).
         n_sub = int(round(self.h_macro / self.h_substep)) if self.h_substep > 0 \
             else 1
@@ -684,16 +703,32 @@ class ReducedCoupledAVBDCoupler:
         row_body = np.zeros(cap_rows, dtype=np.int32)
         row_off = np.zeros((cap_rows, 3), dtype=np.float64)
         floor_y = np.zeros(cap_rows, dtype=np.float64)
+        # fem_rigid cargo per-row topology (−1 / 0 / zeros for non-cargo rows).
+        k_max = int(self._dev_kmax)
+        row_cargo_off = np.full(cap_rows, -1, dtype=np.int32)
+        row_cargo_k = np.zeros(cap_rows, dtype=np.int32)
+        row_cargo_corot = np.zeros(cap_rows, dtype=np.int32)
+        row_corner_modal = np.zeros((cap_rows, 3, k_max), dtype=np.float64)
         start = 0
         ordered_rows: list[int] = []
         for t, b in enumerate(bodies):
             body_ids[t] = b
             body_row_start[t] = start
+            cargo_body = self.cargo.get(b)
             for i in rows_per_body[b]:
                 row_index[start] = i
                 row_body[start] = b
                 row_off[start] = off_a_np[i].astype(np.float64)
                 floor_y[start] = self.rs.floor_y_rest[i]
+                if cargo_body is not None:
+                    off_q, k = self._cargo_off[b]
+                    cid = int(np.argmin(np.linalg.norm(
+                        cargo_body.corner_body - row_off[start], axis=1)))
+                    row_cargo_off[start] = off_q
+                    row_cargo_k[start] = k
+                    row_cargo_corot[start] = int(
+                        getattr(cargo_body, "corotate", True))
+                    row_corner_modal[start, :, :k] = cargo_body.corner_modal[cid]
                 ordered_rows.append(i)
                 start += 1
         body_row_start[n_b] = start
@@ -713,18 +748,29 @@ class ReducedCoupledAVBDCoupler:
         d["row_body"].assign(row_body)
         d["row_off"].assign(row_off)
         d["floor_y_rest"].assign(floor_y)
-        # Seed resident modal state from the host truth (zeros at sim start, or
-        # whatever the coupler/rs carry on a mid-run switch).
-        d["q_s"].assign(self.rs.q_s.astype(np.float64))
-        d["q_s_anchor_lp"].assign(self.rs.q_s.astype(np.float64))
-        d["q_d"].assign(self.rs.q_d.astype(np.float64))
-        d["qdot_d"].assign(self.rs.qdot_d.astype(np.float64))
-        d["F_q_static_lp"].assign(self.rs.F_q_static_lp.astype(np.float64))
+        d["row_cargo_off"].assign(row_cargo_off)
+        d["row_cargo_k"].assign(row_cargo_k)
+        d["row_cargo_corot"].assign(row_cargo_corot)
+        d["row_corner_modal"].assign(row_corner_modal)
+        # Seed the resident AUGMENTED modal state Q = [q_support; a_cargo...]
+        # from the host truth (zeros at sim start, or carried on a mid-run
+        # switch). The support block, then each cargo body's a/ȧ block.
+        R_tot = int(self._dev_R)
+        q0 = np.zeros(R_tot, dtype=np.float64)
+        qdot0 = np.zeros(R_tot, dtype=np.float64)
+        q0[:self.rs.r] = self.rs.q
+        qdot0[:self.rs.r] = self.rs.qdot
+        for b, (s, k) in self._cargo_off.items():
+            q0[s:s + k] = self.cargo_a[b]
+            qdot0[s:s + k] = self.cargo_adot[b]
+        d["q"].assign(q0)
+        d["qdot"].assign(qdot0)
 
     def _substep_begin_device(self, solver) -> None:
-        """Device substep_begin: (one-time) identify rows + alloc + upload;
-        then per substep recompute U_y, snapshot modal energy, run the eigen
-        IIR precompute, and seed the contact anchor from q_s — all on-device."""
+        """Device substep_begin (two_band_coupling.html): (one-time) identify
+        rows + alloc + upload; then per substep recompute U_y, form the
+        inertial predictor (snapshot qⁿ, q̃ = qⁿ + h q̇ⁿ), and seed the contact
+        anchor from the FULL q̃ — all on-device, launch-only."""
         import warp as wp
         from . import reduced_coupled_kernels as K
         if not self._device_ready:
@@ -737,37 +783,33 @@ class ReducedCoupledAVBDCoupler:
         d = self._dbuf
         dev = solver.device
         r = int(self._dev_r)
+        Rt = int(self._dev_R)
         cap_rows = int(self._dev_cap_rows)
         f64 = wp.float64
-        # Recompute basis U_y at the (moving) contact corners.
+        # Support basis U_y at the (moving) contact corners → row_U_y[:, 0:r].
         wp.launch(K.k_eval_basis, dim=cap_rows, device=dev, inputs=[
             solver.x, solver.q, d["counts"], r, d["row_index"], d["row_body"],
             d["row_off"], d["grid_Uy"], int(self.n_grid_x), int(self.n_grid_z),
             f64(self.shelf_length), f64(self.shelf_width), d["row_U_y"]])
-        # Snapshot q_d modal energy (passivity reference).
-        wp.launch(K.k_modal_energy, dim=1, device=dev, inputs=[
-            r, d["q_d"], d["qdot_d"], d["Mq"], d["Kq"], d["escal"], int(0)])
-        # Eigen exact-resonator precompute on (q_d, q̇_d).
-        wp.launch(K.k_iir_precompute, dim=r, device=dev, inputs=[
-            r, d["q_d"], d["qdot_d"], d["eigen_omega"], d["eigen_zeta"],
-            d["Mq_diag"], f64(self._dev_h_sub), d["q_free"], d["qdot_free"],
-            d["S_h_diag"], d["T_h_diag"]])
-        # Seed anchors from q_s (k_anchor; diag[3]==0 in the normal case).
-        # Optional static low-pass: EMA q_s into q_s_anchor_lp and seed the
-        # anchor from THAT, so an impact spike in q_s does not jump the surface
-        # under a body and kick it (collision angular-kick + rock fix). REUSES
-        # modal_static_lp_tau — no new knob. See `anchor_static_lowpass`.
-        lp_tau = self.modal_static_lp_tau if self.anchor_static_lowpass else 0.0
-        if lp_tau > 0.0:
-            a_lp = min(1.0, float(self.h_substep) / lp_tau)
-            wp.launch(K.k_anchor_lp, dim=r, device=dev, inputs=[
-                r, d["q_s"], f64(a_lp), d["q_s_anchor_lp"]])
-            q_s_anchor = d["q_s_anchor_lp"]
-        else:
-            q_s_anchor = d["q_s"]
+        # fem_rigid cargo co-rotated modal gradient → row_U_y[:, r:R] = −G_a
+        # (frozen for the substep). Skipped (no-op) when no cargo is registered.
+        if self.cargo:
+            wp.launch(K.k_eval_cargo, dim=cap_rows, device=dev, inputs=[
+                solver.q, d["counts"], r, Rt, d["row_body"],
+                d["row_cargo_off"], d["row_cargo_k"], d["row_cargo_corot"],
+                d["row_corner_modal"], d["row_U_y"]])
+        # Inertial predictor over the AUGMENTED Q: snapshot Qⁿ = Q, Q̃ = Qⁿ +
+        # h·Q̇ⁿ (carries the support ring AND each cube's modal ring; f_q^grav =
+        # 0). Frozen control passes h = 0 ⇒ Q̃ = Qⁿ (no ring).
+        h_pred = 0.0 if self.freeze_qdot else self._dev_h_sub
+        wp.launch(K.k_predict, dim=Rt, device=dev, inputs=[
+            Rt, f64(h_pred), d["q"], d["qdot"], d["q_prev"], d["q_hat"]])
+        # Seed the contact anchor from the FULL predictor Q̃: with row_U_y =
+        # [+U_y | −G_a] and Q̃ = [q̂ | â], k_anchor yields floor + U_y·q̂ −
+        # G_a·â (deformed support surface minus the cube's corner flex).
         wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
-            r, d["counts"], d["row_index"], d["row_U_y"], d["floor_y_rest"],
-            q_s_anchor, d["diag"], solver.c_world_anchor])
+            Rt, d["counts"], d["row_index"], d["row_U_y"], d["floor_y_rest"],
+            d["q_hat"], d["diag"], solver.c_world_anchor])
 
     def _iteration_device(self, solver) -> None:
         """One coupled Schur iteration as a sequence of parallel device-kernel
@@ -777,7 +819,9 @@ class ReducedCoupledAVBDCoupler:
         from . import reduced_coupled_kernels as K
         d = self._dbuf
         dev = solver.device
-        r = int(self._dev_r)
+        # All modal-dimension kernels operate on the AUGMENTED Q (size R = r +
+        # Σ cargo k). For support-only scenes R == r, so this is unchanged.
+        r = int(self._dev_R)
         cap_rows = int(self._dev_cap_rows)
         max_b = int(self._dev_max_b)
         f64 = wp.float64
@@ -788,12 +832,25 @@ class ReducedCoupledAVBDCoupler:
             solver.c_penalty, solver.c_fmin, solver.c_fmax, solver.c_alpha_C0,
             solver.c_stiffness, d["counts"], d["row_index"], d["row_body"],
             d["row_off"], f64(self._dev_rho_clip), d["rowdata"]])
-        # 2. modal Hessian + gradient (parallel, deterministic).
+        # 2. dynamic modal Hessian + gradient (parallel, deterministic). The
+        #    1/h²·M_q and 1/h·D_q terms make q a second-order DOF
+        #    (two_band_coupling.html). g_q uses the predictor q̃ (q_hat) and
+        #    substep-start qⁿ (q_prev).
         wp.launch(K.k_hq, dim=(r, r), device=dev, inputs=[
-            r, d["counts"], d["Kq"], d["row_U_y"], d["rowdata"], d["Hq"]])
+            r, d["counts"], d["Mq"], d["Kq"], d["Dq"],
+            f64(self._dev_inv_dt2), f64(self._dev_inv_dt),
+            d["row_U_y"], d["rowdata"], d["Hq"]])
         wp.launch(K.k_g, dim=r, device=dev, inputs=[
-            r, d["counts"], d["Kq"], d["q_s"], d["row_U_y"], d["rowdata"],
+            r, d["counts"], d["Mq"], d["Kq"], d["Dq"],
+            f64(self._dev_inv_dt2), f64(self._dev_inv_dt),
+            d["q"], d["q_hat"], d["q_prev"], d["row_U_y"], d["rowdata"],
             d["gq"], d["Fq"]])
+        # 2b. nonlinear abd V⊥ grad/Hess ADDED to the cargo block (after k_hq/k_g
+        #     wrote the inertia+contact part; before k_schur/k_rhs read them).
+        if self._dev_n_affine > 0:
+            wp.launch(K.k_cargo_internal, dim=self._dev_n_affine, device=dev,
+                      inputs=[self._dev_n_affine, d["affine_off"],
+                              d["affine_kappa"], d["q"], d["gq"], d["Hq"]])
         # 3. per-body H_x assembly + block inverse (scalar/3×3 part, dim=max_b)
         #    and the r-way cross-coupling block M (dim=(max_b, r)).
         wp.launch(K.k_body, dim=max_b, device=dev, inputs=[
@@ -815,7 +872,7 @@ class ReducedCoupledAVBDCoupler:
         wp.launch(K.k_rhs, dim=r, device=dev, inputs=[
             r, d["counts"], d["gq"], d["b_hg0"], d["b_hg1"], d["M"],
             d["rhs"]])
-        # 5. ε-regularize + r×r solve + q_s update. Block-cooperative Cholesky
+        # 5. ε-regularize + r×r solve + q update. Block-cooperative Cholesky
         # (tile API) when available — replaces the single-thread GE that the
         # profiler flagged as the dominant cost; falls back to k_eps_solve on
         # CPU / when the tiled kernel is unavailable.
@@ -825,11 +882,11 @@ class ReducedCoupledAVBDCoupler:
                 block_dim=self._eps_block_dim, inputs=[
                     d["counts"], d["rho_score"], f64(self._dev_eps_base),
                     f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"],
-                    d["q_s"], d["diag"]])
+                    d["q"], d["diag"]])
         else:
             wp.launch(K.k_eps_solve, dim=1, device=dev, inputs=[
                 r, d["counts"], d["rho_score"], f64(self._dev_eps_base),
-                f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"], d["q_s"],
+                f64(self._dev_eps_cross), d["S"], d["rhs"], d["dq"], d["q"],
                 d["diag"]])
         # 6. back-substitute body deltas + diagnostics + anchor refresh.
         wp.launch(K.k_backsub, dim=max_b, device=dev, inputs=[
@@ -838,19 +895,22 @@ class ReducedCoupledAVBDCoupler:
             d["M"], d["dq"], d["diag"], d["b_dxn"], d["b_dthn"]])
         wp.launch(K.k_reduce_diag, dim=1, device=dev, inputs=[
             d["counts"], d["b_dxn"], d["b_dthn"], d["diag"]])
-        # Anchor refresh: only when monolithic (legacy). Staggered mode keeps
-        # the substep_begin seed fixed through the iteration loop to kill the
-        # rocking limit cycle (see `refresh_anchor_each_iter`).
+        # Anchor refresh from the updated full q: only when monolithic
+        # (legacy). Staggered mode keeps the substep_begin q̃ seed fixed
+        # through the iteration loop to kill the rocking limit cycle (the
+        # Δx↔Δq cross block still transmits q within the substep).
         if self.refresh_anchor_each_iter:
             wp.launch(K.k_anchor, dim=cap_rows, device=dev, inputs=[
                 r, d["counts"], d["row_index"], d["row_U_y"],
-                d["floor_y_rest"], d["q_s"], d["diag"], solver.c_world_anchor])
+                d["floor_y_rest"], d["q"], d["diag"], solver.c_world_anchor])
         self.last_n_iter_solves += 1
 
     def _substep_end_device(self, solver) -> None:
-        """Device substep_end: EMA high-pass + eigen-IIR force of q_d, passivity
-        log, and q = q_s + q_d sync — all on-device. Host readback happens only
-        ONCE per macro-step (on the last substep) for the render/HUD."""
+        """Device substep_end (two_band_coupling.html — "After the step"):
+        commit q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h on-device. That single finite-difference
+        IS the ring-carrying mechanism (it feeds the next substep's predictor).
+        Host readback happens only ONCE per macro-step (last substep) for the
+        render/HUD."""
         import warp as wp
         from . import reduced_coupled_kernels as K
         if not self._device_ready or self._dev_n_b == 0:
@@ -858,22 +918,14 @@ class ReducedCoupledAVBDCoupler:
             return
         d = self._dbuf
         dev = solver.device
-        r = int(self._dev_r)
+        Rt = int(self._dev_R)
         f64 = wp.float64
-        # EMA high-pass + force q_d/q̇_d through the exact resonator.
-        wp.launch(K.k_iir_apply, dim=r, device=dev, inputs=[
-            r, d["Fq"], d["F_q_static_lp"], d["q_free"], d["qdot_free"],
-            d["S_h_diag"], d["T_h_diag"], d["first_substep"],
-            f64(self._dev_h_sub), f64(self._dev_tau),
-            d["q_d"], d["qdot_d"], d["F_q_dyn"]])
-        # Passivity log (per substep) + clear the first-substep EMA flag.
-        wp.launch(K.k_passivity, dim=1, device=dev, inputs=[
-            r, d["q_d"], d["qdot_d"], d["Mq"], d["Kq"], d["F_q_dyn"],
-            d["escal"], f64(self._dev_h_sub), d["first_substep"],
-            d["pass_counter"]])
-        # q = q_s + q_d ; q̇ = q̇_d.
-        wp.launch(K.k_sync_total, dim=r, device=dev, inputs=[
-            r, d["q_s"], d["q_d"], d["qdot_d"], d["q_total"], d["qdot_total"]])
+        # Augmented modal velocity update: Q̇ = (Q − Qⁿ)/h (support ring AND
+        # each cube's modal ring). Frozen control skips it (Q̇ stays 0 — the
+        # two-way counterfactual).
+        if not self.freeze_qdot:
+            wp.launch(K.k_qdot, dim=Rt, device=dev, inputs=[
+                Rt, f64(self._dev_inv_dt), d["q"], d["q_prev"], d["qdot"]])
 
         # Once-per-macro-step host readback for render/HUD (the only host
         # round-trip; substep boundaries are otherwise device-only). Also when
@@ -885,126 +937,95 @@ class ReducedCoupledAVBDCoupler:
         self._substep_index += 1
 
     def _sync_device_to_host(self, solver) -> None:
-        """Pull resident modal state + diagnostics to host and recompute the
-        host-side logged scalars (norms, deflection, residual). Once per step."""
+        """Pull the resident dynamic modal state (q, q̇) + diagnostics to host
+        and recompute the host-side logged scalars (norms, deflection, energy,
+        passivity). This is the ONLY host round-trip — once per macro-step."""
         d = self._dbuf
-        self.rs.q_s = d["q_s"].numpy().astype(np.float64).copy()
-        self.rs.q_d = d["q_d"].numpy().astype(np.float64).copy()
-        self.rs.qdot_d = d["qdot_d"].numpy().astype(np.float64).copy()
-        self.rs.F_q_static_lp = d["F_q_static_lp"].numpy().astype(
-            np.float64).copy()
-        self._last_F_q_contact = d["Fq"].numpy().astype(np.float64).copy()
-        F_q_dyn = d["F_q_dyn"].numpy().astype(np.float64)
-        self.rs.sync_total_from_split()
+        r = int(self.rs.r)
+        Q = d["q"].numpy().astype(np.float64).copy()
+        Qdot = d["qdot"].numpy().astype(np.float64).copy()
+        # Split the augmented Q back: support [0:r] ⊕ each cargo a-block.
+        self.rs.q = Q[:r].copy()
+        self.rs.qdot = Qdot[:r].copy()
+        self.last_cargo_modal_KE = 0.0
+        self.last_cargo_modal_PE = 0.0
+        for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
+            self.cargo_a[b] = Q[s:s + k].copy()
+            self.cargo_adot[b] = Qdot[s:s + k].copy()
+            adot = self.cargo_adot[b]
+            self.last_cargo_modal_KE += 0.5 * float(adot @ (body.Mq_block @ adot))
+            if body.has_nonlinear_internal:
+                self.last_cargo_modal_PE += float(body.internal_energy(self.cargo_a[b]))
+            else:
+                self.last_cargo_modal_PE += 0.5 * float(
+                    self.cargo_a[b] @ (body.omega2 * self.cargo_a[b]))
+        self._last_F_q_contact = d["Fq"].numpy().astype(np.float64)[:r].copy()
         diag = d["diag"].numpy()
         self.last_max_dx_norm = float(diag[0])
         self.last_max_dtheta_norm = float(diag[1])
         self.last_dq_norm = float(diag[2])
-        self.last_passivity_violations = int(d["pass_counter"].numpy()[0])
 
         Mq, Kq, Dq = self.rs.Mq, self.rs.Kq, self.rs.Dq
-        self.last_q_s_norm = float(np.linalg.norm(self.rs.q_s))
-        self.last_q_d_norm = float(np.linalg.norm(self.rs.q_d))
-        self.last_qdot_d_norm = float(np.linalg.norm(self.rs.qdot_d))
+        self.last_q_s_norm = float(np.linalg.norm(self.rs.q))
+        self.last_q_d_norm = 0.0
+        self.last_qdot_d_norm = float(np.linalg.norm(self.rs.qdot))
         self.last_F_q_total_norm = float(np.linalg.norm(self._last_F_q_contact))
-        self.last_F_q_static_norm = float(np.linalg.norm(self.rs.F_q_static_lp))
-        self.last_F_q_dyn_norm = float(np.linalg.norm(F_q_dyn))
-        self.last_q_norm = float(np.linalg.norm(self.rs.q))
+        self.last_F_q_static_norm = 0.0
+        self.last_F_q_dyn_norm = self.last_F_q_total_norm
+        self.last_q_norm = self.last_q_s_norm
         self.last_qdot_norm = self.last_qdot_d_norm
         if self.rs.U_points.shape[0] > 0:
             disp = np.einsum("kij,j->ki", self.rs.U_points, self.rs.q)
             self.last_max_support_deflection = float(
                 np.linalg.norm(disp, axis=1).max())
-        self.last_modal_KE = 0.5 * float(self.rs.qdot_d @ (Mq @ self.rs.qdot_d))
-        self.last_modal_PE = 0.5 * float(self.rs.q_d @ (Kq @ self.rs.q_d))
-        self.last_damp_power = float(self.rs.qdot_d @ (Dq @ self.rs.qdot_d))
+        # Total modal mechanical energy + backward-Euler passivity certificate
+        # (two_band_coupling.html "Passive for free"): E = ½q̇ᵀM_qq̇ + ½qᵀK_qq
+        # may rise only up to the contact work |h·F_qᵀq̇|. Logged, not governed.
+        self.last_modal_KE = 0.5 * float(self.rs.qdot @ (Mq @ self.rs.qdot))
+        self.last_modal_PE = 0.5 * float(self.rs.q @ (Kq @ self.rs.q))
+        self.last_damp_power = float(self.rs.qdot @ (Dq @ self.rs.qdot))
+        E_now = self.last_modal_KE + self.last_modal_PE
+        W_bound = abs(float(self.h_substep)
+                      * float(self._last_F_q_contact @ self.rs.qdot))
+        if (self._E_modal_prev is not None
+                and E_now > self._E_modal_prev + W_bound + 1e-9):
+            self.last_passivity_violations += 1
+        self._E_modal_prev = E_now
         rows = self.rs.tracked_row_indices
         if rows:
             lam = solver.c_lambda.numpy()
             self.last_contact_lambda_max = float(np.max(np.abs(lam[rows])))
 
     def substep_begin_hook(self, solver) -> None:
-        """Static / dynamic split substep_begin (drift-fix v1).
+        """Dynamic-constraint substep_begin (two_band_coupling.html).
 
-        # DEVIATION (foundation §15, plan ~/.claude/plans/...fizzy-waffle):
-        the anchor is seeded from `rs.q_s` (algebraic static-sag coord)
-        instead of `q_hat = q_free` (oscillating IIR predictor). The IIR
-        precompute runs on (q_d, qdot_d), not (q, qdot), and only sets up
-        the q_d evolution that fires in substep_end. Removing the dynamic
-        component from the contact anchor closes the position-level
-        rectification loop that produced the +108 mm drift.
+        Snapshot qⁿ = q, form the inertial predictor q̃ that carries the
+        ring history q̇ⁿ, and seed the contact anchor from the FULL q̃ (the
+        deformed surface y_rest + U_y·q̃ the bodies rest on — no static
+        low-pass, no split). One backward-Euler substep of size h_substep.
         """
         # Full GPU-resident path: all substep_begin work runs on-device (basis
-        # eval, energy snapshot, eigen IIR precompute, anchor seed). The numpy
-        # body below is the reference (CLAUDE.md rule 6); CPU / device_resident
-        # off use it.
-        # Non-legacy static-channel modes run the numpy reference (CLAUDE.md
-        # rule 6 — device port follows once the CPU fix is validated).
-        if self._use_device(solver) and self.static_channel_mode == "legacy":
+        # eval, predictor, anchor seed). The numpy body below is the reference
+        # (CLAUDE.md rule 6); CPU / device_resident off use it.
+        if self._use_device(solver):
             self._substep_begin_device(solver)
             return
 
-        # 1. Snapshot dynamic state for the passivity log + EMA wake-up.
-        self.rs.q_d_prev_macro    = self.rs.q_d.copy()
-        self.rs.qdot_d_prev_macro = self.rs.qdot_d.copy()
+        # 1. Snapshot qⁿ and form the inertial predictor (two_band_coupling
+        #    "Inertial predictors"):  q̃ = qⁿ + h q̇ⁿ + h² M_q⁻¹ f_q^grav.
+        #    The predictor carries q̇ⁿ — NOT zeroed — which is the whole point
+        #    of the dynamic constraint (the ring persists across substeps).
+        #    # DEVIATION (two_band_coupling.html): f_q^grav = Uᵀf_grav = 0 for
+        #    the fixed support — its modes are zero-mean about the undeformed
+        #    rest slab (the sag is produced by the contact load at equilibrium,
+        #    not modal self-weight), so q̃ = qⁿ + h q̇ⁿ.
+        h = float(self.h_substep)
+        h_pred = 0.0 if self.freeze_qdot else h   # frozen control: q̃ = qⁿ
+        self.rs.q_prev_macro = self.rs.q.copy()
+        self.rs.q_hat = self.rs.q + h_pred * self.rs.qdot
 
-        # Snapshot q_s^n for the backward-Euler damped static channel
-        # (Tier 1/2): q̇_s = (q_s − q_s^n)/h within this substep's Newton solve.
-        if self.static_channel_mode != "legacy":
-            self._q_s_substep_begin = self.rs.q_s.copy()
-            if self._qdot_s_prev is None or self._qdot_s_prev.shape[0] != self.rs.r:
-                self._qdot_s_prev = np.zeros(self.rs.r, dtype=np.float64)
-
-        # 2. q_d energy snapshot (q_s is quasi-static, no kinetic term).
-        Mq_ = self.rs.Mq
-        Kq_ = self.rs.Kq
-        qd0 = self.rs.qdot_d
-        qn0 = self.rs.q_d
-        self._E_q_d_substep_begin = (
-            0.5 * float(qd0 @ (Mq_ @ qd0))
-          + 0.5 * float(qn0 @ (Kq_ @ qn0)))
-
-        # 3. IIR precompute on (q_d, qdot_d). Same eigenbasis / dense
-        # branching as the legacy IIR path, fed with the DYNAMIC state.
-        if getattr(self.rs, "is_eigenbasis", False):
-            mass_diag = np.diag(self.rs.Mq)
-            (q_d_free, qdot_d_free, S_diag, T_diag
-             ) = exact_modal_step_precompute(
-                self.rs.q_d, self.rs.qdot_d,
-                self.rs.eigen_omegas, self.rs.eigen_zetas,
-                mass_diag, self.h_substep)
-            S_h_inv_diag = 1.0 / S_diag
-            S_h     = np.diag(S_diag)
-            T_h     = np.diag(T_diag)
-            S_h_inv = np.diag(S_h_inv_diag)
-            self.last_min_S_h = float(S_diag.min())
-            self.last_max_S_h = float(S_diag.max())
-            self.S_h_diag     = S_diag
-            self.S_h_inv_diag = S_h_inv_diag
-            self.T_h_diag     = T_diag
-        else:
-            q_d_free, qdot_d_free, S_h, T_h = (
-                dynamic_compliance_step_precompute(
-                    self.rs.q_d, self.rs.qdot_d,
-                    self.rs.Mq, self.rs.Kq, self.rs.Dq,
-                    self.h_substep))
-            S_h_inv = np.linalg.inv(S_h)
-            diag_S = np.diag(S_h)
-            self.last_min_S_h = float(diag_S.min())
-            self.last_max_S_h = float(diag_S.max())
-            self.S_h_diag     = None
-            self.S_h_inv_diag = None
-            self.T_h_diag     = None
-        self.q_free    = q_d_free
-        self.qdot_free = qdot_d_free
-        self.S_h       = S_h
-        self.T_h       = T_h
-        self.S_h_inv   = S_h_inv
-        # DO NOT overwrite rs.q_d with q_d_free — q_d stays at its prev
-        # value during the iteration loop, and is committed in
-        # _substep_end_split using the converged F_q_dyn.
-
-        # Allocate the F_q_contact accumulator (one-shot at first use).
+        # Allocate the F_q_contact diagnostic accumulator (one-shot).
         r = self.rs.r
         if (self._last_F_q_contact is None
                 or self._last_F_q_contact.shape[0] != r):
@@ -1066,22 +1087,9 @@ class ReducedCoupledAVBDCoupler:
             qb_xyzw = orientations[ba]
             r_world = _quat_rotate_xyzw(qb_xyzw, off)
             corner_w = positions[ba] + r_world
-            # DISCRIMINATOR: pin the sample point per physical corner so the
-            # surface under it stops tracking tangential motion (locally flat).
-            if self.pin_contact_anchor:
-                if self._pinned_corner_xz is None:
-                    self._pinned_corner_xz = {}
-                key = (ba, round(float(off[0]), 5),
-                       round(float(off[1]), 5), round(float(off[2]), 5))
-                if key not in self._pinned_corner_xz:
-                    self._pinned_corner_xz[key] = (
-                        float(corner_w[0]), float(corner_w[2]))
-                sx, sz = self._pinned_corner_xz[key]
-            else:
-                sx, sz = float(corner_w[0]), float(corner_w[2])
             U_pt = evaluate_basis_at_point(
                 self.rs,
-                (sx, sz),
+                (float(corner_w[0]), float(corner_w[2])),
                 length=self.shelf_length,
                 width=self.shelf_width,
                 n_grid_x=self.n_grid_x,
@@ -1107,31 +1115,77 @@ class ReducedCoupledAVBDCoupler:
             dtype=np.float64, count=n_tracked)
         self._v_lift_arr = np.zeros(n_tracked, dtype=np.float64)
 
-        # 7. Seed anchors using q_s ONLY. No q_free, no q_d, no v_lift.
-        #    Optional static low-pass: route only the smooth (static-sag) part
-        #    of q_s into the contact anchor so an impact spike in q_s does not
-        #    jump the surface under a landing body and kick it. See
-        #    `anchor_static_lowpass`. # DEVIATION (foundation §15).
-        # Anchor LP is an INDEPENDENT knob from the static-channel mode so the
-        # two effects (band-aid surface filter vs physical channel damping) can
-        # be A/B-separated. The Tier-1/2 recommendation sets
-        # anchor_static_lowpass=False (the damped channel IS the physical
-        # low-pass); but the flag alone controls it here.
-        use_anchor_lp = self.anchor_static_lowpass
-        lp_tau = self.modal_static_lp_tau if use_anchor_lp else 0.0
-        if lp_tau > 0.0:
-            if self._q_s_anchor_lp is None:
-                self._q_s_anchor_lp = self.rs.q_s.copy()
-            a_lp = min(1.0, float(self.h_substep) / lp_tau)
-            self._q_s_anchor_lp += a_lp * (self.rs.q_s - self._q_s_anchor_lp)
-            q_s_anchor = self._q_s_anchor_lp
-        else:
-            q_s_anchor = self.rs.q_s
+        # 7. Seed anchors from the FULL inertial predictor q̃ (the deformed
+        #    surface y_rest + U_y·q̃ — sag AND ring, one curve). The dynamic
+        #    constraint REQUIRES the bodies to see the full ringing q so the
+        #    mode's inertia can push them back; the old static low-pass would
+        #    filter exactly the ring that drives the two-way kick, so it is
+        #    removed (two_band_coupling.html — "cubes ride the FULL dynamic
+        #    surface").
         anchor_new = anchor_np.copy()
-        dy_all = self._U_y_stack @ q_s_anchor
+        dy_all = self._U_y_stack @ self.rs.q_hat
         anchor_new[self._tracked_rows_arr, 1] = (
             self._floor_y_rest_arr + dy_all)
+
+        # fem_rigid cargo: form the per-body modal predictor â and fold the
+        # co-rotated corner flex (R·Φ_c·â)_y into the contact anchor so the
+        # gap stays  C = corner_rigid_y − (floor + U_y·q̂ − G_a·â)
+        #            = (deformed cube corner) − (deformed support surface).
+        # This mirrors the support's staggered q̂ seed exactly (the live a
+        # still updates through the augmented Schur block each iteration).
+        if self.cargo:
+            self._setup_cargo_substep(solver, orientations, anchor_new)
+
         solver.c_world_anchor.assign(anchor_new.astype(np.float32))
+
+    def _setup_cargo_substep(self, solver, orientations, anchor_new) -> None:
+        """Build the augmented-Q layout, the cargo modal predictors, and the
+        co-rotated corner-flex anchor offset for the current substep. See
+        `add_cargo` / the iteration_hook augmented path (two_band_coupling.html)."""
+        h = float(self.h_substep)
+        h_pred = 0.0 if self.freeze_qdot else h   # frozen control: â = aⁿ
+
+        # Augmented modal layout: support [0:r], then each cargo body's k modes.
+        self._cargo_off.clear()
+        off = int(self.rs.r)
+        for b in sorted(self.cargo.keys()):
+            k = int(self.cargo[b].k)
+            self._cargo_off[b] = (off, k)
+            off += k
+        self._Q_dim = off
+
+        # Inertial predictor per cargo body: snapshot aⁿ, â = aⁿ + h·ȧⁿ.
+        # # DEVIATION (two_band_coupling.html): the elastic modes are
+        # M-orthogonal to the 3 rigid translation modes, so Φᵀ(uniform
+        # gravity) ≈ 0 — the modal self-weight forcing f_q^grav vanishes,
+        # exactly as for the fixed support. Hence â = aⁿ + h·ȧⁿ (no h² term).
+        for b in self.cargo:
+            a = self.cargo_a[b]
+            self.cargo_a_prev[b] = a.copy()
+            self.cargo_a_hat[b] = a + h_pred * self.cargo_adot[b]
+
+        # Per cargo row: nearest cube corner's modal block Φ_c (3,k), the
+        # co-rotated y-gradient G_a = n̂ᵀ·R·Φ_c (frozen at substep begin), and
+        # the corner flex G_a·â subtracted from the anchor.
+        self._row_cargo_modal.clear()
+        self._row_cargo_Ga.clear()
+        for row in self.rs.tracked_row_indices:
+            ba = self._row_body_a[row]
+            body = self.cargo.get(ba)
+            if body is None:
+                continue
+            off_b = self._row_off_a[row]
+            cid = int(np.argmin(
+                np.linalg.norm(body.corner_body - off_b, axis=1)))
+            Phi_c = body.corner_modal[cid]                  # (3, k)
+            self._row_cargo_modal[row] = Phi_c
+            if getattr(body, "corotate", True):
+                R = _quat_xyzw_to_R(orientations[ba].astype(np.float64))
+                G_a = R[1, :] @ Phi_c                        # co-rotated y-row
+            else:
+                G_a = Phi_c[1, :].copy()                     # world-fixed (fem)
+            self._row_cargo_Ga[row] = G_a
+            anchor_new[row, 1] -= float(G_a @ self.cargo_a_hat[ba])
 
     def iteration_hook(self, solver, iter_idx: int) -> None:
         """Schur solve over q_s (drift-fix v1).
@@ -1151,10 +1205,15 @@ class ReducedCoupledAVBDCoupler:
         # Device-resident path: one warp launch, no host round-trip. The
         # numpy body below is the reference (CLAUDE.md rule 6) and runs on
         # CPU / when device_resident is False.
-        if (self._use_device(solver) and self._device_ready
-                and self.static_channel_mode == "legacy"):
+        if self._use_device(solver) and self._device_ready:
             if self._dev_n_b > 0:
                 self._iteration_device(solver)
+            return
+
+        # fem_rigid cargo present ⇒ augmented-Q Schur (support q ⊕ per-body
+        # elastic a). The pure-rigid CPU body below stays byte-identical.
+        if self.cargo:
+            self._iteration_hook_augmented(solver, iter_idx)
             return
 
         lam_np = solver.c_lambda.numpy()
@@ -1173,27 +1232,33 @@ class ReducedCoupledAVBDCoupler:
 
         h = float(self.h_substep)
         inv_dt2 = 1.0 / (h * h)
+        inv_dt = 1.0 / h
         r = self.rs.r
-        Kq = self.rs.Kq
+        Mq, Kq, Dq = self.rs.Mq, self.rs.Kq, self.rs.Dq
 
-        # Baseline H_{q_s} / g_{q_s} — algebraic (no IIR predictor).
-        # At convergence: K_q · q_s = Σ U_y · f  (the modal equilibrium
-        # under the contact load).
-        H_q = Kq.copy()
-        g_q = Kq @ self.rs.q_s
-
-        # Tier 1/2: restore D_q q̇_s on the static channel (the dropped term of
-        # paper Eq. 7). Backward Euler  D_q (q_s − q_s^n)/h + K_q q_s = F  with
-        # q_s^n frozen at substep start makes the surface a Kelvin–Voigt
-        # element (spring ∥ dashpot) so the contact↔modal loop is an
-        # interconnection of passive elements — the only lever class that can
-        # change the sign of the work integral. In-solve (not a between-substep
-        # anchor) removes the one-substep delay; backward Euler adds margin.
-        # # DEVIATION (foundation §15): restores Eq. 7's D_q q̇_s on q_s.
-        if self.static_channel_mode != "legacy":
-            Dq_over_h = self.rs.Dq / float(self.h_substep)
-            H_q = H_q + Dq_over_h
-            g_q = g_q + Dq_over_h @ (self.rs.q_s - self._q_s_substep_begin)
+        # Dynamic two-way modal block (two_band_coupling.html — "The Newton /
+        # Schur block — only H_q gains two terms"). The support's modal
+        # amplitude is a SECOND-ORDER DOF (q, q̇); one backward-Euler substep
+        # of size h = h_substep:
+        #   H_q = 1/h²·M_q + 1/h·D_q + K_q + Σ_j k_j U_y,j U_y,jᵀ
+        #   g_q = 1/h²·M_q(q − q̃) + 1/h·D_q(q − qⁿ) + K_q q − Σ_j U_y,j f_j
+        # with predictor q̃ = qⁿ + h q̇ⁿ + h² M_q⁻¹ f_q^grav (set in
+        # substep_begin) and qⁿ = q at substep start (`q_prev_macro`).
+        # The contact terms (− Σ U_y f, + Σ k U_y U_yᵀ) are added below in the
+        # per-body row walk, identically to the quasi-static path.
+        # # DEVIATION (two_band_coupling.html "Honest boundary"): the damping
+        # gradient is the IMPLICIT 1/h·D_q(q−qⁿ) (consistent with the 1/h·D_q
+        # Hessian and the Ė = −q̇ᵀD_qq̇ ≤ 0 passivity proof) — NOT the older
+        # support-only explicit form D_q·q̇ⁿ at reduced_support_solve.py:368,
+        # whose D_q/h Hessian term is only a regulariser. Both share the same
+        # Hessian; this form is the finalized, passive one.
+        q = self.rs.q
+        q_hat = self.rs.q_hat
+        q_prev = self.rs.q_prev_macro
+        H_q = inv_dt2 * Mq + inv_dt * Dq + Kq
+        g_q = (inv_dt2 * (Mq @ (q - q_hat))
+               + inv_dt * (Dq @ (q - q_prev))
+               + Kq @ q)
 
         # Reset the modal-load accumulator at the START of every
         # iteration. Only the LAST iteration's value persists into
@@ -1213,22 +1278,6 @@ class ReducedCoupledAVBDCoupler:
 
         n_hat_const = np.array([0.0, 1.0, 0.0], dtype=np.float64)
         rho_clip = self.rho_clip
-
-        # Pump probe: W_slope = Σ_corners f_N·(s·v_corner_t), s = ∇(n̂ᵀΦ)·q_s.
-        # The slope power the vertical-only gap does on the body with no
-        # conjugate channel — the term Sheldon's mechanism predicts injects.
-        if self.diagnose_slope_power:
-            _v_all = solver.v.numpy()
-            _w_all = solver.omega.numpy()
-            _W_slope = 0.0
-            _qs_now = self.rs.q_s
-            _eps = 1.0e-3
-
-            def _uy(px, pz):
-                return evaluate_basis_at_point(
-                    self.rs, (px, pz), length=self.shelf_length,
-                    width=self.shelf_width, n_grid_x=self.n_grid_x,
-                    n_grid_z=self.n_grid_z)[1]
 
         for body_idx, rows_on_body in self._rows_per_body.items():
             m = float(mass_np[body_idx])
@@ -1330,21 +1379,6 @@ class ReducedCoupledAVBDCoupler:
             # writes the value `_substep_end_split` reads.
             self._last_F_q_contact += U_y_arr.T @ f_arr
 
-            # Pump-probe accumulation for this body's corners.
-            if self.diagnose_slope_power:
-                vb = _v_all[body_idx].astype(np.float64)
-                wb = _w_all[body_idx].astype(np.float64)
-                for ii in range(n_rows_b):
-                    cw = x_curr + r_self_w_arr[ii]
-                    cx, cz = float(cw[0]), float(cw[2])
-                    sx = float((_uy(cx + _eps, cz) - _uy(cx - _eps, cz))
-                               @ _qs_now) / (2.0 * _eps)
-                    sz = float((_uy(cx, cz + _eps) - _uy(cx, cz - _eps))
-                               @ _qs_now) / (2.0 * _eps)
-                    vcorner = vb + np.cross(wb, r_self_w_arr[ii])
-                    _W_slope += float(f_arr[ii]) * (
-                        sx * vcorner[0] + sz * vcorner[2])
-
             # Cross block H_{x q_s} = ρ J_x · J_{q_s}^T = −ρ J_x · U_y^T.
             cross_body[:3, :] += j_lin_arr.T @ k_U_y
             cross_body[3:, :] += j_ang_arr.T @ k_U_y
@@ -1370,9 +1404,6 @@ class ReducedCoupledAVBDCoupler:
             per_body_Hx_inv[body_idx] = H_x_inv
             per_body_gx[body_idx] = g_x
             per_body_cross[body_idx] = -cross_body
-
-        if self.diagnose_slope_power:
-            self.last_W_slope = _W_slope
 
         # Schur reduce over q_s.
         rhs_q = -g_q
@@ -1402,9 +1433,10 @@ class ReducedCoupledAVBDCoupler:
                 cond = float('inf')
             self.last_Schur_condition_estimate = min(cond, 1e16)
 
-        # Apply Δq_s and back-substitute for body deltas.
-        q_s_new = self.rs.q_s + dq
-        self.rs.q_s = q_s_new
+        # Apply Δq to the dynamic modal coordinate, then back-substitute
+        # for the body deltas through the cross block.
+        q_new = self.rs.q + dq
+        self.rs.q = q_new
 
         max_dx = 0.0
         max_dtheta = 0.0
@@ -1431,12 +1463,15 @@ class ReducedCoupledAVBDCoupler:
         solver.x.assign(x_out)
         solver.q.assign(q_out)
 
-        # Refresh anchors with q_s_new — NO v_lift term in split mode. Only in
-        # monolithic (legacy) mode; staggered mode holds the substep_begin seed
-        # to kill the rocking limit cycle (see `refresh_anchor_each_iter`).
+        # Refresh anchors with the updated FULL q (the deformed surface the
+        # bodies rest on, y_rest + U_y·q). Only in monolithic mode; the
+        # staggered default holds the substep_begin q̃ seed through the
+        # iteration loop to kill the rocking limit cycle (the Δx↔Δq cross
+        # block still transmits q within the substep). See
+        # `refresh_anchor_each_iter`.
         if self.refresh_anchor_each_iter:
             anchor_out = anchor_np.copy()
-            dy_all = self._U_y_stack @ q_s_new
+            dy_all = self._U_y_stack @ q_new
             anchor_out[self._tracked_rows_arr, 1] = (
                 self._floor_y_rest_arr + dy_all)
             solver.c_world_anchor.assign(anchor_out.astype(np.float32))
@@ -1448,132 +1483,375 @@ class ReducedCoupledAVBDCoupler:
         self.last_iter_dq_norms.append(self.last_dq_norm)
         self.last_rho_clip_hits = rho_hits
 
-    def substep_end_hook(self, solver) -> None:
-        """Apply the high-passed modal load to q_d, sync `rs.q` for
-        back-compat, log passivity (drift-fix v1).
+    def _iteration_hook_augmented(self, solver, iter_idx: int) -> None:
+        """One coupled Schur iteration over the AUGMENTED modal vector
+        Q = [q_support(r); a_b(k_b); ...] (two_band_coupling.html, generalized
+        to moving cargo). Identical math to `iteration_hook`'s pure-rigid CPU
+        body, with three additions for each cargo body's FLOOR rows:
 
-        # DEVIATION (foundation §15, plan ~/.claude/plans/...fizzy-waffle):
-        the implied force in the legacy IIR commit was
-            F_implied = S_h^{-1}·(q_solved − q_free)
-        which converts AVBD's per-iteration q residual into a modal velocity
-        kick via T_h. That route makes q_d non-passive whenever the AL hasn't
-        fully converged. Here we replace the implied F with the FILTERED
-        actual contact load:
-            F_q_dyn = F_q_total − F_q_static_lp
-        where F_q_total = Σ U_y · f was accumulated during the final
-        iteration of `_iteration_split` and F_q_static_lp is the EMA
-        low-pass thereof. The static component flows through q_s (algebraic,
-        already absorbed into the anchor each iter); only the high-passed
-        residue forces q_d. Resting load → F_q_dyn = 0 → q_d homogeneous,
-        decays through Rayleigh damping. Impact transient → F_q_dyn ≠ 0
-        briefly → q_d rings.
+          C unchanged (the cube's corner flex is already in the anchor);
+          per-row modal gradient grows from −U_y (support) to also carry the
+          co-rotated cube term G_a = n̂ᵀ·R·Φ_c (FEMRigidModalBody, modal cols
+          = R·Φ_c) in that body's a-columns; the dynamic modal block is
+          block-diagonal (support M_q/K_q/D_q ⊕ per-cube I/Ω²/D_modal).
+
+        # DEVIATION (plan §3 "solved in its per-body block"): the cube modes
+        # are eliminated as a GLOBAL block (augmented Q), not folded into the
+        # per-body 6×6. The two orderings are exact block-Gaussian re-orderings
+        # of the SAME monolithic Newton system ⇒ identical converged Δ; this
+        # one reuses the existing Schur machinery (per-body blocks unchanged).
         """
-        # Full GPU-resident path: EMA + eigen-IIR q_d step + passivity + sync
-        # all run on-device; host readback is once per macro-step (render/HUD).
-        # The numpy body below is the reference (CLAUDE.md rule 6).
-        if self._use_device(solver) and self.static_channel_mode == "legacy":
+        rows = self.rs.tracked_row_indices
+
+        lam_np = solver.c_lambda.numpy()
+        pen_np = solver.c_penalty.numpy()
+        fmin_np = solver.c_fmin.numpy()
+        fmax_np = solver.c_fmax.numpy()
+        alpha_C0_np = solver.c_alpha_C0.numpy()
+        stiff_np = solver.c_stiffness.numpy()
+        anchor_np = solver.c_world_anchor.numpy().copy()
+        positions_np = solver.x.numpy().copy()
+        orientations_np = solver.q.numpy().copy()
+        mass_np          = self._mass_np
+        inertia_local_np = self._inertia_local_np
+        x_inertial_np    = self._x_inertial_np
+        q_inertial_np    = self._q_inertial_np
+
+        h = float(self.h_substep)
+        inv_dt2 = 1.0 / (h * h)
+        inv_dt = 1.0 / h
+        r = self.rs.r
+        R_dim = int(self._Q_dim)
+
+        # Augmented block-diagonal dynamic modal block (support ⊕ per-cube).
+        Mq_a = np.zeros((R_dim, R_dim), dtype=np.float64)
+        Kq_a = np.zeros((R_dim, R_dim), dtype=np.float64)
+        Dq_a = np.zeros((R_dim, R_dim), dtype=np.float64)
+        Mq_a[:r, :r] = self.rs.Mq
+        Kq_a[:r, :r] = self.rs.Kq
+        Dq_a[:r, :r] = self.rs.Dq
+        Q      = np.zeros(R_dim, dtype=np.float64)
+        Q_hat  = np.zeros(R_dim, dtype=np.float64)
+        Q_prev = np.zeros(R_dim, dtype=np.float64)
+        Q[:r], Q_hat[:r], Q_prev[:r] = (
+            self.rs.q, self.rs.q_hat, self.rs.q_prev_macro)
+        for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
+            # Uniform cargo blocks: fem_rigid → (I, diag(ω²), D_modal); abd →
+            # (M_F, 0, α₀M_F) with the elastic in the NONLINEAR V⊥ added below.
+            Mq_a[s:s + k, s:s + k] = body.Mq_block
+            Kq_a[s:s + k, s:s + k] = body.Kq_block
+            Dq_a[s:s + k, s:s + k] = body.Dq_block
+            Q[s:s + k]      = self.cargo_a[b]
+            Q_hat[s:s + k]  = self.cargo_a_hat[b]
+            Q_prev[s:s + k] = self.cargo_a_prev[b]
+
+        # H_Q = 1/h²M_q + 1/h D_q + K_q ;  g_Q = 1/h²M_q(Q−Q̂)+1/h D_q(Q−Qⁿ)+K_q Q
+        H_Q = inv_dt2 * Mq_a + inv_dt * Dq_a + Kq_a
+        g_Q = (inv_dt2 * (Mq_a @ (Q - Q_hat))
+               + inv_dt * (Dq_a @ (Q - Q_prev))
+               + Kq_a @ Q)
+
+        # Nonlinear elastic (abd V⊥, ABD Eq. 6–8): add the per-body internal
+        # grad/Hess at the live deformation d. Re-linearized each iteration (the
+        # affine internal is genuinely nonlinear). fem_rigid is linear ⇒ no-op.
+        for b, (s, k) in self._cargo_off.items():
+            body = self.cargo[b]
+            if body.has_nonlinear_internal:
+                d = self.cargo_a[b]
+                g_Q[s:s + k] += body.internal_grad_d(d)
+                H_Q[s:s + k, s:s + k] += body.internal_hess_d(d)
+
+        if (self._last_F_q_contact is None
+                or self._last_F_q_contact.shape[0] != r):
+            self._last_F_q_contact = np.zeros(r, dtype=np.float64)
+        else:
+            self._last_F_q_contact[:] = 0.0
+
+        per_body_Hx_inv: dict[int, NDArray[np.float64]] = {}
+        per_body_gx:     dict[int, NDArray[np.float64]] = {}
+        per_body_cross:  dict[int, NDArray[np.float64]] = {}
+
+        max_rho2_over_m = 0.0
+        rho_hits = 0
+        n_hat_const = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+        rho_clip = self.rho_clip
+
+        for body_idx, rows_on_body in self._rows_per_body.items():
+            m = float(mass_np[body_idx])
+            if m <= 0.0 or not np.isfinite(m):
+                continue
+            q_xyzw = orientations_np[body_idx].astype(np.float64)
+            x_curr = positions_np[body_idx].astype(np.float64)
+            x_iner = x_inertial_np[body_idx].astype(np.float64)
+            q_iner = q_inertial_np[body_idx].astype(np.float64)
+
+            Rb = _quat_xyzw_to_R(q_xyzw)
+            I_local = inertia_local_np[body_idx].astype(np.float64)
+            I_world = Rb @ I_local @ Rb.T
+
+            A = m * inv_dt2 * np.eye(3)
+            D = I_world * inv_dt2
+            B = np.zeros((3, 3), dtype=np.float64)
+
+            r_lin = m * inv_dt2 * (x_curr - x_iner)
+            dq_iner = _quat_xyzw_mul(q_xyzw, _quat_xyzw_inv(q_iner))
+            dtheta_iner = _quat_xyzw_to_rotvec(dq_iner)
+            r_ang = I_world @ (dtheta_iner * inv_dt2)
+
+            cross_body = np.zeros((6, R_dim), dtype=np.float64)
+
+            row_idx_arr = self._row_idx_by_body[body_idx]
+            off_arr     = self._row_off_by_body[body_idx]
+            U_y_arr     = self._row_U_y_by_body[body_idx]
+            n_rows_b    = row_idx_arr.shape[0]
+
+            r_self_w_arr = off_arr @ Rb.T
+            j_lin_arr = np.broadcast_to(n_hat_const, (n_rows_b, 3))
+            j_ang_arr = np.empty((n_rows_b, 3), dtype=np.float64)
+            j_ang_arr[:, 0] = -r_self_w_arr[:, 2]
+            j_ang_arr[:, 1] = 0.0
+            j_ang_arr[:, 2] =  r_self_w_arr[:, 0]
+
+            C_arr        = (x_curr[1] + r_self_w_arr[:, 1]
+                            - anchor_np[row_idx_arr, 1])
+            s_stiff_arr  = stiff_np[row_idx_arr]
+            hard_arr     = np.isinf(s_stiff_arr)
+            C_arr        = np.where(
+                hard_arr, C_arr - alpha_C0_np[row_idx_arr], C_arr)
+            lam_eff_arr  = np.where(hard_arr, lam_np[row_idx_arr], 0.0)
+            rho_arr      = pen_np[row_idx_arr]
+            rho_used_arr = np.minimum(rho_arr, rho_clip)
+            rho_hits    += int(np.sum(rho_arr >= rho_clip))
+
+            f_lo_arr     = fmin_np[row_idx_arr]
+            f_hi_arr     = fmax_np[row_idx_arr]
+            lam_plus_arr = rho_used_arr * C_arr + lam_eff_arr
+            f_arr        = np.clip(lam_plus_arr, f_lo_arr, f_hi_arr)
+
+            abs_C_arr     = np.abs(C_arr)
+            below_mask    = (lam_plus_arr < f_lo_arr) & (abs_C_arr > 1.0e-12)
+            above_mask    = (lam_plus_arr > f_hi_arr) & (abs_C_arr > 1.0e-12)
+            safe_abs_C    = np.maximum(abs_C_arr, 1.0e-12)
+            k_for_lhs_arr = rho_used_arr.copy()
+            k_for_lhs_arr = np.where(
+                below_mask,
+                np.abs(f_lo_arr - lam_plus_arr) / safe_abs_C, k_for_lhs_arr)
+            k_for_lhs_arr = np.where(
+                above_mask,
+                np.abs(f_hi_arr - lam_plus_arr) / safe_abs_C, k_for_lhs_arr)
+
+            k_col      = k_for_lhs_arr[:, None]
+            k_j_lin    = k_col * j_lin_arr
+            k_j_ang    = k_col * j_ang_arr
+
+            A = A + j_lin_arr.T @ k_j_lin
+            B = B + j_ang_arr.T @ k_j_lin
+            D = D + j_ang_arr.T @ k_j_ang
+
+            f_mag_arr  = np.abs(f_arr)
+            geom_mask  = f_mag_arr > 0.0
+            if np.any(geom_mask):
+                g_diag_batch = _geom_stiffness_diag_batch(
+                    n_hat_const, r_self_w_arr)
+                weights = (f_mag_arr * geom_mask)[:, None]
+                D = D + np.diag((g_diag_batch * weights).sum(axis=0))
+
+            r_lin = r_lin + j_lin_arr.T @ f_arr
+            r_ang = r_ang + j_ang_arr.T @ f_arr
+
+            # Augmented per-row modal gradient G_row (n_rows_b, R_dim):
+            #   support cols [0:r] = −U_y  (∂C/∂q_support, raising surface)
+            #   cargo  cols [s:s+k] = +G_a = n̂ᵀ·R·Φ_c  (∂C/∂a, corner flex)
+            G_rows = np.zeros((n_rows_b, R_dim), dtype=np.float64)
+            G_rows[:, :r] = -U_y_arr
+            cargo_off = self._cargo_off.get(body_idx)
+            if cargo_off is not None:
+                s, kk = cargo_off
+                # G_a frozen at substep begin (parity with device k_eval_cargo).
+                G_a_arr = np.stack(
+                    [self._row_cargo_Ga[int(i)] for i in row_idx_arr])    # (n,k)
+                G_rows[:, s:s + kk] = G_a_arr
+
+            k_G = k_col * G_rows
+            g_Q = g_Q + G_rows.T @ f_arr
+            H_Q = H_Q + G_rows.T @ k_G
+            cross_body[:3, :] += j_lin_arr.T @ k_G
+            cross_body[3:, :] += j_ang_arr.T @ k_G
+
+            # Support-only modal load diagnostic (back-compat): Σ U_y·f.
+            self._last_F_q_contact += U_y_arr.T @ f_arr
+
+            j_ang_sq_arr = (j_ang_arr * j_ang_arr).sum(axis=1)
+            jjsum_arr    = 1.0 + j_ang_sq_arr
+            row_score    = (rho_used_arr ** 2) * jjsum_arr / max(m, 1e-12)
+            if n_rows_b > 0:
+                max_rho2_over_m = max(max_rho2_over_m, float(row_score.max()))
+
+            H_x = np.block([[A, B.T], [B, D]])
+            g_x = np.concatenate([r_lin, r_ang])
+            H_x_reg = H_x + 1e-12 * np.eye(6)
+            try:
+                H_x_inv = np.linalg.inv(H_x_reg)
+            except np.linalg.LinAlgError:
+                continue
+            per_body_Hx_inv[body_idx] = H_x_inv
+            per_body_gx[body_idx] = g_x
+            # G_row already carries the support −U_y sign, so the cross block
+            # is used directly (no global negate — see iteration_hook note).
+            per_body_cross[body_idx] = cross_body
+
+        # Schur reduce over the augmented Q.
+        rhs_Q = -g_Q
+        S = H_Q.copy()
+        for body_idx in per_body_Hx_inv:
+            Mblk = per_body_cross[body_idx]
+            Hxi = per_body_Hx_inv[body_idx]
+            gxi = per_body_gx[body_idx]
+            S = S - Mblk.T @ (Hxi @ Mblk)
+            rhs_Q = rhs_Q + Mblk.T @ (Hxi @ gxi)
+
+        eps = max(
+            self.eps_baseline * (float(np.trace(Kq_a)) / max(R_dim, 1)),
+            self.eps_cross_factor * max_rho2_over_m,
+        )
+        S_reg = S + eps * np.eye(R_dim)
+        try:
+            dQ = np.linalg.solve(S_reg, rhs_Q)
+        except np.linalg.LinAlgError:
+            return
+
+        if self.diagnostic_mode:
+            try:
+                cond = float(np.linalg.cond(S_reg))
+            except Exception:
+                cond = float('inf')
+            self.last_Schur_condition_estimate = min(cond, 1e16)
+
+        # Apply ΔQ: support q ⊕ each cargo a.
+        self.rs.q = self.rs.q + dQ[:r]
+        for b, (s, k) in self._cargo_off.items():
+            self.cargo_a[b] = self.cargo_a[b] + dQ[s:s + k]
+
+        max_dx = 0.0
+        max_dtheta = 0.0
+        x_out = positions_np.copy()
+        q_out = orientations_np.copy()
+        for body_idx, Hxi in per_body_Hx_inv.items():
+            Mblk = per_body_cross[body_idx]
+            gxi = per_body_gx[body_idx]
+            delta = Hxi @ (-(gxi + Mblk @ dQ))
+            x_out[body_idx] = (positions_np[body_idx]
+                               + delta[:3].astype(np.float32))
+            dq_quat = _quat_xyzw_from_rotvec(delta[3:])
+            new_q = _quat_xyzw_mul(dq_quat, q_out[body_idx].astype(np.float64))
+            n = float(np.linalg.norm(new_q))
+            if n > 1e-12:
+                new_q = new_q / n
+            q_out[body_idx] = new_q.astype(np.float32)
+            max_dx = max(max_dx, float(np.linalg.norm(delta[:3])))
+            max_dtheta = max(max_dtheta, float(np.linalg.norm(delta[3:])))
+
+        solver.x.assign(x_out)
+        solver.q.assign(q_out)
+
+        if self.refresh_anchor_each_iter:
+            anchor_out = anchor_np.copy()
+            dy_all = self._U_y_stack @ self.rs.q
+            anchor_out[self._tracked_rows_arr, 1] = (
+                self._floor_y_rest_arr + dy_all)
+            # re-fold cargo corner flex (live a) for the monolithic variant.
+            for row, Phi_c in self._row_cargo_modal.items():
+                ba = self._row_body_a[row]
+                Rb = _quat_xyzw_to_R(q_out[ba].astype(np.float64))
+                anchor_out[row, 1] -= float((Rb[1, :] @ Phi_c) @ self.cargo_a[ba])
+            solver.c_world_anchor.assign(anchor_out.astype(np.float32))
+
+        self.last_max_dx_norm = max_dx
+        self.last_max_dtheta_norm = max_dtheta
+        self.last_dq_norm = float(np.linalg.norm(dQ[:r]))
+        self.last_n_iter_solves += 1
+        self.last_iter_dq_norms.append(float(np.linalg.norm(dQ)))
+        self.last_rho_clip_hits = rho_hits
+
+    def substep_end_hook(self, solver) -> None:
+        """Commit the dynamic modal velocity and log diagnostics
+        (two_band_coupling.html — "After the step: q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h").
+
+        The converged q already carries the full sag+ring (the iteration
+        solved the coupled (z, q) block); here we just finite-difference the
+        new velocity from the substep's q delta, which feeds the next
+        substep's predictor q̃ — that is the entire ring-carrying mechanism.
+        No EMA, no IIR, no separate q_d. Passivity is automatic (backward
+        Euler), so the per-substep energy is logged, not governed.
+        """
+        # Full GPU-resident path: qdot update + diagnostics run on-device;
+        # host readback is once per macro-step (render/HUD). The numpy body
+        # below is the reference (CLAUDE.md rule 6).
+        if self._use_device(solver):
             self.last_n_iter_solves = int(solver.iterations) + (
                 1 if getattr(solver, "post_stabilize", False) else 0)
             self._substep_end_device(solver)
             return
 
         h = float(self.h_substep)
-        Mq = self.rs.Mq
-        Kq = self.rs.Kq
+        Mq, Kq, Dq = self.rs.Mq, self.rs.Kq, self.rs.Dq
 
-        # F_q_total = Σ U_y · f as accumulated in the FINAL iteration of
-        # _iteration_split. Defensive: if no rows were tracked or the
-        # accumulator was never sized, treat as zero.
+        # Modal velocity update: q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h. The frozen control
+        # holds q̇ ≡ 0 (no ring carried — the two-way counterfactual).
+        if not self.freeze_qdot:
+            self.rs.qdot = (self.rs.q - self.rs.q_prev_macro) / h
+
+        # fem_rigid cargo: commit each cube's modal velocity ȧⁿ⁺¹ = (aⁿ⁺¹−aⁿ)/h
+        # (same finite-difference ring-carrying mechanism, per cube) and log
+        # the total cargo modal energy E_cargo = Σ_b (½ȧᵀȧ + ½aᵀΩ²a).
+        self.last_cargo_modal_KE = 0.0
+        self.last_cargo_modal_PE = 0.0
+        for b, body in self.cargo.items():
+            if not self.freeze_qdot:
+                self.cargo_adot[b] = (
+                    self.cargo_a[b] - self.cargo_a_prev[b]) / h
+            adot = self.cargo_adot[b]
+            a = self.cargo_a[b]
+            # KE = ½ȧᵀ M_F ȧ (M_F = I for mass-normalized modes); PE is the
+            # body's elastic energy (linear ½aᵀΩ²a or the nonlinear V⊥).
+            self.last_cargo_modal_KE += 0.5 * float(adot @ (body.Mq_block @ adot))
+            if body.has_nonlinear_internal:
+                self.last_cargo_modal_PE += float(body.internal_energy(a))
+            else:
+                self.last_cargo_modal_PE += 0.5 * float(a @ (body.omega2 * a))
+
+        # F_q_total = Σ U_y·f (the modal projection of the contact load) was
+        # accumulated in the final iteration — kept as a diagnostic only.
         if self._last_F_q_contact is None:
             F_q_total = np.zeros(self.rs.r, dtype=np.float64)
         else:
             F_q_total = self._last_F_q_contact.copy()
 
-        if self.static_channel_mode == "static_correction":
-            # Tier 2 — static-correction decomposition. q = q_s + q_d: the
-            # damped channel already absorbed the RAW dual load into q_s, and
-            # the ring obeys  M_q q̈_d + D_q q̇_d + K_q q_d = −M_q q̈_s, i.e. it
-            # is forced ONLY by the acceleration of the sag (fast load changes).
-            # Constant load ⇒ q̈_s = 0 ⇒ no ring forcing — "rest is silent" is
-            # preserved BY CONSTRUCTION, with zero filter state and zero split
-            # parameters (the EMA high-pass is derived away).
-            # # DEVIATION (foundation §15): ring forced by −M_q q̈_s (classical
-            # static correction), not a high-passed contact force.
-            qdot_s_new = (self.rs.q_s - self._q_s_substep_begin) / h
-            qddot_s = (qdot_s_new - self._qdot_s_prev) / h
-            self._qdot_s_prev = qdot_s_new
-            F_q_dyn = -(Mq @ qddot_s)
-            self.rs.F_q_static_lp = F_q_total   # diagnostic: channel took raw F
-        else:
-            # Legacy / Tier 1 ("damped"): EMA high-pass split for the ring.
-            # One-shot init (α=1) on the first substep so the LP latches to
-            # F_q_total instead of dumping the static load into q_d.
-            tau = float(self.modal_static_lp_tau)
-            if getattr(self, "_first_substep_split", True):
-                alpha_ema = 1.0
-                self._first_substep_split = False
-            else:
-                alpha_ema = 1.0 - float(np.exp(-h / max(tau, 1e-9)))
-            self.rs.F_q_static_lp = (
-                (1.0 - alpha_ema) * self.rs.F_q_static_lp
-              + alpha_ema * F_q_total)
-            F_q_dyn = F_q_total - self.rs.F_q_static_lp
-
-        # Static-channel dissipation ledger (Tier 1/2): power removed by the
-        # restored D_q dashpot, q̇_sᵀ D_q q̇_s ≥ 0 (D_q PSD). This is the term
-        # the lossless legacy channel was missing.
-        if (self.static_channel_mode != "legacy"
-                and self._q_s_substep_begin is not None):
-            qdot_s = (self.rs.q_s - self._q_s_substep_begin) / h
-            self.last_static_damp_power = float(qdot_s @ (self.rs.Dq @ qdot_s))
-        else:
-            self.last_static_damp_power = 0.0
-
-        # Apply F_q_dyn through the IIR precompute prepared at substep_begin.
-        # q_d_new   = q_d_free   + S_h · F_q_dyn
-        # qdot_d_new = qdot_d_free + T_h · F_q_dyn
-        if (self.q_free is not None and self.qdot_free is not None
-                and self.S_h is not None and self.T_h is not None):
-            if self.S_h_diag is not None:
-                q_d_new    = self.q_free    + self.S_h_diag * F_q_dyn
-                qdot_d_new = self.qdot_free + self.T_h_diag * F_q_dyn
-            else:
-                q_d_new    = self.q_free    + self.S_h @ F_q_dyn
-                qdot_d_new = self.qdot_free + self.T_h @ F_q_dyn
-            self.rs.q_d    = q_d_new
-            self.rs.qdot_d = qdot_d_new
-        else:
-            # Pre-warm fallback (first substep before any precompute).
-            self.rs.q_d[:]    = 0.0
-            self.rs.qdot_d[:] = 0.0
-
-        # Passivity log — does q_d energy change exceed the work upper
-        # bound h · F_q_dyn^T · qdot_d? Logged, NOT enforced (the
-        # passivity bound is asymptotic; iteration-noise can briefly
-        # violate it without affecting long-run stability).
-        dE_q_d = ((0.5 * float(self.rs.qdot_d @ (Mq @ self.rs.qdot_d))
-                 + 0.5 * float(self.rs.q_d   @ (Kq @ self.rs.q_d)))
-                 - self._E_q_d_substep_begin)
-        W_q_d_bound = abs(h * float(F_q_dyn @ self.rs.qdot_d))
-        if dE_q_d > W_q_d_bound + 1e-12:
+        # Passivity certificate — total modal mechanical energy
+        # E = ½q̇ᵀM_q q̇ + ½qᵀK_q q. Backward Euler is dissipative, so absent
+        # contact forcing E is monotone non-increasing; with forcing it may
+        # rise but only up to the contact work. Logged, not enforced (no
+        # governor — passivity is structural). A violation here means E rose
+        # by more than the substep contact work |h·F_qᵀq̇|.
+        E_now = (0.5 * float(self.rs.qdot @ (Mq @ self.rs.qdot))
+                 + 0.5 * float(self.rs.q @ (Kq @ self.rs.q)))
+        W_bound = abs(h * float(F_q_total @ self.rs.qdot))
+        if (self._E_modal_prev is not None
+                and E_now > self._E_modal_prev + W_bound + 1e-12):
             self.last_passivity_violations += 1
+        self._E_modal_prev = E_now
 
-        # Sync the canonical (q, qdot) views for downstream callers
-        # (viser surface render, HUD readouts, the last_max_support_deflection
-        # diagnostic). In split mode, q_s and q_d are the truth.
-        self.rs.sync_total_from_split()
-
-        # Diagnostics.
-        self.last_q_s_norm        = float(np.linalg.norm(self.rs.q_s))
-        self.last_q_d_norm        = float(np.linalg.norm(self.rs.q_d))
-        self.last_qdot_d_norm     = float(np.linalg.norm(self.rs.qdot_d))
+        # Diagnostics on the single dynamic (q, q̇).
+        self.last_q_s_norm        = float(np.linalg.norm(self.rs.q))
+        self.last_q_d_norm        = 0.0
+        self.last_qdot_d_norm     = float(np.linalg.norm(self.rs.qdot))
         self.last_F_q_total_norm  = float(np.linalg.norm(F_q_total))
-        self.last_F_q_static_norm = float(np.linalg.norm(self.rs.F_q_static_lp))
-        self.last_F_q_dyn_norm    = float(np.linalg.norm(F_q_dyn))
+        self.last_F_q_static_norm = 0.0
+        self.last_F_q_dyn_norm    = float(np.linalg.norm(F_q_total))
         self.last_q_norm    = float(np.linalg.norm(self.rs.q))
         self.last_qdot_norm = self.last_qdot_d_norm
 
-        # max_support_deflection on the full visual q (q_s + q_d).
         if self.rs.U_points.shape[0] > 0:
             disp = np.einsum("kij,j->ki", self.rs.U_points, self.rs.q)
             self.last_max_support_deflection = float(
@@ -1581,13 +1859,10 @@ class ReducedCoupledAVBDCoupler:
         else:
             self.last_max_support_deflection = 0.0
 
-        # Modal energy diagnostics — on q_d only (q_s has no kinetic).
-        self.last_modal_KE = 0.5 * float(
-            self.rs.qdot_d @ (Mq @ self.rs.qdot_d))
-        self.last_modal_PE = 0.5 * float(
-            self.rs.q_d @ (Kq @ self.rs.q_d))
-        self.last_damp_power = float(
-            self.rs.qdot_d @ (self.rs.Dq @ self.rs.qdot_d))
+        # Modal energy diagnostics on the full (q, q̇).
+        self.last_modal_KE = 0.5 * float(self.rs.qdot @ (Mq @ self.rs.qdot))
+        self.last_modal_PE = 0.5 * float(self.rs.q @ (Kq @ self.rs.q))
+        self.last_damp_power = float(self.rs.qdot @ (Dq @ self.rs.qdot))
         self.last_q_acc_norm = 0.0
 
         # Track λ across tracked rows (back-compat with legacy diagnostics).
@@ -1609,16 +1884,12 @@ class ReducedCoupledAVBDCoupler:
                 "q_acc_norm":    self.last_q_acc_norm,
                 "KE_modal_J":    self.last_modal_KE,
                 "PE_modal_J":    self.last_modal_PE,
+                "E_modal_J":     E_now,
                 "P_damp_W":      self.last_damp_power,
                 "contact_lambda_max": self.last_contact_lambda_max,
                 "max_support_deflection_m": self.last_max_support_deflection,
                 "n_iter_solves": int(self.last_n_iter_solves),
-                # split-mode extras
-                "q_s_norm":      self.last_q_s_norm,
-                "q_d_norm":      self.last_q_d_norm,
                 "F_q_total_norm":  self.last_F_q_total_norm,
-                "F_q_static_norm": self.last_F_q_static_norm,
-                "F_q_dyn_norm":    self.last_F_q_dyn_norm,
             })
         self._substep_index += 1
 
