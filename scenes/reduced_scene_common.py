@@ -29,7 +29,11 @@ from dcr.avbd.reduced_support import (
     ReducedSupport,
     make_debug_reduced_shelf_support,
 )
-from dcr.avbd.cargo.fem_rigid import build_fem_rigid_cube, build_fem_cube
+from dcr.avbd.cargo.fem_rigid import (
+    build_fem_rigid_cube,
+    build_fem_cube,
+    build_rigid_cube,
+)
 from dcr.avbd.cargo.abd import build_abd_cube
 from dcr.fem.material import Material
 
@@ -45,6 +49,12 @@ def make_cargo_cube(kind: str, *, size: float, mass: float, nx: int = 3,
     own FEM density is rescaled so its total mass matches the scene impactor."""
     # density ∝ mass / size³ so build_*_cube's total_mass() ≈ the impactor mass.
     rho = max(1.0, float(mass) / max(size ** 3, 1e-9))
+    if kind == "rigid":
+        # Pure 6-DOF rigid cube (k=0): the no-deformation baseline. It still rings
+        # the support's modal field through its contact corners (M1 behavior).
+        return build_rigid_cube(size=size, nx=nx,
+                                material=Material(E=youngs, nu=0.3, rho=rho),
+                                drop_y=0.0)
     if kind == "fem_rigid":
         return build_fem_rigid_cube(size=size, nx=nx, n_elastic=n_elastic,
                                     material=Material(E=youngs, nu=0.3, rho=rho),
@@ -56,7 +66,8 @@ def make_cargo_cube(kind: str, *, size: float, mass: float, nx: int = 3,
     if kind == "abd":
         return build_abd_cube(size=size, nx=nx, kappa_v=2.0e3, alpha0=2.0,
                               drop_y=0.0)
-    raise ValueError(f"unknown cargo material {kind!r} (fem_rigid | abd | fem)")
+    raise ValueError(
+        f"unknown cargo material {kind!r} (rigid | fem_rigid | abd | fem)")
 
 
 @dataclass

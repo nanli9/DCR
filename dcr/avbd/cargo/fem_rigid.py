@@ -409,3 +409,21 @@ def build_fem_cube(**kwargs) -> FEMRigidModalBody:
     translate under the solver, but the modal subspace does not co-rotate)."""
     kwargs.pop("corotate", None)
     return build_fem_rigid_cube(corotate=False, **kwargs)
+
+
+def build_rigid_cube(**kwargs) -> FEMRigidModalBody:
+    """The "rigid" cargo material — a pure 6-DOF rigid cube with ZERO elastic
+    modes (the k=0 limit of `build_fem_rigid_cube`). It is the baseline/control
+    alongside fem_rigid/fem/abd: the cube tumbles and collides as an ordinary
+    rigid body (real SAT) and rides the support's modal ring through its contact
+    corners, but carries NO internal deformation. With k=0 the augmented modal
+    vector Q gains no a-block (R_tot = r), `corner_modal` is (P,3,0) ⇒ the
+    co-rotated modal gradient G_a is empty, and `cargo_a` returns an empty array
+    — so the native cargo path reduces exactly to the support-only modal solve
+    (M1) while still exposing the uniform cargo interface."""
+    kwargs.pop("corotate", None)
+    kwargs.pop("n_elastic", None)
+    # corotate is irrelevant with no modes; keep the default. The small FEM
+    # eigensolve still runs (on a 3×3×3 cube) but its elastic columns are dropped
+    # — it yields the correct rigid mass, inertia, corners, and skinning surface.
+    return build_fem_rigid_cube(n_elastic=0, **kwargs)

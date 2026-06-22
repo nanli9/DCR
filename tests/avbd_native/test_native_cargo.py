@@ -19,7 +19,11 @@ import pytest
 import warp as wp
 
 from dcr.avbd._solver.solver_6dof import Solver6DOF
-from dcr.avbd.cargo.fem_rigid import build_fem_rigid_cube, build_fem_cube
+from dcr.avbd.cargo.fem_rigid import (
+    build_fem_rigid_cube,
+    build_fem_cube,
+    build_rigid_cube,
+)
 from dcr.avbd.cargo.abd import build_abd_cube
 from dcr.fem.fem_model import Material
 
@@ -28,6 +32,10 @@ def _make_test_cube(kind, n_elastic, E):
     """Build a cargo cube of the requested material (the builders differ)."""
     if kind == "abd":
         return build_abd_cube(size=0.1, nx=3, kappa_v=2.0e3, alpha0=1.0, drop_y=0.0)
+    if kind == "rigid":
+        # k=0 baseline: a pure rigid cube with no elastic modes.
+        return build_rigid_cube(size=0.1, nx=3, drop_y=0.0,
+                                material=Material(E=E, nu=0.3, rho=600.0))
     builder = {"fem_rigid": build_fem_rigid_cube, "fem": build_fem_cube}[kind]
     return builder(size=0.1, n_elastic=n_elastic, drop_y=0.0,
                    material=Material(E=E, nu=0.3, rho=600.0))
@@ -100,6 +108,35 @@ def test_cargo_deforms_and_rings_two_way_cpu(kind):
         if not frz:
             assert np.linalg.norm(s.cargo_a(body.index)) > 1e-12, "cube must deform"
     assert peak["dyn"] > 1e-7, f"dynamic slab should ring ({peak['dyn']:.2e})"
+    assert peak["dyn"] > 10.0 * max(peak["frz"], 1e-30), (
+        f"dynamic ring {peak['dyn']:.2e} should dwarf frozen {peak['frz']:.2e}")
+
+
+def test_rigid_cargo_no_deform_but_rings_two_way_cpu():
+    """The "rigid" cargo material (k=0): the cube carries NO elastic modes — its
+    augmented a-block is empty so it cannot deform — yet it still rings the slab
+    two-way through its contact corners (the M1 support-only modal load). The
+    frozen-q̇ counterfactual kills the slab ring; nothing tunnels. This is the
+    k=0 limit of fem_rigid: the native cargo path reduces to the support solve."""
+    s0, b0, cube0 = _build(kind="rigid")
+    assert cube0.k == 0, "rigid cargo must carry zero elastic modes"
+    assert s0.cargo_a(b0.index).size == 0, "rigid cargo has an empty a-block"
+
+    peak = {}
+    for name, frz in (("dyn", False), ("frz", True)):
+        s, body, cube = _build(kind="rigid")
+        s._modal_freeze_qdot = frz
+        pk = 0.0
+        for _ in range(120):
+            s.step()
+            pk = max(pk, s.last_modal_KE)
+        peak[name] = pk
+        P = s.positions()
+        assert np.all(np.isfinite(P)), "no NaN"
+        assert float(P[body.index][1]) > -0.02, "cube must not tunnel the slab"
+        # The cube never deforms — the a-block is empty for the whole run.
+        assert np.linalg.norm(s.cargo_a(body.index)) == 0.0, "rigid cube cannot deform"
+    assert peak["dyn"] > 1e-7, f"rigid cube should still ring the slab ({peak['dyn']:.2e})"
     assert peak["dyn"] > 10.0 * max(peak["frz"], 1e-30), (
         f"dynamic ring {peak['dyn']:.2e} should dwarf frozen {peak['frz']:.2e}")
 
@@ -203,7 +240,7 @@ def test_cargo_engaged_contact_tracks_cpu():
 # CUDA residency
 # ---------------------------------------------------------------------------
 @pytest.mark.skipif(not _has_cuda(), reason="no CUDA device")
-@pytest.mark.parametrize("kind", ["fem_rigid", "fem", "abd"])
+@pytest.mark.parametrize("kind", ["rigid", "fem_rigid", "fem", "abd"])
 def test_cargo_cuda_resident_and_graph_captured(kind):
     s, body, cube = _build("cuda:0", resident=None, kind=kind)
     for _ in range(40):

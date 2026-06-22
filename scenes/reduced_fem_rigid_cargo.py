@@ -21,7 +21,11 @@ import numpy as np
 from dcr.avbd.world import AVBDDCRWorld
 from dcr.avbd.reduced_support import ReducedSupport, make_debug_reduced_shelf_support
 from dcr.avbd.reduced_coupled_avbd import ReducedCoupledAVBDCoupler
-from dcr.avbd.cargo.fem_rigid import build_fem_rigid_cube, build_fem_cube
+from dcr.avbd.cargo.fem_rigid import (
+    build_fem_rigid_cube,
+    build_fem_cube,
+    build_rigid_cube,
+)
 from dcr.avbd.cargo.abd import build_abd_cube
 from dcr.fem.material import Material
 from scenes.reduced_support_shelf import N_GRID_X, N_GRID_Z
@@ -44,7 +48,13 @@ class FEMRigidCargoHandle:
 
 def _make_cube(kind, *, cube_size, cube_nx, cube_youngs, cube_density,
                n_elastic):
-    """Build the requested cargo cube body (fem_rigid | abd)."""
+    """Build the requested cargo cube body (rigid | fem_rigid | abd | fem)."""
+    if kind == "rigid":
+        # Pure 6-DOF rigid cube (k=0): the no-deformation baseline.
+        return build_rigid_cube(
+            size=cube_size, nx=cube_nx,
+            material=Material(E=cube_youngs, nu=0.3, rho=cube_density),
+            drop_y=0.0)
     if kind == "fem_rigid":
         return build_fem_rigid_cube(
             size=cube_size, nx=cube_nx, n_elastic=n_elastic,
@@ -61,7 +71,8 @@ def _make_cube(kind, *, cube_size, cube_nx, cube_youngs, cube_density,
             size=cube_size, nx=cube_nx, n_elastic=n_elastic,
             material=Material(E=cube_youngs, nu=0.3, rho=cube_density),
             drop_y=0.0)
-    raise ValueError(f"unknown cargo kind {kind!r} (fem_rigid | abd | fem)")
+    raise ValueError(
+        f"unknown cargo kind {kind!r} (rigid | fem_rigid | abd | fem)")
 
 
 def build_cargo_scene(
@@ -122,10 +133,11 @@ def build_cargo_scene(
         # Native cargo (M2): the cube's elastic modes are a NATIVE modal block of
         # Solver6DOF (two_band_coupling.html, Approach B). No coupler, no hook —
         # the cube's support contacts and its a-modes are co-solved in the same
-        # backward-Euler step (the augmented q-block). fem_rigid only for now.
-        if kind not in ("fem_rigid", "fem", "abd"):
+        # backward-Euler step (the augmented q-block). rigid (k=0) reduces this to
+        # the support-only modal solve.
+        if kind not in ("rigid", "fem_rigid", "fem", "abd"):
             raise ValueError(
-                f"solver='native' supports kind in (fem_rigid, fem, abd) "
+                f"solver='native' supports kind in (rigid, fem_rigid, fem, abd) "
                 f"(got {kind!r}).")
         if device_resident is not None:
             world._solver._modal_device_resident = bool(device_resident)

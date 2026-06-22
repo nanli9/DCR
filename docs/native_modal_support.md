@@ -225,8 +225,18 @@ hook (`Solver6DOF.add_cargo_native` / `world.add_native_cargo`).
   coupler's cross-term Schur — the same M1 trade-off). The couplers are NEVER
   touched (additive native path).
 
-### All three materials + the production scenes
+### All cargo materials + the production scenes
 
+- **rigid** (`build_rigid_cube`, `k = 0`) — the no-deformation baseline/control.
+  With zero elastic modes the augmented vector gains no a-block (`R_tot = r`),
+  `corner_modal` is `(P,3,0)` ⇒ `G_a` is empty and `cargo_a` returns an empty
+  array, so the native cargo path collapses *exactly* to the M1 support-only
+  modal solve: the cube tumbles and collides as an ordinary rigid body (real
+  SAT) and rings the support through its contact corners, but carries no
+  internal deformation. Validated (`test_rigid_cargo_no_deform_but_rings_two_way_cpu`):
+  empty a-block, no tunnel, the slab still rings two-way (frozen-q̇ kills it),
+  cuda-resident + graph-captured. It exercises the same one device path as the
+  deformable materials (just `Σk = 0`).
 - **fem** (corotate=False, world-fixed modes) — `_cargo_freeze_and_W` already
   branches on `body.corotate` (`G_a = n̂ᵀ·Φ_c` vs `n̂ᵀ·R·Φ_c`), so it was free.
 - **abd** (`ABDAffineBody`, `d = vec(F−I) ∈ ℝ^9`) — same co-rotated contact
@@ -239,7 +249,7 @@ hook (`Solver6DOF.add_cargo_native` / `world.add_native_cargo`).
   GPU-resident + graph-captured; device V⊥ matches the host numpy V⊥ to fp64.
   The cube shears under impact (‖FᵀF−I‖>0); V⊥ free relaxation is monotone.
 - **Production scenes** — truck/ledge/shelf/dinner take `solver="native"` +
-  `cargo_material ∈ {fem_rigid, fem, abd}` via `world.add_native_cargo` (replaces
+  `cargo_material ∈ {rigid, fem_rigid, fem, abd}` via `world.add_native_cargo` (replaces
   the impactor's converted `SUPPORT_CONTACT` rows → cube corner pids). All 12
   scene×material combos build/step/no-NaN, the cube deforms, cuda-resident
   (`tests/avbd_native/test_native_production_cargo.py`, 16). The avbd/xpbd
@@ -247,7 +257,7 @@ hook (`Solver6DOF.add_cargo_native` / `world.add_native_cargo`).
 
 ## Status / next
 
-- **M1.3 + M2 (fem_rigid, fem, abd) — ALL DONE.** The native `(z, q[, a])` path
+- **M1.3 + M2 (rigid, fem_rigid, fem, abd) — ALL DONE.** The native `(z, q[, a])` path
   is GPU-resident on cuda (device float64 augmented q-block, CUDA-graph-captured)
   with CPU↔warp parity to fp64, across all three cargo materials, in the dedicated
   `build_cargo_scene(solver="native")` and the 4 production scenes. No coupler is
