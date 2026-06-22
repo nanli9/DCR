@@ -43,8 +43,11 @@ def _cuda_or_skip() -> str:
 
 def _build(device: str, device_resident: bool, *, freeze: bool = False,
            iters: int = 4, sub: int = 4, **kw):
+    # This file tests the AVBD reduced *coupler* (CPU↔GPU residency parity).
+    # solver="avbd" now selects the native AVBD solver, so pin the coupler
+    # explicitly via "avbd_coupler" (transitional; removed in Stage 6).
     h = build_reduced_truck(device=device, iterations=iters, avbd_substeps=sub,
-                            **kw)
+                            solver="avbd_coupler", **kw)
     c = h.world.reduced_coupled_coupler
     c.device_resident = device_resident
     c.freeze_qdot = freeze

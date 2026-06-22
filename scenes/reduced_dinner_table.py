@@ -193,11 +193,13 @@ def build_reduced_dinner_table(
     rs.probe_body_indices = list(tracked)
 
     coupler = None
-    coupler = None
-    if solver == "native":
+    if solver in ("avbd", "native"):
         # Native dynamic two-way modal constraint (two_band_coupling.html): q is
-        # a solver DOF, no coupler. Deformable cargo (M2) joins the augmented
-        # modal vector via add_native_cargo (fem_rigid/fem/abd).
+        # a solver DOF, NO coupler. Deformable cargo (M2) joins the augmented
+        # modal vector via add_native_cargo (fem_rigid/fem/abd). Stage-1 repoint:
+        # solver="avbd" is the native AVBD path; the AVBD coupler is
+        # "avbd_coupler" (transitional, deleted Stage 6); "native" is a back-
+        # compat alias dropped in Stage 5.
         world.enable_reduced_modal_support(
             rs, tracked_body_indices=tracked,
             shelf_length=table_length, shelf_width=table_width,
@@ -207,14 +209,15 @@ def build_reduced_dinner_table(
             rs, tracked_body_indices=tracked,
             shelf_length=table_length, shelf_width=table_width,
             shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
-    elif solver == "avbd":
+    elif solver == "avbd_coupler":
         coupler = world.attach_reduced_coupled_avbd(
             rs, tracked_body_indices=tracked,
             shelf_length=table_length, shelf_width=table_width,
             shelf_y_rest=table_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z,
             modal_static_lp_tau=modal_static_lp_tau)
     else:
-        raise ValueError(f"unknown solver {solver!r} (native | avbd | xpbd)")
+        raise ValueError(
+            f"unknown solver {solver!r} (avbd | xpbd | avbd_coupler)")
 
     cargo_cube = None
     cargo_avbd_idx = None

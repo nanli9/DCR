@@ -37,8 +37,11 @@ def _cuda_or_skip():
 
 def _run(kind, *, device="cpu", device_resident=False, freeze=False,
          n=150, drop=0.03, spin=0.0, pluck=0.0):
+    # AVBD reduced *coupler* test (solver="avbd" now selects the native AVBD
+    # solver; the external coupler is "avbd_coupler" until Stage 6).
     h = build_cargo_scene(kind, device=device, freeze_qdot=freeze, drop_height=drop,
-                          spin=spin, device_resident=device_resident)
+                          spin=spin, device_resident=device_resident,
+                          solver="avbd_coupler")
     if pluck != 0.0:
         h.coupler.cargo_adot[h.avbd_idx][:] = pluck
     solver = h.world._solver
@@ -57,7 +60,7 @@ def _run(kind, *, device="cpu", device_resident=False, freeze=False,
 
 def test_fem_flexes_no_corotation():
     """The fem cube flexes (modes excited) and is NOT co-rotated."""
-    h = build_cargo_scene("fem", device="cpu")
+    h = build_cargo_scene("fem", device="cpu", solver="avbd_coupler")
     assert h.coupler.cargo[h.avbd_idx].corotate is False
     r = _run("fem", n=150)
     assert np.all(np.isfinite(r["a"]))
@@ -67,7 +70,8 @@ def test_fem_flexes_no_corotation():
 
 
 def test_fem_free_ringdown_energy_monotone():
-    h = build_cargo_scene("fem", device="cpu", drop_height=2.0)
+    h = build_cargo_scene("fem", device="cpu", drop_height=2.0,
+                          solver="avbd_coupler")
     h.coupler.cargo_adot[h.avbd_idx][:] = 5.0e-3
     om2 = h.coupler.cargo[h.avbd_idx].omega2
     E_prev = E0 = None

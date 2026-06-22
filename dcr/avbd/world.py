@@ -40,6 +40,7 @@ from dcr.dcr.distant_velocity import PatchKick
 
 from ._solver import (
     Solver6DOF,
+    SolverAVBD,
     RigidBody as AVBDRigidBody,
     FLOOR_CONTACT_6DOF,
     SUPPORT_CONTACT_6DOF,
@@ -202,7 +203,12 @@ class AVBDDCRWorld:
         default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._solver = Solver6DOF(
+        # SolverAVBD is the canonical name for the native AVBD backend of the
+        # shared constraint interface (== Solver6DOF behaviour; a subclass with
+        # no solve overrides). Native modal/cargo and the (transitional)
+        # reduced couplers all ride this AVBD solver. The standalone SolverXPBD
+        # becomes selectable here in Stage 5 (native dual-solver plan).
+        self._solver = SolverAVBD(
             dt=self.h,
             iterations=self.avbd_iterations,
             substeps=self.avbd_substeps,

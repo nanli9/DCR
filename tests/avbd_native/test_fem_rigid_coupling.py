@@ -157,9 +157,11 @@ def _run_device(device, device_resident, n_steps, spin=4.0):
     """Build on `device` with the given residency flag; return modal + body
     state after n_steps. CPU reference vs GPU-resident augmented-modal path."""
     from scenes.reduced_fem_rigid_cargo import build_fem_rigid_cargo
+    # AVBD reduced *coupler* parity (solver="avbd" now selects the native AVBD
+    # solver; pin the external coupler explicitly until Stage 6 removes it).
     h = build_fem_rigid_cargo(
         device=device, drop_height=0.03, spin=spin,
-        device_resident=device_resident)
+        device_resident=device_resident, solver="avbd_coupler")
     solver = h.world._solver
     for _ in range(n_steps):
         h.world.step()

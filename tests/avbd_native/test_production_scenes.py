@@ -105,9 +105,12 @@ def test_xpbd_production_scene_fem_rigid(scene):
 
 @pytest.mark.parametrize("scene", SCENES)
 def test_avbd_production_scene_fem_rigid(scene):
-    """The AVBD path on the same scenes stays the robust baseline (sub-mm
-    penetration) — a regression guard for the shared cargo wiring."""
-    r = _run(scene, "avbd", "fem_rigid", n=80)
+    """The AVBD *coupler* path stays the robust baseline (sub-mm penetration) —
+    a regression guard for the shared cargo wiring. (solver="avbd" now selects
+    the native AVBD solver; the external coupler is "avbd_coupler", retained
+    until Stage 6. The native path is covered by test_native_production_cargo
+    and test_stage1_avbd_native.)"""
+    r = _run(scene, "avbd_coupler", "fem_rigid", n=80)
     assert np.all(np.isfinite(r["P"])) and np.all(np.isfinite(r["q"]))
     assert r["max_pen"] < 5e-3, (scene, r["max_pen"])
     assert np.abs(r["a"]).max() > 1e-9
@@ -116,7 +119,7 @@ def test_avbd_production_scene_fem_rigid(scene):
 def test_production_scene_rigid_default_unchanged():
     """cargo_material=None keeps the impactor rigid (no cargo registered) on
     both solvers — the legacy behavior is the default."""
-    for solver in ("avbd", "xpbd"):
+    for solver in ("avbd_coupler", "xpbd"):
         h = BUILD["truck"](device="cpu", solver=solver, cargo_material=None,
                            **_iters_for(solver))
         assert not h.world.reduced_coupled_coupler.cargo   # no cargo bodies

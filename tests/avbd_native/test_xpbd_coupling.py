@@ -171,9 +171,10 @@ def test_xpbd_abd_uses_avbd():
     """abd's stiff nonlinear V⊥ is not Gauss–Seidel-stable in the substep sweep
     budget (XPBDDynamicSystem oracle note); the abd path is AVBD. Document that
     AVBD-abd is stable where XPBD-abd would accumulate, so callers route abd to
-    the AVBD coupler."""
-    ra = build_cargo_scene("abd", device="cpu", solver="avbd", drop_height=0.03,
-                           spin=2.0)
+    the AVBD coupler ("avbd_coupler" — solver="avbd" now selects the native AVBD
+    solver, which has its own abd path covered by the native cargo tests)."""
+    ra = build_cargo_scene("abd", device="cpu", solver="avbd_coupler",
+                           drop_height=0.03, spin=2.0)
     dmax = 0.0
     for _ in range(200):
         ra.world.step()
