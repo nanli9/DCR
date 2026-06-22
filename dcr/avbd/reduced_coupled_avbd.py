@@ -310,6 +310,51 @@ class ReducedCoupledAVBDCoupler:
     anchor_static_lowpass: bool = True
     _q_s_anchor_lp: NDArray[np.float64] | None = None
 
+    # Static-channel integration mode (rocking limit-cycle CURE, not band-aid).
+    # The sustained rotational limit cycle (proposal §6) was traced to a
+    # structural omission: the split approximated the modal ODE
+    #   M_q q̈_s + D_q q̇_s + K_q q_s = F   (paper Eq. 7)
+    # by the LOSSLESS algebraic anchor  K_q q_s = F.  Dropping M_q q̈_s is the
+    # definition of a static channel; dropping D_q q̇_s is the bug — q_s is
+    # time-varying, so the surface does work through Φ q̇_s with NO dissipation
+    # term, a lossless follower-force in unilateral-contact feedback with a
+    # rocking body (the haptics "active virtual wall" instability; Colgate's
+    # passivity bound). No loop-gain lever (anchor τ, iters, under-relaxation)
+    # can fix it because they change loop gain, not the sign of the work
+    # integral; only restoring dissipation can.
+    #   "legacy"            — K_q q_s = F (lossless; default, parity-preserving)
+    #   "damped"   (Tier 1) — restore D_q q̇_s: backward-Euler quasi-static
+    #                         channel  D_q q̇_s + K_q q_s = F  IN the Newton
+    #                         solve (Kelvin–Voigt surface impedance). Anchor LP
+    #                         is then redundant — disabled in this mode.
+    #   "static_correction" (Tier 2) — damped channel takes the RAW dual force
+    #                         and the ring is forced by −q̈_s (classical
+    #                         static-correction decomposition); the EMA split
+    #                         filter is DERIVED away (zero split parameters).
+    # # DEVIATION (foundation §15): restores the dropped D_q q̇_s term of paper
+    # Eq. 7 on the static channel; integrated in-solve by backward Euler (its
+    # numerical dissipation adds passivity margin). ζ_i > 0 per retained mode
+    # becomes a model-admissibility condition (same class as E > 0).
+    static_channel_mode: str = "legacy"
+    _q_s_substep_begin: NDArray[np.float64] | None = None
+    _qdot_s_prev: NDArray[np.float64] | None = None
+
+    # DISCRIMINATOR (not a fix): pin the modal basis SAMPLE POINT per physical
+    # corner instead of re-projecting it to the moving contact each substep.
+    # The corner then sees a frozen (locally flat) modal shape, so the
+    # slope/re-anchoring injection family (corner sliding tangentially across a
+    # sloped height field, gap vertical-only ⇒ unaccounted work λ·s·v_t) is
+    # disabled. If the sustained rock DECAYS under this (and centered stays
+    # bit-identical, since slope=0 there), the re-anchored-vertical-contact
+    # mechanism is confirmed and the real fix is the slope term in J_x.
+    pin_contact_anchor: bool = False
+    _pinned_corner_xz: dict | None = None
+    # Pump-probe diagnostic: Σ_corners f_N·(s·v_corner_t), the slope power the
+    # vertical-only gap does on the body with no conjugate channel. Computed in
+    # iteration_hook (final iter) when diagnose_slope_power is on.
+    diagnose_slope_power: bool = False
+    last_W_slope: float = 0.0
+
     # Body mass cache (filled at attach by world).
     body_mass: dict[int, float] = field(default_factory=dict)
 
@@ -428,6 +473,10 @@ class ReducedCoupledAVBDCoupler:
     last_F_q_total_norm:  float = 0.0
     last_F_q_static_norm: float = 0.0
     last_F_q_dyn_norm:    float = 0.0
+    # Static-channel dissipation ledger (Tier 1/2): q̇_sᵀ D_q q̇_s ≥ 0, the
+    # power bled off the support-deflection rate by the restored Kelvin–Voigt
+    # dashpot. Zero in legacy mode (lossless channel). Milestone-3 evidence.
+    last_static_damp_power: float = 0.0
     last_passivity_violations: int = 0
     # Modal-load accumulator (Σ U_y·(-f) across bodies during the FINAL
     # iteration of the substep). Read by `_substep_end_split` to drive the
@@ -889,13 +938,22 @@ class ReducedCoupledAVBDCoupler:
         # eval, energy snapshot, eigen IIR precompute, anchor seed). The numpy
         # body below is the reference (CLAUDE.md rule 6); CPU / device_resident
         # off use it.
-        if self._use_device(solver):
+        # Non-legacy static-channel modes run the numpy reference (CLAUDE.md
+        # rule 6 — device port follows once the CPU fix is validated).
+        if self._use_device(solver) and self.static_channel_mode == "legacy":
             self._substep_begin_device(solver)
             return
 
         # 1. Snapshot dynamic state for the passivity log + EMA wake-up.
         self.rs.q_d_prev_macro    = self.rs.q_d.copy()
         self.rs.qdot_d_prev_macro = self.rs.qdot_d.copy()
+
+        # Snapshot q_s^n for the backward-Euler damped static channel
+        # (Tier 1/2): q̇_s = (q_s − q_s^n)/h within this substep's Newton solve.
+        if self.static_channel_mode != "legacy":
+            self._q_s_substep_begin = self.rs.q_s.copy()
+            if self._qdot_s_prev is None or self._qdot_s_prev.shape[0] != self.rs.r:
+                self._qdot_s_prev = np.zeros(self.rs.r, dtype=np.float64)
 
         # 2. q_d energy snapshot (q_s is quasi-static, no kinetic term).
         Mq_ = self.rs.Mq
@@ -1008,9 +1066,22 @@ class ReducedCoupledAVBDCoupler:
             qb_xyzw = orientations[ba]
             r_world = _quat_rotate_xyzw(qb_xyzw, off)
             corner_w = positions[ba] + r_world
+            # DISCRIMINATOR: pin the sample point per physical corner so the
+            # surface under it stops tracking tangential motion (locally flat).
+            if self.pin_contact_anchor:
+                if self._pinned_corner_xz is None:
+                    self._pinned_corner_xz = {}
+                key = (ba, round(float(off[0]), 5),
+                       round(float(off[1]), 5), round(float(off[2]), 5))
+                if key not in self._pinned_corner_xz:
+                    self._pinned_corner_xz[key] = (
+                        float(corner_w[0]), float(corner_w[2]))
+                sx, sz = self._pinned_corner_xz[key]
+            else:
+                sx, sz = float(corner_w[0]), float(corner_w[2])
             U_pt = evaluate_basis_at_point(
                 self.rs,
-                (float(corner_w[0]), float(corner_w[2])),
+                (sx, sz),
                 length=self.shelf_length,
                 width=self.shelf_width,
                 n_grid_x=self.n_grid_x,
@@ -1041,7 +1112,13 @@ class ReducedCoupledAVBDCoupler:
         #    of q_s into the contact anchor so an impact spike in q_s does not
         #    jump the surface under a landing body and kick it. See
         #    `anchor_static_lowpass`. # DEVIATION (foundation §15).
-        lp_tau = self.modal_static_lp_tau if self.anchor_static_lowpass else 0.0
+        # Anchor LP is an INDEPENDENT knob from the static-channel mode so the
+        # two effects (band-aid surface filter vs physical channel damping) can
+        # be A/B-separated. The Tier-1/2 recommendation sets
+        # anchor_static_lowpass=False (the damped channel IS the physical
+        # low-pass); but the flag alone controls it here.
+        use_anchor_lp = self.anchor_static_lowpass
+        lp_tau = self.modal_static_lp_tau if use_anchor_lp else 0.0
         if lp_tau > 0.0:
             if self._q_s_anchor_lp is None:
                 self._q_s_anchor_lp = self.rs.q_s.copy()
@@ -1074,7 +1151,8 @@ class ReducedCoupledAVBDCoupler:
         # Device-resident path: one warp launch, no host round-trip. The
         # numpy body below is the reference (CLAUDE.md rule 6) and runs on
         # CPU / when device_resident is False.
-        if self._use_device(solver) and self._device_ready:
+        if (self._use_device(solver) and self._device_ready
+                and self.static_channel_mode == "legacy"):
             if self._dev_n_b > 0:
                 self._iteration_device(solver)
             return
@@ -1104,6 +1182,19 @@ class ReducedCoupledAVBDCoupler:
         H_q = Kq.copy()
         g_q = Kq @ self.rs.q_s
 
+        # Tier 1/2: restore D_q q̇_s on the static channel (the dropped term of
+        # paper Eq. 7). Backward Euler  D_q (q_s − q_s^n)/h + K_q q_s = F  with
+        # q_s^n frozen at substep start makes the surface a Kelvin–Voigt
+        # element (spring ∥ dashpot) so the contact↔modal loop is an
+        # interconnection of passive elements — the only lever class that can
+        # change the sign of the work integral. In-solve (not a between-substep
+        # anchor) removes the one-substep delay; backward Euler adds margin.
+        # # DEVIATION (foundation §15): restores Eq. 7's D_q q̇_s on q_s.
+        if self.static_channel_mode != "legacy":
+            Dq_over_h = self.rs.Dq / float(self.h_substep)
+            H_q = H_q + Dq_over_h
+            g_q = g_q + Dq_over_h @ (self.rs.q_s - self._q_s_substep_begin)
+
         # Reset the modal-load accumulator at the START of every
         # iteration. Only the LAST iteration's value persists into
         # `_substep_end_split` and drives the EMA + q_d step.
@@ -1122,6 +1213,22 @@ class ReducedCoupledAVBDCoupler:
 
         n_hat_const = np.array([0.0, 1.0, 0.0], dtype=np.float64)
         rho_clip = self.rho_clip
+
+        # Pump probe: W_slope = Σ_corners f_N·(s·v_corner_t), s = ∇(n̂ᵀΦ)·q_s.
+        # The slope power the vertical-only gap does on the body with no
+        # conjugate channel — the term Sheldon's mechanism predicts injects.
+        if self.diagnose_slope_power:
+            _v_all = solver.v.numpy()
+            _w_all = solver.omega.numpy()
+            _W_slope = 0.0
+            _qs_now = self.rs.q_s
+            _eps = 1.0e-3
+
+            def _uy(px, pz):
+                return evaluate_basis_at_point(
+                    self.rs, (px, pz), length=self.shelf_length,
+                    width=self.shelf_width, n_grid_x=self.n_grid_x,
+                    n_grid_z=self.n_grid_z)[1]
 
         for body_idx, rows_on_body in self._rows_per_body.items():
             m = float(mass_np[body_idx])
@@ -1223,6 +1330,21 @@ class ReducedCoupledAVBDCoupler:
             # writes the value `_substep_end_split` reads.
             self._last_F_q_contact += U_y_arr.T @ f_arr
 
+            # Pump-probe accumulation for this body's corners.
+            if self.diagnose_slope_power:
+                vb = _v_all[body_idx].astype(np.float64)
+                wb = _w_all[body_idx].astype(np.float64)
+                for ii in range(n_rows_b):
+                    cw = x_curr + r_self_w_arr[ii]
+                    cx, cz = float(cw[0]), float(cw[2])
+                    sx = float((_uy(cx + _eps, cz) - _uy(cx - _eps, cz))
+                               @ _qs_now) / (2.0 * _eps)
+                    sz = float((_uy(cx, cz + _eps) - _uy(cx, cz - _eps))
+                               @ _qs_now) / (2.0 * _eps)
+                    vcorner = vb + np.cross(wb, r_self_w_arr[ii])
+                    _W_slope += float(f_arr[ii]) * (
+                        sx * vcorner[0] + sz * vcorner[2])
+
             # Cross block H_{x q_s} = ρ J_x · J_{q_s}^T = −ρ J_x · U_y^T.
             cross_body[:3, :] += j_lin_arr.T @ k_U_y
             cross_body[3:, :] += j_ang_arr.T @ k_U_y
@@ -1248,6 +1370,9 @@ class ReducedCoupledAVBDCoupler:
             per_body_Hx_inv[body_idx] = H_x_inv
             per_body_gx[body_idx] = g_x
             per_body_cross[body_idx] = -cross_body
+
+        if self.diagnose_slope_power:
+            self.last_W_slope = _W_slope
 
         # Schur reduce over q_s.
         rhs_q = -g_q
@@ -1346,7 +1471,7 @@ class ReducedCoupledAVBDCoupler:
         # Full GPU-resident path: EMA + eigen-IIR q_d step + passivity + sync
         # all run on-device; host readback is once per macro-step (render/HUD).
         # The numpy body below is the reference (CLAUDE.md rule 6).
-        if self._use_device(solver):
+        if self._use_device(solver) and self.static_channel_mode == "legacy":
             self.last_n_iter_solves = int(solver.iterations) + (
                 1 if getattr(solver, "post_stabilize", False) else 0)
             self._substep_end_device(solver)
@@ -1364,20 +1489,45 @@ class ReducedCoupledAVBDCoupler:
         else:
             F_q_total = self._last_F_q_contact.copy()
 
-        # EMA update of F_q_static_lp. Frame-rate-aware α; one-shot
-        # init (α=1) on the very first substep so the LP latches to
-        # F_q_total instead of starting at zero (which would dump the
-        # static load into q_d and produce a spurious wake-up ring).
-        tau = float(self.modal_static_lp_tau)
-        if getattr(self, "_first_substep_split", True):
-            alpha_ema = 1.0
-            self._first_substep_split = False
+        if self.static_channel_mode == "static_correction":
+            # Tier 2 — static-correction decomposition. q = q_s + q_d: the
+            # damped channel already absorbed the RAW dual load into q_s, and
+            # the ring obeys  M_q q̈_d + D_q q̇_d + K_q q_d = −M_q q̈_s, i.e. it
+            # is forced ONLY by the acceleration of the sag (fast load changes).
+            # Constant load ⇒ q̈_s = 0 ⇒ no ring forcing — "rest is silent" is
+            # preserved BY CONSTRUCTION, with zero filter state and zero split
+            # parameters (the EMA high-pass is derived away).
+            # # DEVIATION (foundation §15): ring forced by −M_q q̈_s (classical
+            # static correction), not a high-passed contact force.
+            qdot_s_new = (self.rs.q_s - self._q_s_substep_begin) / h
+            qddot_s = (qdot_s_new - self._qdot_s_prev) / h
+            self._qdot_s_prev = qdot_s_new
+            F_q_dyn = -(Mq @ qddot_s)
+            self.rs.F_q_static_lp = F_q_total   # diagnostic: channel took raw F
         else:
-            alpha_ema = 1.0 - float(np.exp(-h / max(tau, 1e-9)))
-        self.rs.F_q_static_lp = (
-            (1.0 - alpha_ema) * self.rs.F_q_static_lp
-          + alpha_ema * F_q_total)
-        F_q_dyn = F_q_total - self.rs.F_q_static_lp
+            # Legacy / Tier 1 ("damped"): EMA high-pass split for the ring.
+            # One-shot init (α=1) on the first substep so the LP latches to
+            # F_q_total instead of dumping the static load into q_d.
+            tau = float(self.modal_static_lp_tau)
+            if getattr(self, "_first_substep_split", True):
+                alpha_ema = 1.0
+                self._first_substep_split = False
+            else:
+                alpha_ema = 1.0 - float(np.exp(-h / max(tau, 1e-9)))
+            self.rs.F_q_static_lp = (
+                (1.0 - alpha_ema) * self.rs.F_q_static_lp
+              + alpha_ema * F_q_total)
+            F_q_dyn = F_q_total - self.rs.F_q_static_lp
+
+        # Static-channel dissipation ledger (Tier 1/2): power removed by the
+        # restored D_q dashpot, q̇_sᵀ D_q q̇_s ≥ 0 (D_q PSD). This is the term
+        # the lossless legacy channel was missing.
+        if (self.static_channel_mode != "legacy"
+                and self._q_s_substep_begin is not None):
+            qdot_s = (self.rs.q_s - self._q_s_substep_begin) / h
+            self.last_static_damp_power = float(qdot_s @ (self.rs.Dq @ qdot_s))
+        else:
+            self.last_static_damp_power = 0.0
 
         # Apply F_q_dyn through the IIR precompute prepared at substep_begin.
         # q_d_new   = q_d_free   + S_h · F_q_dyn
