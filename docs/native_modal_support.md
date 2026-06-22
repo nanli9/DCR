@@ -23,7 +23,8 @@ backward-Euler step. **No coupler, no hook** on this path.
 |---|---|
 | Modal state `q/q̇/M_q/K_q/D_q`, predictor `q̃`, `q̇` commit | `dcr/avbd/_solver/solver_6dof.py` (`set_modal_support`, `_modal_predict`, `_modal_commit`) |
 | `SUPPORT_CONTACT_6DOF` row — reads live surface `y_rest + U_y·q` in-kernel | `kernels_6dof.py` (`primal_update_6dof`, `dual_update_6dof`) |
-| The `q`-block (`r×r` solve each iteration) | `solver_6dof.py::_solve_q_block` |
+| The `q`-block (`r×r` solve each iteration), numpy reference | `solver_6dof.py::_solve_q_block` |
+| The `q`-block, **GPU-resident float64 warp kernels** (M1.3) | `solver_6dof.py::_solve_q_block_device` / `_modal_qblock_kernels.py` |
 | World API (retypes support-height FLOOR rows → SUPPORT, samples `U_y`) | `world.py::enable_reduced_modal_support` |
 | Scene wiring (`solver="native"`) | `scenes/reduced_scene_common.py`, `reduced_dinner_table.py` |
 | Viewer (`--solver native`) | `scripts/run_native_scenes_viser.py` |
@@ -160,9 +161,49 @@ two-way, passive). The vivid-stiff cross-term ring is deferred.
   it as compliant constraints inside a real-time position-based rigid solver
   (AVBD), box-box native, no coupler.
 
+## M1.3 — the GPU-resident device `q`-block (done)
+
+`_solve_q_block` is ported to float64 warp kernels (`modal_qblock_kernels.py`):
+`k_modal_rowforce` (per-slot engaged-contact force) → `k_modal_hq` / `k_modal_gq`
+(assemble `H_q`, `g_q`) → `k_modal_solve` (single-thread GE, partial pivot,
+`q ← q + relax·Δq`, refresh float32 mirror), plus `k_modal_predict` / `k_modal_qdot`
+/ `k_modal_diag`. All modal math is `wp.float64` reading the float32 solver state
+— the same idiom as `reduced_coupled_kernels.py`. It is the BLOCK-GS q-block (no
+cross-term Schur, no `Δz` back-sub): the colored primal owns `z`, the q-block owns
+`q`. Issues only `wp.launch` inside `_run_iter_loop`, so the iteration loop is now
+**CUDA-graph-capturable with modal enabled** (the per-substep predictor/commit
+run outside the captured loop; one small diag readback per substep, not per
+iteration).
+
+- **Dispatch** — `solver._modal_device_resident`: `None` ⇒ auto (warp on cuda,
+  the numpy `_solve_q_block` reference on cpu). Forcing `True`/`False` runs the
+  warp / numpy q-block on either device (how the parity test isolates the port).
+- **Parity** (`tests/avbd_native/test_native_qblock_device.py`, 5 tests): on a
+  smooth modal-only ringdown the warp float64 q-block matches the numpy reference
+  to **fp64 roundoff** (≤1e-11 over 200 steps; measured ~1e-18), and cpu↔cuda
+  agree to ~2e-24. With engaged contact, parity is machine-precision for the
+  first steps then tracks at float32-ULP scale — the float32 `q_modal` mirror
+  feeding the primal flips an engaged/separated branch on a 1-ULP difference
+  (the documented "chaotic round-off growth"); the macroscopic ring energy still
+  agrees to the percent level.
+- **Resident-primal modal wiring** — the native modal support was only ever wired
+  into the (G=1) `primal_update_6dof` / `dual_update_6dof`; the cuda resident
+  shuffle-fused primal does NOT read `q_modal`, so it ignored the deformed surface
+  while the q-block still loaded the mode → energy blow-up on cuda. The native
+  modal path now forces `G=1` (the `SUPPORT_CONTACT`-aware primal) on every
+  device — still a plain `wp.launch`, fully GPU-resident + graph-capturable. The
+  shuffle-fused modal primal is a **deferred profiling optimization** (out of M1.3
+  scope: M1.3 is residency + parity, not the fastest primal).
+
 ## Status / next
 
-- M1.0–M1.5: **done** (block-GS + relaxation). M1.3 (device `q`-block warp kernel
-  + CPU↔warp parity) and M2 (cargo deformation native, then delete the coupler):
-  **pending**. Cargo / the deformable `cargo` scene still run on the coupler; the
-  viewer routes `native + cargo → avbd`.
+- M1.0–M1.5 + **M1.3: done.** The native `(z, q)` path is GPU-resident on cuda
+  (device float64 q-block, CUDA-graph-captured) with CPU↔warp parity to fp64.
+- **M2** (cargo deformation native): pending. Cargo / the deformable `cargo` scene
+  still run on the coupler; the viewer routes `native + cargo → avbd`.
+- **Known pre-existing failure (NOT M1.3):** `test_native_stacks.py::
+  test_truck_lumber_stack_rides_ring_and_holds` topples to 180° on a clean tree
+  (block-GS relax=0.1 no longer holds the truck 4-high lumber under the current
+  scene params). Confirmed independent of the device q-block (cpu host path fails
+  identically). The "vivid ring **and** intact stack" tension is the cross-term
+  rejection above; needs a scene-param / coloring revisit, tracked separately.

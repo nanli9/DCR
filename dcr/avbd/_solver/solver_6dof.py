@@ -25,6 +25,7 @@ import numpy as np
 import warp as wp
 
 from . import kernels_6dof as K
+from . import modal_qblock_kernels as MK
 from .coloring import build_body_edges, color_summary, greedy_color, spatial_8color
 from ..modal_qblock import _quat_to_R as _modal_quat_to_R
 
@@ -503,6 +504,14 @@ class Solver6DOF:
         self.c_support_idx = None               # (n_cap,) slot per row, −1 else
         self.support_U_y = None                 # (n_sup, r) mode shapes
         self.q_modal = None                     # (r,) live amplitude on device
+        self._modal_grav_acc = None             # (r,) M_q⁻¹ f_q^grav (constant)
+        # M1.3: device-resident q-block. None ⇒ auto (resident on cuda, host
+        # numpy on cpu — the cpu numpy path is the parity reference). Set True/
+        # False to force the warp q-block on/off (the parity test runs it on cpu
+        # to compare warp-float64 against numpy-float64).
+        self._modal_device_resident = None
+        self._modal_resident = False            # resolved at _flush
+        self._n_sup_dev = 0
         # Last-substep modal diagnostics (read by viewer / tests).
         self.last_modal_KE = 0.0
         self.last_modal_PE = 0.0
@@ -638,8 +647,21 @@ class Solver6DOF:
                                  else np.asarray(qdot0, dtype=np.float64).copy())
         self._modal_f_q_grav = (None if f_q_grav is None
                                 else np.asarray(f_q_grav, dtype=np.float64).copy())
+        # Precompute the constant predictor acceleration M_q⁻¹ f_q^grav (the
+        # device predictor adds h²·grav_acc; the host path solves it each step).
+        self._modal_grav_acc = (None if self._modal_f_q_grav is None
+                                else np.linalg.solve(Mq, self._modal_f_q_grav))
         self._modal_enabled = True
         self._dirty = True
+
+    def _modal_device_resident_for(self, dev) -> bool:
+        """Resolve whether the native q-block runs on-device (warp kernels) or
+        on the host (numpy reference). None ⇒ auto: resident on cuda, host on
+        cpu. An explicit True/False overrides (the parity test forces the warp
+        path on cpu to compare it against the numpy reference)."""
+        if self._modal_device_resident is None:
+            return str(dev).startswith("cuda")
+        return bool(self._modal_device_resident)
 
     def add_support_contact_corner(
         self,
@@ -1284,6 +1306,50 @@ class Solver6DOF:
               else np.zeros(max(r, 1), dtype=np.float32))
         self.q_modal = wp.array(q0, dtype=float, device=dev)
 
+        # ---- Device q-block state (M1.3 — GPU-resident native modal solve) --
+        # The float32 q_modal above is the mirror the primal/dual SUPPORT_CONTACT
+        # kernels read; the AUTHORITATIVE modal math runs in float64 on these
+        # arrays (matching the numpy reference `_solve_q_block` to fp64 roundoff,
+        # the same idiom as reduced_coupled_kernels.py). Allocated only when modal
+        # is enabled; the host numpy path is the parity reference (rule 6).
+        self._modal_resident = (
+            self._modal_enabled and self._modal_device_resident_for(dev))
+        if self._modal_enabled:
+            grav = (np.zeros(r) if self._modal_grav_acc is None
+                    else self._modal_grav_acc)
+            self._d_Mq = wp.array(self._Mq.astype(np.float64), dtype=wp.float64,
+                                  device=dev)
+            self._d_Kq = wp.array(self._Kq.astype(np.float64), dtype=wp.float64,
+                                  device=dev)
+            self._d_Dq = wp.array(self._Dq.astype(np.float64), dtype=wp.float64,
+                                  device=dev)
+            self._d_q = wp.array(self._q_modal_host.astype(np.float64),
+                                 dtype=wp.float64, device=dev)
+            self._d_qdot = wp.array(self._qdot_modal_host.astype(np.float64),
+                                    dtype=wp.float64, device=dev)
+            self._d_qhat = wp.zeros(r, dtype=wp.float64, device=dev)
+            self._d_qn = wp.zeros(r, dtype=wp.float64, device=dev)
+            self._d_grav_acc = wp.array(grav.astype(np.float64),
+                                        dtype=wp.float64, device=dev)
+            # float64 mode shapes (slot, mode) for the q-block math.
+            U64 = np.zeros((max(n_sup, 1), r), dtype=np.float64)
+            for s2, _cidx in enumerate(self._support_row_cidx):
+                U64[s2, :] = self._support_U_y_rows[s2][:r]
+            self._d_U_y = wp.array(U64, dtype=wp.float64, device=dev)
+            # slot → c-row index (so the device q-block iterates slots directly).
+            srow = (np.asarray(self._support_row_cidx, dtype=np.int32)
+                    if n_sup > 0 else np.zeros(1, dtype=np.int32))
+            self._d_support_row_idx = wp.array(srow, dtype=int, device=dev)
+            self._d_rowdata = wp.zeros((max(n_sup, 1), 2), dtype=wp.float64,
+                                       device=dev)
+            self._d_Hq = wp.zeros((r, r), dtype=wp.float64, device=dev)
+            self._d_gq = wp.zeros(r, dtype=wp.float64, device=dev)
+            self._d_dq = wp.zeros(r, dtype=wp.float64, device=dev)
+            self._d_diag = wp.zeros(2, dtype=wp.float64, device=dev)
+            self._n_sup_dev = n_sup
+        else:
+            self._n_sup_dev = 0
+
         # ---- GPU-resident pool scratch -------------------------------------
         # CSR adjacency: rebuilt by the gpu_csr_* kernels each substep so it
         # tracks dynamic contacts; capacity covers worst-case (each row
@@ -1612,12 +1678,17 @@ class Solver6DOF:
         # the ring history q̇ⁿ into the substep (the whole point). Uploads the
         # current q to the device for the primal's live-surface evaluation.
         if self._modal_enabled:
-            self._modal_predict()
+            if self._modal_resident:
+                self._modal_predict_device()
+            else:
+                self._modal_predict()
 
         use_graph = (n_active > 0
                      and str(dev).startswith("cuda")
                      and self._graph_cuda_supported()
-                     and not self._modal_enabled   # host q-block ⇒ eager (M1)
+                     # host q-block ⇒ eager; the device q-block (M1.3) issues
+                     # only wp.launch, so the iteration loop stays capturable.
+                     and (not self._modal_enabled or self._modal_resident)
                      and (self.hooks_device_resident
                           or (self.iteration_hook is None
                               and self.substep_end_hook is None)))
@@ -1638,7 +1709,10 @@ class Solver6DOF:
         # Native modal commit q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h (backward-Euler finite
         # difference) — carries the ring forward. Passive by construction.
         if self._modal_enabled:
-            self._modal_commit()
+            if self._modal_resident:
+                self._modal_commit_device()
+            else:
+                self._modal_commit()
 
         # ---- 7. Refresh pair hash for next-substep warm-start ----
         if self._self_collide and self._gpu_pool_hash_cap > 0:
@@ -1734,6 +1808,15 @@ class Solver6DOF:
             # change recaptures. Within the captured graph the launch count
             # is fixed. `color_starts` is device-resident.
             G = self._primal_group_size if str(dev).startswith("cuda") else 1
+            # Native modal support is wired into the (G=1) primal_update_6dof /
+            # dual_update_6dof only — the resident shuffle-fused primal does NOT
+            # read q_modal, so on cuda it would ignore the deformed surface while
+            # the q-block still loads the mode (energy blow-up). Route the modal
+            # path through the SUPPORT_CONTACT-aware G=1 primal on every device;
+            # it is a plain wp.launch (still GPU-resident + graph-capturable). The
+            # shuffle-fused modal primal is a deferred profiling optimization.
+            if self._modal_enabled:
+                G = 1
             resident = self._resident_on(dev)
             for color_id in range(self._n_active_colors):
                 if G > 1:
@@ -1879,7 +1962,10 @@ class Solver6DOF:
             # section authorizes. Box-box bodies are handled natively by the
             # colored primal; the q-block only updates q.
             if self._modal_enabled and it < self.iterations:
-                self._solve_q_block(dev)
+                if self._modal_resident:
+                    self._solve_q_block_device(dev)
+                else:
+                    self._solve_q_block(dev)
 
             if it == self.iterations - 1:
                 wp.launch(
@@ -1999,6 +2085,87 @@ class Solver6DOF:
         self.last_modal_KE = float(0.5 * qd @ self._Mq @ qd)
         self.last_modal_PE = float(0.5 * q @ self._Kq @ q)
         self.last_q_norm = float(np.linalg.norm(q))
+
+    # ---- Device (warp) q-block — GPU-resident native modal solve (M1.3) -----
+    def _modal_predict_device(self) -> None:
+        """Device predictor: qⁿ snapshot + q̃ = qⁿ + h·q̇ⁿ + h²·M_q⁻¹f_q^grav, and
+        seed the float32 mirror with qⁿ (k_modal_predict). The on-device counter-
+        part of `_modal_predict`; runs OUTSIDE the captured iteration loop."""
+        dev = self.device
+        h = float(self.dt)
+        h_pred = 0.0 if self._modal_freeze_qdot else h
+        wp.launch(
+            MK.k_modal_predict, dim=self._n_modes,
+            inputs=[self._n_modes, wp.float64(h_pred), wp.float64(h * h),
+                    self._d_q, self._d_qdot, self._d_grav_acc,
+                    self._d_qn, self._d_qhat, self.q_modal],
+            device=dev)
+
+    def _solve_q_block_device(self, dev) -> None:
+        """Device port of `_solve_q_block` (block-GS, float64): per-slot contact
+        force → H_q / g_q assembly → r×r GE solve → q += relax·Δq + float32
+        mirror. Only `wp.launch` (no host readback) so it is CUDA-graph-capturable
+        inside `_run_iter_loop`. Mirrors the host numpy reference to fp64 roundoff
+        (see modal_qblock_kernels.py)."""
+        r = self._n_modes
+        n_sup = self._n_sup_dev
+        inv_dt = 1.0 / float(self.dt)
+        inv_dt2 = inv_dt * inv_dt
+        if n_sup > 0:
+            wp.launch(
+                MK.k_modal_rowforce, dim=n_sup,
+                inputs=[r, self._d_support_row_idx, self.c_active,
+                        self.c_body_a, self.c_off_a, self.c_world_anchor,
+                        self.c_penalty, self.c_lambda, self.c_stiffness,
+                        self.c_alpha_C0, self.x, self.q,
+                        self._d_U_y, self._d_q, self._d_rowdata],
+                device=dev)
+        wp.launch(
+            MK.k_modal_hq, dim=(r, r),
+            inputs=[r, n_sup, self._d_Mq, self._d_Kq, self._d_Dq,
+                    wp.float64(inv_dt2), wp.float64(inv_dt),
+                    self._d_U_y, self._d_rowdata, self._d_Hq],
+            device=dev)
+        wp.launch(
+            MK.k_modal_gq, dim=r,
+            inputs=[r, n_sup, self._d_Mq, self._d_Kq, self._d_Dq,
+                    wp.float64(inv_dt2), wp.float64(inv_dt),
+                    self._d_q, self._d_qhat, self._d_qn,
+                    self._d_U_y, self._d_rowdata, self._d_gq],
+            device=dev)
+        wp.launch(
+            MK.k_modal_solve, dim=1,
+            inputs=[r, wp.float64(self._modal_eps_reg),
+                    wp.float64(self._modal_relax),
+                    self._d_Hq, self._d_gq, self._d_dq, self._d_q, self.q_modal],
+            device=dev)
+
+    def _modal_commit_device(self) -> None:
+        """Device commit: q̇ⁿ⁺¹ = (qⁿ⁺¹−qⁿ)/h + modal diagnostics, then ONE small
+        readback (q, q̇, [KE,PE]) into the host mirrors — OUTSIDE the captured hot
+        loop (per substep, not per iteration), so the residency gate (no host
+        readback in the iteration loop) holds."""
+        dev = self.device
+        r = self._n_modes
+        inv_dt = 1.0 / float(self.dt)
+        freeze = 1 if self._modal_freeze_qdot else 0
+        wp.launch(
+            MK.k_modal_qdot, dim=r,
+            inputs=[r, wp.float64(inv_dt), freeze,
+                    self._d_q, self._d_qn, self._d_qdot],
+            device=dev)
+        wp.launch(
+            MK.k_modal_diag, dim=1,
+            inputs=[r, self._d_Mq, self._d_Kq, self._d_q, self._d_qdot,
+                    self._d_diag],
+            device=dev)
+        q_h = self._d_q.numpy().astype(np.float64)
+        self._q_modal_host = q_h
+        self._qdot_modal_host = self._d_qdot.numpy().astype(np.float64)
+        dg = self._d_diag.numpy()
+        self.last_modal_KE = float(dg[0])
+        self.last_modal_PE = float(dg[1])
+        self.last_q_norm = float(np.linalg.norm(q_h))
 
     @property
     def modal_q(self) -> np.ndarray:
