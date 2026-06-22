@@ -286,3 +286,20 @@ the device halves of Stages 3–4); a handful of coupler-only *scripts*
 (`run_coupled_*`, `run_reduced_coupled_avbd`, some `_diag_*`) still import the
 deleted modules and would error if run — they are out of the library import
 graph and the test suite, left for a scripts sweep.
+
+## Final regression status (all stages, full `tests/` suite)
+
+Full `tests/` suite after Stage 6: **521 passed, 30 failed, 2 skipped**. Every
+one of the 30 failures is **pre-existing** — verified by re-running them on the
+pre-work commit `b71ff0f`, where they fail identically:
+
+| Failures | Track | Cause |
+|---|---|---|
+| 1 | `tests/avbd_native/test_native_stacks` | AVBD box-box symmetric-stack bug (Decision #1, out of scope) |
+| 5 | `tests/avbd/{test_contact_extract, test_impulse_units}` | pre-existing on `b71ff0f` (older AVBD track, never green) |
+| 24 | `tests/stageDV/{test_dcr_velocity_modes, test_post_solver_clip}` | separate DCR-velocity-modes track; deps `dcr/dcr`+`dcr/rigid` untouched (`git diff` empty) |
+
+The 2 skips are the retired coupled-mode `test_iir_modal_resonator` functions.
+**This build introduced 0 new failures and 28 new passing tests** (Stage 0 scaffold 6,
+Stage 1 acceptance 4, Stage 2 rigid 4, Stage 3 modal 4, Stage 4 cargo 5,
+Stage 5 native-scene matrix 16 — minus overlaps with deleted coupler tests).
