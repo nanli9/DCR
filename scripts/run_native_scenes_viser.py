@@ -234,14 +234,6 @@ class UnifiedViser:
         self.knob_iters, self.knob_subs = _xpbd_iter_floor(self.solver, sp)
         self.knob_impedance = 1.0
         self.knob_damping = 1.0
-        # Route A (Option 2): co-solve body↔body-stacked piles with the modal q
-        # so a stack RIDES the slab's ring (e.g. the ledge pillars rock from the
-        # boulder) instead of resting on the static slab. AVBD-only and best at
-        # iterations ≥ 8 (see ReducedCoupledAVBDCoupler.cosolve_stacked_q); the
-        # XPBD coupler ignores it. Opt-in (default off) — toggle the GUI checkbox
-        # on in AVBD mode to see it; default off avoids the heavy-impact
-        # global-mode over-deflection on e.g. the truck.
-        self.knob_cosolve = False   # opt-in; toggle on (AVBD) to see stacks ride the ring
         self.render_thick = sp["thickness"]
         self._slab_faces = _slab_faces(N_GRID_X, N_GRID_Z)
         self._q_static = None        # EMA of rs.q for the "static" modal view
@@ -301,12 +293,6 @@ class UnifiedViser:
         self.rs = self.handle.rs
         self.world = self.handle.world
         self.coupler = self.world.reduced_coupled_coupler   # None on native path
-        # Route A opt-in: enable the stacked-pile↔modal co-solve (AVBD only; the
-        # XPBD coupler keeps its own default-off). Read live each substep_begin,
-        # so the GUI checkbox below can toggle it without a rebuild. The native
-        # path needs no opt-in — the slab ALWAYS rings two-way (intrinsic).
-        if self.coupler is not None:
-            self.coupler.cosolve_stacked_q = bool(self.knob_cosolve)
         self._q_static = self.rs.q.copy()
         self._collect_render()
         self._make_meshes()
@@ -448,12 +434,6 @@ class UnifiedViser:
                                               0.25, float(self.knob_impedance))
             self.gui_damping = g.add_slider("modal damping scale", 0.1, 8.0, 0.1,
                                             float(self.knob_damping))
-            self.gui_cosolve = g.add_checkbox(
-                "stacked pile rides ring (AVBD)", bool(self.knob_cosolve),
-                hint="Route A: co-solve body↔body stacks with the modal q so a "
-                     "pile rides the slab ring (ledge pillars rock). AVBD only, "
-                     "iterations ≥ 8; XPBD ignores it.")
-            self.gui_cosolve.on_update(self._cosolve_changed)   # live
         with g.add_folder("Visualization"):
             self.gui_cube_exag = g.add_slider(
                 "cube flex ×", 1.0, _EXAG_MAX, 1.0, self.cube_exag,
@@ -513,13 +493,6 @@ class UnifiedViser:
         self.world._solver.iterations = n
         self.world._solver._graph = None          # force CUDA-graph recapture
 
-    def _cosolve_changed(self, _evt):
-        # Live toggle: cosolve_stacked_q is read at each substep_begin, so no
-        # rebuild is needed. No-op on XPBD (its coupler keeps it off).
-        self.knob_cosolve = bool(self.gui_cosolve.value)
-        if self.coupler is not None:
-            self.coupler.cosolve_stacked_q = self.knob_cosolve
-
     def _render_thick_changed(self, _evt):
         self.render_thick = max(0.0, float(self.gui_render_thick.value) / 1e3)
 
@@ -547,7 +520,6 @@ class UnifiedViser:
         self.knob_subs = int(self.gui_subs.value)
         self.knob_impedance = float(self.gui_impedance.value)
         self.knob_damping = float(self.gui_damping.value)
-        self.knob_cosolve = bool(self.gui_cosolve.value)
 
     def _reset_knobs_to_scene(self):
         sp = SCENE_SPEC[self.scene]
@@ -559,7 +531,6 @@ class UnifiedViser:
         self.knob_iters, self.knob_subs = _xpbd_iter_floor(self.solver, sp)
         self.knob_impedance = 1.0
         self.knob_damping = 1.0
-        self.knob_cosolve = False   # opt-in; toggle on (AVBD) to see stacks ride the ring
         self.render_thick = sp["thickness"]
 
     # ---- loop --------------------------------------------------------
