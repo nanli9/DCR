@@ -32,7 +32,7 @@ class FEMRigidCargoHandle:
     """Everything needed to drive + render a cargo scene (any cube material)."""
     world: AVBDDCRWorld
     rs: ReducedSupport
-    coupler: ReducedCoupledAVBDCoupler
+    coupler: ReducedCoupledAVBDCoupler | None   # None on the native (no-coupler) path
     cube: object                 # FEMRigidModalBody | ABDAffineBody | FEMModalBody
     avbd_idx: int
     support_top: float
@@ -118,7 +118,28 @@ def build_cargo_scene(
         y_rest=support_top, overlay_enabled=False,
         rayleigh_alpha0=2.0, rayleigh_alpha1=1.0e-5, to_eigenbasis=True)
 
-    if solver == "xpbd":
+    if solver == "native":
+        # Native cargo (M2): the cube's elastic modes are a NATIVE modal block of
+        # Solver6DOF (two_band_coupling.html, Approach B). No coupler, no hook —
+        # the cube's support contacts and its a-modes are co-solved in the same
+        # backward-Euler step (the augmented q-block). fem_rigid only for now.
+        if kind != "fem_rigid":
+            raise ValueError(
+                f"solver='native' supports kind='fem_rigid' only (got {kind!r}); "
+                "abd/fem native cargo are follow-on M2 increments.")
+        if device_resident is not None:
+            world._solver._modal_device_resident = bool(device_resident)
+        world.enable_reduced_modal_support(
+            rs, tracked_body_indices=[avbd_idx],
+            shelf_length=support_length, shelf_width=support_width,
+            shelf_y_rest=support_top, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
+        world.add_native_cargo(avbd_idx, cube)
+        world._solver._modal_freeze_qdot = bool(freeze_qdot)
+        return FEMRigidCargoHandle(
+            world=world, rs=rs, coupler=None, cube=cube, avbd_idx=avbd_idx,
+            support_top=support_top, support_length=support_length,
+            support_width=support_width, kind=kind)
+    elif solver == "xpbd":
         coupler = world.attach_reduced_coupled_xpbd(
             rs, tracked_body_indices=[avbd_idx],
             shelf_length=support_length, shelf_width=support_width,
@@ -154,7 +175,9 @@ def cube_state_world(handle: FEMRigidCargoHandle) -> np.ndarray:
     p = solver.positions()[handle.avbd_idx].astype(np.float64)
     q_xyzw = solver.orientations()[handle.avbd_idx].astype(np.float64)
     q_wxyz = np.array([q_xyzw[3], q_xyzw[0], q_xyzw[1], q_xyzw[2]])
-    a = handle.coupler.cargo_a[handle.avbd_idx].copy()
+    # native path: a lives on the solver (no coupler); coupler path: on the coupler.
+    a = (solver.cargo_a(handle.avbd_idx) if handle.coupler is None
+         else handle.coupler.cargo_a[handle.avbd_idx].copy())
     z = np.zeros(7 + handle.cube.k)
     z[0:3] = p
     z[3:7] = q_wxyz

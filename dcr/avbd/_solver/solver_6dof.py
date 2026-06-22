@@ -500,6 +500,23 @@ class Solver6DOF:
         # to device at _flush). Parallel arrays, one entry per support slot.
         self._support_row_cidx: list[int] = []  # c-row index per support slot
         self._support_U_y_rows: list[np.ndarray] = []   # (r,) U_y per slot
+        self._support_y_rest: list[float] = []  # original y_rest per slot
+        self._support_cargo: list = []          # per slot: None or (body_idx, pid)
+        # ---- Native cargo deformation (M2, two_band_coupling.html) ----------
+        # A cargo body is a tumbling 6-DOF rigid box (real SAT collision) that
+        # ALSO carries elastic modes a ∈ R^k. The augmented modal vector is
+        # Q = [q_support(r); a_cargo0(k0); ...] with BLOCK-DIAGONAL M_q/K_q/D_q,
+        # and a cargo corner's contact gradient w.r.t. its a-block is the
+        # co-rotated G_a = n̂ᵀ·R·Φ_c (the per-cube analogue of the support's U_y).
+        # The cube's own corner flex is folded into the SUPPORT_CONTACT anchor at
+        # substep begin (staggered, G_a frozen there) so the primal/dual kernels
+        # stay UNCHANGED — they only ever see the support q[0:r]. No coupler.
+        self._cargo_enabled = False
+        self._cargo_bodies: dict[int, object] = {}   # avbd body_idx → cargo body
+        self._cargo_offset: dict[int, int] = {}      # body_idx → a-block offset
+        self._n_modes_tot = 1                        # R_tot = r + Σ k (= r else)
+        self._a_cargo_host: dict[int, np.ndarray] = {}     # body_idx → a
+        self._adot_cargo_host: dict[int, np.ndarray] = {}  # body_idx → ȧ
         # Device arrays (always allocated; dummies when disabled).
         self.c_support_idx = None               # (n_cap,) slot per row, −1 else
         self.support_U_y = None                 # (n_sup, r) mode shapes
@@ -652,7 +669,66 @@ class Solver6DOF:
         self._modal_grav_acc = (None if self._modal_f_q_grav is None
                                 else np.linalg.solve(Mq, self._modal_f_q_grav))
         self._modal_enabled = True
+        self._n_modes_tot = r
         self._dirty = True
+
+    def add_cargo_native(self, body: RigidBody, cargo_body,
+                         support_rows: list[tuple[int, int]]) -> None:
+        """Register a deformable cargo cube as native modal DOFs (M2,
+        two_band_coupling.html — the cube's elastic `a ∈ R^k` joins the augmented
+        modal vector Q = [q_support; …; a_cube]). `cargo_body` exposes the uniform
+        cargo interface (`Mq_block`/`Kq_block`/`Dq_block` k×k, `corner_modal`
+        (P,3,k) = Φ_c, `corotate`). `support_rows` maps each of the cube's
+        SUPPORT_CONTACT slots to its corner pid `(slot, pid)`, so the q-block can
+        form the co-rotated gradient G_a = n̂ᵀ·R·Φ_c[pid].
+
+        Requires `set_modal_support` first (the support occupies modal block 0).
+        The cube's rigid pose is solved by the colored primal (real SAT
+        collision); its `a` by the augmented q-block. No coupler, no hook.
+        """
+        if not self._modal_enabled:
+            raise RuntimeError("add_cargo_native requires set_modal_support first")
+        bi = int(body.index) if hasattr(body, "index") else int(body)
+        k = int(cargo_body.Mq_block.shape[0])
+        offset = self._n_modes_tot
+        self._cargo_bodies[bi] = cargo_body
+        self._cargo_offset[bi] = offset
+        self._n_modes_tot += k
+        self._a_cargo_host[bi] = np.zeros(k, dtype=np.float64)
+        self._adot_cargo_host[bi] = np.zeros(k, dtype=np.float64)
+        # Tag each of the cube's support slots with (body_idx, pid).
+        for slot, pid in support_rows:
+            self._support_cargo[slot] = (bi, int(pid))
+        self._cargo_enabled = True
+        self._dirty = True
+
+    def _build_augmented_modal(self) -> None:
+        """Assemble the block-diagonal augmented modal matrices M_q/K_q/D_q
+        (R_tot × R_tot) and the augmented state Q=[q_support; a_cargo…] from the
+        support block + each registered cargo's k×k blocks. R_tot = r + Σ k."""
+        r = self._n_modes
+        R = self._n_modes_tot
+        Mq = np.zeros((R, R)); Kq = np.zeros((R, R)); Dq = np.zeros((R, R))
+        Mq[:r, :r] = self._Mq; Kq[:r, :r] = self._Kq; Dq[:r, :r] = self._Dq
+        q = np.zeros(R); qdot = np.zeros(R)
+        q[:r] = self._q_modal_host; qdot[:r] = self._qdot_modal_host
+        for bi, body in self._cargo_bodies.items():
+            o = self._cargo_offset[bi]
+            k = int(body.Mq_block.shape[0])
+            Mq[o:o + k, o:o + k] = body.Mq_block
+            Kq[o:o + k, o:o + k] = body.Kq_block
+            Dq[o:o + k, o:o + k] = body.Dq_block
+            q[o:o + k] = self._a_cargo_host[bi]
+            qdot[o:o + k] = self._adot_cargo_host[bi]
+        self._Mq_aug, self._Kq_aug, self._Dq_aug = Mq, Kq, Dq
+        self._q_aug = q
+        self._qdot_aug = qdot
+        # constant predictor acceleration M_q⁻¹ f_grav, padded (cargo grav = 0
+        # here; the cube's modal gravity is small and dropped, see fem_rigid.py).
+        grav = np.zeros(R)
+        if self._modal_grav_acc is not None:
+            grav[:r] = self._modal_grav_acc
+        self._grav_acc_aug = grav
 
     def _modal_device_resident_for(self, dev) -> bool:
         """Resolve whether the native q-block runs on-device (warp kernels) or
@@ -693,6 +769,8 @@ class Solver6DOF:
         )
         self._support_row_cidx.append(n_idx)
         self._support_U_y_rows.append(U_y_row)
+        self._support_y_rest.append(float(y_rest))
+        self._support_cargo.append(None)
         self._dirty = True
         return n_idx
 
@@ -1301,50 +1379,71 @@ class Solver6DOF:
             U_y_np = np.zeros((1, max(r, 1)), dtype=np.float32)
         self.c_support_idx = wp.array(sup_idx_np, dtype=int, device=dev)
         self.support_U_y = wp.array(U_y_np, dtype=float, device=dev)
-        q0 = (self._q_modal_host.astype(np.float32)
-              if self._modal_enabled and self._q_modal_host is not None
-              else np.zeros(max(r, 1), dtype=np.float32))
+        # Native cargo: assemble the augmented (q_support, a_cargo) modal block.
+        # q_modal (the float32 mirror) holds the FULL augmented Q (size R_tot);
+        # the primal/dual read only the support q[0:r] (n_modes = r unchanged).
+        if self._cargo_enabled:
+            self._build_augmented_modal()
+        R_tot = self._n_modes_tot if self._modal_enabled else r
+        if self._cargo_enabled:
+            q0 = self._q_aug.astype(np.float32)
+        elif self._modal_enabled and self._q_modal_host is not None:
+            q0 = self._q_modal_host.astype(np.float32)
+        else:
+            q0 = np.zeros(max(R_tot, 1), dtype=np.float32)
         self.q_modal = wp.array(q0, dtype=float, device=dev)
 
-        # ---- Device q-block state (M1.3 — GPU-resident native modal solve) --
+        # ---- Device q-block state (M1.3 + M2 — GPU-resident native modal) ----
         # The float32 q_modal above is the mirror the primal/dual SUPPORT_CONTACT
-        # kernels read; the AUTHORITATIVE modal math runs in float64 on these
-        # arrays (matching the numpy reference `_solve_q_block` to fp64 roundoff,
-        # the same idiom as reduced_coupled_kernels.py). Allocated only when modal
-        # is enabled; the host numpy path is the parity reference (rule 6).
+        # kernels read (only q[0:r], the support block); the AUTHORITATIVE modal
+        # math runs in float64 on these R_tot-sized arrays — matching the numpy
+        # references (`_solve_q_block` / `_solve_q_block_cargo`) to fp64 roundoff
+        # (the reduced_coupled_kernels.py idiom). ONE device path serves both
+        # support-only (R_tot=r, W=U_y, y_rest=anchor.y, no per-substep freeze)
+        # and native cargo (R_tot=r+Σk, W=[U_y|−G_a] rebuilt each substep, the
+        # cube flex baked into the anchor). The host numpy path is the reference.
         self._modal_resident = (
             self._modal_enabled and self._modal_device_resident_for(dev))
         if self._modal_enabled:
-            grav = (np.zeros(r) if self._modal_grav_acc is None
-                    else self._modal_grav_acc)
-            self._d_Mq = wp.array(self._Mq.astype(np.float64), dtype=wp.float64,
-                                  device=dev)
-            self._d_Kq = wp.array(self._Kq.astype(np.float64), dtype=wp.float64,
-                                  device=dev)
-            self._d_Dq = wp.array(self._Dq.astype(np.float64), dtype=wp.float64,
-                                  device=dev)
-            self._d_q = wp.array(self._q_modal_host.astype(np.float64),
-                                 dtype=wp.float64, device=dev)
-            self._d_qdot = wp.array(self._qdot_modal_host.astype(np.float64),
-                                    dtype=wp.float64, device=dev)
-            self._d_qhat = wp.zeros(r, dtype=wp.float64, device=dev)
-            self._d_qn = wp.zeros(r, dtype=wp.float64, device=dev)
-            self._d_grav_acc = wp.array(grav.astype(np.float64),
-                                        dtype=wp.float64, device=dev)
-            # float64 mode shapes (slot, mode) for the q-block math.
-            U64 = np.zeros((max(n_sup, 1), r), dtype=np.float64)
-            for s2, _cidx in enumerate(self._support_row_cidx):
-                U64[s2, :] = self._support_U_y_rows[s2][:r]
-            self._d_U_y = wp.array(U64, dtype=wp.float64, device=dev)
-            # slot → c-row index (so the device q-block iterates slots directly).
+            R_tot = self._n_modes_tot
+            Mq = self._Mq_aug if self._cargo_enabled else self._Mq
+            Kq = self._Kq_aug if self._cargo_enabled else self._Kq
+            Dq = self._Dq_aug if self._cargo_enabled else self._Dq
+            q_init = self._q_aug if self._cargo_enabled else self._q_modal_host
+            qd_init = self._qdot_aug if self._cargo_enabled else self._qdot_modal_host
+            grav = np.zeros(R_tot)
+            if self._cargo_enabled:
+                grav = self._grav_acc_aug
+            elif self._modal_grav_acc is not None:
+                grav[:r] = self._modal_grav_acc
+            self._d_Mq = wp.array(Mq.astype(np.float64), dtype=wp.float64, device=dev)
+            self._d_Kq = wp.array(Kq.astype(np.float64), dtype=wp.float64, device=dev)
+            self._d_Dq = wp.array(Dq.astype(np.float64), dtype=wp.float64, device=dev)
+            self._d_q = wp.array(q_init.astype(np.float64), dtype=wp.float64, device=dev)
+            self._d_qdot = wp.array(qd_init.astype(np.float64), dtype=wp.float64,
+                                    device=dev)
+            self._d_qhat = wp.zeros(R_tot, dtype=wp.float64, device=dev)
+            self._d_qn = wp.zeros(R_tot, dtype=wp.float64, device=dev)
+            self._d_grav_acc = wp.array(grav.astype(np.float64), dtype=wp.float64,
+                                        device=dev)
+            # per-row gradient W (n_sup × R_tot): support-only = U_y padded;
+            # cargo = [U_y | −G_a], refreshed each substep by the freeze.
+            W0 = np.zeros((max(n_sup, 1), R_tot), dtype=np.float64)
+            for s2 in range(n_sup):
+                W0[s2, :r] = self._support_U_y_rows[s2][:r]
+            self._d_U_y = wp.array(W0, dtype=wp.float64, device=dev)
+            # ORIGINAL rest height per slot (NOT the flex-baked anchor).
+            yr = (np.asarray(self._support_y_rest, dtype=np.float64)
+                  if n_sup > 0 else np.zeros(1))
+            self._d_y_rest = wp.array(yr, dtype=wp.float64, device=dev)
             srow = (np.asarray(self._support_row_cidx, dtype=np.int32)
                     if n_sup > 0 else np.zeros(1, dtype=np.int32))
             self._d_support_row_idx = wp.array(srow, dtype=int, device=dev)
             self._d_rowdata = wp.zeros((max(n_sup, 1), 2), dtype=wp.float64,
                                        device=dev)
-            self._d_Hq = wp.zeros((r, r), dtype=wp.float64, device=dev)
-            self._d_gq = wp.zeros(r, dtype=wp.float64, device=dev)
-            self._d_dq = wp.zeros(r, dtype=wp.float64, device=dev)
+            self._d_Hq = wp.zeros((R_tot, R_tot), dtype=wp.float64, device=dev)
+            self._d_gq = wp.zeros(R_tot, dtype=wp.float64, device=dev)
+            self._d_dq = wp.zeros(R_tot, dtype=wp.float64, device=dev)
             self._d_diag = wp.zeros(2, dtype=wp.float64, device=dev)
             self._n_sup_dev = n_sup
         else:
@@ -1680,6 +1779,8 @@ class Solver6DOF:
         if self._modal_enabled:
             if self._modal_resident:
                 self._modal_predict_device()
+            elif self._cargo_enabled:
+                self._modal_predict_cargo()
             else:
                 self._modal_predict()
 
@@ -1711,6 +1812,8 @@ class Solver6DOF:
         if self._modal_enabled:
             if self._modal_resident:
                 self._modal_commit_device()
+            elif self._cargo_enabled:
+                self._modal_commit_cargo()
             else:
                 self._modal_commit()
 
@@ -1964,6 +2067,8 @@ class Solver6DOF:
             if self._modal_enabled and it < self.iterations:
                 if self._modal_resident:
                     self._solve_q_block_device(dev)
+                elif self._cargo_enabled:
+                    self._solve_q_block_cargo(dev)
                 else:
                     self._solve_q_block(dev)
 
@@ -2086,86 +2191,235 @@ class Solver6DOF:
         self.last_modal_PE = float(0.5 * q @ self._Kq @ q)
         self.last_q_norm = float(np.linalg.norm(q))
 
-    # ---- Device (warp) q-block — GPU-resident native modal solve (M1.3) -----
+    # ---- Device (warp) q-block — GPU-resident native modal solve (M1.3/M2) --
     def _modal_predict_device(self) -> None:
-        """Device predictor: qⁿ snapshot + q̃ = qⁿ + h·q̇ⁿ + h²·M_q⁻¹f_q^grav, and
-        seed the float32 mirror with qⁿ (k_modal_predict). The on-device counter-
-        part of `_modal_predict`; runs OUTSIDE the captured iteration loop."""
+        """Device predictor over the augmented Q (R_tot): qⁿ snapshot + q̃ = qⁿ +
+        h·q̇ⁿ + h²·grav_acc, seed the float32 mirror with qⁿ. For native cargo,
+        first run the host freeze (build the per-row W = [U_y|−G_a] from the live
+        pose, upload it, and bake the cube flex into the anchor) — a per-SUBSTEP
+        host step (not per-iteration), outside the captured loop. The on-device
+        counterpart of `_modal_predict` / `_modal_predict_cargo`."""
         dev = self.device
+        R = self._n_modes_tot
         h = float(self.dt)
         h_pred = 0.0 if self._modal_freeze_qdot else h
+        if self._cargo_enabled:
+            W = self._cargo_freeze_and_W()      # builds W + bakes the anchor
+            self._d_U_y.assign(W)
         wp.launch(
-            MK.k_modal_predict, dim=self._n_modes,
-            inputs=[self._n_modes, wp.float64(h_pred), wp.float64(h * h),
+            MK.k_modal_predict, dim=R,
+            inputs=[R, wp.float64(h_pred), wp.float64(h * h),
                     self._d_q, self._d_qdot, self._d_grav_acc,
                     self._d_qn, self._d_qhat, self.q_modal],
             device=dev)
 
     def _solve_q_block_device(self, dev) -> None:
-        """Device port of `_solve_q_block` (block-GS, float64): per-slot contact
-        force → H_q / g_q assembly → r×r GE solve → q += relax·Δq + float32
-        mirror. Only `wp.launch` (no host readback) so it is CUDA-graph-capturable
-        inside `_run_iter_loop`. Mirrors the host numpy reference to fp64 roundoff
-        (see modal_qblock_kernels.py)."""
-        r = self._n_modes
+        """Device port of the native q-block (block-GS, float64) over the
+        augmented Q (R_tot): per-slot contact force → H/g assembly → R×R GE solve
+        → Q += relax·ΔQ + float32 mirror. Only `wp.launch` (no host readback) so
+        it is CUDA-graph-capturable inside `_run_iter_loop`. Serves both
+        support-only (R_tot=r, W=U_y) and native cargo (R_tot=r+Σk, W=[U_y|−G_a]);
+        mirrors the numpy references to fp64 roundoff (modal_qblock_kernels.py)."""
+        R = self._n_modes_tot
         n_sup = self._n_sup_dev
         inv_dt = 1.0 / float(self.dt)
         inv_dt2 = inv_dt * inv_dt
         if n_sup > 0:
             wp.launch(
                 MK.k_modal_rowforce, dim=n_sup,
-                inputs=[r, self._d_support_row_idx, self.c_active,
-                        self.c_body_a, self.c_off_a, self.c_world_anchor,
+                inputs=[R, self._d_support_row_idx, self.c_active,
+                        self.c_body_a, self.c_off_a,
                         self.c_penalty, self.c_lambda, self.c_stiffness,
                         self.c_alpha_C0, self.x, self.q,
-                        self._d_U_y, self._d_q, self._d_rowdata],
+                        self._d_U_y, self._d_q, self._d_y_rest, self._d_rowdata],
                 device=dev)
         wp.launch(
-            MK.k_modal_hq, dim=(r, r),
-            inputs=[r, n_sup, self._d_Mq, self._d_Kq, self._d_Dq,
+            MK.k_modal_hq, dim=(R, R),
+            inputs=[R, n_sup, self._d_Mq, self._d_Kq, self._d_Dq,
                     wp.float64(inv_dt2), wp.float64(inv_dt),
                     self._d_U_y, self._d_rowdata, self._d_Hq],
             device=dev)
         wp.launch(
-            MK.k_modal_gq, dim=r,
-            inputs=[r, n_sup, self._d_Mq, self._d_Kq, self._d_Dq,
+            MK.k_modal_gq, dim=R,
+            inputs=[R, n_sup, self._d_Mq, self._d_Kq, self._d_Dq,
                     wp.float64(inv_dt2), wp.float64(inv_dt),
                     self._d_q, self._d_qhat, self._d_qn,
                     self._d_U_y, self._d_rowdata, self._d_gq],
             device=dev)
         wp.launch(
             MK.k_modal_solve, dim=1,
-            inputs=[r, wp.float64(self._modal_eps_reg),
+            inputs=[R, wp.float64(self._modal_eps_reg),
                     wp.float64(self._modal_relax),
                     self._d_Hq, self._d_gq, self._d_dq, self._d_q, self.q_modal],
             device=dev)
 
     def _modal_commit_device(self) -> None:
-        """Device commit: q̇ⁿ⁺¹ = (qⁿ⁺¹−qⁿ)/h + modal diagnostics, then ONE small
-        readback (q, q̇, [KE,PE]) into the host mirrors — OUTSIDE the captured hot
-        loop (per substep, not per iteration), so the residency gate (no host
-        readback in the iteration loop) holds."""
+        """Device commit over the augmented Q (R_tot): Q̇ⁿ⁺¹ = (Qⁿ⁺¹−Qⁿ)/h +
+        augmented modal diagnostics, then ONE small readback (Q, Q̇, [KE,PE]) into
+        the host mirrors — OUTSIDE the captured hot loop (per substep, not per
+        iteration). For cargo, split Q back into q_support ⊕ each cube's a, ȧ."""
         dev = self.device
+        R = self._n_modes_tot
         r = self._n_modes
         inv_dt = 1.0 / float(self.dt)
         freeze = 1 if self._modal_freeze_qdot else 0
         wp.launch(
-            MK.k_modal_qdot, dim=r,
-            inputs=[r, wp.float64(inv_dt), freeze,
+            MK.k_modal_qdot, dim=R,
+            inputs=[R, wp.float64(inv_dt), freeze,
                     self._d_q, self._d_qn, self._d_qdot],
             device=dev)
         wp.launch(
             MK.k_modal_diag, dim=1,
-            inputs=[r, self._d_Mq, self._d_Kq, self._d_q, self._d_qdot,
+            inputs=[R, self._d_Mq, self._d_Kq, self._d_q, self._d_qdot,
                     self._d_diag],
             device=dev)
-        q_h = self._d_q.numpy().astype(np.float64)
-        self._q_modal_host = q_h
-        self._qdot_modal_host = self._d_qdot.numpy().astype(np.float64)
+        Q_h = self._d_q.numpy().astype(np.float64)
+        Qd_h = self._d_qdot.numpy().astype(np.float64)
+        self._q_modal_host = Q_h[:r].copy()
+        self._qdot_modal_host = Qd_h[:r].copy()
+        if self._cargo_enabled:
+            self._q_aug = Q_h
+            self._qdot_aug = Qd_h
+            for bi in self._cargo_bodies:
+                o = self._cargo_offset[bi]
+                k = int(self._cargo_bodies[bi].Mq_block.shape[0])
+                self._a_cargo_host[bi] = Q_h[o:o + k].copy()
+                self._adot_cargo_host[bi] = Qd_h[o:o + k].copy()
         dg = self._d_diag.numpy()
         self.last_modal_KE = float(dg[0])
         self.last_modal_PE = float(dg[1])
-        self.last_q_norm = float(np.linalg.norm(q_h))
+        self.last_q_norm = float(np.linalg.norm(self._q_modal_host))
+
+    # ---- Native cargo deformation — augmented (q_support, a_cargo) (M2) -----
+    def _cargo_freeze_and_W(self) -> np.ndarray:
+        """Substep-begin freeze (two_band_coupling.html — cargo coupling): for
+        each cargo SUPPORT_CONTACT slot, freeze the co-rotated modal gradient
+        G_a = n̂ᵀ·R·Φ_c[pid] and bake the cube's corner flex (R·Φ_c·a)_y into the
+        row's anchor (so the primal/dual — which see only q[0:r] — solve against
+        the deformed cube corner without any kernel change). Returns the per-slot
+        augmented gradient W (n_sup × R_tot), W=[U_y | … | −G_a | …]. G_a/flex are
+        FROZEN at the body's current pose (staggered), matching the q-block.
+        """
+        r = self._n_modes
+        R = self._n_modes_tot
+        n_sup = len(self._support_row_cidx)
+        W = np.zeros((n_sup, R), dtype=np.float64)
+        x = self.x.numpy()
+        quat = self.q.numpy()
+        anc = self.c_world_anchor.numpy()
+        for s in range(n_sup):
+            W[s, :r] = self._support_U_y_rows[s][:r]     # support modes
+            tag = self._support_cargo[s]
+            cidx = self._support_row_cidx[s]
+            if tag is None:
+                anc[cidx] = (anc[cidx][0], self._support_y_rest[s], anc[cidx][2])
+                continue
+            bi, pid = tag
+            body = self._cargo_bodies[bi]
+            o = self._cargo_offset[bi]
+            k = int(body.Mq_block.shape[0])
+            Phi_c = np.asarray(body.corner_modal[pid], dtype=np.float64)   # (3,k)
+            a = self._a_cargo_host[bi]
+            if body.corotate:
+                Rm = _modal_quat_to_R(np.asarray(quat[bi], dtype=np.float64))
+                G_a = (Rm @ Phi_c)[1, :]                  # y-row of R·Φ_c
+                flex_y = float((Rm @ (Phi_c @ a))[1])     # (R·Φ_c·a)_y
+            else:
+                G_a = Phi_c[1, :]                          # world-fixed modes (fem)
+                flex_y = float((Phi_c @ a)[1])
+            W[s, o:o + k] = -G_a                          # cargo a-block of W
+            # bake the frozen cube corner flex into the anchor (primal sees it).
+            anc[cidx] = (anc[cidx][0],
+                         self._support_y_rest[s] - flex_y, anc[cidx][2])
+        self.c_world_anchor.assign(anc)
+        return W
+
+    def _modal_predict_cargo(self) -> None:
+        """Augmented predictor Q̃ = Qⁿ + h·Q̇ⁿ (+ h²·grav_acc) + the cargo freeze.
+        Builds the per-slot W and seeds the float32 mirror q_modal with Qⁿ (the
+        primal reads q_modal[0:r])."""
+        h = float(self.dt)
+        self._q_n_aug = self._q_aug.copy()
+        h_pred = 0.0 if self._modal_freeze_qdot else h
+        self._q_hat_aug = (self._q_n_aug + h_pred * self._qdot_aug
+                           + h * h * self._grav_acc_aug)
+        self._cargo_W = self._cargo_freeze_and_W()
+        self.q_modal.assign(self._q_aug.astype(np.float32))
+
+    def _solve_q_block_cargo(self, dev) -> None:
+        """Augmented block-GS q-block on E(z, Q) with Q=[q_support; a_cargo…]
+        (two_band_coupling.html). Generalizes `_solve_q_block`: U_y→W (per-row,
+        spanning support + the cube's co-rotated −G_a), r→R_tot, M_q/K_q/D_q→
+        block-diagonal augmented. The gap is read against the ORIGINAL y_rest +
+        W·Q (rigid corner + modal flex via G_a·a), not the flex-baked anchor.
+        z is held at the colored primal's value; the SAME multiplier f loads the
+        support q (−U_y f) and the cube a (+G_a f) — Newton's third law on Q."""
+        h = float(self.dt)
+        inv_dt = 1.0 / h
+        inv_dt2 = inv_dt * inv_dt
+        R = self._n_modes_tot
+        Mq, Kq, Dq = self._Mq_aug, self._Kq_aug, self._Dq_aug
+        Q = self._q_aug
+        H = inv_dt2 * Mq + inv_dt * Dq + Kq
+        g = (inv_dt2 * (Mq @ (Q - self._q_hat_aug))
+             + inv_dt * (Dq @ (Q - self._q_n_aug)) + Kq @ Q)
+        x = self.x.numpy()
+        quat = self.q.numpy()
+        pen = self.c_penalty.numpy()
+        lam = self.c_lambda.numpy()
+        stiff = self.c_stiffness.numpy()
+        alpha_C0 = self.c_alpha_C0.numpy()
+        act = self.c_active.numpy()
+        W = self._cargo_W
+        for s, cidx in enumerate(self._support_row_cidx):
+            if act[cidx] == 0:
+                continue
+            row = self._rows[cidx]
+            bi = row.body_a
+            Rm = _modal_quat_to_R(np.asarray(quat[bi], dtype=np.float64))
+            r_w = Rm @ np.asarray(row.off_a, dtype=np.float64)
+            corner_y = float(x[bi][1]) + float(r_w[1])
+            Ws = W[s]
+            C = corner_y - (self._support_y_rest[s] + float(Ws @ Q))
+            hard = np.isinf(stiff[cidx])
+            if hard:
+                C = C - float(alpha_C0[cidx])
+            lam_eff = float(lam[cidx]) if hard else 0.0
+            rho = float(pen[cidx])
+            f = min(rho * C + lam_eff, 0.0)
+            if f >= 0.0:
+                continue
+            g = g - Ws * f
+            H = H + rho * np.outer(Ws, Ws)
+        dQ = np.linalg.solve(H + self._modal_eps_reg * np.eye(R), -g)
+        self._q_aug = Q + self._modal_relax * dQ
+        self.q_modal.assign(self._q_aug.astype(np.float32))
+
+    def _modal_commit_cargo(self) -> None:
+        """Augmented commit: Q̇ⁿ⁺¹ = (Qⁿ⁺¹−Qⁿ)/h; split Q back into q_support ⊕
+        each cube's a, ȧ. Modal diagnostics include the cube's elastic energy."""
+        h = float(self.dt)
+        r = self._n_modes
+        if not self._modal_freeze_qdot:
+            self._qdot_aug = (self._q_aug - self._q_n_aug) / h
+        self._q_modal_host = self._q_aug[:r].copy()
+        self._qdot_modal_host = self._qdot_aug[:r].copy()
+        for bi in self._cargo_bodies:
+            o = self._cargo_offset[bi]
+            k = int(self._cargo_bodies[bi].Mq_block.shape[0])
+            self._a_cargo_host[bi] = self._q_aug[o:o + k].copy()
+            self._adot_cargo_host[bi] = self._qdot_aug[o:o + k].copy()
+        Q, Qd = self._q_aug, self._qdot_aug
+        self.last_modal_KE = float(0.5 * Qd @ self._Mq_aug @ Qd)
+        self.last_modal_PE = float(0.5 * Q @ self._Kq_aug @ Q)
+        self.last_q_norm = float(np.linalg.norm(self._q_modal_host))
+
+    def cargo_a(self, body_idx: int) -> np.ndarray:
+        """Current cube modal amplitude a (read-only copy)."""
+        return self._a_cargo_host[int(body_idx)].copy()
+
+    def cargo_adot(self, body_idx: int) -> np.ndarray:
+        return self._adot_cargo_host[int(body_idx)].copy()
 
     @property
     def modal_q(self) -> np.ndarray:

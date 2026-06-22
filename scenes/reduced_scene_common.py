@@ -203,8 +203,11 @@ def build_support_and_attach(
         # impactors only (cargo deformation is M2).
         if cargo_material is not None:
             raise ValueError(
-                "solver='native' does not support deformable cargo yet "
-                "(M2). Use cargo_material=None for the native modal path.")
+                "solver='native' deformable cargo in the 4 production scenes is "
+                "a follow-on (Stage-7) integration. Native fem_rigid cargo is "
+                "available now via scenes.reduced_fem_rigid_cargo.build_cargo_scene("
+                "solver='native'); use cargo_material=None here for the bare "
+                "native modal path.")
         world.enable_reduced_modal_support(
             rs,
             tracked_body_indices=tracked,

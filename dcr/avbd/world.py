@@ -520,6 +520,8 @@ class AVBDDCRWorld:
             row.stiffness = float(support_stiffness)
             s._support_row_cidx.append(cidx)
             s._support_U_y_rows.append(U_y_row)
+            s._support_y_rest.append(float(shelf_y_rest))
+            s._support_cargo.append(None)
             n_converted += 1
         if n_converted == 0:
             raise RuntimeError(
@@ -530,6 +532,31 @@ class AVBDDCRWorld:
         self.reduced_support = rs
         self._native_modal_enabled = True
         s._dirty = True
+
+    def add_native_cargo(self, body_avbd_idx: int, cargo_body) -> None:
+        """Register a deformable cargo cube on the NATIVE modal path (M2). Call
+        AFTER `enable_reduced_modal_support` has retyped the cube's support-height
+        contacts to SUPPORT_CONTACT rows: this maps each of the cube's converted
+        slots to its corner pid (by matching the corner offset to the cargo body's
+        rest corners) and installs the cube's elastic block into the augmented
+        modal vector (Solver6DOF.add_cargo_native). No coupler."""
+        s = self._solver
+        if not s._modal_enabled:
+            raise RuntimeError("add_native_cargo requires enable_reduced_modal_support")
+        cb = np.asarray(cargo_body.corner_body, dtype=np.float64)
+        support_rows: list[tuple[int, int]] = []
+        for slot, cidx in enumerate(s._support_row_cidx):
+            row = s._rows[cidx]
+            if int(row.body_a) != int(body_avbd_idx):
+                continue
+            off = np.asarray(row.off_a, dtype=np.float64)
+            pid = int(np.argmin(np.linalg.norm(cb - off, axis=1)))
+            support_rows.append((slot, pid))
+        if not support_rows:
+            raise RuntimeError(
+                f"add_native_cargo: no SUPPORT_CONTACT rows for body "
+                f"{body_avbd_idx} (call enable_reduced_modal_support first).")
+        s.add_cargo_native(int(body_avbd_idx), cargo_body, support_rows)
 
     def attach_reduced_coupled_xpbd(
         self,

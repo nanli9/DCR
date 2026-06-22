@@ -195,12 +195,50 @@ iteration).
   shuffle-fused modal primal is a **deferred profiling optimization** (out of M1.3
   scope: M1.3 is residency + parity, not the fastest primal).
 
+## M2 — native cargo deformation (fem_rigid, done)
+
+A deformable cargo cube is a tumbling 6-DOF rigid box (real SAT collision) whose
+elastic modes `a ∈ ℝ^k` join the **augmented native modal vector**
+`Q = [q_support; a_cube]` (block-diagonal `M_q/K_q/D_q`) — co-solved with the
+bodies in the same backward-Euler step by the augmented q-block. No coupler, no
+hook (`Solver6DOF.add_cargo_native` / `world.add_native_cargo`).
+
+- **Per-row gradient** `W = [U_y | −G_a]` generalizes the support's `U_y`, where
+  `G_a = n̂ᵀ·R·Φ_c[pid]` is the cube's co-rotated modal contact gradient (the
+  per-cube analogue of `U_y`). The q-block reads the gap against the ORIGINAL
+  `y_rest + W·Q` (rigid corner + the cube flex via `G_a·a`).
+- **Zero primal/dual kernel surgery:** the cube's frozen corner flex
+  `(R·Φ_c·a)_y` is baked into the `SUPPORT_CONTACT` anchor at substep begin
+  (staggered, `G_a` frozen there), so the primal/dual see only `q[0:r]` — exactly
+  the M1 path. The augmented Q lives only in the q-block (host + device).
+- **One device path** serves both: the M1.3 kernels are generic in `r`, so cargo
+  passes `R_tot = r + Σk` and the per-row `W` (refreshed each substep by the host
+  freeze) — fully GPU-resident + CUDA-graph-captured.
+- **Validated** (`tests/avbd_native/test_native_cargo.py`, 7): the cube deforms
+  AND the slab rings two-way (frozen-q̇ ⇒ ring KE = 0); free-ringdown passivity;
+  warp==numpy to fp64 on a smooth trajectory, float32-ULP tracking with contact;
+  cuda residency + graph capture + cpu↔cuda agreement; the `build_cargo_scene(
+  solver="native")` scene settles with no tunneling. Artifact
+  `docs/avbd_native/m2_native_fem_rigid_cargo.png/.gif` (`scripts/plot_native_cargo.py`).
+- **vs the coupler** (qualitative, run read-only): native peak cube elastic E is
+  the same order as the avbd coupler's (block-GS + relax is gentler than the
+  coupler's cross-term Schur — the same M1 trade-off). The couplers are NEVER
+  touched (additive native path).
+
 ## Status / next
 
-- M1.0–M1.5 + **M1.3: done.** The native `(z, q)` path is GPU-resident on cuda
-  (device float64 q-block, CUDA-graph-captured) with CPU↔warp parity to fp64.
-- **M2** (cargo deformation native): pending. Cargo / the deformable `cargo` scene
-  still run on the coupler; the viewer routes `native + cargo → avbd`.
+- M1.0–M1.5 + **M1.3** (GPU-resident device q-block) + **M2 fem_rigid** (native
+  cargo): **done.** The native `(z, q[, a])` path is GPU-resident on cuda
+  (device float64 augmented q-block, CUDA-graph-captured) with CPU↔warp parity.
+- **M2 abd / fem cargo:** follow-on increments (fem = fem_rigid with
+  `corotate=False`, one flag; abd = nonlinear `V⊥` internal each iteration). The
+  4 production scenes (truck/ledge/shelf/dinner) with native cargo are the broader
+  Stage-7 integration; `build_cargo_scene(solver="native")` is the canonical demo.
+- **Known pre-existing failure (NOT M1.3/M2):** `test_native_stacks.py::
+  test_truck_lumber_stack_rides_ring_and_holds` topples to 180° on a clean tree
+  (block-GS relax=0.1 no longer holds the truck 4-high lumber). Confirmed
+  independent of the device q-block and the cargo path. Plus 3 avbd/xpbd **coupler**
+  test failures pre-existing at HEAD (the no-touch path) — tracked separately.
 - **Known pre-existing failure (NOT M1.3):** `test_native_stacks.py::
   test_truck_lumber_stack_rides_ring_and_holds` topples to 180° on a clean tree
   (block-GS relax=0.1 no longer holds the truck 4-high lumber under the current

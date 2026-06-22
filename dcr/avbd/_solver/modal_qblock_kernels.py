@@ -64,20 +64,24 @@ def k_modal_rowforce(
     c_active: wp.array(dtype=int),
     c_body_a: wp.array(dtype=int),
     c_off_a: wp.array(dtype=wp.vec3),
-    c_world_anchor: wp.array(dtype=wp.vec3),
     c_penalty: wp.array(dtype=float),
     c_lambda: wp.array(dtype=float),
     c_stiffness: wp.array(dtype=float),
     c_alpha_C0: wp.array(dtype=float),
     x: wp.array(dtype=wp.vec3),
     q: wp.array(dtype=wp.quat),
-    U_y: wp.array2d(dtype=wp.float64),        # (n_sup, r) mode shapes, f64
-    q_modal: wp.array(dtype=wp.float64),      # (r,) live amplitude, f64
+    U_y: wp.array2d(dtype=wp.float64),        # (n_sup, R) per-row gradient W, f64
+    q_modal: wp.array(dtype=wp.float64),      # (R,) live augmented Q, f64
+    y_rest: wp.array(dtype=wp.float64),       # (n_sup,) ORIGINAL rest height
     rowdata: wp.array2d(dtype=wp.float64),    # (n_sup, 2) out: [k_lhs, f]
 ):
     """Per support slot: f = min(ρ·C + λ_eff, 0); only ENGAGED (f<0) compressive
-    contacts load the mode. C = corner_y − (y_rest + U_y·q), read against the
-    LIVE q. Writes rowdata[s] = (ρ, f) when engaged, else (0, 0). dim = n_sup."""
+    contacts load the mode. C = corner_y − (y_rest + W·Q), read against the LIVE
+    Q (W = U_y for the support-only path; W = [U_y | −G_a] for native cargo, so
+    Q's cargo a-block adds the cube's co-rotated corner flex). `y_rest` is the
+    ORIGINAL rest height — NOT c_world_anchor, which carries the frozen cube flex
+    for the primal. Writes rowdata[s] = (ρ, f) when engaged, else (0, 0).
+    dim = n_sup."""
     s = wp.tid()
     cidx = support_row_idx[s]
     rowdata[s, 0] = _ZERO
@@ -91,12 +95,11 @@ def k_modal_rowforce(
     off = c_off_a[cidx]
     r_w = R * vec3d(wp.float64(off[0]), wp.float64(off[1]), wp.float64(off[2]))
     corner_y = wp.float64(x[bi][1]) + r_w[1]
-    # surf = y_rest + U_y·q
+    # surf = y_rest + W·Q  (W spans support modes ⊕ the cube's −G_a a-block)
     uq = _ZERO
     for kk in range(r):
         uq += U_y[s, kk] * q_modal[kk]
-    anc = c_world_anchor[cidx]
-    C = corner_y - (wp.float64(anc[1]) + uq)
+    C = corner_y - (y_rest[s] + uq)
     # hard constraints (isinf stiffness) carry the AL stabilization; support
     # rows are soft (large-but-finite), so this branch is normally skipped —
     # replicate it anyway to stay bit-identical to the host path.
