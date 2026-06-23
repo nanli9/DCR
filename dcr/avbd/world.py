@@ -446,17 +446,28 @@ class AVBDDCRWorld:
                 hx, hy, hz = s._he[bi]
                 R = _xR(np.asarray(s._Q[bi], dtype=np.float64))
                 pos = np.asarray(s._X[bi], dtype=np.float64)
-                for sx in (-1.0, 1.0):
-                    for sz in (-1.0, 1.0):
-                        off = (sx * hx, -hy, sz * hz)
-                        r_w = R @ np.asarray(off, dtype=np.float64)
-                        cx, cz = float(pos[0] + r_w[0]), float(pos[2] + r_w[2])
-                        U3r = evaluate_basis_at_point(
-                            rs, (cx, cz), length=shelf_length, width=shelf_width,
-                            n_grid_x=n_grid_x, n_grid_z=n_grid_z)
-                        s.add_support_contact_corner(
-                            bi, off, shelf_y_rest,
-                            np.asarray(U3r[1, :], dtype=np.float64))
+                # ALL 8 corners (not just the bottom face): the support is a
+                # unilateral non-penetration constraint, so a corner above the
+                # live surface is inactive (C = corner_y − surf ≥ 0 ⇒ skipped).
+                # Constraining only the bottom-face corners lets a body that
+                # TUMBLES (e.g. the cargo cube dropped with spin) flip onto an
+                # unconstrained face and pass straight through the support —
+                # it ends up hanging one body-height below, top flush with the
+                # surface. With all 8 corners the contact catches whatever face
+                # lands. The U_y basis is sampled at each corner's rest (x, z).
+                for sy in (-1.0, 1.0):
+                    for sx in (-1.0, 1.0):
+                        for sz in (-1.0, 1.0):
+                            off = (sx * hx, sy * hy, sz * hz)
+                            r_w = R @ np.asarray(off, dtype=np.float64)
+                            cx, cz = float(pos[0] + r_w[0]), float(pos[2] + r_w[2])
+                            U3r = evaluate_basis_at_point(
+                                rs, (cx, cz), length=shelf_length,
+                                width=shelf_width, n_grid_x=n_grid_x,
+                                n_grid_z=n_grid_z)
+                            s.add_support_contact_corner(
+                                bi, off, shelf_y_rest,
+                                np.asarray(U3r[1, :], dtype=np.float64))
             rs.overlay_enabled = False
             rs.restart_overlay_each_step = False
             self.reduced_support = rs
