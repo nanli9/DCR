@@ -303,3 +303,110 @@ The 2 skips are the retired coupled-mode `test_iir_modal_resonator` functions.
 **This build introduced 0 new failures and 28 new passing tests** (Stage 0 scaffold 6,
 Stage 1 acceptance 4, Stage 2 rigid 4, Stage 3 modal 4, Stage 4 cargo 5,
 Stage 5 native-scene matrix 16 — minus overlaps with deleted coupler tests).
+
+## Stage 2b — XPBD device residency + optimization loop (the deferred pass)
+
+Goal (user-requested follow-up): make `SolverXPBD` **device-resident** and
+CUDA-graph-capturable; keep the CPU numpy path as the correctness reference;
+then **loop-optimize until no huge improvement**.
+
+### What was built
+- **`xpbd_kernels.py`** — a full `wp.float64` re-expression of `_substep_cpu`:
+  quat/mat helpers (byte-faithful to the numpy `_quat_*`), contact generation
+  (floor corners + SAT 15-axis box-box, emitting in the exact `_CORNER_SIGNS`
+  order), the position GS solve (normal → modal-elastic → cargo-elastic →
+  support rows), velocity-from-Δx, modal/cargo commit, the velocity GS solve,
+  and the max-penetration / modal-KE/PE diagnostics. **Fused into TWO phase
+  kernels per substep** (`k_pos_phase`, `k_vel_phase`).
+- **`solver_xpbd.py`** — `_build_device` (uploads all state to resident
+  `wp.array` once), `_launch_substep` (2 `wp.launch`es), `_step_device`
+  (capture+replay the CUDA graph; eager launch on CPU-warp), the
+  `_warp_device` / `_device_compatible` dispatch, and device-aware read-back.
+- Triggered by `device="cuda:0"` (GPU) or `_force_warp=True` (warp-on-CPU).
+  `device="cpu"` (default) still runs the numpy reference.
+
+### Design rationale — sequential, not parallel
+The profiled hot spot is the support/modal GS sweep (~77 %), which is
+**sequentially coupled through the shared modal vector `q`** (every support row
+reads the `q` the previous row wrote). That chain cannot be colored into
+independent parallel groups — all rows conflict through `q` — and the scenes are
+tiny (≤17 bodies, ~68 sequential support rows). So the substep runs as
+**compiled sequential `dim=1` kernels**: this preserves the exact GS ordering
+(→ fp64 parity) and removes the per-row Python/numpy overhead that made the CPU
+path slow. # DEVIATION: none in the math; only host-loop / launch overhead is removed.
+
+### Parity (gate PASSED) — device vs numpy, max |Δ| over 120 steps
+| scene | backend | Δpos | Δquat | Δmodal_q |
+|---|---|---|---|---|
+| cargo rigid | warp-cpu | 0 | 1.6e-15 | 8.1e-16 |
+| cargo rigid | cuda | 0 | 4.0e-15 | 1.2e-15 |
+| cargo fem / fem_rigid | warp-cpu | 6.0e-8\* | 1.8e-7\* | 2.8e-9 |
+| cargo fem / fem_rigid | cuda | 6.0e-8\* | 1.0e-7\* | 2.3e-9 |
+| box-box 4-stack | warp-cpu | 0 | 0 | — |
+| box-box 4-stack | cuda | 0 | 0 | — |
+
+(\*) the 6e-8 / 1e-7 are **float32 read-back rounding** (`positions()` /
+`orientations()` return float32); the float64 state (`modal_q`) agrees to ~1e-9.
+The box-box stack is **bit-identical** because the device SAT emits contacts in
+the exact `_CORNER_SIGNS` order. Test: `tests/avbd_native/test_xpbd_device.py`.
+
+### Benchmark + optimization loop (ms/step, RTX 3060 Laptop, 60 steps)
+`scripts/bench_xpbd_device.py`. **Iteration 0** (granular, ~10 launches/substep):
+
+| scene | nb | numpy | warp-cpu | cuda | ×wcpu | ×cuda |
+|---|---|---|---|---|---|---|
+| cargo | 1 | 16.2 | 1.38 | 5.83 | 11.8 | 2.8 |
+| shelf | 6 | 56.8 | 1.67 | 15.8 | 34 | 3.6 |
+| dinner | 17 | 211 | 2.93 | 76 | 72 | 2.8 |
+| truck | 12 | 511 | 2.41 | 53.6 | 213 | 9.5 |
+| ledge | 5 | 328 | 1.67 | 20.2 | 197 | 16 |
+
+**Iteration 1** (kernel fusion → 2 launches/substep):
+
+| scene | nb | numpy | warp-cpu | cuda | ×wcpu | ×cuda |
+|---|---|---|---|---|---|---|
+| cargo | 1 | 16.3 | 0.88 | 5.38 | 18.5 | 3.0 |
+| shelf | 6 | 56.1 | 1.19 | 16.6 | 47 | 3.4 |
+| dinner | 17 | 211 | 2.41 | 78 | 88 | 2.7 |
+| truck | 12 | 501 | 1.86 | 53.9 | 269 | 9.3 |
+| ledge | 5 | 324 | 1.19 | 20.3 | 271 | 16 |
+
+Fusion helped **warp-cpu** (~1.5× — fewer dispatch overheads) but **not cuda**.
+A sync probe ruled out the per-frame diag readback (cargo 5.4→4.9 ms without it);
+fusion (60→12 graph nodes) left cuda unchanged.
+
+### Plateau — honest conclusion
+The CUDA cost is **not** launch-node overhead — it is that the entire
+sequentially-`q`-coupled substep runs on **one GPU thread** (a single GPU core
+is ~5–10× slower than a CPU core), and the scenes are too small for the only
+parallel work (per-body predict/velocity-update, ≤17 bodies) to matter. The one
+remaining lever — parallelizing the GS sweep via contact graph-coloring + a
+Jacobi/colored modal update — would **break the exact GS-order parity** (a
+documented deviation) and is essentially the AVBD solver's machinery, explicitly
+out of scope (build-plan parity gate + Decision #1 "track separately"). So the
+loop stops here:
+
+- **warp-CPU is the fastest backend at these scene sizes** — 12–271× over the
+  numpy reference, parity-exact. It is genuinely device-resident (state in
+  `wp.array` on the cpu device; LLVM-compiled kernels).
+- **The CUDA-resident path is delivered, parity-correct, and graph-captured.**
+  It is 2.7–16× over numpy but slower than warp-cpu here; it is the right
+  substrate once a scene is large enough to parallelize — which needs the GS
+  parallelization above (a separate task).
+- The headline win is the **compiled warp path (either backend): 1–2 orders of
+  magnitude over the numpy reference**.
+
+### Residency audit
+The captured hot loop (`substeps` × {`k_pos_phase`, `k_vel_phase`}) issues only
+`wp.launch` — no `.numpy()` / `synchronize` inside. State (X/Q/V/W, modal q/q̇,
+cargo a, the contact pool) lives in `wp.array` on the device for the whole frame;
+built once in `_build_device`, never reallocated. One 4-float diagnostic copy
+happens per **frame** (outside the captured region) for the HUD/tests; it can be
+made lazy.
+
+### Scope / limitations
+- **abd** cargo (nonlinear V⊥) and the rare **>1-cargo** case fall back to the
+  numpy reference even on cuda (`_device_compatible()`); documented + tested
+  (`test_abd_falls_back_to_numpy_on_cuda`).
+- `device="cpu"` (default) still runs numpy — the parity reference (CLAUDE.md
+  rule 6). warp-cpu is opt-in via `_force_warp`; cuda via `device="cuda:0"`.

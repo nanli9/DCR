@@ -40,9 +40,18 @@ import math
 import numpy as np
 from numpy.typing import NDArray
 
+import warp as wp
+
 from .solver_6dof import RigidBody, box_inv_inertia_local
+from . import xpbd_kernels as XK
 
 __all__ = ["SolverXPBD"]
+
+# Corner order shared with the numpy reference (_CORNER_SIGNS) so the device SAT
+# emits contacts in the exact same order — required for fp64 GS parity.
+_CORNER_SIGNS_NP = np.array(
+    [[-1, -1, -1], [1, -1, -1], [1, 1, -1], [-1, 1, -1],
+     [-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]], dtype=np.float64)
 
 _STAGE3 = ("SolverXPBD reduced-modal support lands in Stage 3 of "
            "prompts/native_dual_solver_build_plan.md.")
@@ -262,6 +271,21 @@ class SolverXPBD:
         self._cargo_Minv: dict = {}   # body_idx -> (k,k) M_a⁻¹ (dense; eye for fem)
         self._cargo_lam: dict = {}    # body_idx -> (k,) elastic multipliers
 
+        # ---- device-resident warp path (Stage 2b) ------------------------
+        # The numpy `_substep_cpu` stays the correctness reference (CLAUDE.md
+        # rule 6); the warp path re-expresses it on resident `wp.array` state
+        # (`xpbd_kernels.py`). Used when the solver runs on a CUDA device (or
+        # `_force_warp` is set, for warp-on-CPU parity/benchmarking). abd cargo
+        # (nonlinear V⊥) and the rare >1-cargo case fall back to numpy.
+        self._force_warp = False           # run warp kernels even on device="cpu"
+        self._on_device = False            # last step ran the warp path
+        self._device_built = False         # device arrays uploaded
+        self._d: dict = {}                 # name -> wp.array device-state pool
+        self._graph = None                 # captured CUDA graph (None ⇒ recapture)
+        self._graph_sig: tuple | None = None
+        self._cargo_dev_bi = -1            # the single cargo body on device (-1 none)
+        self._diag_host = np.zeros(4, dtype=np.float64)
+
     # -- scene building -----------------------------------------------------
     def add_box(
         self,
@@ -426,11 +450,273 @@ class SolverXPBD:
 
     # -- stepping -----------------------------------------------------------
     def step(self) -> None:
-        """One frame = `substeps` Macklin small-steps (CPU reference path)."""
+        """One frame = `substeps` Macklin small-steps. Dispatches to the
+        device-resident warp path on a CUDA device (or when `_force_warp` is
+        set); otherwise the numpy reference (`_substep_cpu`). abd cargo / the
+        rare >1-cargo case force the numpy path even on CUDA (see
+        `_device_compatible`)."""
         self._ensure_arrays()
+        dev = self._warp_device()
+        if dev is not None and self._device_compatible():
+            self._step_device(dev)
+            return
+        self._on_device = False
         h = self.dt / self.substeps
         for _ in range(self.substeps):
             self._substep_cpu(h)
+
+    # -- device-resident warp path (Stage 2b) -------------------------------
+    def _warp_device(self) -> str | None:
+        """The warp device to run on, or None ⇒ use the numpy reference. CUDA
+        always uses warp; `_force_warp` runs warp on CPU (parity/benchmark)."""
+        if str(self.device).startswith("cuda"):
+            return self.device
+        if self._force_warp:
+            return "cpu"
+        return None
+
+    def _device_compatible(self) -> bool:
+        """The device path handles ≤1 cargo block and linear materials only;
+        abd (nonlinear V⊥) and multi-cargo fall back to the numpy reference."""
+        if len(self._cargo) > 1:
+            return False
+        for cb in self._cargo.values():
+            if getattr(cb, "has_nonlinear_internal", False):
+                return False
+        return True
+
+    def _current_sig(self) -> tuple:
+        """Python scalars baked into the captured launch sequence; a change
+        invalidates the cached CUDA graph."""
+        return (int(self.iterations), int(self.substeps),
+                int(bool(self._freeze_qdot)), float(self.dt),
+                float(self.contact_compliance), float(self.support_compliance),
+                float(self.modal_relax), float(self.friction_static_mult))
+
+    def _build_device(self, dev: str) -> None:
+        """Upload all solver state to resident `wp.array`s once. After this the
+        hot loop (`_launch_substep`) issues only `wp.launch` — no host readback,
+        no reallocation — so the fixed sequence is CUDA-graph-capturable."""
+        d = self._d
+        n = self._X.shape[0]
+        f64 = np.float64
+
+        d["n"] = n
+        d["X"] = wp.array(self._X.astype(f64), dtype=wp.vec3d, device=dev)
+        d["Q"] = wp.array(self._Q.astype(f64), dtype=wp.quatd, device=dev)
+        d["V"] = wp.array(self._V.astype(f64), dtype=wp.vec3d, device=dev)
+        d["W"] = wp.array(self._W.astype(f64), dtype=wp.vec3d, device=dev)
+        d["x_prev"] = wp.zeros(n, dtype=wp.vec3d, device=dev)
+        d["q_prev"] = wp.zeros(n, dtype=wp.quatd, device=dev)
+        d["invm"] = wp.array(self._invm.astype(f64), dtype=wp.float64, device=dev)
+        d["invIl"] = wp.array(self._invIl.astype(f64), dtype=wp.mat33d, device=dev)
+        d["hE"] = wp.array(self._hE.astype(f64), dtype=wp.vec3d, device=dev)
+        d["signs"] = wp.array(_CORNER_SIGNS_NP, dtype=wp.vec3d, device=dev)
+
+        # floor registrations
+        nf = len(self._floors)
+        if nf:
+            fb = np.array([f[0] for f in self._floors], dtype=np.int32)
+            fy = np.array([f[1] for f in self._floors], dtype=f64)
+            fm = np.array([f[2] for f in self._floors], dtype=f64)
+        else:
+            fb = np.zeros(1, np.int32); fy = np.zeros(1, f64); fm = np.zeros(1, f64)
+        d["n_floor"] = nf
+        d["fl_bi"] = wp.array(fb, dtype=wp.int32, device=dev)
+        d["fl_y"] = wp.array(fy, dtype=wp.float64, device=dev)
+        d["fl_mu"] = wp.array(fm, dtype=wp.float64, device=dev)
+        d["self_collide"] = 1 if self._self_collide else 0
+        d["self_mu"] = float(self._self_friction)
+
+        # contact pool (fixed capacity): floor corners + box-box pairs
+        n_pairs = (n * (n - 1)) // 2 if self._self_collide else 0
+        cap = nf * 8 + n_pairs * 4 + 16
+        d["cap"] = cap
+        d["cur"] = wp.zeros(1, dtype=wp.int32, device=dev)
+        d["c_a"] = wp.zeros(cap, dtype=wp.int32, device=dev)
+        d["c_b"] = wp.zeros(cap, dtype=wp.int32, device=dev)
+        d["c_ra"] = wp.zeros(cap, dtype=wp.vec3d, device=dev)
+        d["c_rb"] = wp.zeros(cap, dtype=wp.vec3d, device=dev)
+        d["c_n"] = wp.zeros(cap, dtype=wp.vec3d, device=dev)
+        d["c_floory"] = wp.zeros(cap, dtype=wp.float64, device=dev)
+        d["c_mu"] = wp.zeros(cap, dtype=wp.float64, device=dev)
+        d["c_lam"] = wp.zeros(cap, dtype=wp.float64, device=dev)
+        d["c_jt"] = wp.zeros(cap, dtype=wp.vec3d, device=dev)
+
+        # modal block (dummies of size 1 when no support, so signatures hold)
+        r = self._r if self._modal else 1
+        d["r"] = r
+
+        def _f64arr(a, size):
+            out = np.zeros(size, dtype=f64)
+            if a is not None:
+                out[:len(a)] = np.asarray(a, dtype=f64).reshape(-1)[:size]
+            return out
+        d["q"] = wp.array(_f64arr(self._q, r), dtype=wp.float64, device=dev)
+        d["qdot"] = wp.array(_f64arr(self._qdot, r), dtype=wp.float64, device=dev)
+        d["q_n"] = wp.zeros(r, dtype=wp.float64, device=dev)
+        d["kq"] = wp.array(_f64arr(self._kq, r), dtype=wp.float64, device=dev)
+        d["mq"] = wp.array(_f64arr(self._mq, r), dtype=wp.float64, device=dev)
+        d["dq"] = wp.array(_f64arr(self._dq, r), dtype=wp.float64, device=dev)
+        d["wq"] = wp.array(_f64arr(self._wq, r), dtype=wp.float64, device=dev)
+        d["lam_q"] = wp.zeros(r, dtype=wp.float64, device=dev)
+        d["grav"] = wp.array(_f64arr(self._modal_grav_acc, r), dtype=wp.float64,
+                             device=dev)
+
+        # single linear cargo block (rigid k=0 / fem_rigid / fem)
+        self._cargo_dev_bi = -1
+        ck = 0
+        if len(self._cargo) == 1:
+            bi0 = next(iter(self._cargo))
+            cube = self._cargo[bi0]
+            ck = int(self._cargo_a[bi0].shape[0])
+            if ck > 0 and not getattr(cube, "has_nonlinear_internal", False):
+                self._cargo_dev_bi = bi0
+        if self._cargo_dev_bi >= 0:
+            bi0 = self._cargo_dev_bi
+            cube = self._cargo[bi0]
+            kqd = np.diag(np.asarray(cube.Kq_block, dtype=f64))
+            mqd = np.diag(np.asarray(cube.Mq_block, dtype=f64))
+            dqd = np.diag(np.asarray(cube.Dq_block, dtype=f64))
+            phi = np.asarray(cube.corner_modal, dtype=f64)   # (P,3,k)
+            lam = self._cargo_lam[bi0]
+            d["has_cargo"] = 1
+            d["ck"] = ck
+            d["n_lam"] = int(lam.shape[0])
+            d["cg_a"] = wp.array(self._cargo_a[bi0].astype(f64),
+                                 dtype=wp.float64, device=dev)
+            d["cg_adot"] = wp.array(self._cargo_adot[bi0].astype(f64),
+                                    dtype=wp.float64, device=dev)
+            d["cg_an"] = wp.zeros(ck, dtype=wp.float64, device=dev)
+            d["cg_kq"] = wp.array(kqd, dtype=wp.float64, device=dev)
+            d["cg_mq"] = wp.array(mqd, dtype=wp.float64, device=dev)
+            d["cg_dq"] = wp.array(dqd, dtype=wp.float64, device=dev)
+            d["cg_lam"] = wp.array(lam.astype(f64), dtype=wp.float64, device=dev)
+            d["cg_phi"] = wp.array(phi, dtype=wp.float64, device=dev)
+        else:
+            d["has_cargo"] = 0
+            d["ck"] = 0
+            d["n_lam"] = 1
+            for nm in ("cg_a", "cg_adot", "cg_an", "cg_kq", "cg_mq", "cg_dq",
+                       "cg_lam"):
+                d[nm] = wp.zeros(1, dtype=wp.float64, device=dev)
+            d["cg_phi"] = wp.zeros((1, 3, 1), dtype=wp.float64, device=dev)
+
+        # support rows
+        ns = len(self._support)
+        d["ns"] = ns
+        if ns:
+            sbi = np.array([sc.bi for sc in self._support], dtype=np.int32)
+            soff = np.array([sc.off for sc in self._support], dtype=f64)
+            syr = np.array([sc.y_rest for sc in self._support], dtype=f64)
+            sUy = np.zeros((ns, r), dtype=f64)
+            for s, sc in enumerate(self._support):
+                u = np.asarray(sc.U_y, dtype=f64).reshape(-1)
+                sUy[s, :min(r, u.shape[0])] = u[:r]
+            spid = np.array(
+                [sc.pid if (sc.cargo_bi == self._cargo_dev_bi
+                            and self._cargo_dev_bi >= 0) else -1
+                 for sc in self._support], dtype=np.int32)
+        else:
+            sbi = np.zeros(1, np.int32); soff = np.zeros((1, 3), f64)
+            syr = np.zeros(1, f64); sUy = np.zeros((1, r), f64)
+            spid = -np.ones(1, np.int32)
+        d["sup_bi"] = wp.array(sbi, dtype=wp.int32, device=dev)
+        d["sup_off"] = wp.array(soff, dtype=wp.vec3d, device=dev)
+        d["sup_yrest"] = wp.array(syr, dtype=wp.float64, device=dev)
+        d["sup_Uy"] = wp.array(sUy, dtype=wp.float64, device=dev)
+        d["sup_lam"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
+        d["sup_pid"] = wp.array(spid, dtype=wp.int32, device=dev)
+
+        d["diag"] = wp.zeros(4, dtype=wp.float64, device=dev)
+        self._device_built = True
+
+    def _launch_substep(self, h: float, dev: str) -> None:
+        """Issue one Macklin small-step as TWO fused `wp.launch`es on the
+        resident pool (position phase + velocity phase) — the unit captured
+        into the CUDA graph. Fusing the ~10 granular kernels into 2 cuts the
+        per-substep launch-overhead floor that dominates small CUDA scenes."""
+        d = self._d
+        n = d["n"]
+        hh = wp.float64(h)
+        inv_h2 = wp.float64(1.0 / (h * h))
+        a_tilde = wp.float64(self.contact_compliance / (h * h)
+                             if self.contact_compliance > 0.0 else 0.0)
+        freeze = 1 if self._freeze_qdot else 0
+        modal = 1 if self._modal else 0
+        g = wp.vec3d(float(self.gravity[0]), float(self.gravity[1]),
+                     float(self.gravity[2]))
+        r = d["r"]; ns = d["ns"]; ck = d["ck"]; has_cargo = d["has_cargo"]
+
+        wp.launch(XK.k_pos_phase, dim=1,
+                  inputs=[n, modal, has_cargo,
+                          d["X"], d["Q"], d["V"], d["W"], d["x_prev"],
+                          d["q_prev"], d["invm"], d["invIl"], d["hE"], g, hh,
+                          r, d["q"], d["qdot"], d["q_n"], d["grav"], d["kq"],
+                          d["wq"], d["dq"], d["lam_q"],
+                          ck, d["n_lam"], d["cg_a"], d["cg_adot"], d["cg_an"],
+                          d["cg_kq"], d["cg_mq"], d["cg_dq"], d["cg_lam"],
+                          d["cg_phi"],
+                          d["signs"], d["fl_bi"], d["fl_y"], d["fl_mu"],
+                          d["n_floor"], d["self_collide"],
+                          wp.float64(d["self_mu"]),
+                          wp.float64(self.contact_margin), d["cap"], d["cur"],
+                          d["c_a"], d["c_b"], d["c_ra"], d["c_rb"], d["c_n"],
+                          d["c_floory"], d["c_mu"], d["c_lam"], d["c_jt"],
+                          ns, d["sup_bi"], d["sup_off"], d["sup_yrest"],
+                          d["sup_Uy"], d["sup_lam"], d["sup_pid"],
+                          freeze, int(self.iterations), a_tilde, inv_h2,
+                          wp.float64(self.support_compliance),
+                          wp.float64(self.modal_relax)], device=dev)
+        wp.launch(XK.k_vel_phase, dim=1,
+                  inputs=[n, modal, has_cargo,
+                          d["X"], d["Q"], d["V"], d["W"], d["x_prev"],
+                          d["q_prev"], d["invm"], d["invIl"], hh,
+                          r, d["q"], d["q_n"], d["qdot"], d["mq"], d["kq"],
+                          ck, d["cg_a"], d["cg_an"], d["cg_adot"],
+                          d["cur"], d["c_a"], d["c_b"], d["c_ra"], d["c_rb"],
+                          d["c_n"], d["c_floory"], d["c_mu"], d["c_lam"],
+                          d["c_jt"], freeze, int(self.iterations),
+                          wp.float64(self.friction_static_mult), d["diag"]],
+                  device=dev)
+
+    def _step_device(self, dev: str) -> None:
+        """Run one frame on-device (capture+replay the substep sequence on
+        CUDA; eager launch on CPU-warp where graph capture is unsupported)."""
+        if not self._device_built:
+            self._build_device(dev)
+        h = self.dt / self.substeps
+        sig = self._current_sig()
+        if sig != self._graph_sig:
+            self._graph = None
+            self._graph_sig = sig
+        use_graph = (str(dev).startswith("cuda")
+                     and hasattr(wp, "ScopedCapture")
+                     and hasattr(wp, "capture_launch"))
+        ran = False
+        if use_graph:
+            if self._graph is None:
+                try:
+                    with wp.ScopedCapture(device=dev) as cap:
+                        for _ in range(self.substeps):
+                            self._launch_substep(h, dev)
+                    self._graph = cap.graph
+                except Exception:
+                    self._graph = None
+                    use_graph = False
+            if self._graph is not None:
+                wp.capture_launch(self._graph)
+                ran = True
+        if not ran:
+            for _ in range(self.substeps):
+                self._launch_substep(h, dev)
+        # one tiny diagnostic readback per FRAME (outside the captured hot loop)
+        self._diag_host = self._d["diag"].numpy()
+        self._last_max_penetration = float(self._diag_host[0])
+        if self._modal:
+            self.last_modal_KE = float(self._diag_host[1])
+            self.last_modal_PE = float(self._diag_host[2])
+        self._on_device = True
 
     def _substep_cpu(self, h: float) -> None:
         X, Q, V, W, invm = self._X, self._Q, self._V, self._W, self._invm
@@ -886,37 +1172,60 @@ class SolverXPBD:
         self._Q[i] = _quat_apply_rotvec(self._Q[i], dphi)
 
     # -- state read-back ----------------------------------------------------
+    # In device mode the resident `wp.array`s are the source of truth; these
+    # accessors copy them to host on demand (outside the hot loop). In numpy
+    # mode they read the numpy state directly.
     def positions(self) -> np.ndarray:
         self._ensure_arrays()
+        if self._on_device:
+            return self._d["X"].numpy().astype(np.float32).reshape(-1, 3)
         return np.asarray(self._X, dtype=np.float32).reshape(-1, 3)
 
     def orientations(self) -> np.ndarray:
         self._ensure_arrays()
+        if self._on_device:
+            return self._d["Q"].numpy().astype(np.float32).reshape(-1, 4)
         return np.asarray(self._Q, dtype=np.float32).reshape(-1, 4)
 
     def velocities(self) -> np.ndarray:
         self._ensure_arrays()
+        if self._on_device:
+            return self._d["V"].numpy().astype(np.float32).reshape(-1, 3)
         return np.asarray(self._V, dtype=np.float32).reshape(-1, 3)
 
     def angular_velocities(self) -> np.ndarray:
         self._ensure_arrays()
+        if self._on_device:
+            return self._d["W"].numpy().astype(np.float32).reshape(-1, 3)
         return np.asarray(self._W, dtype=np.float32).reshape(-1, 3)
 
     def cargo_a(self, body_idx: int) -> np.ndarray:
+        if self._on_device and int(body_idx) == self._cargo_dev_bi >= 0:
+            return self._d["cg_a"].numpy().astype(np.float64).reshape(-1)
         a = self._cargo_a.get(int(body_idx))
         return np.zeros(0, dtype=np.float64) if a is None else a.copy()
 
     def cargo_adot(self, body_idx: int) -> np.ndarray:
+        if self._on_device and int(body_idx) == self._cargo_dev_bi >= 0:
+            return self._d["cg_adot"].numpy().astype(np.float64).reshape(-1)
         ad = self._cargo_adot.get(int(body_idx))
         return np.zeros(0, dtype=np.float64) if ad is None else ad.copy()
 
     @property
     def modal_q(self) -> np.ndarray | None:
-        return None if not self._modal else self._q.copy()
+        if not self._modal:
+            return None
+        if self._on_device:
+            return self._d["q"].numpy().astype(np.float64).reshape(-1)
+        return self._q.copy()
 
     @property
     def modal_qdot(self) -> np.ndarray | None:
-        return None if not self._modal else self._qdot.copy()
+        if not self._modal:
+            return None
+        if self._on_device:
+            return self._d["qdot"].numpy().astype(np.float64).reshape(-1)
+        return self._qdot.copy()
 
     @property
     def max_penetration(self) -> float:
