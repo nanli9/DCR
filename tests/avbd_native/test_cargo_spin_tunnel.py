@@ -41,5 +41,32 @@ def test_spinning_cargo_does_not_tunnel(solver, spin):
         f"expected ≈0 on the support)")
 
 
+@pytest.mark.parametrize("solver", ["xpbd", "avbd"])
+def test_spinning_cargo_yaw_is_damped(solver):
+    """A cube dropped with yaw spin must come to rest — the support must apply
+    Coulomb friction.
+
+    Bug (found 2026-06-23): the XPBD reduced-modal support was normal-only, so its
+    torque arm cross(r_w, e_y) had a structurally-zero yaw component and the cube's
+    vertical-axis spin was never resisted — |ω| stuck at ~0.155 rad/s forever
+    ("frictionless rotation"). Fix: the support row inherits the cube's floor μ and
+    runs a tangential Coulomb-friction velocity pass (mirroring `_solve_velocity`),
+    matching the retyped-floor AVBD path. AVBD already damped the spin.
+    """
+    h = build_cargo_scene("fem_rigid", solver=solver, device="cpu",
+                          drop_height=1.0, iterations=16, avbd_substeps=4,
+                          spin=4.0)
+    s = h.world._solver
+    for _ in range(400):
+        h.world.step()
+    w = s.angular_velocities()[h.avbd_idx]
+    wn = float(np.linalg.norm(w))
+    # pre-fix xpbd held ~0.155 rad/s indefinitely; a frictional support drives it
+    # to ~0. Generous bound (0.05) still separates fixed from broken by ~3×.
+    assert wn < 0.05, (
+        f"{solver}: spin not damped (|omega|={wn:.4f} rad/s, expected ≈0 — "
+        f"support friction missing?)")
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

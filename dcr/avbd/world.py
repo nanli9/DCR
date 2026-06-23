@@ -441,6 +441,11 @@ class AVBDDCRWorld:
             from ._solver.solver_xpbd import _quat_to_R as _xR
             s._ensure_arrays()
             tracked = set(int(i) for i in tracked_body_indices)
+            # Preserve each tracked body's floor friction μ before dropping its
+            # world-floor rows: the support row inherits it so the body cannot
+            # slide/spin frictionlessly on the deformed surface (the retyped-floor
+            # AVBD path keeps friction; this native path must too).
+            floor_mu = {f[0]: float(f[2]) for f in s._floors if f[0] in tracked}
             s._floors = [f for f in s._floors if f[0] not in tracked]
             for bi in (int(i) for i in tracked_body_indices):
                 hx, hy, hz = s._he[bi]
@@ -467,7 +472,8 @@ class AVBDDCRWorld:
                                 n_grid_z=n_grid_z)
                             s.add_support_contact_corner(
                                 bi, off, shelf_y_rest,
-                                np.asarray(U3r[1, :], dtype=np.float64))
+                                np.asarray(U3r[1, :], dtype=np.float64),
+                                friction=floor_mu.get(bi, 0.0))
             rs.overlay_enabled = False
             rs.restart_overlay_each_step = False
             self.reduced_support = rs

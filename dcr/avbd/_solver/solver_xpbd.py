@@ -166,9 +166,10 @@ class _SupportContact:
     (∂C/∂q = −U_y). `cargo_g`/`cargo_bi` carry the cargo co-rotated gradient G_a
     (Stage 4); None until then."""
 
-    __slots__ = ("bi", "off", "y_rest", "U_y", "lam", "cargo_bi", "pid")
+    __slots__ = ("bi", "off", "y_rest", "U_y", "lam", "cargo_bi", "pid",
+                 "mu", "jt")
 
-    def __init__(self, bi, off, y_rest, U_y):
+    def __init__(self, bi, off, y_rest, U_y, mu=0.0):
         self.bi = int(bi)
         self.off = np.asarray(off, dtype=np.float64)
         self.y_rest = float(y_rest)
@@ -176,6 +177,14 @@ class _SupportContact:
         self.lam = 0.0
         self.cargo_bi = -1    # cargo body index whose a-block this row reads (Stage 4)
         self.pid = -1         # cargo corner pid for the co-rotated G_a (Stage 4)
+        # Coulomb friction on the support's tangent plane (normal = e_y). Without
+        # it the support row is normal-only, so its torque arm cross(r_w, e_y) has
+        # a structurally-zero yaw component — a resting body's vertical-axis spin
+        # is never resisted and it rotates forever. mu mirrors the cube's floor
+        # friction (the retyped-floor AVBD path keeps it; the native re-expression
+        # dropped it). jt accumulates the per-step tangential impulse (cone-clamped).
+        self.mu = float(mu)
+        self.jt = np.zeros(3, dtype=np.float64)
 
 
 class SolverXPBD:
@@ -377,14 +386,17 @@ class SolverXPBD:
         y_rest: float,
         U_y_row: np.ndarray,
         stiffness: float = 1.0e9,  # accepted for interface parity (XPBD: compliance)
+        friction: float = 0.0,
     ) -> int:
         """Add one unilateral support-contact row: body corner `off_a` rests on
         the live modal surface y_rest + U_y·q (foundation "Contact as a constraint
-        on (z, q)"). Returns the row index in `self._support`."""
+        on (z, q)"). `friction` is the Coulomb μ on the support tangent plane
+        (resists sliding/spin like the floor contacts; 0 = frictionless).
+        Returns the row index in `self._support`."""
         idx = len(self._support)
         self._support.append(_SupportContact(
             int(body.index) if hasattr(body, "index") else int(body),
-            off_a, y_rest, U_y_row))
+            off_a, y_rest, U_y_row, mu=friction))
         return idx
 
     # -- cargo (Stage 4) ----------------------------------------------------
@@ -617,16 +629,19 @@ class SolverXPBD:
                 [sc.pid if (sc.cargo_bi == self._cargo_dev_bi
                             and self._cargo_dev_bi >= 0) else -1
                  for sc in self._support], dtype=np.int32)
+            smu = np.array([sc.mu for sc in self._support], dtype=f64)
         else:
             sbi = np.zeros(1, np.int32); soff = np.zeros((1, 3), f64)
             syr = np.zeros(1, f64); sUy = np.zeros((1, r), f64)
-            spid = -np.ones(1, np.int32)
+            spid = -np.ones(1, np.int32); smu = np.zeros(1, f64)
         d["sup_bi"] = wp.array(sbi, dtype=wp.int32, device=dev)
         d["sup_off"] = wp.array(soff, dtype=wp.vec3d, device=dev)
         d["sup_yrest"] = wp.array(syr, dtype=wp.float64, device=dev)
         d["sup_Uy"] = wp.array(sUy, dtype=wp.float64, device=dev)
         d["sup_lam"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
         d["sup_pid"] = wp.array(spid, dtype=wp.int32, device=dev)
+        d["sup_mu"] = wp.array(smu, dtype=wp.float64, device=dev)
+        d["sup_jt"] = wp.zeros(max(ns, 1), dtype=wp.vec3d, device=dev)
 
         d["diag"] = wp.zeros(4, dtype=wp.float64, device=dev)
         self._device_built = True
@@ -676,7 +691,10 @@ class SolverXPBD:
                           ck, d["cg_a"], d["cg_an"], d["cg_adot"],
                           d["cur"], d["c_a"], d["c_b"], d["c_ra"], d["c_rb"],
                           d["c_n"], d["c_floory"], d["c_mu"], d["c_lam"],
-                          d["c_jt"], freeze, int(self.iterations),
+                          d["c_jt"],
+                          ns, d["sup_bi"], d["sup_off"], d["sup_lam"],
+                          d["sup_mu"], d["sup_jt"],
+                          freeze, int(self.iterations),
                           wp.float64(self.friction_static_mult), d["diag"]],
                   device=dev)
 
@@ -812,9 +830,13 @@ class SolverXPBD:
         # accumulated per contact and clamped to the cone |j_t| ≤ μ·λ_n/h.
         for c in contacts:
             c.jt = np.zeros(3, dtype=np.float64)
+        for sc in self._support:
+            sc.jt = np.zeros(3, dtype=np.float64)
         for _ in range(self.iterations):
             for c in contacts:
                 self._solve_velocity(c, h)
+            for sc in self._support:        # (3) support tangential Coulomb friction
+                self._solve_velocity_support(sc, h)
 
         self._last_max_penetration = max(
             (self._penetration(c) for c in contacts), default=0.0)
@@ -1159,6 +1181,45 @@ class SolverXPBD:
         dP = new_jt - c.jt
         c.jt = new_jt
         apply(dP)
+
+    def _solve_velocity_support(self, sc: _SupportContact, h: float) -> None:
+        """Coulomb-friction velocity pass for a support row (Müller 2020, the
+        friction half of `_solve_velocity`). The support normal is e_y, so this
+        nulls the corner's tangential velocity, clamped to the cone
+        |j_t| ≤ μ·λ_n/h with λ_n = sc.lam (the accumulated normal impulse from the
+        position solve). No normal-restitution pass: the support's normal is a
+        soft modal-compliant contact and an e=0 kick would corrupt the q̇ coupling.
+        Mirrors `_solve_velocity` exactly so the warp kernel stays at parity."""
+        if sc.mu <= 0.0 or sc.lam <= 0.0:
+            return
+        X, Q, V, W, invm = self._X, self._Q, self._V, self._W, self._invm
+        bi = sc.bi
+        if invm[bi] == 0.0:
+            return
+        R = _quat_to_R(Q[bi])
+        r_w = R @ sc.off
+        inv_Iw = self._inv_I_world(bi, R)
+        n = np.array([0.0, 1.0, 0.0])
+        # corner tangential velocity (support surface treated static: the slab is
+        # horizontal and its q̇/ȧ motion is along e_y, i.e. normal, not tangential)
+        vp = V[bi] + np.cross(W[bi], r_w)
+        v_t = vp - (vp @ n) * n
+        mag = float(np.linalg.norm(v_t))
+        if mag < 1e-12:
+            return
+        t = v_t / mag
+        wt = self._gen_inv_mass(invm[bi], inv_Iw, r_w, t)
+        if wt <= 0.0:
+            return
+        new_jt = sc.jt + (-mag / wt) * t
+        j_max = sc.mu * self.friction_static_mult * sc.lam / h   # Coulomb cone
+        njt = float(np.linalg.norm(new_jt))
+        if njt > j_max:
+            new_jt = new_jt * (j_max / njt)
+        dP = new_jt - sc.jt
+        sc.jt = new_jt
+        V[bi][:] = V[bi] + invm[bi] * dP
+        W[bi][:] = W[bi] + inv_Iw @ np.cross(r_w, dP)
 
     def _apply(self, i, p, r_w, inv_I_w) -> None:
         """Apply impulse p at world offset r_w to body i: translation + rotation

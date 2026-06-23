@@ -703,11 +703,20 @@ def velsolve_f(X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
                c_n: wp.array(dtype=wp.vec3d), c_floory: wp.array(dtype=wp.float64),
                c_mu: wp.array(dtype=wp.float64), c_lam: wp.array(dtype=wp.float64),
                c_jt: wp.array(dtype=wp.vec3d),
+               ns: int, sup_bi: wp.array(dtype=wp.int32),
+               sup_off: wp.array(dtype=wp.vec3d),
+               sup_lam: wp.array(dtype=wp.float64),
+               sup_mu: wp.array(dtype=wp.float64),
+               sup_jt: wp.array(dtype=wp.vec3d),
                iters: int, fric_static: wp.float64, h: wp.float64,
                diag: wp.array(dtype=wp.float64)):
     """Inelastic normal restitution (e=0) + sequential-impulse Coulomb friction
-    (|j_t| ≤ μ λ_n/h); then max-penetration diagnostic (numpy `_solve_velocity`)."""
+    (|j_t| ≤ μ λ_n/h) for contacts AND support rows; then max-penetration
+    diagnostic (numpy `_solve_velocity` / `_solve_velocity_support`)."""
     n_c = cnt[0]
+    for s in range(ns):                 # reset support friction accumulator
+        sup_jt[s] = wp.vec3d(_ZERO, _ZERO, _ZERO)
+    up = wp.vec3d(_ZERO, _ONE, _ZERO)
     for _it in range(iters):
         for ci in range(n_c):
             if c_lam[ci] <= _ZERO:
@@ -766,6 +775,36 @@ def velsolve_f(X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
             if b >= 0:
                 V[b] = V[b] - invm[b] * dP
                 W[b] = W[b] - invIb * wp.cross(rb_w, dP)
+        # support tangential Coulomb friction (numpy `_solve_velocity_support`):
+        # normal = e_y, friction-only (no e=0 restitution — keep soft modal q̇).
+        for s in range(ns):
+            mu_s = sup_mu[s]
+            if sup_lam[s] <= _ZERO or mu_s <= _ZERO:
+                continue
+            bi = sup_bi[s]
+            if invm[bi] == _ZERO:
+                continue
+            Rs = quat_to_R(Q[bi])
+            r_w = Rs * sup_off[s]
+            invIs = iIw(Rs, invIl[bi])
+            vps = V[bi] + wp.cross(W[bi], r_w)
+            vts = vps - wp.dot(vps, up) * up
+            mags = wp.length(vts)
+            if mags < wp.float64(1e-12):
+                continue
+            ts = vts / mags
+            wts = gen_inv_mass(invm[bi], invIs, r_w, ts)
+            if wts <= _ZERO:
+                continue
+            new_js = sup_jt[s] + (-mags / wts) * ts
+            jmax_s = mu_s * fric_static * sup_lam[s] / h
+            njs = wp.length(new_js)
+            if njs > jmax_s:
+                new_js = new_js * (jmax_s / njs)
+            dPs = new_js - sup_jt[s]
+            sup_jt[s] = new_js
+            V[bi] = V[bi] + invm[bi] * dPs
+            W[bi] = W[bi] + invIs * wp.cross(r_w, dPs)
 
     maxpen = _ZERO
     for ci in range(n_c):
@@ -865,6 +904,9 @@ def k_vel_phase(
         c_n: wp.array(dtype=wp.vec3d), c_floory: wp.array(dtype=wp.float64),
         c_mu: wp.array(dtype=wp.float64), c_lam: wp.array(dtype=wp.float64),
         c_jt: wp.array(dtype=wp.vec3d),
+        ns: int, sup_bi: wp.array(dtype=wp.int32),
+        sup_off: wp.array(dtype=wp.vec3d), sup_lam: wp.array(dtype=wp.float64),
+        sup_mu: wp.array(dtype=wp.float64), sup_jt: wp.array(dtype=wp.vec3d),
         freeze: int, iters: int, fric_static: wp.float64,
         diag: wp.array(dtype=wp.float64)):
     """Velocity-from-Δx → modal/cargo commit → velocity GS solve + diagnostics.
@@ -875,4 +917,5 @@ def k_vel_phase(
         if has_cargo != 0:
             cargo_commit_f(cg_a, cg_an, cg_adot, freeze, h, ck)
     velsolve_f(X, Q, V, W, invm, invIl, cnt, c_a, c_b, c_ra, c_rb, c_n,
-               c_floory, c_mu, c_lam, c_jt, iters, fric_static, h, diag)
+               c_floory, c_mu, c_lam, c_jt, ns, sup_bi, sup_off, sup_lam,
+               sup_mu, sup_jt, iters, fric_static, h, diag)

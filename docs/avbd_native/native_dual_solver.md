@@ -410,3 +410,42 @@ made lazy.
   (`test_abd_falls_back_to_numpy_on_cuda`).
 - `device="cpu"` (default) still runs numpy — the parity reference (CLAUDE.md
   rule 6). warp-cpu is opt-in via `_force_warp`; cuda via `device="cuda:0"`.
+
+## Post-build fixes (surfaced by the viser's spinning-cargo drop)
+
+The viser drops the cargo cube spinning (`--spin 4.0`). Two distinct XPBD-support
+defects only showed up under that tumble; AVBD's retyped-floor support path was
+immune to both (it arrested the spin before a flip, and it carried floor
+friction). Both are reproduced by `tests/avbd_native/test_cargo_spin_tunnel.py`.
+
+### Fix 1 — anti-tunnel: constrain all 8 cube corners (commit `dca47a7`)
+The XPBD support registered only the cube's *original-bottom* 4 corners. A cube
+that tumbles ~180° during the fall lands on its now-bottom (unconstrained) face
+and passes straight through, hanging one body-height below with its top flush
+to the surface. The support is unilateral (`C = corner_y − surf ≥ 0` ⇒ inactive),
+so registering **all 8 corners** is free when upright and catches whatever face
+lands. Fix in `world.enable_reduced_modal_support` (XPBD branch).
+
+### Fix 2 — support Coulomb friction (frictionless rotation)
+After Fix 1 the cube rested on the support but **spun forever** (~0.155 rad/s,
+never decaying). Root cause, verified by probe: the support row is normal-only
+(`n = e_y`), so its torque arm `cross(r_w, e_y)` has a **structurally-zero yaw
+component** — it physically cannot resist vertical-axis spin. The residual ω was
+purely yaw (`ω = [3.5e-5, −0.1555, 1.2e-4]`). AVBD damped it because its support
+is a *retyped floor* row that keeps Coulomb friction; the native re-expression
+(`_project_support`) dropped it.
+
+Fix: the support row inherits the cube's floor μ (`world.py` captures it before
+deleting the floor entry) and runs a tangential Coulomb-friction velocity pass —
+`_solve_velocity_support`, mirroring the friction half of `_solve_velocity`
+(null the corner's tangential velocity, clamp to the cone `|j_t| ≤ μ·λ_n/h`,
+`λ_n = sc.lam`). **Friction-only — no `e=0` normal restitution** on the support
+(its normal is a soft modal-compliant contact; an inelastic kick would corrupt
+the q̇ coupling). Re-expressed identically into the warp kernel (`velsolve_f`
+extended with the support arrays; `sup_mu`/`sup_jt` added to the resident pool),
+interleaved in the same velocity-iteration order so device parity holds.
+
+Result (cube dropped 1 m with spin 4 rad/s, fem_rigid): |ω| → ~0 by ~step 100 on
+all backends (was 0.155 sustained). Device parity preserved with friction active:
+**warp-cpu 4.6e-10, cuda 2.3e-9** max |Δ| vs numpy over 200 steps. The existing
+device parity suite (frictionless support, μ=0) is unchanged (9 pass).
