@@ -660,6 +660,13 @@ class SolverXPBD:
         d["deg"] = wp.zeros(n, dtype=wp.float64, device=dev)
         d["acc_dq"] = wp.zeros(r, dtype=wp.float64, device=dev)
         d["acc_da"] = wp.zeros(max(ck, 1), dtype=wp.float64, device=dev)
+        # per-mode count of ACTIVE support rows contributing to q / a this
+        # iteration — the support→shared-q/a correction is averaged by this
+        # (Macklin averaging on the modal DOF). Without it the Jacobi summation
+        # over many support rows overshoots the stiff modal q (Kq up to ~3e11)
+        # and diverges where serial GS (modal_relax under-relaxation) survives.
+        d["acc_dqn"] = wp.zeros(r, dtype=wp.float64, device=dev)
+        d["acc_dan"] = wp.zeros(max(ck, 1), dtype=wp.float64, device=dev)
 
         d["diag"] = wp.zeros(4, dtype=wp.float64, device=dev)
         self._device_built = True
@@ -785,6 +792,15 @@ class SolverXPBD:
         rk = max(r, ck)
         nrk = max(n, r, ck)
         for _ in range(iters):
+            # elastic FIRST (writes q/a directly, exact) → support reads updated
+            # q/a → contact/support scatter → averaged apply.
+            if modal:
+                wp.launch(XK.pk_modes_elastic, dim=rk,
+                          inputs=[r, ck, has_cargo, d["q"], d["q_n"], d["kq"],
+                                  d["wq"], d["dq"], d["lam_q"], d["cg_a"],
+                                  d["cg_an"], d["cg_kq"], d["cg_mq"], d["cg_dq"],
+                                  d["cg_lam"], inv_h2, hh, d["acc_dq"],
+                                  d["acc_da"]], device=dev)
             wp.launch(XK.pk_contact_jacobi, dim=cap,
                       inputs=[d["X"], d["Q"], d["invm"], d["invIl"], d["cur"],
                               d["c_a"], d["c_b"], d["c_ra"], d["c_rb"], d["c_n"],
@@ -795,21 +811,17 @@ class SolverXPBD:
                           inputs=[d["X"], d["Q"], d["invm"], d["invIl"], ns,
                                   d["sup_bi"], d["sup_off"], d["sup_yrest"],
                                   d["sup_Uy"], d["sup_lam"], d["sup_pid"], r,
-                                  d["q"], d["wq"], has_cargo, ck, d["cg_a"],
-                                  d["cg_mq"], d["cg_phi"], at_sup, mrelax,
+                                  d["q"], d["wq"], d["mq"], has_cargo, ck,
+                                  d["cg_a"], d["cg_mq"], d["cg_phi"], at_sup,
+                                  mrelax,
                                   d["acc_dp"], d["acc_dr"], d["acc_dq"],
-                                  d["acc_da"]], device=dev)
-                wp.launch(XK.pk_modes_elastic, dim=rk,
-                          inputs=[r, ck, has_cargo, d["q"], d["q_n"], d["kq"],
-                                  d["wq"], d["dq"], d["lam_q"], d["cg_a"],
-                                  d["cg_an"], d["cg_kq"], d["cg_mq"], d["cg_dq"],
-                                  d["cg_lam"], inv_h2, hh, d["acc_dq"],
-                                  d["acc_da"]], device=dev)
+                                  d["acc_da"], d["acc_dqn"], d["acc_dan"]],
+                          device=dev)
             wp.launch(XK.pk_apply_all, dim=nrk,
                       inputs=[n, modal, has_cargo, r, ck, d["X"], d["Q"],
                               d["invm"], d["deg"], relax, d["q"], d["cg_a"],
-                              d["acc_dp"], d["acc_dr"], d["acc_dq"], d["acc_da"]],
-                      device=dev)
+                              d["acc_dp"], d["acc_dr"], d["acc_dq"], d["acc_da"],
+                              d["acc_dqn"], d["acc_dan"]], device=dev)
 
         # ---- velocity prep (parallel) + averaged Jacobi velocity solve ----
         wp.launch(XK.pk_velupd, dim=n,

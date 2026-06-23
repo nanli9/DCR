@@ -1316,12 +1316,14 @@ def pk_support_jacobi(
         sup_Uy: wp.array(dtype=wp.float64, ndim=2),
         sup_lam: wp.array(dtype=wp.float64), sup_pid: wp.array(dtype=wp.int32),
         r: int, q: wp.array(dtype=wp.float64), wq: wp.array(dtype=wp.float64),
+        mq: wp.array(dtype=wp.float64),
         has_cargo: int, ck: int, cg_a: wp.array(dtype=wp.float64),
         cg_mq: wp.array(dtype=wp.float64),
         cg_phi: wp.array(dtype=wp.float64, ndim=3),
         at_sup: wp.float64, modal_relax: wp.float64,
         acc_dp: wp.array(dtype=wp.float64), acc_dr: wp.array(dtype=wp.float64),
-        acc_dq: wp.array(dtype=wp.float64), acc_da: wp.array(dtype=wp.float64)):
+        acc_dq: wp.array(dtype=wp.float64), acc_da: wp.array(dtype=wp.float64),
+        acc_dqn: wp.array(dtype=wp.float64), acc_dan: wp.array(dtype=wp.float64)):
     """One support-row projection (numpy `_project_support`): couples the rigid
     6-DOF (e_y + j_ang), the shared modal q (∂C/∂q = −U_y, under-relaxed) and the
     cargo a. Body correction → acc_dp/acc_dr (averaged later); q/a → acc_dq/acc_da
@@ -1375,8 +1377,21 @@ def pk_support_jacobi(
     wp.atomic_add(acc_dr, 3 * bi + 0, dr[0])
     wp.atomic_add(acc_dr, 3 * bi + 1, dr[1])
     wp.atomic_add(acc_dr, 3 * bi + 2, dr[2])
+    # accumulate the support→q/a coupling AND count this active row per mode, so
+    # the apply can average (÷ active-row count) — without it the sum over many
+    # rows overshoots the stiff modal q and the parallel path diverges.
+    # Per-mode under-relaxation by mq (= 1/impedance-gain g; the modes are
+    # mass-normalized so mq=1 at g=1): the drive ∝ wq = g, so high impedance
+    # over-drives q and the (non-self-limiting) Jacobi sum diverges where serial
+    # GS survives. Scaling by min(1,mq) cancels the g over-drive — DEFAULT
+    # (g=1 ⇒ mq=1) is unchanged; the fixed point (C=0 surface) is relaxation-
+    # independent, so only the convergence rate drops at high g, not the physics.
     for i in range(r):
-        wp.atomic_add(acc_dq, i, modal_relax * (-sup_Uy[s, i] * wq[i]) * dlam)
+        mri = modal_relax
+        if mq[i] < _ONE:
+            mri = modal_relax * mq[i]
+        wp.atomic_add(acc_dq, i, mri * (-sup_Uy[s, i] * wq[i]) * dlam)
+        wp.atomic_add(acc_dqn, i, _ONE)
     if has_g == 1:
         for cc in range(ck):
             ga = R[1, 0] * cg_phi[pid, 0, cc] + R[1, 1] * cg_phi[pid, 1, cc] \
@@ -1385,6 +1400,7 @@ def pk_support_jacobi(
             if cg_mq[cc] > _ZERO:
                 mgg = ga / cg_mq[cc]
             wp.atomic_add(acc_da, cc, modal_relax * mgg * dlam)
+            wp.atomic_add(acc_dan, cc, _ONE)
 
 
 @wp.kernel
@@ -1458,6 +1474,10 @@ def pk_modes_elastic(r: int, ck: int, has_cargo: int,
     (dim=max(r,ck)) — both are independent per-mode 1-DOF compliant solves
     (numpy `_project_modal_elastic` / `_project_cargo_elastic`). Cuts a launch
     per iteration vs the separate pk_modal_elastic + pk_cargo_elastic."""
+    # Elastic is one constraint per mode (independent) → exact, applied DIRECTLY
+    # to q / a (no averaging). Runs before the support scatter so support reads
+    # the elastic-updated q (matches the serial elastic→support order). Only the
+    # shared-q/a SUPPORT coupling goes through the averaged accumulator.
     i = wp.tid()
     if i < r:
         ki = kq[i]
@@ -1472,7 +1492,7 @@ def pk_modes_elastic(r: int, ck: int, has_cargo: int,
             denom = (_ONE + gamma) * wi + at
             dl = (-q[i] - at * lam_q[i] - gamma * Cdot) / denom
             lam_q[i] = lam_q[i] + dl
-            acc_dq[i] = acc_dq[i] + wi * dl
+            q[i] = q[i] + wi * dl
     if has_cargo != 0 and i < ck:
         ki = cg_kq[i]
         if ki > _ZERO:
@@ -1488,7 +1508,7 @@ def pk_modes_elastic(r: int, ck: int, has_cargo: int,
             denom = (_ONE + gamma) * wi + at
             dl = (-cg_a[i] - at * cg_lam[i] - gamma * Cdot) / denom
             cg_lam[i] = cg_lam[i] + dl
-            acc_da[i] = acc_da[i] + wi * dl
+            cg_a[i] = cg_a[i] + wi * dl
 
 
 @wp.kernel
@@ -1500,10 +1520,15 @@ def pk_apply_all(nb: int, modal: int, has_cargo: int, r: int, ck: int,
                  acc_dp: wp.array(dtype=wp.float64),
                  acc_dr: wp.array(dtype=wp.float64),
                  acc_dq: wp.array(dtype=wp.float64),
-                 acc_da: wp.array(dtype=wp.float64)):
+                 acc_da: wp.array(dtype=wp.float64),
+                 acc_dqn: wp.array(dtype=wp.float64),
+                 acc_dan: wp.array(dtype=wp.float64)):
     """Fused apply: body (i<nb, averaged X/Q), modal q (i<r), cargo a (i<ck) in
     ONE launch (dim=max(nb,r,ck)); zeros each accumulator it consumes. Cuts two
-    launches per iteration vs separate pk_apply_body/q/a."""
+    launches per iteration vs separate pk_apply_body/q/a. The q/a accumulators
+    hold ONLY the support coupling (elastic was applied directly); they are
+    averaged by the active-row count acc_dqn/acc_dan (Macklin averaging) so the
+    stiff-modal Jacobi sum doesn't overshoot."""
     i = wp.tid()
     if i < nb:
         if invm[i] != _ZERO:
@@ -1523,11 +1548,21 @@ def pk_apply_all(nb: int, modal: int, has_cargo: int, r: int, ck: int,
         acc_dr[3 * i + 1] = _ZERO
         acc_dr[3 * i + 2] = _ZERO
     if modal != 0 and i < r:
-        q[i] = q[i] + acc_dq[i]
+        nqi = acc_dqn[i]
+        if nqi > _ONE:
+            q[i] = q[i] + acc_dq[i] / nqi
+        else:
+            q[i] = q[i] + acc_dq[i]
         acc_dq[i] = _ZERO
+        acc_dqn[i] = _ZERO
     if has_cargo != 0 and i < ck:
-        cg_a[i] = cg_a[i] + acc_da[i]
+        nai = acc_dan[i]
+        if nai > _ONE:
+            cg_a[i] = cg_a[i] + acc_da[i] / nai
+        else:
+            cg_a[i] = cg_a[i] + acc_da[i]
         acc_da[i] = _ZERO
+        acc_dan[i] = _ZERO
 
 
 @wp.kernel

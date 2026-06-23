@@ -508,12 +508,34 @@ flat curve means a per-step *fixed* cost, a rising one means the *solve*):
   high-complexity for a sub-2× gain that still won't beat warp-CPU, so it is the
   **identified-but-deferred** next lever, not done.
 
+### Stiff-modal stability (the viser blow-up fix)
+The viser exposes a **modal-impedance gain** slider (0.25–16×). The first parallel
+build was stable at default (g=1) but **blew up (V/X → NaN) at g ≥ 4** — the user
+hit it live. Diagnosis (verified by sweep, parallel vs serial): the impedance gain
+multiplies the modal mass uniformly, so `wq` (modal inverse-mass) `= g`, and the
+support→q drive `∝ wq = g`. In **serial GS** the per-row updates self-limit (each
+row sees the prior rows' q); the **averaged Jacobi sum does not**, so at high g the
+g-scaled drive over-shoots and diverges (serial survives all g). Averaging by the
+active-row count alone only held to g≈2.
+
+Fix: **per-mode under-relaxation of the support→q drive by `mq` (= 1/g)** in
+`pk_support_jacobi` (`mri = modal_relax · min(1, mq[i])`). Because the modes are
+mass-normalized (`mq=1` at g=1), the **default is byte-unchanged**; at high g it
+cancels the over-drive. The relaxation does not move the fixed point (the C=0
+surface), only the convergence rate — so the physics is preserved, just gentler.
+Verified (parallel CUDA, 1500 steps): dinner `|X|max = 0.59` flat across g ∈
+{1,2,4,8,16} (was BLEW@1); truck bounded (≤4.94; the residual at g=16 is the
+pre-existing box-box lumber-stack vigor, not q-divergence). Default cargo unchanged
+(rests, spin damps, modal ring KE ≈ 0.02). Regression:
+`test_cuda_parallel_high_impedance_stable[4,16]`.
+
 ### Verification
 - Bit-parity (serial device kernels): `test_cuda_cargo_parity_serial`,
   `test_cuda_stack_parity_serial_and_graph` force `_parallel_device=False`
   (cuda serial == numpy to 1e-5/1e-6).
 - Parallel path: physical agreement, not bit-parity — `test_*_cargo_parallel_agrees`
   (cube settles within 2e-3 of serial, finite, graph-captured),
-  `test_cuda_stack_parallel_stable` (stack stays finite/bounded). Multi-body
+  `test_cuda_stack_parallel_stable` (stack stays finite/bounded),
+  `test_cuda_parallel_high_impedance_stable` (no blow-up at g=4,16). Multi-body
   settle (dinner/truck) matches serial closely; truck's upper lumber stack settles
   a little differently (the known host box-box instability).

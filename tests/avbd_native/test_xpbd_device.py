@@ -171,6 +171,29 @@ def test_cuda_stack_parallel_stable():
 
 
 @pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA device")
+@pytest.mark.parametrize("imp", [4.0, 16.0])
+def test_cuda_parallel_high_impedance_stable(imp):
+    """Regression (found 2026-06-23): the parallel CUDA path blew up (V/X → NaN)
+    at high modal-impedance gain — the support→q drive scales with the gain
+    (wq = g) and the non-self-limiting Jacobi sum over many support rows diverged
+    where serial GS survives. Fix: per-mode under-relaxation by mq (= 1/g), which
+    cancels the over-drive (default g=1 ⇒ mq=1 ⇒ unchanged). A stiff multi-body
+    scene at high impedance must stay finite and bounded."""
+    from scenes.reduced_dinner_table import build_reduced_dinner_table
+    h = build_reduced_dinner_table(solver="xpbd", device="cuda:0", iterations=16,
+                                   avbd_substeps=6, modal_impedance_scale=imp,
+                                   modal_damping_scale=1.0)
+    s = h.world._solver
+    s._parallel_device = True
+    for _ in range(800):
+        h.world.step()
+    P = s.positions()
+    assert s._on_device and np.all(np.isfinite(P)), f"imp={imp}: NaN"
+    assert float(np.abs(P).max()) < 50.0, (
+        f"imp={imp}: diverged (|X|max={float(np.abs(P).max()):.1f})")
+
+
+@pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA device")
 def test_abd_falls_back_to_numpy_on_cuda():
     """abd (nonlinear V⊥) is not device-resident — the solver must run the
     numpy reference even when device='cuda:0' (no NaN, cube deforms)."""
