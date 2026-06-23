@@ -449,3 +449,71 @@ Result (cube dropped 1 m with spin 4 rad/s, fem_rigid): |ω| → ~0 by ~step 100
 all backends (was 0.155 sustained). Device parity preserved with friction active:
 **warp-cpu 4.6e-10, cuda 2.3e-9** max |Δ| vs numpy over 200 steps. The existing
 device parity suite (frictionless support, μ=0) is unchanged (9 pass).
+
+## Stage 2c — PARALLEL CUDA path (per-constraint kernels + averaged Jacobi)
+
+The Stage-2b device path was a single-thread `dim=1` port of `_substep_cpu` — it
+preserved exact serial-GS order for bit-parity but used **one** GPU thread, so
+CUDA was 14–70× *slower* than warp-CPU. AVBD, by contrast, parallelizes the same
+class of work (per-body kernels + graph coloring + same-color Jacobi). The fix:
+re-express the XPBD substep as **per-constraint parallel kernels with averaged
+Jacobi** (Macklin et al. 2014, "Unified Particle Physics", §averaged constraint
+projection): every constraint projects from the same start-of-iteration state,
+scatters its body/modal correction into a scratch buffer via fp64 atomics, and a
+per-body apply divides by the constraint count touching that body. Same
+constraints, compliances and forces as serial — only the SCHEDULE changes (serial
+GS → averaged Jacobi), the same deviation the colored AVBD primal takes.
+
+- New `pk_*` kernels in `xpbd_kernels.py`; new `_launch_substep_parallel` in
+  `solver_xpbd.py`. All launch dims are static (pool capacities, early-out past
+  the live count) so the whole substep still captures into one CUDA graph.
+- **Auto-select** (`_parallel_device=None`): parallel on CUDA, serial `dim=1` on
+  warp-CPU (the parallel path's ~hundreds of tiny launches/frame — no graph there
+  — cost more than they save on a CPU; the 2-launch serial kernel is far faster).
+  So warp-CPU keeps its Stage-2b speed; only CUDA switches.
+- Jacobi accumulators are flat `float64[3·nb]` (scalar fp64 atomics; the
+  vec3d-atomic path is avoided). The serial `dim=1` kernels are retained and stay
+  the bit-parity reference.
+
+### Profile↔optimize loop (CUDA ms/step, RTX 3060 Laptop, 100 steps)
+Each step was profiled (the discriminating tool: scale the iteration count — a
+flat curve means a per-step *fixed* cost, a rising one means the *solve*):
+
+| iter | change | cargo | dinner | truck |
+|---|---|---|---|---|
+| — | **Stage-2b serial dim=1** | 12.85 | 226.6 | 143.2 |
+| 0 | parallelize solve (gen still dim=1) | 5.71 | 52.2 | 46.2 |
+| 1 | fuse per-iter launches (7→3) | 4.37 | 51.4 | 45.5 |
+| 2 | **parallelize contact gen** (O(nb²) SAT) | 4.38 | **9.66** | 15.8 |
+| 3 | parallelize prep helpers (count/velprep) | 4.48 | **8.55** | 16.2 |
+
+- **iter-2 was the big one**: the iteration-scaling probe showed dinner was *flat*
+  in iters (≈46 ms fixed) — the O(nb²) box-box SAT ran in the single `dim=1`
+  prep thread. Fanning it over body-pairs (atomic append; order-independent since
+  the solve is Jacobi) cut dinner 5.3×, truck 2.9×.
+- **iter-1** helped only the tiny cargo scene (dispatch-bound); **iter-3** gave
+  ~12% on dinner → **no huge gain ⇒ plateau, loop stopped.**
+
+**Net vs the Stage-2b serial CUDA path: cargo 2.9×, dinner 26×, truck 9× faster.**
+
+### Honest conclusion
+- warp-CPU is **still the fastest backend** (0.9 / 3.1 / 2.2 ms): the RTX 3060 runs
+  fp64 at 1:64 of fp32, the scenes are small, and even fully parallel the GPU
+  can't beat a native-fp64 CPU here. CUDA is now within ~3–7× of warp-CPU (was
+  14–70×) — the GPU path is no longer pathological.
+- The remaining CUDA cost at high iteration counts is the per-iteration
+  **support-row solve** (`pk_support_jacobi`: ~96–136 threads, each looping the
+  r≈24 modes — low occupancy). Lifting it needs a per-row reduction redesign
+  (one thread per (row,mode), atomic surf/w reduction → dlam → scatter); that's
+  high-complexity for a sub-2× gain that still won't beat warp-CPU, so it is the
+  **identified-but-deferred** next lever, not done.
+
+### Verification
+- Bit-parity (serial device kernels): `test_cuda_cargo_parity_serial`,
+  `test_cuda_stack_parity_serial_and_graph` force `_parallel_device=False`
+  (cuda serial == numpy to 1e-5/1e-6).
+- Parallel path: physical agreement, not bit-parity — `test_*_cargo_parallel_agrees`
+  (cube settles within 2e-3 of serial, finite, graph-captured),
+  `test_cuda_stack_parallel_stable` (stack stays finite/bounded). Multi-body
+  settle (dinner/truck) matches serial closely; truck's upper lumber stack settles
+  a little differently (the known host box-box instability).

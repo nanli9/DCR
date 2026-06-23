@@ -294,6 +294,16 @@ class SolverXPBD:
         self._graph_sig: tuple | None = None
         self._cargo_dev_bi = -1            # the single cargo body on device (-1 none)
         self._diag_host = np.zeros(4, dtype=np.float64)
+        # Parallel device path (Stage 2c): per-constraint kernels + averaged
+        # Jacobi instead of the dim=1 single-thread serial-GS port. None = AUTO:
+        # parallel on CUDA (the GPU needs the per-constraint parallelism), serial
+        # dim=1 on warp-CPU (where the parallel path's ~hundreds of tiny launches
+        # per frame — no graph capture there — cost more than they save; the
+        # single-thread kernel with 2 launches/substep is far faster on a CPU).
+        # Set True/False to force. `_jacobi_relax` is the SOR factor on the
+        # averaged correction (tuned in the optimize loop).
+        self._parallel_device = None
+        self._jacobi_relax = 1.0
 
     # -- scene building -----------------------------------------------------
     def add_box(
@@ -643,6 +653,14 @@ class SolverXPBD:
         d["sup_mu"] = wp.array(smu, dtype=wp.float64, device=dev)
         d["sup_jt"] = wp.zeros(max(ns, 1), dtype=wp.vec3d, device=dev)
 
+        # parallel-path Jacobi accumulators (flat float64 → scalar fp64 atomics).
+        # acc_dp/acc_dr double as the velocity Δv/Δω scratch (phases disjoint).
+        d["acc_dp"] = wp.zeros(3 * n, dtype=wp.float64, device=dev)
+        d["acc_dr"] = wp.zeros(3 * n, dtype=wp.float64, device=dev)
+        d["deg"] = wp.zeros(n, dtype=wp.float64, device=dev)
+        d["acc_dq"] = wp.zeros(r, dtype=wp.float64, device=dev)
+        d["acc_da"] = wp.zeros(max(ck, 1), dtype=wp.float64, device=dev)
+
         d["diag"] = wp.zeros(4, dtype=wp.float64, device=dev)
         self._device_built = True
 
@@ -698,6 +716,134 @@ class SolverXPBD:
                           wp.float64(self.friction_static_mult), d["diag"]],
                   device=dev)
 
+    def _launch_substep_parallel(self, h: float, dev: str) -> None:
+        """Issue one Macklin small-step as PER-CONSTRAINT parallel launches +
+        averaged Jacobi (Stage 2c) instead of the dim=1 serial-GS port. Prep
+        (predict + sequential contact gen + degree count) is two dim=1 launches;
+        every iteration of the position and velocity solves fans out over the
+        contact pool / support rows / modes. All dims are static (pool
+        capacities, early-out past the live count) so the substep captures into
+        one CUDA graph. Same constraints/forces as the serial path — only the
+        schedule (serial GS → averaged Jacobi) differs."""
+        d = self._d
+        n = d["n"]; r = d["r"]; ns = d["ns"]; ck = d["ck"]; cap = d["cap"]
+        has_cargo = d["has_cargo"]
+        hh = wp.float64(h)
+        inv_h2 = wp.float64(1.0 / (h * h))
+        a_tilde = wp.float64(self.contact_compliance / (h * h)
+                             if self.contact_compliance > 0.0 else 0.0)
+        at_sup = wp.float64(self.support_compliance / (h * h))
+        relax = wp.float64(self._jacobi_relax)
+        mrelax = wp.float64(self.modal_relax)
+        fric = wp.float64(self.friction_static_mult)
+        margin = wp.float64(self.contact_margin)
+        freeze = 1 if self._freeze_qdot else 0
+        modal = 1 if self._modal else 0
+        iters = int(self.iterations)
+        g = wp.vec3d(float(self.gravity[0]), float(self.gravity[1]),
+                     float(self.gravity[2]))
+        ns1 = max(ns, 1)
+
+        # ---- prep: predict + contact gen + degree count (dim=1) ----
+        wp.launch(XK.pk_prep, dim=1,
+                  inputs=[n, modal, has_cargo, d["X"], d["Q"], d["V"], d["W"],
+                          d["x_prev"], d["q_prev"], d["invm"], d["hE"], g, hh,
+                          r, d["q"], d["qdot"], d["q_n"], d["grav"], d["lam_q"],
+                          ck, d["n_lam"], d["cg_a"], d["cg_adot"], d["cg_an"],
+                          d["cg_lam"], d["signs"], d["fl_bi"], d["fl_y"],
+                          d["fl_mu"], d["n_floor"], d["self_collide"],
+                          wp.float64(d["self_mu"]), margin, cap, d["cur"],
+                          d["c_a"], d["c_b"], d["c_ra"], d["c_rb"], d["c_n"],
+                          d["c_floory"], d["c_mu"], d["c_lam"], d["c_jt"],
+                          ns, d["sup_lam"], freeze], device=dev)
+        # parallel contact generation (one thread per floor reg / body pair) —
+        # the O(nb²) SAT was the dominant dim=1 fixed cost per step.
+        if d["n_floor"] > 0:
+            wp.launch(XK.pk_gen_floor, dim=d["n_floor"],
+                      inputs=[d["X"], d["Q"], d["hE"], d["signs"], d["fl_bi"],
+                              d["fl_y"], d["fl_mu"], d["n_floor"], margin, cap,
+                              d["cur"], d["c_a"], d["c_b"], d["c_ra"], d["c_rb"],
+                              d["c_n"], d["c_floory"], d["c_mu"], d["c_lam"],
+                              d["c_jt"]], device=dev)
+        if d["self_collide"]:
+            wp.launch(XK.pk_gen_boxbox, dim=n * n,
+                      inputs=[d["X"], d["Q"], d["invm"], d["hE"], d["signs"], n,
+                              wp.float64(d["self_mu"]), margin, cap, d["cur"],
+                              d["c_a"], d["c_b"], d["c_ra"], d["c_rb"], d["c_n"],
+                              d["c_floory"], d["c_mu"], d["c_lam"], d["c_jt"]],
+                      device=dev)
+        wp.launch(XK.pk_zero_deg, dim=n, inputs=[n, d["deg"]], device=dev)
+        wp.launch(XK.pk_deg_contacts, dim=cap,
+                  inputs=[d["cur"], d["c_a"], d["c_b"], d["deg"]], device=dev)
+        if modal and ns:
+            wp.launch(XK.pk_deg_support, dim=ns1,
+                      inputs=[ns, d["sup_bi"], d["deg"]], device=dev)
+
+        # ---- position solve: averaged Jacobi over contacts/support/modes ----
+        # Fused kernels (pk_modes_elastic, pk_apply_all) cut the per-iteration
+        # launch count 7 → 3, which dominates the small-scene CUDA cost.
+        rk = max(r, ck)
+        nrk = max(n, r, ck)
+        for _ in range(iters):
+            wp.launch(XK.pk_contact_jacobi, dim=cap,
+                      inputs=[d["X"], d["Q"], d["invm"], d["invIl"], d["cur"],
+                              d["c_a"], d["c_b"], d["c_ra"], d["c_rb"], d["c_n"],
+                              d["c_floory"], d["c_lam"], a_tilde, d["acc_dp"],
+                              d["acc_dr"]], device=dev)
+            if modal:
+                wp.launch(XK.pk_support_jacobi, dim=ns1,
+                          inputs=[d["X"], d["Q"], d["invm"], d["invIl"], ns,
+                                  d["sup_bi"], d["sup_off"], d["sup_yrest"],
+                                  d["sup_Uy"], d["sup_lam"], d["sup_pid"], r,
+                                  d["q"], d["wq"], has_cargo, ck, d["cg_a"],
+                                  d["cg_mq"], d["cg_phi"], at_sup, mrelax,
+                                  d["acc_dp"], d["acc_dr"], d["acc_dq"],
+                                  d["acc_da"]], device=dev)
+                wp.launch(XK.pk_modes_elastic, dim=rk,
+                          inputs=[r, ck, has_cargo, d["q"], d["q_n"], d["kq"],
+                                  d["wq"], d["dq"], d["lam_q"], d["cg_a"],
+                                  d["cg_an"], d["cg_kq"], d["cg_mq"], d["cg_dq"],
+                                  d["cg_lam"], inv_h2, hh, d["acc_dq"],
+                                  d["acc_da"]], device=dev)
+            wp.launch(XK.pk_apply_all, dim=nrk,
+                      inputs=[n, modal, has_cargo, r, ck, d["X"], d["Q"],
+                              d["invm"], d["deg"], relax, d["q"], d["cg_a"],
+                              d["acc_dp"], d["acc_dr"], d["acc_dq"], d["acc_da"]],
+                      device=dev)
+
+        # ---- velocity prep (parallel) + averaged Jacobi velocity solve ----
+        wp.launch(XK.pk_velupd, dim=n,
+                  inputs=[n, d["X"], d["Q"], d["x_prev"], d["q_prev"], d["V"],
+                          d["W"], d["invm"], hh], device=dev)
+        wp.launch(XK.pk_commit, dim=1,
+                  inputs=[modal, has_cargo, r, d["q"], d["q_n"], d["qdot"],
+                          d["mq"], d["kq"], ck, d["cg_a"], d["cg_an"],
+                          d["cg_adot"], freeze, hh, d["diag"]], device=dev)
+        wp.launch(XK.pk_zero_jt, dim=cap, inputs=[cap, d["c_jt"]], device=dev)
+        if modal and ns:
+            wp.launch(XK.pk_zero_supjt, dim=ns1,
+                      inputs=[ns, d["sup_jt"]], device=dev)
+        for _ in range(iters):
+            wp.launch(XK.pk_contact_velsolve, dim=cap,
+                      inputs=[d["Q"], d["V"], d["W"], d["invm"], d["invIl"],
+                              d["cur"], d["c_a"], d["c_b"], d["c_ra"], d["c_rb"],
+                              d["c_n"], d["c_mu"], d["c_lam"], d["c_jt"], fric,
+                              hh, d["acc_dp"], d["acc_dr"]], device=dev)
+            if modal:
+                wp.launch(XK.pk_support_velsolve, dim=ns1,
+                          inputs=[d["Q"], d["V"], d["W"], d["invm"], d["invIl"],
+                                  ns, d["sup_bi"], d["sup_off"], d["sup_lam"],
+                                  d["sup_mu"], d["sup_jt"], fric, hh, d["acc_dp"],
+                                  d["acc_dr"]], device=dev)
+            wp.launch(XK.pk_apply_vel, dim=n,
+                      inputs=[n, d["V"], d["W"], d["invm"], d["deg"], relax,
+                              d["acc_dp"], d["acc_dr"]], device=dev)
+
+        wp.launch(XK.pk_maxpen, dim=1,
+                  inputs=[d["cur"], d["X"], d["Q"], d["c_a"], d["c_b"],
+                          d["c_ra"], d["c_rb"], d["c_n"], d["c_floory"],
+                          d["diag"]], device=dev)
+
     def _step_device(self, dev: str) -> None:
         """Run one frame on-device (capture+replay the substep sequence on
         CUDA; eager launch on CPU-warp where graph capture is unsupported)."""
@@ -708,6 +854,10 @@ class SolverXPBD:
         if sig != self._graph_sig:
             self._graph = None
             self._graph_sig = sig
+        parallel = (self._parallel_device if self._parallel_device is not None
+                    else str(dev).startswith("cuda"))
+        launch = (self._launch_substep_parallel if parallel
+                  else self._launch_substep)
         use_graph = (str(dev).startswith("cuda")
                      and hasattr(wp, "ScopedCapture")
                      and hasattr(wp, "capture_launch"))
@@ -717,7 +867,7 @@ class SolverXPBD:
                 try:
                     with wp.ScopedCapture(device=dev) as cap:
                         for _ in range(self.substeps):
-                            self._launch_substep(h, dev)
+                            launch(h, dev)
                     self._graph = cap.graph
                 except Exception:
                     self._graph = None
@@ -727,7 +877,7 @@ class SolverXPBD:
                 ran = True
         if not ran:
             for _ in range(self.substeps):
-                self._launch_substep(h, dev)
+                launch(h, dev)
         # one tiny diagnostic readback per FRAME (outside the captured hot loop)
         self._diag_host = self._d["diag"].numpy()
         self._last_max_penetration = float(self._diag_host[0])

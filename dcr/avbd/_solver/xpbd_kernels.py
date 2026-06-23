@@ -919,3 +919,900 @@ def k_vel_phase(
     velsolve_f(X, Q, V, W, invm, invIl, cnt, c_a, c_b, c_ra, c_rb, c_n,
                c_floory, c_mu, c_lam, c_jt, ns, sup_bi, sup_off, sup_lam,
                sup_mu, sup_jt, iters, fric_static, h, diag)
+
+
+# ===========================================================================
+# PARALLEL device path (Jacobi + Macklin constraint-averaging).
+#
+# The dim=1 phase kernels above preserve exact serial-GS order for bit-parity
+# with the numpy reference. This path instead exposes the per-constraint
+# parallelism the GPU needs: in each iteration every constraint projects from
+# the SAME start-of-iteration state, accumulates its body / modal correction
+# into a scratch buffer via atomics, and a per-body apply divides the summed
+# correction by the number of constraints touching that body (Macklin et al.
+# 2014, "Unified Particle Physics", §averaged constraint projection — the
+# stable parallel relaxation). The constraints, compliances and forces are
+# byte-for-byte the serial ones; only the iteration SCHEDULE changes (serial
+# Gauss–Seidel → averaged Jacobi), the same deviation the colored AVBD primal
+# already takes. Launch dims are static (fixed pool capacities, early-out past
+# the live count) so the whole substep captures into one CUDA graph.
+#
+# Accumulators are flat float64[3*nb] / float64[r] / float64[ck] so every
+# scatter is a scalar wp.atomic_add (hardware fp64 atomics on sm_60+; the
+# vec3d-atomic path is intentionally avoided). The apply kernels zero the
+# accumulator they consume, so no separate clear launch is needed.
+# ===========================================================================
+@wp.func
+def emit_atomic(cur: wp.array(dtype=wp.int32),
+                c_a: wp.array(dtype=wp.int32), c_b: wp.array(dtype=wp.int32),
+                c_ra: wp.array(dtype=wp.vec3d), c_rb: wp.array(dtype=wp.vec3d),
+                c_n: wp.array(dtype=wp.vec3d),
+                c_floory: wp.array(dtype=wp.float64),
+                c_mu: wp.array(dtype=wp.float64),
+                c_lam: wp.array(dtype=wp.float64),
+                c_jt: wp.array(dtype=wp.vec3d), cap: int,
+                a: int, b: int, ra: wp.vec3d, rb: wp.vec3d, n: wp.vec3d,
+                floor_y: wp.float64, mu: wp.float64):
+    """Append a contact with an ATOMIC slot reservation (parallel-safe variant of
+    emit_contact). Contact ORDER is nondeterministic — fine, the solve is Jacobi."""
+    idx = wp.atomic_add(cur, 0, 1)
+    if idx >= cap:
+        return
+    c_a[idx] = a
+    c_b[idx] = b
+    c_ra[idx] = ra
+    c_rb[idx] = rb
+    c_n[idx] = n
+    c_floory[idx] = floor_y
+    c_mu[idx] = mu
+    c_lam[idx] = _ZERO
+    c_jt[idx] = wp.vec3d(_ZERO, _ZERO, _ZERO)
+
+
+@wp.kernel
+def pk_gen_floor(X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+                 hE: wp.array(dtype=wp.vec3d), signs: wp.array(dtype=wp.vec3d),
+                 fl_bi: wp.array(dtype=wp.int32), fl_y: wp.array(dtype=wp.float64),
+                 fl_mu: wp.array(dtype=wp.float64), n_floor: int,
+                 margin: wp.float64, cap: int, cur: wp.array(dtype=wp.int32),
+                 c_a: wp.array(dtype=wp.int32), c_b: wp.array(dtype=wp.int32),
+                 c_ra: wp.array(dtype=wp.vec3d), c_rb: wp.array(dtype=wp.vec3d),
+                 c_n: wp.array(dtype=wp.vec3d), c_floory: wp.array(dtype=wp.float64),
+                 c_mu: wp.array(dtype=wp.float64), c_lam: wp.array(dtype=wp.float64),
+                 c_jt: wp.array(dtype=wp.vec3d)):
+    """Floor-corner contacts, one thread per floor registration (dim=n_floor)."""
+    f = wp.tid()
+    if f >= n_floor:
+        return
+    bi = fl_bi[f]
+    fy = fl_y[f]
+    mu = fl_mu[f]
+    R = quat_to_R(Q[bi])
+    he = hE[bi]
+    up = wp.vec3d(_ZERO, _ONE, _ZERO)
+    zv = wp.vec3d(_ZERO, _ZERO, _ZERO)
+    for ci in range(8):
+        s = signs[ci]
+        off = wp.vec3d(s[0] * he[0], s[1] * he[1], s[2] * he[2])
+        cw = X[bi] + R * off
+        if cw[1] - fy < margin:
+            emit_atomic(cur, c_a, c_b, c_ra, c_rb, c_n, c_floory, c_mu, c_lam,
+                        c_jt, cap, bi, -1, off, zv, up, fy, mu)
+
+
+@wp.kernel
+def pk_gen_boxbox(X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+                  invm: wp.array(dtype=wp.float64), hE: wp.array(dtype=wp.vec3d),
+                  signs: wp.array(dtype=wp.vec3d), nb: int, self_mu: wp.float64,
+                  margin: wp.float64, cap: int, cur: wp.array(dtype=wp.int32),
+                  c_a: wp.array(dtype=wp.int32), c_b: wp.array(dtype=wp.int32),
+                  c_ra: wp.array(dtype=wp.vec3d), c_rb: wp.array(dtype=wp.vec3d),
+                  c_n: wp.array(dtype=wp.vec3d), c_floory: wp.array(dtype=wp.float64),
+                  c_mu: wp.array(dtype=wp.float64), c_lam: wp.array(dtype=wp.float64),
+                  c_jt: wp.array(dtype=wp.vec3d)):
+    """SAT box-box for ONE body pair (i,j), one thread per pair (dim=nb*nb,
+    i<j active). Body of numpy `_box_box`; ATOMIC emit. This is the per-step hot
+    spot — the O(nb²) SAT was the dim=1 fixed cost; here it fans over the pairs."""
+    tid = wp.tid()
+    i = tid / nb
+    j = tid % nb
+    if i >= j:
+        return
+    if invm[i] == _ZERO and invm[j] == _ZERO:
+        return
+    Ra = quat_to_R(Q[i])
+    Rb = quat_to_R(Q[j])
+    ha = hE[i]
+    hb = hE[j]
+    d = X[j] - X[i]
+    a0 = colv(Ra, 0)
+    a1 = colv(Ra, 1)
+    a2 = colv(Ra, 2)
+    b0 = colv(Rb, 0)
+    b1 = colv(Rb, 1)
+    b2 = colv(Rb, 2)
+    zv = wp.vec3d(_ZERO, _ZERO, _ZERO)
+    sep = int(0)
+    min_face = wp.float64(1e300)
+    best = zv
+    for fa in range(6):
+        ax = a0
+        if fa == 1:
+            ax = a1
+        if fa == 2:
+            ax = a2
+        if fa == 3:
+            ax = b0
+        if fa == 4:
+            ax = b1
+        if fa == 5:
+            ax = b2
+        ov = sat_overlap(ax, a0, a1, a2, b0, b1, b2, ha, hb, d)
+        if ov < -margin:
+            sep = 1
+        if ov < min_face:
+            min_face = ov
+            best = sat_orient(ax, d)
+    min_edge = wp.float64(1e300)
+    for ea in range(3):
+        ua = a0
+        if ea == 1:
+            ua = a1
+        if ea == 2:
+            ua = a2
+        for eb in range(3):
+            ub = b0
+            if eb == 1:
+                ub = b1
+            if eb == 2:
+                ub = b2
+            ov = sat_overlap(wp.cross(ua, ub), a0, a1, a2, b0, b1, b2, ha, hb, d)
+            if ov < -margin:
+                sep = 1
+            if ov < min_edge:
+                min_edge = ov
+    if sep == 1:
+        return
+    normal = best
+    pen = wp.min(min_face, min_edge)
+    if pen < _ZERO:
+        pen = _ZERO
+    emitted = int(0)
+    for ci in range(8):
+        if emitted >= 4:
+            break
+        s = signs[ci]
+        off = wp.vec3d(s[0] * hb[0], s[1] * hb[1], s[2] * hb[2])
+        cw = X[j] + Rb * off
+        sd = sd_to_face(cw, Ra, ha, X[i], -normal, margin)
+        if sd < margin:
+            pc = -sd
+            if pc < _ZERO:
+                pc = _ZERO
+            pa_w = cw - _HALF * pc * normal
+            pb_w = cw + _HALF * pc * normal
+            ra = wp.transpose(Ra) * (pa_w - X[i])
+            rb = wp.transpose(Rb) * (pb_w - X[j])
+            emit_atomic(cur, c_a, c_b, c_ra, c_rb, c_n, c_floory, c_mu, c_lam,
+                        c_jt, cap, i, j, ra, rb, normal, _ZERO, self_mu)
+            emitted = emitted + 1
+    for ci in range(8):
+        if emitted >= 4:
+            break
+        s = signs[ci]
+        off = wp.vec3d(s[0] * ha[0], s[1] * ha[1], s[2] * ha[2])
+        cw = X[i] + Ra * off
+        sd = sd_to_face(cw, Rb, hb, X[j], normal, margin)
+        if sd < margin:
+            pc = -sd
+            if pc < _ZERO:
+                pc = _ZERO
+            pa_w = cw - _HALF * pc * normal
+            pb_w = cw + _HALF * pc * normal
+            ra = wp.transpose(Ra) * (pa_w - X[i])
+            rb = wp.transpose(Rb) * (pb_w - X[j])
+            emit_atomic(cur, c_a, c_b, c_ra, c_rb, c_n, c_floory, c_mu, c_lam,
+                        c_jt, cap, i, j, ra, rb, normal, _ZERO, self_mu)
+            emitted = emitted + 1
+    if emitted == 0:
+        cw = _HALF * (X[i] + X[j])
+        pa_w = cw - _HALF * pen * normal
+        pb_w = cw + _HALF * pen * normal
+        ra = wp.transpose(Ra) * (pa_w - X[i])
+        rb = wp.transpose(Rb) * (pb_w - X[j])
+        emit_atomic(cur, c_a, c_b, c_ra, c_rb, c_n, c_floory, c_mu, c_lam,
+                    c_jt, cap, i, j, ra, rb, normal, _ZERO, self_mu)
+
+
+@wp.kernel
+def pk_prep(nb: int, modal: int, has_cargo: int,
+           X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+           V: wp.array(dtype=wp.vec3d), W: wp.array(dtype=wp.vec3d),
+           x_prev: wp.array(dtype=wp.vec3d), q_prev: wp.array(dtype=wp.quatd),
+           invm: wp.array(dtype=wp.float64), hE: wp.array(dtype=wp.vec3d),
+           g: wp.vec3d, h: wp.float64,
+           r: int, q: wp.array(dtype=wp.float64), qdot: wp.array(dtype=wp.float64),
+           q_n: wp.array(dtype=wp.float64), grav: wp.array(dtype=wp.float64),
+           lam_q: wp.array(dtype=wp.float64),
+           ck: int, n_lam: int, cg_a: wp.array(dtype=wp.float64),
+           cg_adot: wp.array(dtype=wp.float64), cg_an: wp.array(dtype=wp.float64),
+           cg_lam: wp.array(dtype=wp.float64),
+           signs: wp.array(dtype=wp.vec3d), fl_bi: wp.array(dtype=wp.int32),
+           fl_y: wp.array(dtype=wp.float64), fl_mu: wp.array(dtype=wp.float64),
+           n_floor: int, self_collide: int, self_mu: wp.float64,
+           margin: wp.float64, cap: int, cur: wp.array(dtype=wp.int32),
+           c_a: wp.array(dtype=wp.int32), c_b: wp.array(dtype=wp.int32),
+           c_ra: wp.array(dtype=wp.vec3d), c_rb: wp.array(dtype=wp.vec3d),
+           c_n: wp.array(dtype=wp.vec3d), c_floory: wp.array(dtype=wp.float64),
+           c_mu: wp.array(dtype=wp.float64), c_lam: wp.array(dtype=wp.float64),
+           c_jt: wp.array(dtype=wp.vec3d), ns: int,
+           sup_lam: wp.array(dtype=wp.float64), freeze: int):
+    """Inertial predict (bodies + modal + cargo) → reset support λ → reset the
+    contact counter. dim=1 (predict is O(nb) — cheap); contact GENERATION is the
+    separate parallel pk_gen_floor / pk_gen_boxbox launches (the O(nb²) SAT was
+    the dominant per-step fixed cost in the old dim=1 prep)."""
+    predict_bodies_f(nb, X, Q, V, W, x_prev, q_prev, invm, g, h)
+    if modal != 0:
+        predict_modal_f(q, qdot, q_n, grav, lam_q, freeze, h, r)
+        if has_cargo != 0:
+            predict_cargo_f(cg_a, cg_adot, cg_an, cg_lam, freeze, h, ck, n_lam)
+        reset_support_f(sup_lam, ns)
+    cur[0] = 0
+
+
+@wp.kernel
+def pk_count_deg(cnt: wp.array(dtype=wp.int32),
+                 c_a: wp.array(dtype=wp.int32), c_b: wp.array(dtype=wp.int32),
+                 ns: int, sup_bi: wp.array(dtype=wp.int32),
+                 nb: int, deg: wp.array(dtype=wp.float64)):
+    """deg[i] = #constraints (contacts + support rows) touching body i. dim=1,
+    once per substep — the constraint set is constant across the iter loop."""
+    for i in range(nb):
+        deg[i] = _ZERO
+    n_c = cnt[0]
+    for ci in range(n_c):
+        deg[c_a[ci]] = deg[c_a[ci]] + _ONE
+        b = c_b[ci]
+        if b >= 0:
+            deg[b] = deg[b] + _ONE
+    for s in range(ns):
+        deg[sup_bi[s]] = deg[sup_bi[s]] + _ONE
+
+
+@wp.kernel
+def pk_contact_jacobi(
+        X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+        invm: wp.array(dtype=wp.float64), invIl: wp.array(dtype=wp.mat33d),
+        cnt: wp.array(dtype=wp.int32),
+        c_a: wp.array(dtype=wp.int32), c_b: wp.array(dtype=wp.int32),
+        c_ra: wp.array(dtype=wp.vec3d), c_rb: wp.array(dtype=wp.vec3d),
+        c_n: wp.array(dtype=wp.vec3d), c_floory: wp.array(dtype=wp.float64),
+        c_lam: wp.array(dtype=wp.float64), a_tilde: wp.float64,
+        acc_dp: wp.array(dtype=wp.float64), acc_dr: wp.array(dtype=wp.float64)):
+    """One normal-contact projection (numpy `_project_normal`), scattering the
+    body correction into the Jacobi accumulators. dim=cap; early-out past cur."""
+    ci = wp.tid()
+    if ci >= cnt[0]:
+        return
+    a = c_a[ci]
+    n = c_n[ci]
+    Ra = quat_to_R(Q[a])
+    ra_w = Ra * c_ra[ci]
+    pa = X[a] + ra_w
+    invIa = iIw(Ra, invIl[a])
+    b = c_b[ci]
+    C = _ZERO
+    w = _ZERO
+    rb_w = wp.vec3d(_ZERO, _ZERO, _ZERO)
+    invIb = zero_mat()
+    if b < 0:
+        C = pa[1] - c_floory[ci]
+        w = gen_inv_mass(invm[a], invIa, ra_w, n)
+    else:
+        Rb = quat_to_R(Q[b])
+        rb_w = Rb * c_rb[ci]
+        pb = X[b] + rb_w
+        invIb = iIw(Rb, invIl[b])
+        C = wp.dot(pa - pb, n)
+        w = gen_inv_mass(invm[a], invIa, ra_w, n) \
+            + gen_inv_mass(invm[b], invIb, rb_w, n)
+    if C >= _ZERO or w <= _ZERO:
+        return
+    dlam = (-C - a_tilde * c_lam[ci]) / (w + a_tilde)
+    new = c_lam[ci] + dlam
+    if new < _ZERO:
+        new = _ZERO
+    dlam = new - c_lam[ci]
+    c_lam[ci] = new
+    p = dlam * n
+    dpa = invm[a] * p
+    dra = invIa * wp.cross(ra_w, p)
+    wp.atomic_add(acc_dp, 3 * a + 0, dpa[0])
+    wp.atomic_add(acc_dp, 3 * a + 1, dpa[1])
+    wp.atomic_add(acc_dp, 3 * a + 2, dpa[2])
+    wp.atomic_add(acc_dr, 3 * a + 0, dra[0])
+    wp.atomic_add(acc_dr, 3 * a + 1, dra[1])
+    wp.atomic_add(acc_dr, 3 * a + 2, dra[2])
+    if b >= 0:
+        pb_imp = -p
+        dpb = invm[b] * pb_imp
+        drb = invIb * wp.cross(rb_w, pb_imp)
+        wp.atomic_add(acc_dp, 3 * b + 0, dpb[0])
+        wp.atomic_add(acc_dp, 3 * b + 1, dpb[1])
+        wp.atomic_add(acc_dp, 3 * b + 2, dpb[2])
+        wp.atomic_add(acc_dr, 3 * b + 0, drb[0])
+        wp.atomic_add(acc_dr, 3 * b + 1, drb[1])
+        wp.atomic_add(acc_dr, 3 * b + 2, drb[2])
+
+
+@wp.kernel
+def pk_modal_elastic(r: int, q: wp.array(dtype=wp.float64),
+                     q_n: wp.array(dtype=wp.float64),
+                     kq: wp.array(dtype=wp.float64),
+                     wq: wp.array(dtype=wp.float64),
+                     dq: wp.array(dtype=wp.float64),
+                     lam_q: wp.array(dtype=wp.float64),
+                     inv_h2: wp.float64, h: wp.float64,
+                     acc_dq: wp.array(dtype=wp.float64)):
+    """Per-mode compliant modal-elastic constraint (numpy `_project_modal_elastic`).
+    Independent per mode → one thread per mode. Adds onto acc_dq (separate launch
+    from the support scatter, so the read-modify-write of acc_dq[i] is race-free)."""
+    i = wp.tid()
+    if i >= r:
+        return
+    ki = kq[i]
+    if ki <= _ZERO:
+        return
+    alpha = _ONE / ki
+    at = alpha * inv_h2
+    wi = wq[i]
+    gamma = _ZERO
+    if dq[i] > _ZERO:
+        gamma = at * (dq[i] * alpha) * h
+    Cdot = q[i] - q_n[i]
+    denom = (_ONE + gamma) * wi + at
+    dl = (-q[i] - at * lam_q[i] - gamma * Cdot) / denom
+    lam_q[i] = lam_q[i] + dl
+    acc_dq[i] = acc_dq[i] + wi * dl
+
+
+@wp.kernel
+def pk_cargo_elastic(ck: int, cg_a: wp.array(dtype=wp.float64),
+                     cg_an: wp.array(dtype=wp.float64),
+                     cg_kq: wp.array(dtype=wp.float64),
+                     cg_mq: wp.array(dtype=wp.float64),
+                     cg_dq: wp.array(dtype=wp.float64),
+                     cg_lam: wp.array(dtype=wp.float64),
+                     inv_h2: wp.float64, h: wp.float64,
+                     acc_da: wp.array(dtype=wp.float64)):
+    """Linear per-mode cargo-elastic block (numpy `_project_cargo_elastic`)."""
+    i = wp.tid()
+    if i >= ck:
+        return
+    ki = cg_kq[i]
+    if ki <= _ZERO:
+        return
+    alpha = _ONE / ki
+    at = alpha * inv_h2
+    wi = _ZERO
+    if cg_mq[i] > _ZERO:
+        wi = _ONE / cg_mq[i]
+    gamma = _ZERO
+    if cg_dq[i] > _ZERO:
+        gamma = at * (cg_dq[i] * alpha) * h
+    Cdot = cg_a[i] - cg_an[i]
+    denom = (_ONE + gamma) * wi + at
+    dl = (-cg_a[i] - at * cg_lam[i] - gamma * Cdot) / denom
+    cg_lam[i] = cg_lam[i] + dl
+    acc_da[i] = acc_da[i] + wi * dl
+
+
+@wp.kernel
+def pk_support_jacobi(
+        X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+        invm: wp.array(dtype=wp.float64), invIl: wp.array(dtype=wp.mat33d),
+        ns: int, sup_bi: wp.array(dtype=wp.int32),
+        sup_off: wp.array(dtype=wp.vec3d), sup_yrest: wp.array(dtype=wp.float64),
+        sup_Uy: wp.array(dtype=wp.float64, ndim=2),
+        sup_lam: wp.array(dtype=wp.float64), sup_pid: wp.array(dtype=wp.int32),
+        r: int, q: wp.array(dtype=wp.float64), wq: wp.array(dtype=wp.float64),
+        has_cargo: int, ck: int, cg_a: wp.array(dtype=wp.float64),
+        cg_mq: wp.array(dtype=wp.float64),
+        cg_phi: wp.array(dtype=wp.float64, ndim=3),
+        at_sup: wp.float64, modal_relax: wp.float64,
+        acc_dp: wp.array(dtype=wp.float64), acc_dr: wp.array(dtype=wp.float64),
+        acc_dq: wp.array(dtype=wp.float64), acc_da: wp.array(dtype=wp.float64)):
+    """One support-row projection (numpy `_project_support`): couples the rigid
+    6-DOF (e_y + j_ang), the shared modal q (∂C/∂q = −U_y, under-relaxed) and the
+    cargo a. Body correction → acc_dp/acc_dr (averaged later); q/a → acc_dq/acc_da
+    (Jacobi over the support rows — the shared-q reduction). dim=ns."""
+    s = wp.tid()
+    if s >= ns:
+        return
+    bi = sup_bi[s]
+    R = quat_to_R(Q[bi])
+    r_w = R * sup_off[s]
+    corner_y = X[bi][1] + r_w[1]
+    surf = sup_yrest[s]
+    for i in range(r):
+        surf = surf + sup_Uy[s, i] * q[i]
+    pid = sup_pid[s]
+    has_g = int(0)
+    if has_cargo != 0 and pid >= 0:
+        has_g = 1
+        flex = _ZERO
+        for cc in range(ck):
+            ga = R[1, 0] * cg_phi[pid, 0, cc] + R[1, 1] * cg_phi[pid, 1, cc] \
+                + R[1, 2] * cg_phi[pid, 2, cc]
+            flex = flex + ga * cg_a[cc]
+        surf = surf + flex
+    C = corner_y - surf
+    if C >= _ZERO and sup_lam[s] == _ZERO:
+        return
+    j_ang = wp.vec3d(-r_w[2], _ZERO, r_w[0])
+    invIw = iIw(R, invIl[bi])
+    w = invm[bi] + wp.dot(j_ang, invIw * j_ang)
+    for i in range(r):
+        w = w + sup_Uy[s, i] * sup_Uy[s, i] * wq[i]
+    if has_g == 1:
+        for cc in range(ck):
+            ga = R[1, 0] * cg_phi[pid, 0, cc] + R[1, 1] * cg_phi[pid, 1, cc] \
+                + R[1, 2] * cg_phi[pid, 2, cc]
+            mgg = _ZERO
+            if cg_mq[cc] > _ZERO:
+                mgg = ga / cg_mq[cc]
+            w = w + ga * mgg
+    dlam = (-C - at_sup * sup_lam[s]) / (w + at_sup)
+    new = sup_lam[s] + dlam
+    if new < _ZERO:
+        new = _ZERO
+    dlam = new - sup_lam[s]
+    sup_lam[s] = new
+    if dlam == _ZERO:
+        return
+    wp.atomic_add(acc_dp, 3 * bi + 1, invm[bi] * dlam)   # body normal (e_y)
+    dr = (invIw * j_ang) * dlam
+    wp.atomic_add(acc_dr, 3 * bi + 0, dr[0])
+    wp.atomic_add(acc_dr, 3 * bi + 1, dr[1])
+    wp.atomic_add(acc_dr, 3 * bi + 2, dr[2])
+    for i in range(r):
+        wp.atomic_add(acc_dq, i, modal_relax * (-sup_Uy[s, i] * wq[i]) * dlam)
+    if has_g == 1:
+        for cc in range(ck):
+            ga = R[1, 0] * cg_phi[pid, 0, cc] + R[1, 1] * cg_phi[pid, 1, cc] \
+                + R[1, 2] * cg_phi[pid, 2, cc]
+            mgg = _ZERO
+            if cg_mq[cc] > _ZERO:
+                mgg = ga / cg_mq[cc]
+            wp.atomic_add(acc_da, cc, modal_relax * mgg * dlam)
+
+
+@wp.kernel
+def pk_apply_body(nb: int, X: wp.array(dtype=wp.vec3d),
+                  Q: wp.array(dtype=wp.quatd), invm: wp.array(dtype=wp.float64),
+                  deg: wp.array(dtype=wp.float64),
+                  relax: wp.float64,
+                  acc_dp: wp.array(dtype=wp.float64),
+                  acc_dr: wp.array(dtype=wp.float64)):
+    """Apply the averaged Jacobi correction X += ω·Σδx/deg, Q ← integrate(Q, ...),
+    then zero the accumulator for the next iteration. `relax` is the SOR factor."""
+    i = wp.tid()
+    if i >= nb:
+        return
+    if invm[i] != _ZERO:
+        d = deg[i]
+        if d < _ONE:
+            d = _ONE
+        f = relax / d
+        X[i] = X[i] + wp.vec3d(acc_dp[3 * i + 0] * f, acc_dp[3 * i + 1] * f,
+                               acc_dp[3 * i + 2] * f)
+        Q[i] = quat_apply_rotvec(Q[i], wp.vec3d(acc_dr[3 * i + 0] * f,
+                                                acc_dr[3 * i + 1] * f,
+                                                acc_dr[3 * i + 2] * f))
+    acc_dp[3 * i + 0] = _ZERO
+    acc_dp[3 * i + 1] = _ZERO
+    acc_dp[3 * i + 2] = _ZERO
+    acc_dr[3 * i + 0] = _ZERO
+    acc_dr[3 * i + 1] = _ZERO
+    acc_dr[3 * i + 2] = _ZERO
+
+
+@wp.kernel
+def pk_apply_q(r: int, q: wp.array(dtype=wp.float64),
+               acc_dq: wp.array(dtype=wp.float64)):
+    """q += Σδq (elastic exact + support Jacobi), then zero the accumulator."""
+    i = wp.tid()
+    if i >= r:
+        return
+    q[i] = q[i] + acc_dq[i]
+    acc_dq[i] = _ZERO
+
+
+@wp.kernel
+def pk_apply_a(ck: int, cg_a: wp.array(dtype=wp.float64),
+               acc_da: wp.array(dtype=wp.float64)):
+    """a += Σδa, then zero the accumulator."""
+    i = wp.tid()
+    if i >= ck:
+        return
+    cg_a[i] = cg_a[i] + acc_da[i]
+    acc_da[i] = _ZERO
+
+
+@wp.kernel
+def pk_modes_elastic(r: int, ck: int, has_cargo: int,
+                     q: wp.array(dtype=wp.float64), q_n: wp.array(dtype=wp.float64),
+                     kq: wp.array(dtype=wp.float64), wq: wp.array(dtype=wp.float64),
+                     dq: wp.array(dtype=wp.float64),
+                     lam_q: wp.array(dtype=wp.float64),
+                     cg_a: wp.array(dtype=wp.float64),
+                     cg_an: wp.array(dtype=wp.float64),
+                     cg_kq: wp.array(dtype=wp.float64),
+                     cg_mq: wp.array(dtype=wp.float64),
+                     cg_dq: wp.array(dtype=wp.float64),
+                     cg_lam: wp.array(dtype=wp.float64),
+                     inv_h2: wp.float64, h: wp.float64,
+                     acc_dq: wp.array(dtype=wp.float64),
+                     acc_da: wp.array(dtype=wp.float64)):
+    """Fused per-mode elastic: modal (i<r) + cargo (i<ck) in ONE launch
+    (dim=max(r,ck)) — both are independent per-mode 1-DOF compliant solves
+    (numpy `_project_modal_elastic` / `_project_cargo_elastic`). Cuts a launch
+    per iteration vs the separate pk_modal_elastic + pk_cargo_elastic."""
+    i = wp.tid()
+    if i < r:
+        ki = kq[i]
+        if ki > _ZERO:
+            alpha = _ONE / ki
+            at = alpha * inv_h2
+            wi = wq[i]
+            gamma = _ZERO
+            if dq[i] > _ZERO:
+                gamma = at * (dq[i] * alpha) * h
+            Cdot = q[i] - q_n[i]
+            denom = (_ONE + gamma) * wi + at
+            dl = (-q[i] - at * lam_q[i] - gamma * Cdot) / denom
+            lam_q[i] = lam_q[i] + dl
+            acc_dq[i] = acc_dq[i] + wi * dl
+    if has_cargo != 0 and i < ck:
+        ki = cg_kq[i]
+        if ki > _ZERO:
+            alpha = _ONE / ki
+            at = alpha * inv_h2
+            wi = _ZERO
+            if cg_mq[i] > _ZERO:
+                wi = _ONE / cg_mq[i]
+            gamma = _ZERO
+            if cg_dq[i] > _ZERO:
+                gamma = at * (cg_dq[i] * alpha) * h
+            Cdot = cg_a[i] - cg_an[i]
+            denom = (_ONE + gamma) * wi + at
+            dl = (-cg_a[i] - at * cg_lam[i] - gamma * Cdot) / denom
+            cg_lam[i] = cg_lam[i] + dl
+            acc_da[i] = acc_da[i] + wi * dl
+
+
+@wp.kernel
+def pk_apply_all(nb: int, modal: int, has_cargo: int, r: int, ck: int,
+                 X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+                 invm: wp.array(dtype=wp.float64), deg: wp.array(dtype=wp.float64),
+                 relax: wp.float64, q: wp.array(dtype=wp.float64),
+                 cg_a: wp.array(dtype=wp.float64),
+                 acc_dp: wp.array(dtype=wp.float64),
+                 acc_dr: wp.array(dtype=wp.float64),
+                 acc_dq: wp.array(dtype=wp.float64),
+                 acc_da: wp.array(dtype=wp.float64)):
+    """Fused apply: body (i<nb, averaged X/Q), modal q (i<r), cargo a (i<ck) in
+    ONE launch (dim=max(nb,r,ck)); zeros each accumulator it consumes. Cuts two
+    launches per iteration vs separate pk_apply_body/q/a."""
+    i = wp.tid()
+    if i < nb:
+        if invm[i] != _ZERO:
+            d = deg[i]
+            if d < _ONE:
+                d = _ONE
+            f = relax / d
+            X[i] = X[i] + wp.vec3d(acc_dp[3 * i + 0] * f, acc_dp[3 * i + 1] * f,
+                                   acc_dp[3 * i + 2] * f)
+            Q[i] = quat_apply_rotvec(Q[i], wp.vec3d(acc_dr[3 * i + 0] * f,
+                                                    acc_dr[3 * i + 1] * f,
+                                                    acc_dr[3 * i + 2] * f))
+        acc_dp[3 * i + 0] = _ZERO
+        acc_dp[3 * i + 1] = _ZERO
+        acc_dp[3 * i + 2] = _ZERO
+        acc_dr[3 * i + 0] = _ZERO
+        acc_dr[3 * i + 1] = _ZERO
+        acc_dr[3 * i + 2] = _ZERO
+    if modal != 0 and i < r:
+        q[i] = q[i] + acc_dq[i]
+        acc_dq[i] = _ZERO
+    if has_cargo != 0 and i < ck:
+        cg_a[i] = cg_a[i] + acc_da[i]
+        acc_da[i] = _ZERO
+
+
+@wp.kernel
+def pk_zero_deg(nb: int, deg: wp.array(dtype=wp.float64)):
+    i = wp.tid()
+    if i < nb:
+        deg[i] = _ZERO
+
+
+@wp.kernel
+def pk_deg_contacts(cnt: wp.array(dtype=wp.int32), c_a: wp.array(dtype=wp.int32),
+                    c_b: wp.array(dtype=wp.int32), deg: wp.array(dtype=wp.float64)):
+    """Scatter contact degree into deg (dim=cap, atomic) — parallel replacement
+    for the dim=1 count loop."""
+    ci = wp.tid()
+    if ci >= cnt[0]:
+        return
+    wp.atomic_add(deg, c_a[ci], _ONE)
+    b = c_b[ci]
+    if b >= 0:
+        wp.atomic_add(deg, b, _ONE)
+
+
+@wp.kernel
+def pk_deg_support(ns: int, sup_bi: wp.array(dtype=wp.int32),
+                   deg: wp.array(dtype=wp.float64)):
+    s = wp.tid()
+    if s < ns:
+        wp.atomic_add(deg, sup_bi[s], _ONE)
+
+
+@wp.kernel
+def pk_velupd(nb: int, X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+              x_prev: wp.array(dtype=wp.vec3d), q_prev: wp.array(dtype=wp.quatd),
+              V: wp.array(dtype=wp.vec3d), W: wp.array(dtype=wp.vec3d),
+              invm: wp.array(dtype=wp.float64), h: wp.float64):
+    """v=(x−x_prev)/h, ω=log(Δq)/h per body (dim=nb) — parallel velupd_f."""
+    i = wp.tid()
+    if i >= nb or invm[i] == _ZERO:
+        return
+    V[i] = (X[i] - x_prev[i]) / h
+    W[i] = quat_to_rotvec(qmul(Q[i], qinv(q_prev[i]))) / h
+
+
+@wp.kernel
+def pk_zero_jt(cap: int, c_jt: wp.array(dtype=wp.vec3d)):
+    i = wp.tid()
+    if i < cap:
+        c_jt[i] = wp.vec3d(_ZERO, _ZERO, _ZERO)
+
+
+@wp.kernel
+def pk_zero_supjt(ns: int, sup_jt: wp.array(dtype=wp.vec3d)):
+    i = wp.tid()
+    if i < ns:
+        sup_jt[i] = wp.vec3d(_ZERO, _ZERO, _ZERO)
+
+
+@wp.kernel
+def pk_commit(modal: int, has_cargo: int, r: int,
+             q: wp.array(dtype=wp.float64), q_n: wp.array(dtype=wp.float64),
+             qdot: wp.array(dtype=wp.float64), mq: wp.array(dtype=wp.float64),
+             kq: wp.array(dtype=wp.float64), ck: int,
+             cg_a: wp.array(dtype=wp.float64), cg_an: wp.array(dtype=wp.float64),
+             cg_adot: wp.array(dtype=wp.float64), freeze: int, h: wp.float64,
+             diag: wp.array(dtype=wp.float64)):
+    """Modal q̇ + KE/PE diagnostics + cargo ȧ (numpy commit). dim=1 — a small
+    reduction over r (≤~24 modes); keeping it serial avoids an atomic reduction."""
+    if modal != 0:
+        modal_commit_f(q, q_n, qdot, mq, kq, freeze, h, r, diag)
+        if has_cargo != 0:
+            cargo_commit_f(cg_a, cg_an, cg_adot, freeze, h, ck)
+
+
+@wp.kernel
+def pk_velprep(nb: int, modal: int, has_cargo: int,
+               X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+               x_prev: wp.array(dtype=wp.vec3d),
+               q_prev: wp.array(dtype=wp.quatd),
+               V: wp.array(dtype=wp.vec3d), W: wp.array(dtype=wp.vec3d),
+               invm: wp.array(dtype=wp.float64), h: wp.float64,
+               r: int, q: wp.array(dtype=wp.float64),
+               q_n: wp.array(dtype=wp.float64), qdot: wp.array(dtype=wp.float64),
+               mq: wp.array(dtype=wp.float64), kq: wp.array(dtype=wp.float64),
+               ck: int, cg_a: wp.array(dtype=wp.float64),
+               cg_an: wp.array(dtype=wp.float64),
+               cg_adot: wp.array(dtype=wp.float64),
+               cap: int, c_jt: wp.array(dtype=wp.vec3d),
+               ns: int, sup_jt: wp.array(dtype=wp.vec3d),
+               freeze: int, diag: wp.array(dtype=wp.float64)):
+    """v=(x−x_prev)/h, ω=log(Δq)/h; modal/cargo commit (q̇, KE/PE); reset the
+    friction accumulators c_jt/sup_jt for the velocity sweep. dim=1, reusing the
+    serial @wp.func building blocks (cheap, once per substep)."""
+    velupd_f(nb, X, Q, x_prev, q_prev, V, W, invm, h)
+    if modal != 0:
+        modal_commit_f(q, q_n, qdot, mq, kq, freeze, h, r, diag)
+        if has_cargo != 0:
+            cargo_commit_f(cg_a, cg_an, cg_adot, freeze, h, ck)
+    for ci in range(cap):
+        c_jt[ci] = wp.vec3d(_ZERO, _ZERO, _ZERO)
+    for s in range(ns):
+        sup_jt[s] = wp.vec3d(_ZERO, _ZERO, _ZERO)
+
+
+@wp.kernel
+def pk_contact_velsolve(
+        Q: wp.array(dtype=wp.quatd), V: wp.array(dtype=wp.vec3d),
+        W: wp.array(dtype=wp.vec3d), invm: wp.array(dtype=wp.float64),
+        invIl: wp.array(dtype=wp.mat33d), cnt: wp.array(dtype=wp.int32),
+        c_a: wp.array(dtype=wp.int32), c_b: wp.array(dtype=wp.int32),
+        c_ra: wp.array(dtype=wp.vec3d), c_rb: wp.array(dtype=wp.vec3d),
+        c_n: wp.array(dtype=wp.vec3d), c_mu: wp.array(dtype=wp.float64),
+        c_lam: wp.array(dtype=wp.float64), c_jt: wp.array(dtype=wp.vec3d),
+        fric_static: wp.float64, h: wp.float64,
+        acc_dv: wp.array(dtype=wp.float64), acc_dw: wp.array(dtype=wp.float64)):
+    """Inelastic normal restitution (e=0) + cone-clamped Coulomb friction for one
+    contact (numpy `_solve_velocity`), scattering the total impulse's Δv/Δω into
+    the accumulators. The friction tangent uses vp's tangential part, which the
+    normal impulse leaves unchanged — so a single pass matches the serial
+    restitution-then-recompute. dim=cap."""
+    ci = wp.tid()
+    if ci >= cnt[0]:
+        return
+    if c_lam[ci] <= _ZERO:
+        return
+    a = c_a[ci]
+    n = c_n[ci]
+    Ra = quat_to_R(Q[a])
+    ra_w = Ra * c_ra[ci]
+    invIa = iIw(Ra, invIl[a])
+    b = c_b[ci]
+    rb_w = wp.vec3d(_ZERO, _ZERO, _ZERO)
+    invIb = zero_mat()
+    if b >= 0:
+        Rb = quat_to_R(Q[b])
+        rb_w = Rb * c_rb[ci]
+        invIb = iIw(Rb, invIl[b])
+    vp = V[a] + wp.cross(W[a], ra_w)
+    if b >= 0:
+        vp = vp - (V[b] + wp.cross(W[b], rb_w))
+    P = wp.vec3d(_ZERO, _ZERO, _ZERO)
+    vn = wp.dot(vp, n)
+    wn = gen_inv_mass(invm[a], invIa, ra_w, n)
+    if b >= 0:
+        wn = wn + gen_inv_mass(invm[b], invIb, rb_w, n)
+    if wn > _ZERO and wp.abs(vn) > wp.float64(1e-12):
+        P = P + (-vn / wn) * n
+    mu = c_mu[ci]
+    if mu > _ZERO:
+        v_t = vp - wp.dot(vp, n) * n
+        mag = wp.length(v_t)
+        if mag >= wp.float64(1e-12):
+            t = v_t / mag
+            wt = gen_inv_mass(invm[a], invIa, ra_w, t)
+            if b >= 0:
+                wt = wt + gen_inv_mass(invm[b], invIb, rb_w, t)
+            if wt > _ZERO:
+                new_jt = c_jt[ci] + (-mag / wt) * t
+                j_max = mu * fric_static * c_lam[ci] / h
+                njt = wp.length(new_jt)
+                if njt > j_max:
+                    new_jt = new_jt * (j_max / njt)
+                P = P + (new_jt - c_jt[ci])
+                c_jt[ci] = new_jt
+    dva = invm[a] * P
+    dwa = invIa * wp.cross(ra_w, P)
+    wp.atomic_add(acc_dv, 3 * a + 0, dva[0])
+    wp.atomic_add(acc_dv, 3 * a + 1, dva[1])
+    wp.atomic_add(acc_dv, 3 * a + 2, dva[2])
+    wp.atomic_add(acc_dw, 3 * a + 0, dwa[0])
+    wp.atomic_add(acc_dw, 3 * a + 1, dwa[1])
+    wp.atomic_add(acc_dw, 3 * a + 2, dwa[2])
+    if b >= 0:
+        Pb = -P
+        dvb = invm[b] * Pb
+        dwb = invIb * wp.cross(rb_w, Pb)
+        wp.atomic_add(acc_dv, 3 * b + 0, dvb[0])
+        wp.atomic_add(acc_dv, 3 * b + 1, dvb[1])
+        wp.atomic_add(acc_dv, 3 * b + 2, dvb[2])
+        wp.atomic_add(acc_dw, 3 * b + 0, dwb[0])
+        wp.atomic_add(acc_dw, 3 * b + 1, dwb[1])
+        wp.atomic_add(acc_dw, 3 * b + 2, dwb[2])
+
+
+@wp.kernel
+def pk_support_velsolve(
+        Q: wp.array(dtype=wp.quatd), V: wp.array(dtype=wp.vec3d),
+        W: wp.array(dtype=wp.vec3d), invm: wp.array(dtype=wp.float64),
+        invIl: wp.array(dtype=wp.mat33d), ns: int,
+        sup_bi: wp.array(dtype=wp.int32), sup_off: wp.array(dtype=wp.vec3d),
+        sup_lam: wp.array(dtype=wp.float64), sup_mu: wp.array(dtype=wp.float64),
+        sup_jt: wp.array(dtype=wp.vec3d), fric_static: wp.float64, h: wp.float64,
+        acc_dv: wp.array(dtype=wp.float64), acc_dw: wp.array(dtype=wp.float64)):
+    """Support tangential Coulomb friction (numpy `_solve_velocity_support`);
+    friction-only (no e=0 restitution — the support normal is soft modal). dim=ns."""
+    s = wp.tid()
+    if s >= ns:
+        return
+    mu = sup_mu[s]
+    if sup_lam[s] <= _ZERO or mu <= _ZERO:
+        return
+    bi = sup_bi[s]
+    if invm[bi] == _ZERO:
+        return
+    R = quat_to_R(Q[bi])
+    r_w = R * sup_off[s]
+    invIw = iIw(R, invIl[bi])
+    up = wp.vec3d(_ZERO, _ONE, _ZERO)
+    vp = V[bi] + wp.cross(W[bi], r_w)
+    v_t = vp - wp.dot(vp, up) * up
+    mag = wp.length(v_t)
+    if mag < wp.float64(1e-12):
+        return
+    t = v_t / mag
+    wt = gen_inv_mass(invm[bi], invIw, r_w, t)
+    if wt <= _ZERO:
+        return
+    new_jt = sup_jt[s] + (-mag / wt) * t
+    j_max = mu * fric_static * sup_lam[s] / h
+    njt = wp.length(new_jt)
+    if njt > j_max:
+        new_jt = new_jt * (j_max / njt)
+    dP = new_jt - sup_jt[s]
+    sup_jt[s] = new_jt
+    dv = invm[bi] * dP
+    dw = invIw * wp.cross(r_w, dP)
+    wp.atomic_add(acc_dv, 3 * bi + 0, dv[0])
+    wp.atomic_add(acc_dv, 3 * bi + 1, dv[1])
+    wp.atomic_add(acc_dv, 3 * bi + 2, dv[2])
+    wp.atomic_add(acc_dw, 3 * bi + 0, dw[0])
+    wp.atomic_add(acc_dw, 3 * bi + 1, dw[1])
+    wp.atomic_add(acc_dw, 3 * bi + 2, dw[2])
+
+
+@wp.kernel
+def pk_apply_vel(nb: int, V: wp.array(dtype=wp.vec3d),
+                 W: wp.array(dtype=wp.vec3d), invm: wp.array(dtype=wp.float64),
+                 deg: wp.array(dtype=wp.float64), relax: wp.float64,
+                 acc_dv: wp.array(dtype=wp.float64),
+                 acc_dw: wp.array(dtype=wp.float64)):
+    """V += ω·Σδv/deg, W += ω·Σδω/deg; zero the accumulator for the next iter."""
+    i = wp.tid()
+    if i >= nb:
+        return
+    if invm[i] != _ZERO:
+        d = deg[i]
+        if d < _ONE:
+            d = _ONE
+        f = relax / d
+        V[i] = V[i] + wp.vec3d(acc_dv[3 * i + 0] * f, acc_dv[3 * i + 1] * f,
+                               acc_dv[3 * i + 2] * f)
+        W[i] = W[i] + wp.vec3d(acc_dw[3 * i + 0] * f, acc_dw[3 * i + 1] * f,
+                               acc_dw[3 * i + 2] * f)
+    acc_dv[3 * i + 0] = _ZERO
+    acc_dv[3 * i + 1] = _ZERO
+    acc_dv[3 * i + 2] = _ZERO
+    acc_dw[3 * i + 0] = _ZERO
+    acc_dw[3 * i + 1] = _ZERO
+    acc_dw[3 * i + 2] = _ZERO
+
+
+@wp.kernel
+def pk_maxpen(cnt: wp.array(dtype=wp.int32), X: wp.array(dtype=wp.vec3d),
+             Q: wp.array(dtype=wp.quatd), c_a: wp.array(dtype=wp.int32),
+             c_b: wp.array(dtype=wp.int32), c_ra: wp.array(dtype=wp.vec3d),
+             c_rb: wp.array(dtype=wp.vec3d), c_n: wp.array(dtype=wp.vec3d),
+             c_floory: wp.array(dtype=wp.float64),
+             diag: wp.array(dtype=wp.float64)):
+    """Max contact penetration → diag[0] (numpy tail of `_substep_cpu`). dim=1."""
+    n_c = cnt[0]
+    maxpen = _ZERO
+    for ci in range(n_c):
+        a = c_a[ci]
+        Ra = quat_to_R(Q[a])
+        pa = X[a] + Ra * c_ra[ci]
+        b = c_b[ci]
+        pen = _ZERO
+        if b < 0:
+            pen = c_floory[ci] - pa[1]
+        else:
+            Rb = quat_to_R(Q[b])
+            pb = X[b] + Rb * c_rb[ci]
+            pen = wp.dot(pb - pa, c_n[ci])
+        if pen < _ZERO:
+            pen = _ZERO
+        if pen > maxpen:
+            maxpen = pen
+    diag[0] = maxpen

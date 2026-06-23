@@ -23,12 +23,13 @@ wp.init()
 _HAS_CUDA = wp.is_cuda_available()
 
 
-def _build_cargo(material, *, device, force_warp):
+def _build_cargo(material, *, device, force_warp, parallel=None):
     half, y_rest, size, mass = 0.05, 0.5, 0.10, 1.0
     cube = make_cargo_cube(material, size=size, mass=mass, n_elastic=6)
     w = 2.0 * np.pi * 25.0
     s = SolverXPBD(dt=1.0 / 60.0, iterations=20, substeps=8, device=device)
     s._force_warp = force_warp
+    s._parallel_device = parallel
     s.set_modal_support(np.eye(1), np.array([[w * w]]),
                         np.array([[2.0 * 0.01 * w]]))
     box = s.add_box(position=(0.0, y_rest + half + 0.03, 0.0),
@@ -44,9 +45,10 @@ def _build_cargo(material, *, device, force_warp):
     return s, box
 
 
-def _build_stack(*, device, force_warp, nstack=4):
+def _build_stack(*, device, force_warp, nstack=4, parallel=None):
     s = SolverXPBD(dt=1.0 / 60.0, iterations=20, substeps=8, device=device)
     s._force_warp = force_warp
+    s._parallel_device = parallel
     s.enable_self_collision(True, default_friction=0.5)
     he = 0.05
     for i in range(nstack):
@@ -93,12 +95,16 @@ def test_warpcpu_stack_parity():
     assert dq < 1e-6, f"stack orientation drift {dq:.2e}"
 
 
-# ---- CUDA-resident path vs numpy reference ----
+# ---- CUDA-resident SERIAL (dim=1) path vs numpy reference: bit-parity ----
+# Forcing _parallel_device=False runs the serial-GS device kernels, which
+# preserve the numpy GS order ⇒ bit-parity. (The default CUDA path is the
+# parallel one — covered by the physical-agreement tests below.)
 @pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA device")
 @pytest.mark.parametrize("material", ["rigid", "fem_rigid", "fem"])
-def test_cuda_cargo_parity(material):
+def test_cuda_cargo_parity_serial(material):
     ref, _ = _build_cargo(material, device="cpu", force_warp=False)
-    dev, _ = _build_cargo(material, device="cuda:0", force_warp=False)
+    dev, _ = _build_cargo(material, device="cuda:0", force_warp=False,
+                          parallel=False)
     dp, dq, dmq = _compare(ref, dev)
     assert dev._on_device
     assert dev._graph is not None, "CUDA-graph not captured"
@@ -108,13 +114,60 @@ def test_cuda_cargo_parity(material):
 
 
 @pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA device")
-def test_cuda_stack_parity_and_graph():
+def test_cuda_stack_parity_serial_and_graph():
     ref = _build_stack(device="cpu", force_warp=False)
-    dev = _build_stack(device="cuda:0", force_warp=False)
+    dev = _build_stack(device="cuda:0", force_warp=False, parallel=False)
     dp, dq, _ = _compare(ref, dev, modal=False)
     assert dev._on_device and dev._graph is not None
     assert dp < 1e-6, f"cuda stack position drift {dp:.2e}"
     assert dq < 1e-6, f"cuda stack orientation drift {dq:.2e}"
+
+
+# ---- PARALLEL (averaged-Jacobi) path: physical agreement, not bit-parity ----
+# The parallel schedule (serial GS → averaged Jacobi) differs from the serial
+# reference per-step, so we assert the cube still settles on the support to a
+# loose tolerance, stays finite, and (on CUDA) graph-captures — not bit-equality.
+@pytest.mark.parametrize("material", ["fem_rigid", "fem"])
+def test_warpcpu_cargo_parallel_agrees(material):
+    ref, rbox = _build_cargo(material, device="cpu", force_warp=False)
+    dev, dbox = _build_cargo(material, device="cpu", force_warp=True,
+                             parallel=True)
+    for _ in range(120):
+        ref.step()
+        dev.step()
+    assert dev._on_device
+    pr, pd = ref.positions()[rbox.index], dev.positions()[dbox.index]
+    assert np.all(np.isfinite(pd)), f"{material}: parallel NaN"
+    assert abs(float(pr[1] - pd[1])) < 2e-3, (
+        f"{material}: parallel settles to {pd[1]:.4f} vs serial {pr[1]:.4f}")
+
+
+@pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA device")
+@pytest.mark.parametrize("material", ["fem_rigid", "fem"])
+def test_cuda_cargo_parallel_agrees(material):
+    ref, rbox = _build_cargo(material, device="cpu", force_warp=False)
+    dev, dbox = _build_cargo(material, device="cuda:0", force_warp=False,
+                             parallel=True)
+    for _ in range(120):
+        ref.step()
+        dev.step()
+    assert dev._on_device and dev._graph is not None
+    pr, pd = ref.positions()[rbox.index], dev.positions()[dbox.index]
+    assert np.all(np.isfinite(pd)), f"{material}: cuda parallel NaN"
+    assert abs(float(pr[1] - pd[1])) < 2e-3, (
+        f"{material}: cuda parallel settles to {pd[1]:.4f} vs serial {pr[1]:.4f}")
+
+
+@pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA device")
+def test_cuda_stack_parallel_stable():
+    """Parallel path on a box-box stack stays finite and bounded (no bit-parity:
+    averaged Jacobi over the contact graph differs from serial GS)."""
+    dev = _build_stack(device="cuda:0", force_warp=False, parallel=True)
+    for _ in range(120):
+        dev.step()
+    P = dev.positions()
+    assert dev._on_device and np.all(np.isfinite(P))
+    assert P[:, 1].min() > -0.05, f"stack sank: {P[:,1].min():.4f}"
 
 
 @pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA device")
