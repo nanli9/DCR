@@ -493,6 +493,32 @@ class Solver6DOF:
         # back-substitution), which keeps box-box native — see
         # native-modal-qblock-design memory. 1.0 = un-relaxed.
         self._modal_relax = 0.1
+        # ---- Energy-faithful modal path: DCR forced-IIR (paper Eq. 10) -------
+        # # DEVIATION (CLAUDE.md follow-up; paper Eq. 10): backward Euler — the
+        # `_solve_q_block` modal stepper above — is energy-dissipative for
+        # oscillators: it destroys the modal ring even when FULLY converged (a
+        # free 20 Hz/ζ=0.012 shelf mode keeps ~0% of its energy after 1 s under
+        # BE vs the analytic ~4%). With `_modal_iir=True` the q-block is replaced
+        # by the per-mode IIR resonator (the analytic damped-SDOF discretization,
+        # the paper's modal stepper), so the surface rings at the physical rate
+        # and excites resting bodies the way the XPBD solver does. The coupling
+        # is staggered/explicit: the primal collides against the frozen qⁿ this
+        # substep, then `_iir_modal_step` extracts the support contact load as a
+        # one-step impulse ("one moment kick") and advances the resonator. BE
+        # stays the default + parity reference (CLAUDE.md rule 6). CPU host path
+        # only for now; the device q-block is unaffected.
+        self._modal_iir = False
+        self._q_modal_prev = None               # (r,) qⁿ⁻¹ for the 2-step IIR
+        self._iir_h = None                       # h the cached coeffs were built at
+        self._iir_a1 = self._iir_a2 = self._iir_ar = self._iir_m = None
+        # Energy-conserving (implicit-midpoint) modal step. When True the q-block
+        # integrates the modal restoring with implicit midpoint instead of the
+        # dissipative backward Euler, so the surface rings at the PHYSICAL decay
+        # rate (memory xpbd-vs-avbd-modal-ring-mechanism). q stays co-solved in
+        # the native support constraint (passive by construction). BE stays the
+        # default + parity reference (CLAUDE.md rule 6). Host path only for now.
+        # See dcr/modal/symplectic_stepper.py.
+        self._modal_symplectic = False
         # Predictor / snapshot scratch, set each substep.
         self._q_hat = None                      # (r,) q̃ predictor
         self._q_n = None                        # (r,) qⁿ snapshot
@@ -1798,6 +1824,12 @@ class Solver6DOF:
         # the ring history q̇ⁿ into the substep (the whole point). Uploads the
         # current q to the device for the primal's live-surface evaluation.
         if self._modal_enabled:
+            if self._modal_symplectic and (
+                    self._modal_resident or self._cargo_enabled or self._modal_iir):
+                raise NotImplementedError(
+                    "_modal_symplectic is host non-cargo only for now; it is not "
+                    "wired into the device q-block, cargo augmentation, or the IIR "
+                    "scaffold (see prompts/symplectic_modal_integrator_prompt.md).")
             if self._modal_resident:
                 self._modal_predict_device()
             elif self._cargo_enabled:
@@ -1831,7 +1863,9 @@ class Solver6DOF:
         # Native modal commit q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h (backward-Euler finite
         # difference) — carries the ring forward. Passive by construction.
         if self._modal_enabled:
-            if self._modal_resident:
+            if self._modal_iir:
+                self._iir_modal_step()      # energy-faithful ring (paper Eq. 10)
+            elif self._modal_resident:
                 self._modal_commit_device()
             elif self._cargo_enabled:
                 self._modal_commit_cargo()
@@ -2086,7 +2120,10 @@ class Solver6DOF:
             # section authorizes. Box-box bodies are handled natively by the
             # colored primal; the q-block only updates q.
             if self._modal_enabled and it < self.iterations:
-                if self._modal_resident:
+                if self._modal_iir:
+                    pass    # IIR: surface frozen at qⁿ; the resonator rings once
+                            # per substep in _iir_modal_step (one moment kick)
+                elif self._modal_resident:
                     self._solve_q_block_device(dev)
                 elif self._cargo_enabled:
                     self._solve_q_block_cargo(dev)
@@ -2122,7 +2159,11 @@ class Solver6DOF:
         self._q_n = self._q_modal_host.copy()
         h_pred = 0.0 if self._modal_freeze_qdot else h
         q_hat = self._q_n + h_pred * self._qdot_modal_host
-        if self._modal_f_q_grav is not None:
+        # DEVIATION (gravity placement, symplectic_stepper §"gravity placement"):
+        # BE folds gravity into q̃ and recovers +f_grav via its M/h² inertia.
+        # Midpoint's 2M/h² inertia would inject +2·f_grav, so the symplectic path
+        # keeps q̃ gravity-free and adds f_grav as a force in _solve_q_block.
+        if self._modal_f_q_grav is not None and not self._modal_symplectic:
             q_hat = q_hat + h * h * np.linalg.solve(self._Mq, self._modal_f_q_grav)
         self._q_hat = q_hat
         self.q_modal.assign(self._q_modal_host.astype(np.float32))
@@ -2163,10 +2204,24 @@ class Solver6DOF:
         r = self._n_modes
         Mq, Kq, Dq = self._Mq, self._Kq, self._Dq
         q = self._q_modal_host
-        H_q = inv_dt2 * Mq + inv_dt * Dq + Kq
-        g_q = (inv_dt2 * (Mq @ (q - self._q_hat))
-               + inv_dt * (Dq @ (q - self._q_n))
-               + Kq @ q)
+        if self._modal_symplectic:
+            # DEVIATION (paper Eq. 10 → in-constraint implicit midpoint, see
+            # dcr/modal/symplectic_stepper.py): energy-conserving modal restoring
+            #   H_q = 2/h²·M_q + 1/h·D_q + ½·K_q
+            #   g_q = 2/h²·M_q(q−q̃) + 1/h·D_q(q−qⁿ) + ½·K_q(q+qⁿ) − f_grav
+            # (matrix form of modal_midpoint_coeffs; q̃ here is gravity-free). The
+            # contact terms (+ρ U Uᵀ, −U f) below are unchanged — q stays co-solved.
+            H_q = (2.0 * inv_dt2) * Mq + inv_dt * Dq + 0.5 * Kq
+            g_q = ((2.0 * inv_dt2) * (Mq @ (q - self._q_hat))
+                   + inv_dt * (Dq @ (q - self._q_n))
+                   + 0.5 * (Kq @ (q + self._q_n)))
+            if self._modal_f_q_grav is not None:
+                g_q = g_q - self._modal_f_q_grav
+        else:
+            H_q = inv_dt2 * Mq + inv_dt * Dq + Kq
+            g_q = (inv_dt2 * (Mq @ (q - self._q_hat))
+                   + inv_dt * (Dq @ (q - self._q_n))
+                   + Kq @ q)
 
         x = self.x.numpy()
         quat = self.q.numpy()
@@ -2201,16 +2256,130 @@ class Solver6DOF:
         self.q_modal.assign(self._q_modal_host.astype(np.float32))
 
     def _modal_commit(self) -> None:
-        """q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h (backward Euler). Frozen counterfactual keeps
-        q̇ ≡ 0. Also refreshes modal diagnostics."""
+        """q̇ⁿ⁺¹ = (qⁿ⁺¹ − qⁿ)/h (backward Euler), or the scheme-consistent
+        midpoint reconstruction q̇ⁿ⁺¹ = 2(qⁿ⁺¹−qⁿ)/h − q̇ⁿ when symplectic.
+        Frozen counterfactual keeps q̇ ≡ 0. Also refreshes modal diagnostics."""
         h = float(self.dt)
         if not self._modal_freeze_qdot:
-            self._qdot_modal_host = (self._q_modal_host - self._q_n) / h
+            if self._modal_symplectic:
+                # midpoint commit (dcr/modal/symplectic_stepper.modal_midpoint_commit)
+                self._qdot_modal_host = (2.0 * (self._q_modal_host - self._q_n) / h
+                                         - self._qdot_modal_host)
+            else:
+                self._qdot_modal_host = (self._q_modal_host - self._q_n) / h
         q = self._q_modal_host
         qd = self._qdot_modal_host
         self.last_modal_KE = float(0.5 * qd @ self._Mq @ qd)
         self.last_modal_PE = float(0.5 * q @ self._Kq @ q)
         self.last_q_norm = float(np.linalg.norm(q))
+
+    def _ensure_iir_coeffs(self, h: float) -> None:
+        """Per-mode IIR coefficients (paper Eq. 10) for the damped SDOF
+        discretization, from the DIAGONAL eigenbasis modal matrices:
+            ω_i = √(K_q[i,i]/M_q[i,i]),  ζ_i = D_q[i,i]/(2 M_q[i,i] ω_i)
+            e_i = exp(−ζ_i ω_i h),  ω_{d,i} = ω_i √(1−ζ_i²)
+            a1_i = 2 e_i cos(ω_d h),  a2_i = e_i²,  a_r,i = e_i sin(ω_d h)/ω_d,i
+        a_r is the impulse-invariant gain: the SDOF response at t=h to a unit
+        modal impulse is (a_r/m). Cached on h (the substep dt is constant)."""
+        if self._iir_h is not None and abs(self._iir_h - h) < 1e-15:
+            return
+        m = np.diag(self._Mq).astype(np.float64).copy()
+        k = np.diag(self._Kq).astype(np.float64)
+        c = np.diag(self._Dq).astype(np.float64)
+        m_safe = np.where(m > 0.0, m, 1.0)
+        w = np.sqrt(np.maximum(k / m_safe, 0.0))                 # ω_i
+        z = np.where(w > 0.0, c / (2.0 * m_safe * w), 0.0)       # ζ_i
+        e = np.exp(-z * w * h)
+        wd = w * np.sqrt(np.maximum(1.0 - z * z, 0.0))           # damped ω
+        # underdamped (all 16 shelf modes have ζ<1); guard ω_d→0 with the limit
+        # sin(ω_d h)/ω_d → h.
+        ar = np.where(wd > 1e-9, e * np.sin(wd * h) / np.where(wd > 1e-9, wd, 1.0),
+                      e * h)
+        self._iir_a1 = 2.0 * e * np.cos(wd * h)
+        self._iir_a2 = e * e
+        self._iir_ar = ar
+        self._iir_m = m_safe
+        self._iir_h = float(h)
+
+    def _iir_modal_step(self) -> None:
+        """# DEVIATION (CLAUDE.md follow-up; paper Eq. 10): the energy-faithful
+        modal stepper that REPLACES the backward-Euler q-block when
+        `_modal_iir=True`. The primal collided against the frozen surface
+        y_rest + U_y·qⁿ this substep; here we (1) read the support contact load
+        the primal/dual just resolved, project it onto the modes as a one-step
+        impulse ("one moment kick"), and (2) advance the per-mode IIR resonator
+
+            qⁿ⁺¹ = a1·qⁿ − a2·qⁿ⁻¹ + a_r·(F·h)/m
+
+        so the surface rings at the physical damped-SDOF rate instead of being
+        dissipated by BE. F = shelf modal gravity + Σ_j U_y,j f_j over the
+        ENGAGED (compressive, f<0) support rows — the same clamped multiplier the
+        body primal saw (Newton's third law). Staggered/explicit: the kick uses
+        this substep's resolved load and rings q for the NEXT substep to collide
+        against. See `_solve_q_block` (the BE parity reference) for the gather."""
+        h = float(self.dt)
+        self._ensure_iir_coeffs(h)
+        r = self._n_modes
+        q = self._q_modal_host                          # qⁿ (frozen this substep)
+        if self._q_modal_prev is None:
+            self._q_modal_prev = q.copy()
+
+        # (1) modal generalized force from the resolved support contacts. Only
+        # rows whose corner is APPROACHING the surface (v_n < 0) contribute —
+        # this is the "one moment kick": an impact (corner driving into the
+        # plate) excites the resonator, but a resting body (v_n≈0) does NOT keep
+        # re-forcing it. Sustained re-forcing of a lightly-damped mode through
+        # the explicit (staggered) coupling resonance-pumps it — BE avoided this
+        # by carrying the contact stiffness ρU_yU_yᵀ in its implicit Hessian; the
+        # IIR cannot, so the load is gated to the dynamic (approach) part. The
+        # static sag is dropped (≈2 mm here) — acceptable for the ring.
+        # # DEVIATION (paper §3.2 distant response): the modal path is excited by
+        # the collision impulse, not the resting support load.
+        F = np.zeros(r, dtype=np.float64)
+        x = self.x.numpy()
+        quat = self.q.numpy()
+        vlin = self.velocities()
+        wang = self.angular_velocities()
+        pen = self.c_penalty.numpy()
+        lam = self.c_lambda.numpy()
+        stiff = self.c_stiffness.numpy()
+        alpha_C0 = self.c_alpha_C0.numpy()
+        act = self.c_active.numpy()
+        for s, cidx in enumerate(self._support_row_cidx):
+            if act[cidx] == 0:
+                continue
+            row = self._rows[cidx]
+            bi = row.body_a
+            R = _modal_quat_to_R(np.asarray(quat[bi], dtype=np.float64))
+            r_w = R @ np.asarray(row.off_a, dtype=np.float64)
+            corner_y = float(x[bi][1]) + float(r_w[1])
+            # corner vertical velocity = v_lin + ω × r_w  (approach gate)
+            v_corner_y = float(vlin[bi][1]) + float(np.cross(wang[bi], r_w)[1])
+            if v_corner_y >= -1.0e-4:               # not approaching → no kick
+                continue
+            U = self._support_U_y_rows[s][:r]
+            C = corner_y - (float(row.world_anchor[1]) + float(U @ q))
+            hard = np.isinf(stiff[cidx])
+            if hard:
+                C = C - float(alpha_C0[cidx])
+            lam_eff = float(lam[cidx]) if hard else 0.0
+            f = min(float(pen[cidx]) * C + lam_eff, 0.0)    # compressive only
+            if f >= 0.0:
+                continue
+            F = F + U * f
+
+        # (2) advance the per-mode IIR resonator (impulse J = F·h).
+        J = F * h
+        q_new = (self._iir_a1 * q - self._iir_a2 * self._q_modal_prev
+                 + self._iir_ar * J / self._iir_m)
+        self._q_modal_prev = q.copy()
+        self._q_modal_host = q_new
+        self._qdot_modal_host = (q_new - self._q_n) / h
+        self.q_modal.assign(q_new.astype(np.float32))
+        qd = self._qdot_modal_host
+        self.last_modal_KE = float(0.5 * qd @ self._Mq @ qd)
+        self.last_modal_PE = float(0.5 * q_new @ self._Kq @ q_new)
+        self.last_q_norm = float(np.linalg.norm(q_new))
 
     # ---- Device (warp) q-block — GPU-resident native modal solve (M1.3/M2) --
     def _modal_predict_device(self) -> None:

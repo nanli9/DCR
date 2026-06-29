@@ -44,6 +44,10 @@ import warp as wp
 
 from .solver_6dof import RigidBody, box_inv_inertia_local
 from . import xpbd_kernels as XK
+from ...modal.symplectic_stepper import (
+    modal_midpoint_coeffs,
+    modal_midpoint_commit,
+)
 
 __all__ = ["SolverXPBD"]
 
@@ -270,6 +274,22 @@ class SolverXPBD:
         self._q = self._qdot = None
         self._modal_grav_acc = None
         self._freeze_qdot = False
+        # Energy-conserving (implicit-midpoint) modal step. When True the modal
+        # restoring constraint (_project_modal_elastic) pulls q toward the
+        # midpoint free solution q_star = rhs/H_diag with compliance
+        # α̃ₑ = 1/(H_diag·h² − 1), while the support contact keeps the TRUE modal
+        # inverse mass 1/M_q (so it excites the mode like BE). Their GS fixed
+        # point is exactly the midpoint+contact response q = q_star + F/H_diag
+        # (no factor-2). This rings at the PHYSICAL rate. See
+        # dcr/modal/symplectic_stepper.py and memory
+        # symplectic-modal-ring-coupled-solver-findings. BE stays the default +
+        # parity reference. Host path only for now.
+        # DEVIATION: an earlier "fold" (support contact inverse mass = 1/H_diag)
+        # was WRONG — 1/H_diag is a compliance, not an inverse mass; XPBD's
+        # impulse contact needs 1/M, so the fold left the mode dead.
+        self._modal_symplectic = False
+        self._q_star = None       # (r,) midpoint free solution (elastic target)
+        self._alpha_e = None      # (r,) elastic compliance 1/(H_diag·h² − 1)
         self._support: list[_SupportContact] = []
         self.last_modal_KE = 0.0
         self.last_modal_PE = 0.0
@@ -511,6 +531,8 @@ class SolverXPBD:
     def _device_compatible(self) -> bool:
         """The device path handles ≤1 cargo block and linear materials only;
         abd (nonlinear V⊥) and multi-cargo fall back to the numpy reference."""
+        if self._modal_symplectic:
+            return False        # symplectic modal step is host-only for now
         if len(self._cargo) > 1:
             return False
         for cb in self._cargo.values():
@@ -995,12 +1017,31 @@ class SolverXPBD:
         # term, so q cannot ring (KE ≈ 0). The per-mode elastic constraint pulls
         # q̃ back in the GS sweep.
         modal_qn = None
+        modal_qdotn = None
         cargo_an: dict = {}
         if self._modal:
             modal_qn = self._q.copy()
+            modal_qdotn = self._qdot.copy()
             h_pred = 0.0 if self._freeze_qdot else h
-            self._q = (self._q + h_pred * self._qdot
-                       + (h * h) * self._modal_grav_acc)
+            if self._modal_symplectic and not self._freeze_qdot:
+                # Implicit-midpoint modal step (dcr/modal/symplectic_stepper).
+                # Predictor = q_star (the free midpoint solution); the elastic
+                # restoring (_project_modal_elastic_symplectic) pulls q→q_star
+                # with compliance α̃ₑ = 1/(H_diag·h² − 1) so that, with the support
+                # contact using the TRUE inverse mass 1/M, the GS fixed point is
+                # q = q_star + F/H_diag (exact midpoint+contact, no factor-2).
+                f_grav = self._modal_grav_acc * self._mq     # M_q⁻¹f→f (force)
+                Hd, _, q_star, _ = modal_midpoint_coeffs(
+                    self._q, self._qdot, self._mq, self._kq, self._dq, h,
+                    f_grav=f_grav)
+                self._q = q_star.copy()
+                self._q_star = q_star
+                Hh2 = Hd * (h * h)
+                self._alpha_e = np.where(
+                    Hh2 > 1.0, 1.0 / np.maximum(Hh2 - 1.0, 1e-300), 0.0)
+            else:
+                self._q = (self._q + h_pred * self._qdot
+                           + (h * h) * self._modal_grav_acc)
             self._lam_q = np.zeros(self._r)
             for sc in self._support:
                 sc.lam = 0.0
@@ -1027,7 +1068,10 @@ class SolverXPBD:
             for c in contacts:
                 self._project_normal(c, a_tilde)
             if self._modal:
-                self._project_modal_elastic(modal_qn, h, inv_h2)
+                if self._modal_symplectic:
+                    self._project_modal_elastic_symplectic()
+                else:
+                    self._project_modal_elastic(modal_qn, h, inv_h2)
                 for bi in self._cargo:
                     self._project_cargo_elastic(bi, cargo_an[bi], h, inv_h2)
                 at_sup = self.support_compliance * inv_h2   # soften the support contact
@@ -1054,7 +1098,13 @@ class SolverXPBD:
                 self._qdot = np.zeros(self._r)
                 self.last_modal_KE = 0.0
             else:
-                self._qdot = (self._q - modal_qn) / h
+                if self._modal_symplectic:
+                    # midpoint commit q̇ⁿ⁺¹ = 2(qⁿ⁺¹−qⁿ)/h − q̇ⁿ
+                    # (dcr/modal/symplectic_stepper.modal_midpoint_commit)
+                    self._qdot = modal_midpoint_commit(
+                        self._q, modal_qn, modal_qdotn, h)
+                else:
+                    self._qdot = (self._q - modal_qn) / h
                 self.last_modal_KE = 0.5 * float(
                     self._qdot @ (self._mq * self._qdot))
             self.last_modal_PE = 0.5 * float(self._q @ (self._kq * self._q))
@@ -1228,6 +1278,31 @@ class SolverXPBD:
             Cdot = q[i] - qn[i]
             denom = (1.0 + gamma) * w + at
             dlam = (-q[i] - at * lam[i] - gamma * Cdot) / denom
+            lam[i] += dlam
+            q[i] += w * dlam
+
+    def _project_modal_elastic_symplectic(self) -> None:
+        """Energy-conserving (implicit-midpoint) modal restoring: pull q toward
+        the midpoint free solution q_star (set in predict) with compliance
+        α̃ₑ = 1/(H_diag·h² − 1) and the TRUE modal inverse mass w = 1/M_q. With
+        the support contact also using 1/M_q, the GS fixed point is exactly the
+        midpoint+contact response q = q_star + F/H_diag (the contact force factor
+        is correct — no factor-2). Damping/gravity are already in q_star, so no
+        separate damping term here. See dcr/modal/symplectic_stepper.py.
+
+        # DEVIATION (paper Eq. 10 → in-constraint implicit midpoint): the modal q
+        # is co-solved in the support constraint and the restoring is integrated
+        # with implicit midpoint (energy-faithful) instead of backward Euler.
+        """
+        q, qstar, alpha_e, wq, lam = (self._q, self._q_star, self._alpha_e,
+                                      self._wq, self._lam_q)
+        for i in range(self._r):
+            w = wq[i]
+            at = alpha_e[i]
+            if w <= 0.0 or at <= 0.0:
+                continue
+            C = q[i] - qstar[i]
+            dlam = (-C - at * lam[i]) / (w + at)
             lam[i] += dlam
             q[i] += w * dlam
 

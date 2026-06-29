@@ -239,6 +239,22 @@ class UnifiedViser:
         self.knob_iters, self.knob_subs = _xpbd_iter_floor(self.solver, sp)
         self.knob_impedance = 1.0
         self.knob_damping = 1.0
+        # modal under-relax: None ⇒ adopt the solver's own default (AVBD 0.10,
+        # XPBD 0.25); a CLI/GUI value overrides it on both solvers.
+        self.knob_modal_relax = args.modal_relax
+        self._eff_modal_relax = 0.25
+        # Energy-conserving (implicit-midpoint) modal step vs backward Euler.
+        # NOTE: only delivers a clean ring when the q-block is solved enough
+        # (modal under-relax ≳ 0.5); at low relax the under-solve re-dissipates
+        # it. See memory symplectic-modal-ring-coupled-solver-findings.
+        # Symplectic (implicit-midpoint) modal step is the DEFAULT here; --be
+        # opts back to the dissipative backward-Euler reference. (The solver
+        # CLASS default stays BE for parity tests / CLAUDE.md; this is the viser
+        # default only.) --symplectic is kept for explicitness (no-op vs default).
+        self.symplectic = not bool(getattr(args, "be", False))
+        # Symplectic implies --no-cargo (the symplectic modal path is host
+        # non-cargo only; the augmented cargo q-block stays BE).
+        self.no_cargo = bool(getattr(args, "no_cargo", False)) or self.symplectic
         self.render_thick = sp["thickness"]
         self._slab_faces = _slab_faces(N_GRID_X, N_GRID_Z)
         self._q_static = None        # EMA of rs.q for the "static" modal view
@@ -259,8 +275,14 @@ class UnifiedViser:
         # Support material → (E, ρ): production scenes take youngs/density, the
         # cargo builder takes support_youngs/support_density — pass both, the
         # signature filter below keeps whichever the chosen builder accepts.
+        # --no-cargo: rigid impactor (cargo_material=None) → the prompt's
+        # acceptance shelf (non-cargo). Required for the symplectic modal path,
+        # which is host non-cargo only (the augmented cargo q-block is BE), so
+        # symplectic forces non-cargo on every (re)build → it persists across
+        # scene/solver switches.
+        cargo_kind = None if (self.no_cargo or self.symplectic) else self.kind
         cand = dict(
-            device=self.device, solver=eff, cargo_material=self.kind,
+            device=self.device, solver=eff, cargo_material=cargo_kind,
             iterations=int(self.knob_iters), avbd_substeps=int(self.knob_subs),
             support_thickness=float(self.knob_thickness),
             youngs=float(mat.youngs), density=float(mat.density),
@@ -298,6 +320,12 @@ class UnifiedViser:
         if self._cargo_idx is None:
             self._cargo_idx = getattr(self.rs, "_native_cargo_avbd_idx", None)
         self._q_static = self.rs.q.copy()
+        # modal under-relax: apply the CLI/GUI override if set, else read back
+        # the new solver's own default so the slider/HUD reflect the truth.
+        if self.knob_modal_relax is not None:
+            self._set_solver_modal_relax(self.knob_modal_relax)
+        self._eff_modal_relax = self._solver_modal_relax(self.world._solver)
+        self._set_solver_symplectic(self.symplectic)
         self._collect_render()
         self._make_meshes()
 
@@ -438,6 +466,21 @@ class UnifiedViser:
                                               0.25, float(self.knob_impedance))
             self.gui_damping = g.add_slider("modal damping scale", 0.1, 8.0, 0.1,
                                             float(self.knob_damping))
+            self.gui_modal_relax = g.add_slider(
+                "modal under-relax", 0.02, 1.0, 0.01,
+                float(self._eff_modal_relax),
+                hint="modal q chase per iteration (live). Higher = more visible "
+                     "modal flex/ring; lower = damped. AVBD default 0.10, "
+                     "XPBD 0.25 — this is the dominant knob behind AVBD looking "
+                     "stiffer than XPBD in the same scene.")
+            self.gui_modal_relax.on_update(self._modal_relax_changed)   # live
+            self.gui_symplectic = g.add_checkbox(
+                "symplectic modal step", initial_value=self.symplectic,
+                hint="energy-conserving implicit-midpoint modal integrator vs "
+                     "backward Euler (live, AVBD + XPBD). Forces non-cargo + "
+                     "host q-block. AVBD needs modal under-relax ≳ 0.5 to ring; "
+                     "XPBD rings at its 0.25 default.")
+            self.gui_symplectic.on_update(self._symplectic_changed)      # live
         with g.add_folder("Visualization"):
             self.gui_cube_exag = g.add_slider(
                 "cube flex ×", 1.0, _EXAG_MAX, 1.0, self.cube_exag,
@@ -497,6 +540,70 @@ class UnifiedViser:
         self.world._solver.iterations = n
         self.world._solver._graph = None          # force CUDA-graph recapture
 
+    @staticmethod
+    def _solver_modal_relax(sol) -> float:
+        """Effective modal under-relaxation for either native solver (AVBD
+        stores it in `_modal_relax`, XPBD in `modal_relax`)."""
+        if hasattr(sol, "_modal_relax"):
+            return float(sol._modal_relax)
+        return float(getattr(sol, "modal_relax", 0.25))
+
+    def _set_solver_modal_relax(self, val: float) -> None:
+        """Apply the modal under-relaxation to whichever native solver is live.
+        AVBD: `_modal_relax`. XPBD: `modal_relax` + the support-block SOR factor
+        `_support_block_relax`. Nulls the captured CUDA graph so the change
+        takes effect on the next step (the relax scalar is otherwise baked in
+        at capture time)."""
+        sol = self.world._solver
+        if hasattr(sol, "_modal_relax"):
+            sol._modal_relax = float(val)
+        if hasattr(sol, "modal_relax"):
+            sol.modal_relax = float(val)
+        if hasattr(sol, "_support_block_relax"):
+            sol._support_block_relax = float(val)
+        sol._graph = None                         # force CUDA-graph recapture
+
+    def _modal_relax_changed(self, _evt):
+        self.knob_modal_relax = float(self.gui_modal_relax.value)
+        self._set_solver_modal_relax(self.knob_modal_relax)
+        self._eff_modal_relax = self.knob_modal_relax
+
+    def _set_solver_symplectic(self, val: bool) -> None:
+        """Toggle the energy-conserving (implicit-midpoint) modal step on the
+        live native solver (both AVBD and XPBD expose `_modal_symplectic`).
+        Forces the host q-block (AVBD `_modal_device_resident=False`; XPBD's
+        `_device_compatible` already declines under symplectic) since the device
+        q-block is BE-only for now. Nulls the captured CUDA graph so the change
+        takes effect next step. Cargo scenes are rebuilt non-cargo by the caller
+        (`cargo_kind` honors `self.symplectic`), so this only runs once the path
+        supports it; it still declines if cargo is somehow live."""
+        sol = self.world._solver
+        if val and self._solver_has_cargo(sol):
+            return                                 # rebuild (non-cargo) is pending
+        if val and hasattr(sol, "_modal_device_resident"):
+            sol._modal_device_resident = False     # AVBD: force host q-block
+        if hasattr(sol, "_modal_symplectic"):
+            sol._modal_symplectic = bool(val)
+        sol._graph = None                          # force CUDA-graph recapture
+
+    @staticmethod
+    def _solver_has_cargo(sol) -> bool:
+        """True if the live solver has a cargo block (AVBD `_cargo_enabled`;
+        XPBD a non-empty `_cargo` dict). The symplectic modal path is non-cargo
+        only, so it falls back to BE on cargo scenes."""
+        return (bool(getattr(sol, "_cargo_enabled", False))
+                or bool(getattr(sol, "_cargo", None)))
+
+    def _symplectic_changed(self, _evt):
+        self.symplectic = bool(self.gui_symplectic.value)
+        sol = self.world._solver
+        # Enabling on a live cargo scene needs a non-cargo rebuild (the augmented
+        # cargo q-block is BE-only); cargo_kind now honors self.symplectic.
+        if self.symplectic and self._solver_has_cargo(sol):
+            self._pending_rebuild = True
+        else:
+            self._set_solver_symplectic(self.symplectic)
+
     def _render_thick_changed(self, _evt):
         self.render_thick = max(0.0, float(self.gui_render_thick.value) / 1e3)
 
@@ -524,6 +631,8 @@ class UnifiedViser:
         self.knob_subs = int(self.gui_subs.value)
         self.knob_impedance = float(self.gui_impedance.value)
         self.knob_damping = float(self.gui_damping.value)
+        self.knob_modal_relax = float(self.gui_modal_relax.value)
+        self.symplectic = bool(self.gui_symplectic.value)
 
     def _reset_knobs_to_scene(self):
         sp = SCENE_SPEC[self.scene]
@@ -535,6 +644,8 @@ class UnifiedViser:
         self.knob_iters, self.knob_subs = _xpbd_iter_floor(self.solver, sp)
         self.knob_impedance = 1.0
         self.knob_damping = 1.0
+        # follow the new solver's own default after a scene/solver switch
+        self.knob_modal_relax = None
         self.render_thick = sp["thickness"]
 
     # ---- loop --------------------------------------------------------
@@ -621,6 +732,26 @@ def main():
                     help="initial support-slab material → Young's modulus + "
                          "density (default: per-scene preset)")
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--modal-relax", type=float, default=0.7,
+                    help="modal under-relaxation (q chase per iteration), "
+                         "applied to BOTH solvers. Higher = more visible modal "
+                         "flex/ring. Default 0.7 (the symplectic ring needs the "
+                         "q-block solved enough; AVBD's 0.10 / XPBD's 0.25 "
+                         "class defaults under-solve it). Tunable live in the "
+                         "GUI.")
+    ap.add_argument("--symplectic", action="store_true",
+                    help="(default ON) energy-conserving implicit-midpoint "
+                         "modal step. Kept for explicitness; use --be to opt "
+                         "out. Toggle live in the GUI; AVBD + XPBD. Forces the "
+                         "host q-block and implies --no-cargo.")
+    ap.add_argument("--be", action="store_true",
+                    help="use backward-Euler modal integration instead of the "
+                         "(default) symplectic step. Restores the dissipative "
+                         "reference path and re-enables cargo.")
+    ap.add_argument("--no-cargo", action="store_true",
+                    help="rigid impactor (cargo_material=None) — the prompt's "
+                         "non-cargo acceptance shelf. Required for the "
+                         "symplectic modal path (host non-cargo only).")
     ap.add_argument("--spin", type=float, default=4.0)
     ap.add_argument("--cube-exag", type=float, default=1.0,
                     help="initial cube-flex render exaggeration (1 = true scale)")
