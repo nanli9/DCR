@@ -52,6 +52,13 @@ _ONE = wp.constant(wp.float64(1.0))
 _HALF = wp.constant(wp.float64(0.5))
 _TWO = wp.constant(wp.float64(2.0))
 
+# Compile-time tile size for the cooperative support block solve
+# (pk_support_solve_tiled). The reduced block kk = r + ck is padded to this and
+# solved by a whole thread-block in shared memory (wp.tile_cholesky) instead of a
+# single thread — the dim=1 GE solve was ~66% of the device step. Scenes with
+# kk > SUPPORT_TILE fall back to the single-thread GE path (pk_support_solve).
+SUPPORT_TILE = 32
+
 
 @wp.func
 def zero_mat() -> wp.mat33d:
@@ -1308,49 +1315,73 @@ def pk_cargo_elastic(ck: int, cg_a: wp.array(dtype=wp.float64),
 
 
 @wp.kernel
-def pk_support_velsolve_gs(
+def pk_support_fric_deg(ns: int, sup_bi: wp.array(dtype=wp.int32),
+                       sup_lam: wp.array(dtype=wp.float64),
+                       sup_mu: wp.array(dtype=wp.float64),
+                       invm: wp.array(dtype=wp.float64),
+                       sup_deg: wp.array(dtype=wp.float64)):
+    """Per-body count of active support-friction rows (sup_lam>0, mu>0, dynamic) —
+    the deg-average divisor for the parallel support friction. Constant through the
+    velocity loop (sup_lam is fixed after the position solve), so computed once."""
+    s = wp.tid()
+    if s >= ns:
+        return
+    bi = sup_bi[s]
+    if sup_lam[s] > _ZERO and sup_mu[s] > _ZERO and invm[bi] != _ZERO:
+        wp.atomic_add(sup_deg, bi, _ONE)
+
+
+@wp.kernel
+def pk_support_velsolve_jacobi(
         Q: wp.array(dtype=wp.quatd), V: wp.array(dtype=wp.vec3d),
         W: wp.array(dtype=wp.vec3d), invm: wp.array(dtype=wp.float64),
         invIl: wp.array(dtype=wp.mat33d), ns: int,
         sup_bi: wp.array(dtype=wp.int32), sup_off: wp.array(dtype=wp.vec3d),
         sup_lam: wp.array(dtype=wp.float64), sup_mu: wp.array(dtype=wp.float64),
-        sup_jt: wp.array(dtype=wp.vec3d), fric_static: wp.float64, h: wp.float64):
-    """SERIAL GS support tangential Coulomb friction (dim=1) — the velocity
-    analogue of pk_support_gs (numpy `_solve_velocity_support`), with immediate
-    V/W writes so it stays consistent with deg = contacts-only (support is no
-    longer routed through the averaged-Jacobi accumulator). Friction-only (no e=0
-    restitution — the modal support normal is soft)."""
-    if wp.tid() != 0:
+        sup_jt: wp.array(dtype=wp.vec3d), fric_static: wp.float64, h: wp.float64,
+        acc_dv: wp.array(dtype=wp.float64), acc_dw: wp.array(dtype=wp.float64)):
+    """PARALLEL support tangential Coulomb friction (dim=ns) — the averaged-Jacobi
+    analogue of the old serial GS pass. Friction is body-local (no modal hub), so
+    it parallelizes exactly like the contact friction: per row update sup_jt
+    (cone-clamped) and scatter Δv/Δω into the accumulator; pk_apply_vel applies
+    ÷ sup_deg. Friction-only (the soft modal support normal takes no e=0 kick)."""
+    s = wp.tid()
+    if s >= ns:
         return
-    for s in range(ns):
-        mu = sup_mu[s]
-        if sup_lam[s] <= _ZERO or mu <= _ZERO:
-            continue
-        bi = sup_bi[s]
-        if invm[bi] == _ZERO:
-            continue
-        R = quat_to_R(Q[bi])
-        r_w = R * sup_off[s]
-        invIw = iIw(R, invIl[bi])
-        up = wp.vec3d(_ZERO, _ONE, _ZERO)
-        vp = V[bi] + wp.cross(W[bi], r_w)
-        v_t = vp - wp.dot(vp, up) * up
-        mag = wp.length(v_t)
-        if mag < wp.float64(1e-12):
-            continue
-        t = v_t / mag
-        wt = gen_inv_mass(invm[bi], invIw, r_w, t)
-        if wt <= _ZERO:
-            continue
-        new_jt = sup_jt[s] + (-mag / wt) * t
-        j_max = mu * fric_static * sup_lam[s] / h
-        njt = wp.length(new_jt)
-        if njt > j_max:
-            new_jt = new_jt * (j_max / njt)
-        dP = new_jt - sup_jt[s]
-        sup_jt[s] = new_jt
-        V[bi] = V[bi] + invm[bi] * dP
-        W[bi] = W[bi] + invIw * wp.cross(r_w, dP)
+    mu = sup_mu[s]
+    if sup_lam[s] <= _ZERO or mu <= _ZERO:
+        return
+    bi = sup_bi[s]
+    if invm[bi] == _ZERO:
+        return
+    R = quat_to_R(Q[bi])
+    r_w = R * sup_off[s]
+    invIw = iIw(R, invIl[bi])
+    up = wp.vec3d(_ZERO, _ONE, _ZERO)
+    vp = V[bi] + wp.cross(W[bi], r_w)
+    v_t = vp - wp.dot(vp, up) * up
+    mag = wp.length(v_t)
+    if mag < wp.float64(1e-12):
+        return
+    t = v_t / mag
+    wt = gen_inv_mass(invm[bi], invIw, r_w, t)
+    if wt <= _ZERO:
+        return
+    new_jt = sup_jt[s] + (-mag / wt) * t
+    j_max = mu * fric_static * sup_lam[s] / h
+    njt = wp.length(new_jt)
+    if njt > j_max:
+        new_jt = new_jt * (j_max / njt)
+    dP = new_jt - sup_jt[s]
+    sup_jt[s] = new_jt
+    dv = invm[bi] * dP
+    dw = invIw * wp.cross(r_w, dP)
+    wp.atomic_add(acc_dv, 3 * bi + 0, dv[0])
+    wp.atomic_add(acc_dv, 3 * bi + 1, dv[1])
+    wp.atomic_add(acc_dv, 3 * bi + 2, dv[2])
+    wp.atomic_add(acc_dw, 3 * bi + 0, dw[0])
+    wp.atomic_add(acc_dw, 3 * bi + 1, dw[1])
+    wp.atomic_add(acc_dw, 3 * bi + 2, dw[2])
 
 
 # ---------------------------------------------------------------------------
@@ -1419,14 +1450,17 @@ def pk_support_assemble(
 
 
 @wp.kernel
-def pk_support_hq(kk: int, ns: int, r: int, wq: wp.array(dtype=wp.float64),
+def pk_support_hq(kk: int, ns: int, r: int, eps: wp.float64,
+                  wq: wp.array(dtype=wp.float64),
                   cg_mq: wp.array(dtype=wp.float64),
                   sup_G: wp.array(dtype=wp.float64, ndim=2),
                   sup_w: wp.array(dtype=wp.float64),
                   blkH: wp.array(dtype=wp.float64, ndim=2)):
-    """H[a,b] = Mz[a,b] + Σ_s (1/D_s)·G[s,a]·G[s,b]   (dim=(kk,kk)). Mz diagonal =
-    [1/wq; cg_mq] (the reduced mass); a frozen mode (wq=0 / cg_mq=0) gets a huge
-    diagonal so its correction is solved to ≈0. Mirrors AVBD k_modal_hq."""
+    """H[a,b] = Mz[a,b] + Σ_s (1/D_s)·G[s,a]·G[s,b] (+ eps on the diagonal), dim=
+    (kk,kk). Mz diagonal = [1/wq; cg_mq] (the reduced mass); a frozen mode
+    (wq=0 / cg_mq=0) gets a huge diagonal so its correction is solved to ≈0. eps
+    is folded here (not the solve) so the matrix is factor-ready for either the
+    GE or the tile-Cholesky path. Mirrors AVBD k_modal_hq."""
     a, b = wp.tid()
     acc = _ZERO
     if a == b:
@@ -1441,6 +1475,7 @@ def pk_support_hq(kk: int, ns: int, r: int, wq: wp.array(dtype=wp.float64),
                 acc = cg_mq[cc]
             else:
                 acc = wp.float64(1.0e30)
+        acc = acc + eps
     for s in range(ns):
         acc = acc + sup_w[s] * sup_G[s, a] * sup_G[s, b]
     blkH[a, b] = acc
@@ -1461,17 +1496,17 @@ def pk_support_rhs(kk: int, ns: int,
 
 
 @wp.kernel
-def pk_support_solve(kk: int, eps: wp.float64,
+def pk_support_solve(kk: int,
                      blkH: wp.array(dtype=wp.float64, ndim=2),
                      blkR: wp.array(dtype=wp.float64),
                      blkU: wp.array(dtype=wp.float64)):
-    """Solve (H + ε·I)·u = rhs by Gaussian elimination with partial pivot, into
-    blkU. Single thread (GE is sequential; kk≈12-24 is small) — mirrors AVBD
-    k_modal_solve. blkH is mutated in place as the working upper-triangular."""
+    """Solve H·u = rhs by Gaussian elimination with partial pivot, into blkU
+    (eps already on H's diagonal from pk_support_hq). Single thread (GE is
+    sequential) — the FALLBACK for kk > SUPPORT_TILE; the common path is the
+    cooperative pk_support_solve_tiled. blkH is mutated in place."""
     if wp.tid() != 0:
         return
     for a in range(kk):
-        blkH[a, a] = blkH[a, a] + eps
         blkU[a] = blkR[a]
     for col in range(kk):
         piv = col
@@ -1502,6 +1537,25 @@ def pk_support_solve(kk: int, eps: wp.float64,
         for cc in range(col + 1, kk):
             acc = acc - blkH[col, cc] * blkU[cc]
         blkU[col] = acc / blkH[col, col]
+
+
+@wp.kernel
+def pk_support_solve_tiled(blkH: wp.array(dtype=wp.float64, ndim=2),
+                           blkR: wp.array(dtype=wp.float64),
+                           blkU: wp.array(dtype=wp.float64)):
+    """COOPERATIVE block Cholesky solve of the SUPPORT_TILE×SUPPORT_TILE padded
+    SPD system H·u = rhs, using a whole thread-block + shared memory
+    (wp.tile_cholesky / wp.tile_cholesky_solve) instead of one thread. Replaces
+    the dim=1 GE solve (pk_support_solve), which was ~66% of the device step —
+    single-thread GE pays full global-memory latency on every dependent access
+    with no latency hiding. H is padded to SUPPORT_TILE with an identity block
+    (set once at build), so the padded system stays SPD and the padded u ≈ 0.
+    Launch with wp.launch_tiled(dim=[1,1], block_dim=...)."""
+    a = wp.tile_load(blkH, shape=(SUPPORT_TILE, SUPPORT_TILE))
+    l = wp.tile_cholesky(a)
+    x = wp.tile_load(blkR, shape=SUPPORT_TILE)
+    y = wp.tile_cholesky_solve(l, x)
+    wp.tile_store(blkU, y)
 
 
 @wp.kernel

@@ -681,14 +681,25 @@ class SolverXPBD:
         # in parallel; only the kk×kk solve is dim=1. Δq/Δa land in acc_dq/acc_da.
         kk = r + ck
         d["kk"] = kk
+        # cooperative tile-Cholesky solve (pk_support_solve_tiled) when the block
+        # fits SUPPORT_TILE; else fall back to single-thread GE (pk_support_solve).
+        tile = XK.SUPPORT_TILE
+        use_tiled = kk <= tile
+        d["use_tiled_solve"] = use_tiled
         d["sup_G"] = wp.zeros((max(ns, 1), kk), dtype=wp.float64, device=dev)
         d["sup_w"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
         d["sup_b"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
         d["sup_D"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
         d["sup_act"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
-        d["blkH"] = wp.zeros((kk, kk), dtype=wp.float64, device=dev)
-        d["blkR"] = wp.zeros(kk, dtype=wp.float64, device=dev)
-        d["blkU"] = wp.zeros(kk, dtype=wp.float64, device=dev)
+        d["sup_deg"] = wp.zeros(n, dtype=wp.float64, device=dev)   # support-friction divisor
+        # blkH padded to tile×tile with an IDENTITY block (set once) when tiled, so
+        # the padded system stays SPD and the padded u ≈ 0; pk_support_hq overwrites
+        # only the real [0:kk,0:kk] block, leaving the identity padding intact.
+        bh = tile if use_tiled else kk
+        H0 = np.eye(bh, dtype=f64) if use_tiled else np.zeros((kk, kk), dtype=f64)
+        d["blkH"] = wp.array(H0, dtype=wp.float64, device=dev)
+        d["blkR"] = wp.zeros(bh, dtype=wp.float64, device=dev)
+        d["blkU"] = wp.zeros(bh, dtype=wp.float64, device=dev)
 
         d["diag"] = wp.zeros(4, dtype=wp.float64, device=dev)
         self._device_built = True
@@ -849,14 +860,19 @@ class SolverXPBD:
                                   at_sup, d["sup_G"], d["sup_w"], d["sup_b"],
                                   d["sup_D"], d["sup_act"]], device=dev)
                 wp.launch(XK.pk_support_hq, dim=(kk, kk),
-                          inputs=[kk, ns, r, d["wq"], d["cg_mq"], d["sup_G"],
-                                  d["sup_w"], d["blkH"]], device=dev)
+                          inputs=[kk, ns, r, beps, d["wq"], d["cg_mq"],
+                                  d["sup_G"], d["sup_w"], d["blkH"]], device=dev)
                 wp.launch(XK.pk_support_rhs, dim=kk,
                           inputs=[kk, ns, d["sup_G"], d["sup_w"], d["sup_b"],
                                   d["blkR"]], device=dev)
-                wp.launch(XK.pk_support_solve, dim=1,
-                          inputs=[kk, beps, d["blkH"], d["blkR"], d["blkU"]],
-                          device=dev)
+                if d["use_tiled_solve"]:        # cooperative block Cholesky
+                    wp.launch_tiled(XK.pk_support_solve_tiled, dim=[1, 1],
+                                    inputs=[d["blkH"], d["blkR"], d["blkU"]],
+                                    block_dim=128, device=dev)
+                else:                            # single-thread GE fallback
+                    wp.launch(XK.pk_support_solve, dim=1,
+                              inputs=[kk, d["blkH"], d["blkR"], d["blkU"]],
+                              device=dev)
                 wp.launch(XK.pk_support_apply, dim=ns,
                           inputs=[d["X"], d["Q"], d["invm"], d["invIl"], ns,
                                   d["sup_bi"], d["sup_off"], d["sup_lam"], r, kk,
@@ -885,6 +901,12 @@ class SolverXPBD:
         if modal and ns:
             wp.launch(XK.pk_zero_supjt, dim=ns1,
                       inputs=[ns, d["sup_jt"]], device=dev)
+            # support-friction deg (per body) — constant through the velocity loop
+            # (sup_lam is fixed after the position solve), so computed once here.
+            wp.launch(XK.pk_zero_deg, dim=n, inputs=[n, d["sup_deg"]], device=dev)
+            wp.launch(XK.pk_support_fric_deg, dim=ns,
+                      inputs=[ns, d["sup_bi"], d["sup_lam"], d["sup_mu"],
+                              d["invm"], d["sup_deg"]], device=dev)
         for _ in range(iters):
             wp.launch(XK.pk_contact_velsolve, dim=cap,
                       inputs=[d["Q"], d["V"], d["W"], d["invm"], d["invIl"],
@@ -894,13 +916,17 @@ class SolverXPBD:
             wp.launch(XK.pk_apply_vel, dim=n,
                       inputs=[n, d["V"], d["W"], d["invm"], d["deg"], relax,
                               d["acc_dp"], d["acc_dr"]], device=dev)
-            # support friction as a serial-GS sub-pass (immediate V/W writes), to
-            # match the contacts-only deg above (support is not in the accumulator).
+            # support friction = PARALLEL averaged Jacobi (body-local, no hub):
+            # scatter Δv/Δω → apply ÷ sup_deg (own divisor, support not in `deg`).
             if modal and ns:
-                wp.launch(XK.pk_support_velsolve_gs, dim=1,
+                wp.launch(XK.pk_support_velsolve_jacobi, dim=ns,
                           inputs=[d["Q"], d["V"], d["W"], d["invm"], d["invIl"],
                                   ns, d["sup_bi"], d["sup_off"], d["sup_lam"],
-                                  d["sup_mu"], d["sup_jt"], fric, hh], device=dev)
+                                  d["sup_mu"], d["sup_jt"], fric, hh, d["acc_dp"],
+                                  d["acc_dr"]], device=dev)
+                wp.launch(XK.pk_apply_vel, dim=n,
+                          inputs=[n, d["V"], d["W"], d["invm"], d["sup_deg"],
+                                  relax, d["acc_dp"], d["acc_dr"]], device=dev)
 
         wp.launch(XK.pk_maxpen, dim=1,
                   inputs=[d["cur"], d["X"], d["Q"], d["c_a"], d["c_b"],

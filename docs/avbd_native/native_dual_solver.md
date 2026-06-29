@@ -617,8 +617,33 @@ slightly different chaotic-settling trajectory but stay bounded and dissipative.
 Regressions: numpy `test_support_block_tracks_serial_gs`; device suite **18 pass**
 (parallel truck + high-impedance now run the block). The position-only `pk_support_gs`
 kernel was removed (dead); serial GS still lives inside the `dim=1` fused serial path
-(`k_pos_phase`, the bit-parity reference), and `pk_support_velsolve_gs` still serves
-the hub-free support-friction velocity pass.
+(`k_pos_phase`, the bit-parity reference).
+
+### Perf: kill the single-thread `dim=1` kernels (5.65× on the truck)
+A profile↔optimize pass on the coupled device path (truck, CUDA, graph replay; per-
+kernel CUDA timing) found the cost was **entirely two `dim=1` single-thread kernels**
+stalling on global-memory latency with no latency hiding — the GPU sat idle behind
+one thread. NO math/formulation change here: same constraints, same fixed point,
+same tolerances — only the *schedule* of those two kernels moved to parallel.
+
+- **Support block solve** `pk_support_solve` (dim=1 Gaussian elim, **491 µs/launch,
+  66%** of the step) → **`pk_support_solve_tiled`**: a whole thread-block solves the
+  SPD block in shared memory via `wp.tile_cholesky` / `wp.tile_cholesky_solve`. The
+  block kk = r+ck is padded to a compile-time `SUPPORT_TILE = 32` with an identity
+  block (set once, so the padded system stays SPD and padded u≈0); scenes with
+  kk > 32 fall back to the GE path. eps is folded into `pk_support_hq` so H is
+  factor-ready. → **33 µs/launch (14.5×)**.
+- **Support friction** `pk_support_velsolve_gs` (dim=1 serial, **97 µs, 13%**) →
+  **`pk_support_velsolve_jacobi`** + `pk_support_fric_deg`: friction is body-local
+  (no modal hub), so it parallelizes exactly like the contact friction — scatter
+  Δv/Δω, apply ÷ per-body `sup_deg`. → **12 µs/launch**.
+
+Result: parallel path **55.2 → 9.77 ms/step (5.65×, 18→102 steps/s)** on the truck;
+it went from *slower* than the serial fused path (50.9 ms) to **5.2× faster**.
+Correctness unchanged (|X|max 0.700→0.697; device suite 18 pass, wall-time 311→201 s).
+After this the breakdown is flat (top kernel 16%) — no single safe change yields
+>10%. The remaining big lever (factor H once/substep, modified-Newton reuse) is a
+numerical change and was deliberately left out.
 
 ### Verification
 - Bit-parity (serial device kernels): `test_cuda_cargo_parity_serial`,
