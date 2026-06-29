@@ -529,6 +529,44 @@ pre-existing box-box lumber-stack vigor, not q-divergence). Default cargo unchan
 (rests, spin damps, modal ring KE ≈ 0.02). Regression:
 `test_cuda_parallel_high_impedance_stable[4,16]`.
 
+### Truck road-impact blow-up — the averaged-Jacobi support coupling is replaced by serial GS
+A second, harder blow-up surfaced in the viser: on the **truck** scene the parallel
+path went `V/X → NaN` *right after the heavy crate's road impact* (the user: "all
+the objects on the slab fly away") — at the **default** impedance `g=1`, so the
+`min(1,mq)` safeguard above (a no-op at `g=1`) did nothing. Reproduced on warp-cpu
+**and** cuda parallel (BLEW@~50, V≈470, q≈15); **all three serial paths — numpy,
+warp-cpu-serial, cuda-serial — are stable**, the impactor just bounces and settles.
+
+Causal trace (per-step instrument, `qarg` pinned to mode 0): the 40 kg crate lands
+dead-centre where the softest bending mode peaks; its **4 corner support rows drive
+mode 0 coherently**, and the impactor↔mode-0 pair forms a stiff oscillator that the
+averaged Jacobi rings up (q: 0.12→0.45→3.3→14.9 over 4 steps, impactor launched
+straight up). An SOR scan confirmed the schedule, not a magnitude, is at fault:
+body SOR didn't help (worse at `0.3`); only `modal_relax ≤ 0.05` survived — but that
+gives `peakq=0`, i.e. it kills the modal road. **No averaging tames a Jacobi
+spectral radius > 1** on a tightly-coupled body↔q oscillator; the stiff shared DOF
+needs Gauss–Seidel.
+
+Fix (commit pending): the support/modal coupling now runs as a **serial-GS
+sub-pass** — `pk_support_gs` (position) and `pk_support_velsolve_gs` (velocity
+friction), `dim=1`, immediate q/a/body writes — a faithful device copy of the numpy
+`_project_support` GS loop, while the **expensive O(nb²) box-box SAT stays
+parallel** (the actual Stage-2c perf win). Per position iteration: elastic (direct)
+→ contacts (parallel Jacobi) → `pk_apply_body` → `pk_support_gs` (GS order
+contacts→support, as in the serial reference). `deg` now counts **contacts only**
+(support is no longer in the averaged accumulator). The four now-dead averaged-Jacobi
+support kernels (`pk_support_jacobi`, `pk_apply_all`, `pk_deg_support`,
+`pk_support_velsolve`) were removed. Math/fixed point unchanged — only the parallel
+schedule for the shared DOF moved from Jacobi to GS. Cost: the modal-support GS is
+tiny (`ns` rows × `r=12` modes on one thread) next to the parallel box-box.
+
+Verified: truck parallel **stable** (warp-cpu + cuda) — peakX 0.88 / peakV 3.7 /
+peakq 0.06, resting bodies stay on the road, impactor settles (was BLEW@61, peakV
+470). Default cargo ring preserved (rests, modal KE ~2e-3); dinner impedance sweep
+still flat (`|X|max≈0.5` at g∈{1,4,16}); the high-impedance test now passes via the
+GS path. Regression: `test_parallel_truck_impact_stable[cpu, cuda]`. Device suite:
+18 pass (16 prior + 2 truck).
+
 ### Verification
 - Bit-parity (serial device kernels): `test_cuda_cargo_parity_serial`,
   `test_cuda_stack_parity_serial_and_graph` force `_parallel_device=False`

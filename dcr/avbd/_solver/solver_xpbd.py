@@ -660,11 +660,13 @@ class SolverXPBD:
         d["deg"] = wp.zeros(n, dtype=wp.float64, device=dev)
         d["acc_dq"] = wp.zeros(r, dtype=wp.float64, device=dev)
         d["acc_da"] = wp.zeros(max(ck, 1), dtype=wp.float64, device=dev)
-        # per-mode count of ACTIVE support rows contributing to q / a this
-        # iteration — the support→shared-q/a correction is averaged by this
-        # (Macklin averaging on the modal DOF). Without it the Jacobi summation
-        # over many support rows overshoots the stiff modal q (Kq up to ~3e11)
-        # and diverges where serial GS (modal_relax under-relaxation) survives.
+        # per-mode ACCUMULATED DIAGONAL Σ U_y²·wq of the active support rows
+        # contributing to the shared q / cargo a this iteration. The apply divides
+        # the summed support→q/a impulse by (1 + this) so a coherent multi-row
+        # drive into the single stiff shared mode (Kq up to ~3e11; a heavy impactor
+        # hitting mode 0 dead-centre) self-limits like serial GS instead of ringing
+        # up. Earlier this held the active-row COUNT (÷count averaging), which does
+        # NOT self-limit a coherent drive and diverged on the truck road impact.
         d["acc_dqn"] = wp.zeros(r, dtype=wp.float64, device=dev)
         d["acc_dan"] = wp.zeros(max(ck, 1), dtype=wp.float64, device=dev)
 
@@ -782,18 +784,21 @@ class SolverXPBD:
         wp.launch(XK.pk_zero_deg, dim=n, inputs=[n, d["deg"]], device=dev)
         wp.launch(XK.pk_deg_contacts, dim=cap,
                   inputs=[d["cur"], d["c_a"], d["c_b"], d["deg"]], device=dev)
-        if modal and ns:
-            wp.launch(XK.pk_deg_support, dim=ns1,
-                      inputs=[ns, d["sup_bi"], d["deg"]], device=dev)
+        # deg counts CONTACTS ONLY — the support/modal coupling is no longer routed
+        # through the averaged-Jacobi accumulator (it runs as the serial-GS sub-pass
+        # pk_support_gs below, with immediate body writes), so support rows must NOT
+        # inflate the contact-correction divisor.
 
-        # ---- position solve: averaged Jacobi over contacts/support/modes ----
-        # Fused kernels (pk_modes_elastic, pk_apply_all) cut the per-iteration
-        # launch count 7 → 3, which dominates the small-scene CUDA cost.
+        # ---- position solve: PARALLEL box-box/floor contacts + SERIAL-GS modal
+        # support. The stiff shared modal q diverges under averaged Jacobi (a heavy
+        # impactor coherently driving mode 0 rings it up), so the support/modal
+        # coupling runs GS — exactly the proven-stable serial path — while the
+        # expensive O(nb²) box-box SAT stays parallel (the real perf win). ----
         rk = max(r, ck)
-        nrk = max(n, r, ck)
         for _ in range(iters):
-            # elastic FIRST (writes q/a directly, exact) → support reads updated
-            # q/a → contact/support scatter → averaged apply.
+            # elastic FIRST (writes q/a directly, exact) → contacts (parallel
+            # Jacobi, applied) → support GS reads the updated q/a AND post-contact
+            # bodies (GS order contacts→support, as in the serial reference).
             if modal:
                 wp.launch(XK.pk_modes_elastic, dim=rk,
                           inputs=[r, ck, has_cargo, d["q"], d["q_n"], d["kq"],
@@ -806,22 +811,17 @@ class SolverXPBD:
                               d["c_a"], d["c_b"], d["c_ra"], d["c_rb"], d["c_n"],
                               d["c_floory"], d["c_lam"], a_tilde, d["acc_dp"],
                               d["acc_dr"]], device=dev)
-            if modal:
-                wp.launch(XK.pk_support_jacobi, dim=ns1,
+            wp.launch(XK.pk_apply_body, dim=n,
+                      inputs=[n, d["X"], d["Q"], d["invm"], d["deg"], relax,
+                              d["acc_dp"], d["acc_dr"]], device=dev)
+            if modal and ns:
+                wp.launch(XK.pk_support_gs, dim=1,
                           inputs=[d["X"], d["Q"], d["invm"], d["invIl"], ns,
                                   d["sup_bi"], d["sup_off"], d["sup_yrest"],
                                   d["sup_Uy"], d["sup_lam"], d["sup_pid"], r,
-                                  d["q"], d["wq"], d["mq"], has_cargo, ck,
-                                  d["cg_a"], d["cg_mq"], d["cg_phi"], at_sup,
-                                  mrelax,
-                                  d["acc_dp"], d["acc_dr"], d["acc_dq"],
-                                  d["acc_da"], d["acc_dqn"], d["acc_dan"]],
+                                  d["q"], d["wq"], has_cargo, ck, d["cg_a"],
+                                  d["cg_mq"], d["cg_phi"], at_sup, mrelax],
                           device=dev)
-            wp.launch(XK.pk_apply_all, dim=nrk,
-                      inputs=[n, modal, has_cargo, r, ck, d["X"], d["Q"],
-                              d["invm"], d["deg"], relax, d["q"], d["cg_a"],
-                              d["acc_dp"], d["acc_dr"], d["acc_dq"], d["acc_da"],
-                              d["acc_dqn"], d["acc_dan"]], device=dev)
 
         # ---- velocity prep (parallel) + averaged Jacobi velocity solve ----
         wp.launch(XK.pk_velupd, dim=n,
@@ -841,15 +841,16 @@ class SolverXPBD:
                               d["cur"], d["c_a"], d["c_b"], d["c_ra"], d["c_rb"],
                               d["c_n"], d["c_mu"], d["c_lam"], d["c_jt"], fric,
                               hh, d["acc_dp"], d["acc_dr"]], device=dev)
-            if modal:
-                wp.launch(XK.pk_support_velsolve, dim=ns1,
-                          inputs=[d["Q"], d["V"], d["W"], d["invm"], d["invIl"],
-                                  ns, d["sup_bi"], d["sup_off"], d["sup_lam"],
-                                  d["sup_mu"], d["sup_jt"], fric, hh, d["acc_dp"],
-                                  d["acc_dr"]], device=dev)
             wp.launch(XK.pk_apply_vel, dim=n,
                       inputs=[n, d["V"], d["W"], d["invm"], d["deg"], relax,
                               d["acc_dp"], d["acc_dr"]], device=dev)
+            # support friction as a serial-GS sub-pass (immediate V/W writes), to
+            # match the contacts-only deg above (support is not in the accumulator).
+            if modal and ns:
+                wp.launch(XK.pk_support_velsolve_gs, dim=1,
+                          inputs=[d["Q"], d["V"], d["W"], d["invm"], d["invIl"],
+                                  ns, d["sup_bi"], d["sup_off"], d["sup_lam"],
+                                  d["sup_mu"], d["sup_jt"], fric, hh], device=dev)
 
         wp.launch(XK.pk_maxpen, dim=1,
                   inputs=[d["cur"], d["X"], d["Q"], d["c_a"], d["c_b"],

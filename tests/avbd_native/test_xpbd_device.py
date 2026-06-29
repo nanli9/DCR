@@ -174,11 +174,12 @@ def test_cuda_stack_parallel_stable():
 @pytest.mark.parametrize("imp", [4.0, 16.0])
 def test_cuda_parallel_high_impedance_stable(imp):
     """Regression (found 2026-06-23): the parallel CUDA path blew up (V/X → NaN)
-    at high modal-impedance gain — the support→q drive scales with the gain
-    (wq = g) and the non-self-limiting Jacobi sum over many support rows diverged
-    where serial GS survives. Fix: per-mode under-relaxation by mq (= 1/g), which
-    cancels the over-drive (default g=1 ⇒ mq=1 ⇒ unchanged). A stiff multi-body
-    scene at high impedance must stay finite and bounded."""
+    at high modal-impedance gain — the support→q drive scales with the gain and
+    the non-self-limiting averaged-Jacobi sum over the shared stiff modal q
+    diverged where serial GS survives. Fix: the support/modal coupling now runs as
+    a serial-GS sub-pass (pk_support_gs) — the proven-stable schedule, stable at
+    all impedance — while box-box stays parallel. A stiff multi-body scene at high
+    impedance must stay finite and bounded."""
     from scenes.reduced_dinner_table import build_reduced_dinner_table
     h = build_reduced_dinner_table(solver="xpbd", device="cuda:0", iterations=16,
                                    avbd_substeps=6, modal_impedance_scale=imp,
@@ -191,6 +192,37 @@ def test_cuda_parallel_high_impedance_stable(imp):
     assert s._on_device and np.all(np.isfinite(P)), f"imp={imp}: NaN"
     assert float(np.abs(P).max()) < 50.0, (
         f"imp={imp}: diverged (|X|max={float(np.abs(P).max()):.1f})")
+
+
+@pytest.mark.parametrize("device,force_warp",
+                         [("cpu", True)]
+                         + ([("cuda:0", False)] if _HAS_CUDA else []))
+def test_parallel_truck_impact_stable(device, force_warp):
+    """Regression (found 2026-06-23): the parallel path blew up right after the
+    truck road impact. A heavy 40 kg crate dropped dead-centre coherently drives
+    the soft modal mode 0 through its 4 corner support rows; the averaged-Jacobi
+    support→q sum (each row computed as if it alone owns q's stiffness) rang up
+    (q → 15, every body flew to |X| > 50, V ≈ 470) where serial GS — which sees
+    each updated q immediately — survives. No averaging tames a Jacobi spectral
+    radius > 1 on this tightly-coupled body↔q oscillator; the cure was to run the
+    support/modal coupling as a serial-GS sub-pass (pk_support_gs) while box-box
+    stays parallel. The impact must stay finite and bounded, and the resting cones
+    / lumber / crates must NOT fly off the road."""
+    from scenes.reduced_truck import build_reduced_truck
+    h = build_reduced_truck(solver="xpbd", device=device, iterations=16,
+                            avbd_substeps=4, cargo_material="fem_rigid")
+    s = h.world._solver
+    s._force_warp = force_warp
+    s._parallel_device = True
+    for _ in range(260):          # impact lands ~step 45
+        h.world.step()
+    P = s.positions()
+    assert s._on_device and np.all(np.isfinite(P)), f"{device}: truck impact NaN"
+    assert float(np.abs(P).max()) < 5.0, (
+        f"{device}: diverged (|X|max={float(np.abs(P).max()):.1f})")
+    # the impactor is the last body; the resting bodies must stay near the road.
+    assert float(P[:-1, 1].max()) < 0.6, (
+        f"{device}: resting body flew (maxY={float(P[:-1, 1].max()):.2f})")
 
 
 @pytest.mark.skipif(not _HAS_CUDA, reason="no CUDA device")
