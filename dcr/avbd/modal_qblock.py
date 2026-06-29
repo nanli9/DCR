@@ -50,11 +50,13 @@ def _quat_to_R(q_xyzw: NDArray[np.float64]) -> NDArray[np.float64]:
     if n < 1e-30:
         return np.eye(3)
     s = 2.0 / n
+    # Flat construction + reshape: ~2× faster than a nested list over numpy
+    # scalars (this is the most-called helper in the modal q-block loop).
     return np.array([
-        [1.0 - s * (y * y + z * z), s * (x * y - z * w), s * (x * z + y * w)],
-        [s * (x * y + z * w), 1.0 - s * (x * x + z * z), s * (y * z - x * w)],
-        [s * (x * z - y * w), s * (y * z + x * w), 1.0 - s * (x * x + y * y)],
-    ], dtype=np.float64)
+        1.0 - s * (y * y + z * z), s * (x * y - z * w), s * (x * z + y * w),
+        s * (x * y + z * w), 1.0 - s * (x * x + z * z), s * (y * z - x * w),
+        s * (x * z - y * w), s * (y * z + x * w), 1.0 - s * (x * x + y * y),
+    ], dtype=np.float64).reshape(3, 3)
 
 
 def _quat_mul(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:

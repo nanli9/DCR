@@ -68,17 +68,50 @@ _STAGE4 = ("SolverXPBD cargo materials land in Stage 4 of "
 # carries no dependency on the coupler modules (deleted in Stage 6).
 # ---------------------------------------------------------------------------
 
+def _cross3(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Explicit 3-vector cross product a × b.
+
+    Drop-in for ``np.cross`` on length-3 vectors. ``np.cross`` carries large
+    per-call Python overhead (moveaxis/normalize_axis_tuple) that dominates the
+    host solve loop; the closed form is ~12× faster for tiny vectors and is
+    numerically identical. Pure performance — no math change.
+    """
+    return np.array([a[1] * b[2] - a[2] * b[1],
+                     a[2] * b[0] - a[0] * b[2],
+                     a[0] * b[1] - a[1] * b[0]], dtype=np.float64)
+
+
+def _norm(v: NDArray[np.float64]) -> float:
+    """Euclidean norm of a small 1-D vector.
+
+    Drop-in for ``float(np.linalg.norm(v))`` on length-3/4 vectors.
+    ``np.linalg.norm`` dispatches through ravel/isComplexType/dot machinery that
+    dominates for tiny vectors; ``math.sqrt(v.dot(v))`` is ~2.7× faster and
+    numerically identical. Pure performance — no math change.
+    """
+    return math.sqrt(v.dot(v))
+
+
+# Support / floor normal e_y. Shared read-only constant — never mutated by the
+# callers (used only as `vp @ _EY` and `(...) * _EY`), so a single module-level
+# array avoids re-allocating `np.array([0,1,0])` once per support row per sweep.
+_EY = np.array([0.0, 1.0, 0.0], dtype=np.float64)
+
+
 def _quat_to_R(q: NDArray[np.float64]) -> NDArray[np.float64]:
     """Rotation matrix from an XYZW quaternion."""
-    x, y, z, w = q
+    # Unpack to Python floats first: scalar arithmetic then a single flat
+    # np.array(...).reshape are ~2× faster than nested-list construction over
+    # numpy scalars (this is the most-called helper in the host solve loop).
+    x = float(q[0]); y = float(q[1]); z = float(q[2]); w = float(q[3])
     xx, yy, zz = x * x, y * y, z * z
     xy, xz, yz = x * y, x * z, y * z
     wx, wy, wz = w * x, w * y, w * z
     return np.array([
-        [1.0 - 2.0 * (yy + zz), 2.0 * (xy - wz), 2.0 * (xz + wy)],
-        [2.0 * (xy + wz), 1.0 - 2.0 * (xx + zz), 2.0 * (yz - wx)],
-        [2.0 * (xz - wy), 2.0 * (yz + wx), 1.0 - 2.0 * (xx + yy)],
-    ], dtype=np.float64)
+        1.0 - 2.0 * (yy + zz), 2.0 * (xy - wz), 2.0 * (xz + wy),
+        2.0 * (xy + wz), 1.0 - 2.0 * (xx + zz), 2.0 * (yz - wx),
+        2.0 * (xz - wy), 2.0 * (yz + wx), 1.0 - 2.0 * (xx + yy),
+    ], dtype=np.float64).reshape(3, 3)
 
 
 def _quat_mul(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -108,7 +141,7 @@ def _quat_to_rotvec(q: NDArray[np.float64]) -> NDArray[np.float64]:
     if w < 0.0:  # shortest arc
         x, y, z, w = -x, -y, -z, -w
     v = np.array([x, y, z], dtype=np.float64)
-    s = float(np.linalg.norm(v))
+    s = _norm(v)
     if s < 1e-12:
         return 2.0 * v  # small-angle: θ ≈ 2·(vector part)
     angle = 2.0 * math.atan2(s, w)
@@ -121,7 +154,7 @@ def _quat_integrate(q: NDArray[np.float64], omega: NDArray[np.float64],
     q⁺ = normalize(q + ½ h (ω,0) ⊗ q)  (first-order, as in XPBD predict)."""
     wq = np.array([omega[0], omega[1], omega[2], 0.0], dtype=np.float64)
     qn = q + 0.5 * h * _quat_mul(wq, q)
-    n = float(np.linalg.norm(qn))
+    n = _norm(qn)
     return qn / n if n > 1e-12 else np.array([0.0, 0.0, 0.0, 1.0])
 
 
@@ -131,7 +164,7 @@ def _quat_apply_rotvec(q: NDArray[np.float64],
     q⁺ = normalize(q + ½ (dφ,0) ⊗ q)  (Müller 2020 applyRotation)."""
     wq = np.array([dphi[0], dphi[1], dphi[2], 0.0], dtype=np.float64)
     qn = q + 0.5 * _quat_mul(wq, q)
-    n = float(np.linalg.norm(qn))
+    n = _norm(qn)
     return qn / n if n > 1e-12 else q
 
 
@@ -1124,11 +1157,18 @@ class SolverXPBD:
             c.jt = np.zeros(3, dtype=np.float64)
         for sc in self._support:
             sc.jt = np.zeros(3, dtype=np.float64)
+        # Velocity-solve geometry (R / r_w / inv_I_world) is loop-invariant: the
+        # passes mutate only V/W, never X/Q, so precompute it once per row instead
+        # of 16× inside the sweep. None entries are the rows that would early-out.
+        vc_geom = [self._velocity_contact_geom(c) for c in contacts]
+        vs_geom = [self._velocity_support_geom(sc) for sc in self._support]
         for _ in range(self.iterations):
-            for c in contacts:
-                self._solve_velocity(c, h)
-            for sc in self._support:        # (3) support tangential Coulomb friction
-                self._solve_velocity_support(sc, h)
+            for c, g in zip(contacts, vc_geom):
+                if g is not None:
+                    self._solve_velocity(c, h, g)
+            for sc, g in zip(self._support, vs_geom):   # (3) support Coulomb friction
+                if g is not None:
+                    self._solve_velocity_support(sc, h, g)
 
         self._last_max_penetration = max(
             (self._penetration(c) for c in contacts), default=0.0)
@@ -1168,7 +1208,7 @@ class SolverXPBD:
         axes_b = [Rb[:, k] for k in range(3)]
 
         def overlap(axis):
-            L = np.linalg.norm(axis)
+            L = _norm(axis)
             if L < 1e-10:
                 return np.inf
             axis = axis / L
@@ -1177,7 +1217,7 @@ class SolverXPBD:
             return pa + pb - abs(d @ axis)
 
         def orient(axis):
-            nn = axis / np.linalg.norm(axis)
+            nn = axis / _norm(axis)
             return -nn if (d @ nn) > 0 else nn  # from B toward A
 
         min_face, best = np.inf, np.zeros(3)
@@ -1190,7 +1230,7 @@ class SolverXPBD:
         min_edge = np.inf
         for a in axes_a:
             for b in axes_b:
-                ov = overlap(np.cross(a, b))
+                ov = overlap(_cross3(a, b))
                 if ov < -margin:
                     return []
                 min_edge = min(min_edge, ov)
@@ -1246,7 +1286,7 @@ class SolverXPBD:
 
     @staticmethod
     def _gen_inv_mass(inv_m, inv_I_w, r, n) -> float:
-        rn = np.cross(r, n)
+        rn = _cross3(r, n)
         return float(inv_m + rn @ (inv_I_w @ rn))
 
     def _penetration(self, c: _Contact) -> float:
@@ -1328,7 +1368,7 @@ class SolverXPBD:
         j_ang = np.array([-r_w[2], 0.0, r_w[0]])   # cross(r_w, e_y)
         inv_Iw = self._inv_I_world(bi, R)
         w = invm[bi] + float(j_ang @ (inv_Iw @ j_ang))
-        w += float(np.sum(sc.U_y * sc.U_y * wq))
+        w += float((sc.U_y * sc.U_y) @ wq)   # = Σ U_y²·wq, dot avoids np.sum dispatch
         if g_a is not None:
             w += float(g_a[0] @ g_a[1])   # G_aᵀ M_a⁻¹ G_a
         dlam = (-C - a_tilde * sc.lam) / (w + a_tilde)
@@ -1555,37 +1595,73 @@ class SolverXPBD:
         if b >= 0:
             self._apply(b, -p, rb_w, inv_Ib)
 
-    def _solve_velocity(self, c: _Contact, h: float) -> None:
+    def _velocity_contact_geom(self, c: _Contact):
+        """Loop-invariant velocity-solve geometry for a contact:
+        (ra_w, inv_Ia, rb_w, inv_Ib). None if the contact is inactive
+        (mirrors `_solve_velocity`'s `c.lam_n <= 0` early-out)."""
+        if c.lam_n <= 0.0:
+            return None
+        Q = self._Q
+        Ra = _quat_to_R(Q[c.a])
+        ra_w = Ra @ c.ra
+        inv_Ia = self._inv_I_world(c.a, Ra)
+        if c.b < 0:
+            return (ra_w, inv_Ia, None, None)
+        Rb = _quat_to_R(Q[c.b])
+        rb_w = Rb @ c.rb
+        return (ra_w, inv_Ia, rb_w, self._inv_I_world(c.b, Rb))
+
+    def _velocity_support_geom(self, sc: _SupportContact):
+        """Loop-invariant velocity-solve geometry for a support row: (r_w,
+        inv_Iw). None if inactive (mirrors `_solve_velocity_support`'s
+        mu/lam/inv-mass early-outs)."""
+        if sc.mu <= 0.0 or sc.lam <= 0.0:
+            return None
+        bi = sc.bi
+        if self._invm[bi] == 0.0:
+            return None
+        R = _quat_to_R(self._Q[bi])
+        return (R @ sc.off, self._inv_I_world(bi, R))
+
+    def _solve_velocity(self, c: _Contact, h: float, geom=None) -> None:
         """One velocity-solve sweep for a contact (Müller 2020): inelastic normal
         restitution (null relative normal velocity, e=0) then sequential-impulse
-        Coulomb friction (accumulated j_t clamped to |j_t| ≤ μ·λ_n/h)."""
+        Coulomb friction (accumulated j_t clamped to |j_t| ≤ μ·λ_n/h).
+
+        ``geom`` = (ra_w, inv_Ia, rb_w, inv_Ib) precomputed by the caller. The
+        velocity sweeps mutate only V/W (never X/Q), so this geometry is constant
+        across the iteration loop; passing it avoids recomputing R / r_w /
+        inv_I_world 16× per contact. None → compute here (warp-parity reference)."""
         if c.lam_n <= 0.0:
             return
         X, Q, V, W, invm = self._X, self._Q, self._V, self._W, self._invm
         a, n = c.a, c.n
-        Ra = _quat_to_R(Q[a])
-        ra_w = Ra @ c.ra
-        inv_Ia = self._inv_I_world(a, Ra)
-        if c.b < 0:
-            b, rb_w, inv_Ib = -1, None, None
+        b = c.b
+        if geom is not None:
+            ra_w, inv_Ia, rb_w, inv_Ib = geom
         else:
-            b = c.b
-            Rb = _quat_to_R(Q[b])
-            rb_w = Rb @ c.rb
-            inv_Ib = self._inv_I_world(b, Rb)
+            Ra = _quat_to_R(Q[a])
+            ra_w = Ra @ c.ra
+            inv_Ia = self._inv_I_world(a, Ra)
+            if b < 0:
+                rb_w, inv_Ib = None, None
+            else:
+                Rb = _quat_to_R(Q[b])
+                rb_w = Rb @ c.rb
+                inv_Ib = self._inv_I_world(b, Rb)
 
         def v_rel():
-            vp = V[a] + np.cross(W[a], ra_w)
+            vp = V[a] + _cross3(W[a], ra_w)
             if b >= 0:
-                vp = vp - (V[b] + np.cross(W[b], rb_w))
+                vp = vp - (V[b] + _cross3(W[b], rb_w))
             return vp
 
         def apply(P):
             V[a][:] = V[a] + invm[a] * P
-            W[a][:] = W[a] + inv_Ia @ np.cross(ra_w, P)
+            W[a][:] = W[a] + inv_Ia @ _cross3(ra_w, P)
             if b >= 0:
                 V[b][:] = V[b] - invm[b] * P
-                W[b][:] = W[b] - inv_Ib @ np.cross(rb_w, P)
+                W[b][:] = W[b] - inv_Ib @ _cross3(rb_w, P)
 
         # --- (1) inelastic normal restitution: drive v_rel·n → 0 ----------
         vn = float(v_rel() @ n)
@@ -1600,7 +1676,7 @@ class SolverXPBD:
             return
         vp = v_rel()
         v_t = vp - (vp @ n) * n
-        mag = float(np.linalg.norm(v_t))
+        mag = _norm(v_t)
         if mag < 1e-12:
             return
         t = v_t / mag
@@ -1611,36 +1687,43 @@ class SolverXPBD:
             return
         new_jt = c.jt + (-mag / wt) * t
         j_max = c.mu * self.friction_static_mult * c.lam_n / h   # Coulomb cone
-        njt = float(np.linalg.norm(new_jt))
+        njt = _norm(new_jt)
         if njt > j_max:
             new_jt = new_jt * (j_max / njt)
         dP = new_jt - c.jt
         c.jt = new_jt
         apply(dP)
 
-    def _solve_velocity_support(self, sc: _SupportContact, h: float) -> None:
+    def _solve_velocity_support(self, sc: _SupportContact, h: float,
+                                geom=None) -> None:
         """Coulomb-friction velocity pass for a support row (Müller 2020, the
         friction half of `_solve_velocity`). The support normal is e_y, so this
         nulls the corner's tangential velocity, clamped to the cone
         |j_t| ≤ μ·λ_n/h with λ_n = sc.lam (the accumulated normal impulse from the
         position solve). No normal-restitution pass: the support's normal is a
         soft modal-compliant contact and an e=0 kick would corrupt the q̇ coupling.
-        Mirrors `_solve_velocity` exactly so the warp kernel stays at parity."""
+        Mirrors `_solve_velocity` exactly so the warp kernel stays at parity.
+
+        ``geom`` = (r_w, inv_Iw) precomputed by the caller — constant across the
+        velocity sweeps (they mutate only V/W). None → compute here (reference)."""
         if sc.mu <= 0.0 or sc.lam <= 0.0:
             return
         X, Q, V, W, invm = self._X, self._Q, self._V, self._W, self._invm
         bi = sc.bi
         if invm[bi] == 0.0:
             return
-        R = _quat_to_R(Q[bi])
-        r_w = R @ sc.off
-        inv_Iw = self._inv_I_world(bi, R)
-        n = np.array([0.0, 1.0, 0.0])
+        if geom is not None:
+            r_w, inv_Iw = geom
+        else:
+            R = _quat_to_R(Q[bi])
+            r_w = R @ sc.off
+            inv_Iw = self._inv_I_world(bi, R)
+        n = _EY
         # corner tangential velocity (support surface treated static: the slab is
         # horizontal and its q̇/ȧ motion is along e_y, i.e. normal, not tangential)
-        vp = V[bi] + np.cross(W[bi], r_w)
+        vp = V[bi] + _cross3(W[bi], r_w)
         v_t = vp - (vp @ n) * n
-        mag = float(np.linalg.norm(v_t))
+        mag = _norm(v_t)
         if mag < 1e-12:
             return
         t = v_t / mag
@@ -1649,13 +1732,13 @@ class SolverXPBD:
             return
         new_jt = sc.jt + (-mag / wt) * t
         j_max = sc.mu * self.friction_static_mult * sc.lam / h   # Coulomb cone
-        njt = float(np.linalg.norm(new_jt))
+        njt = _norm(new_jt)
         if njt > j_max:
             new_jt = new_jt * (j_max / njt)
         dP = new_jt - sc.jt
         sc.jt = new_jt
         V[bi][:] = V[bi] + invm[bi] * dP
-        W[bi][:] = W[bi] + inv_Iw @ np.cross(r_w, dP)
+        W[bi][:] = W[bi] + inv_Iw @ _cross3(r_w, dP)
 
     def _apply(self, i, p, r_w, inv_I_w) -> None:
         """Apply impulse p at world offset r_w to body i: translation + rotation
@@ -1665,7 +1748,7 @@ class SolverXPBD:
         if invm == 0.0:
             return
         self._X[i] = self._X[i] + invm * p
-        dphi = inv_I_w @ np.cross(r_w, p)
+        dphi = inv_I_w @ _cross3(r_w, p)
         self._Q[i] = _quat_apply_rotvec(self._Q[i], dphi)
 
     # -- state read-back ----------------------------------------------------

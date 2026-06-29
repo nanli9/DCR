@@ -526,6 +526,9 @@ class Solver6DOF:
         # to device at _flush). Parallel arrays, one entry per support slot.
         self._support_row_cidx: list[int] = []  # c-row index per support slot
         self._support_U_y_rows: list[np.ndarray] = []   # (r,) U_y per slot
+        # Loop-invariant per-row geometry cache for _solve_q_block (built lazily,
+        # keyed on (#rows, #modes); the rows are fixed after scene setup).
+        self._qblk_cache = None
         self._support_y_rest: list[float] = []  # original y_rest per slot
         self._support_cargo: list = []          # per slot: None or (body_idx, pid)
         # ---- Native cargo deformation (M2, two_band_coupling.html) ----------
@@ -2223,6 +2226,24 @@ class Solver6DOF:
                    + inv_dt * (Dq @ (q - self._q_n))
                    + Kq @ q)
 
+        # Loop-invariant per-support-row geometry: body index, corner offset,
+        # U_y, the rank-1 block U_yU_yᵀ (replaces a per-call np.outer), and the
+        # anchor height. Cached once — only the live pose/penalty arrays below
+        # are re-read each call.
+        cache = self._qblk_cache
+        key = (len(self._support_row_cidx), r)
+        if cache is None or cache[0] != key:
+            rows_c = []
+            for s, cidx in enumerate(self._support_row_cidx):
+                row = self._rows[cidx]
+                U = np.asarray(self._support_U_y_rows[s][:r], dtype=np.float64)
+                rows_c.append((cidx, int(row.body_a),
+                               np.asarray(row.off_a, dtype=np.float64),
+                               U, U[:, None] * U,
+                               float(row.world_anchor[1])))
+            cache = self._qblk_cache = (key, rows_c)
+        rows_c = cache[1]
+
         x = self.x.numpy()
         quat = self.q.numpy()
         pen = self.c_penalty.numpy()
@@ -2230,16 +2251,18 @@ class Solver6DOF:
         stiff = self.c_stiffness.numpy()
         alpha_C0 = self.c_alpha_C0.numpy()
         act = self.c_active.numpy()
-        for s, cidx in enumerate(self._support_row_cidx):
+        # Body pose is FIXED during the q-block solve, so R is the same for all
+        # corners of a body — compute it once per body (8 corners → 1 R each).
+        R_by_body: dict[int, np.ndarray] = {}
+        for cidx, bi, off_a, U, UU, wa_y in rows_c:
             if act[cidx] == 0:
                 continue
-            row = self._rows[cidx]
-            bi = row.body_a
-            R = _modal_quat_to_R(np.asarray(quat[bi], dtype=np.float64))
-            r_w = R @ np.asarray(row.off_a, dtype=np.float64)
+            R = R_by_body.get(bi)
+            if R is None:
+                R = R_by_body[bi] = _modal_quat_to_R(quat[bi])  # upcasts via float()
+            r_w = R @ off_a
             corner_y = float(x[bi][1]) + float(r_w[1])
-            U = self._support_U_y_rows[s][:r]
-            C = corner_y - (float(row.world_anchor[1]) + float(U @ q))
+            C = corner_y - (wa_y + float(U @ q))
             hard = np.isinf(stiff[cidx])
             if hard:
                 C = C - float(alpha_C0[cidx])
@@ -2249,7 +2272,7 @@ class Solver6DOF:
             if f >= 0.0:                        # engaged contacts only
                 continue
             g_q = g_q - U * f
-            H_q = H_q + rho * np.outer(U, U)
+            H_q = H_q + rho * UU
 
         dq = np.linalg.solve(H_q + self._modal_eps_reg * np.eye(r), -g_q)
         self._q_modal_host = q + self._modal_relax * dq
