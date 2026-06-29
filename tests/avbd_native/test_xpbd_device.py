@@ -177,8 +177,10 @@ def test_cuda_parallel_high_impedance_stable(imp):
     at high modal-impedance gain — the support→q drive scales with the gain and
     the non-self-limiting averaged-Jacobi sum over the shared stiff modal q
     diverged where serial GS survives. Fix: the support/modal coupling now runs as
-    a serial-GS sub-pass (pk_support_gs) — the proven-stable schedule, stable at
-    all impedance — while box-box stays parallel. A stiff multi-body scene at high
+    a PARALLEL block solve — all support rows are condensed onto the small dense
+    modal block H = Mz + Σ_s (1/D_s)·G_sG_sᵀ and solved exactly each iteration
+    (the AVBD gather-and-solve, see modal_qblock_kernels), so the shared hub never
+    overshoots — while box-box stays parallel. A stiff multi-body scene at high
     impedance must stay finite and bounded."""
     from scenes.reduced_dinner_table import build_reduced_dinner_table
     h = build_reduced_dinner_table(solver="xpbd", device="cuda:0", iterations=16,
@@ -204,10 +206,12 @@ def test_parallel_truck_impact_stable(device, force_warp):
     support→q sum (each row computed as if it alone owns q's stiffness) rang up
     (q → 15, every body flew to |X| > 50, V ≈ 470) where serial GS — which sees
     each updated q immediately — survives. No averaging tames a Jacobi spectral
-    radius > 1 on this tightly-coupled body↔q oscillator; the cure was to run the
-    support/modal coupling as a serial-GS sub-pass (pk_support_gs) while box-box
-    stays parallel. The impact must stay finite and bounded, and the resting cones
-    / lumber / crates must NOT fly off the road."""
+    radius > 1 on this tightly-coupled body↔q oscillator; the cure is the PARALLEL
+    block solve — condense all support rows onto the small dense modal block and
+    solve it exactly each iteration (SOR-damped, so the surface response matches
+    the serial reference and injects no KE) while box-box stays parallel. The
+    impact must stay finite and bounded, and the resting cones / lumber / crates
+    must NOT fly off the road."""
     from scenes.reduced_truck import build_reduced_truck
     h = build_reduced_truck(solver="xpbd", device=device, iterations=16,
                             avbd_substeps=4, cargo_material="fem_rigid")

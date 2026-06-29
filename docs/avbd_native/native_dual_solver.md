@@ -567,6 +567,59 @@ still flat (`|X|max≈0.5` at g∈{1,4,16}); the high-impedance test now passes 
 GS path. Regression: `test_parallel_truck_impact_stable[cpu, cuda]`. Device suite:
 18 pass (16 prior + 2 truck).
 
+### Support/modal coupling: serial GS → PARALLEL block solve (Woodbury / AVBD gather-and-solve)
+The serial-GS sub-pass above is correct but `dim=1` — it serializes the support
+rows on one thread, the very thing the parallel path exists to avoid, and it sits
+oddly next to the parallel box-box. The objection (the user's): graph-colored GS is
+the standard way to parallelize XPBD; why go serial? Answer: the support rows share
+ONE reduced modal block `q` (every row's Jacobian `∂C/∂q = −U_y` touches *all*
+modes — adding rows does not add DOFs, it adds couplings to the same 12), so the
+constraint graph is a *complete* graph on `q` → coloring degenerates to serial.
+Coloring needs sparsity; reduced modal coordinates are dense. **AVBD never hits
+this** because it is primal/DOF-centric: its q-block update gathers every support
+row into one Hessian `H_q = M_q/h² + K_q + Σ_s k·U_yU_yᵀ` and solves it
+(`modal_qblock_kernels.k_modal_hq` / `k_modal_solve`). That *is* the block solve.
+
+So the parallel path now ports AVBD's gather-and-solve into XPBD's support pass.
+Condense all rows onto the shared block `z = [q; a]` via Woodbury (the dual-side
+Schur of the same Hessian):
+```
+S Δλ = b,   S = D + G Mz⁻¹ Gᵀ,   D = diag(w_body,s + α̃)
+Δλ = D⁻¹b − D⁻¹G H⁻¹(Gᵀ D⁻¹b),   H = Mz + Gᵀ D⁻¹ G   (kk = r+ck ≈ 12-24)
+```
+Device pipeline per position iteration (replaces the single `pk_support_gs`):
+`pk_support_assemble` (dim=ns: per-row `G_s, D_s, b_s`, inactive rows zeroed) →
+`pk_support_hq` (dim=kk×kk, no atomics — exactly `k_modal_hq`'s shape) →
+`pk_support_rhs` (dim=kk) → `pk_support_solve` (dim=1 Gaussian elim, kk small, as
+AVBD's `k_modal_solve`) → `pk_support_apply` (dim=ns: `Δλ`, scatter) →
+`pk_support_apply_body` (full) + `pk_apply_q`/`pk_apply_a`. Only the tiny kk×kk
+solve is `dim=1`; the per-row work fans out. Numpy reference: `_project_support_block`.
+
+Two subtleties that cost real energy if wrong (verified empirically):
+- **Multiplicity.** One corner's `Δλ` loads the shared `q` as a *separate* surface
+  load (SUM over a box's corners — full hub multiplicity, sized by `H`) but moves
+  the *shared rigid body* once. Deg-averaging the body push (the contact trick)
+  while `q` keeps the full sum *desyncs* the two from the same `Δλ` and **diverges**
+  (dinner g=16: KE→79, |X|→2.0). The body push is applied FULL.
+- **Surface snap.** Solving `q` exactly each iteration (relax=1) lets the stiff
+  surface snap-respond in one substep; that position jump becomes velocity
+  `v=(x−x_prev)/h` and over-energizes light bodies (dinner g=16: 3–7× serial KE,
+  still decaying but vigorous). The block direction is *correct*, so any SOR factor
+  ≤1 is stable damped descent — `_support_block_relax = modal_relax = 0.25` matches
+  the serial reference's gentleness (block KE→0.82 vs serial 0.75 by step 240). The
+  relax response is **non-monotonic** (0.5 worse than both 1.0 and 0.25).
+
+Verified: device parallel (warp-cpu + cuda) reproduces the numpy block — truck
+peakX 0.820 / restY 0.11, dinner g=16 peakX 0.595, both finite and bounded; modal
+`q` tracks serial GS (`|Δq| ≤ 6e-3`); KE dissipates to serial levels. Heavy bodies
+(truck) match serial closely; light multi-corner bodies (dinner utensils) take a
+slightly different chaotic-settling trajectory but stay bounded and dissipative.
+Regressions: numpy `test_support_block_tracks_serial_gs`; device suite **18 pass**
+(parallel truck + high-impedance now run the block). The position-only `pk_support_gs`
+kernel was removed (dead); serial GS still lives inside the `dim=1` fused serial path
+(`k_pos_phase`, the bit-parity reference), and `pk_support_velsolve_gs` still serves
+the hub-free support-friction velocity pass.
+
 ### Verification
 - Bit-parity (serial device kernels): `test_cuda_cargo_parity_serial`,
   `test_cuda_stack_parity_serial_and_graph` force `_parallel_device=False`

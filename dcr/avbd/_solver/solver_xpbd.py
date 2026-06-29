@@ -304,6 +304,17 @@ class SolverXPBD:
         # averaged correction (tuned in the optimize loop).
         self._parallel_device = None
         self._jacobi_relax = 1.0
+        # Support/modal coupling schedule. The support rows share ONE reduced
+        # modal block z=[q; a] (a dense hub: every row reads/writes all of q), so
+        # serial GS is stable but unparallelizable and averaged Jacobi over-drives
+        # the stiff shared q. `_support_block` instead condenses all rows onto the
+        # small dense modal block and solves it exactly each iteration (Woodbury),
+        # which is parallel AND stable — see `_project_support_block`. False keeps
+        # the serial-GS reference (`_project_support`) as the parity baseline.
+        self._support_block = False
+        # SOR factor on the block correction (≤1, damped descent). Defaults to
+        # modal_relax so the block matches the serial-GS gentleness.
+        self._support_block_relax = self.modal_relax
 
     # -- scene building -----------------------------------------------------
     def add_box(
@@ -660,15 +671,24 @@ class SolverXPBD:
         d["deg"] = wp.zeros(n, dtype=wp.float64, device=dev)
         d["acc_dq"] = wp.zeros(r, dtype=wp.float64, device=dev)
         d["acc_da"] = wp.zeros(max(ck, 1), dtype=wp.float64, device=dev)
-        # per-mode ACCUMULATED DIAGONAL Σ U_y²·wq of the active support rows
-        # contributing to the shared q / cargo a this iteration. The apply divides
-        # the summed support→q/a impulse by (1 + this) so a coherent multi-row
-        # drive into the single stiff shared mode (Kq up to ~3e11; a heavy impactor
-        # hitting mode 0 dead-centre) self-limits like serial GS instead of ringing
-        # up. Earlier this held the active-row COUNT (÷count averaging), which does
-        # NOT self-limit a coherent drive and diverged on the truck road impact.
-        d["acc_dqn"] = wp.zeros(r, dtype=wp.float64, device=dev)
-        d["acc_dan"] = wp.zeros(max(ck, 1), dtype=wp.float64, device=dev)
+
+        # support/modal BLOCK-SOLVE scratch (parallel path). The support rows
+        # condense onto the shared reduced block z=[q; a] (size kk = r + ck): a
+        # heavy impactor coherently driving the stiff modal q diverges under
+        # averaged Jacobi, so all rows are gathered into the small dense Hessian
+        # H = Mz + Σ_s (1/D_s)·G_sG_sᵀ and solved exactly each iteration (AVBD's
+        # gather-and-solve, see modal_qblock_kernels). Per-row G_s/D_s/b_s assemble
+        # in parallel; only the kk×kk solve is dim=1. Δq/Δa land in acc_dq/acc_da.
+        kk = r + ck
+        d["kk"] = kk
+        d["sup_G"] = wp.zeros((max(ns, 1), kk), dtype=wp.float64, device=dev)
+        d["sup_w"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
+        d["sup_b"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
+        d["sup_D"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
+        d["sup_act"] = wp.zeros(max(ns, 1), dtype=wp.float64, device=dev)
+        d["blkH"] = wp.zeros((kk, kk), dtype=wp.float64, device=dev)
+        d["blkR"] = wp.zeros(kk, dtype=wp.float64, device=dev)
+        d["blkU"] = wp.zeros(kk, dtype=wp.float64, device=dev)
 
         d["diag"] = wp.zeros(4, dtype=wp.float64, device=dev)
         self._device_built = True
@@ -743,7 +763,9 @@ class SolverXPBD:
                              if self.contact_compliance > 0.0 else 0.0)
         at_sup = wp.float64(self.support_compliance / (h * h))
         relax = wp.float64(self._jacobi_relax)
-        mrelax = wp.float64(self.modal_relax)
+        srelax = wp.float64(self._support_block_relax)   # block-solve SOR factor
+        beps = wp.float64(1.0e-10)                        # block-solve diag pad
+        kk = d["kk"]
         fric = wp.float64(self.friction_static_mult)
         margin = wp.float64(self.contact_margin)
         freeze = 1 if self._freeze_qdot else 0
@@ -784,16 +806,17 @@ class SolverXPBD:
         wp.launch(XK.pk_zero_deg, dim=n, inputs=[n, d["deg"]], device=dev)
         wp.launch(XK.pk_deg_contacts, dim=cap,
                   inputs=[d["cur"], d["c_a"], d["c_b"], d["deg"]], device=dev)
-        # deg counts CONTACTS ONLY — the support/modal coupling is no longer routed
-        # through the averaged-Jacobi accumulator (it runs as the serial-GS sub-pass
-        # pk_support_gs below, with immediate body writes), so support rows must NOT
-        # inflate the contact-correction divisor.
+        # deg counts CONTACTS ONLY — the support/modal coupling is routed through
+        # its own block solve (pk_support_* below), not the contact averaged-Jacobi
+        # accumulator, so support rows must NOT inflate the contact divisor.
 
-        # ---- position solve: PARALLEL box-box/floor contacts + SERIAL-GS modal
-        # support. The stiff shared modal q diverges under averaged Jacobi (a heavy
-        # impactor coherently driving mode 0 rings it up), so the support/modal
-        # coupling runs GS — exactly the proven-stable serial path — while the
-        # expensive O(nb²) box-box SAT stays parallel (the real perf win). ----
+        # ---- position solve: PARALLEL box-box/floor contacts + PARALLEL block
+        # solve for the modal support. The stiff shared modal q diverges under
+        # averaged Jacobi (a heavy impactor coherently driving mode 0 rings it up),
+        # so the support rows are CONDENSED onto the small dense modal block H and
+        # solved exactly each iteration (AVBD's gather-and-solve, SOR-damped) — the
+        # per-row work fans out, only the kk×kk solve is dim=1 — while the expensive
+        # O(nb²) box-box SAT stays parallel (the real perf win). ----
         rk = max(r, ck)
         for _ in range(iters):
             # elastic FIRST (writes q/a directly, exact) → contacts (parallel
@@ -815,13 +838,40 @@ class SolverXPBD:
                       inputs=[n, d["X"], d["Q"], d["invm"], d["deg"], relax,
                               d["acc_dp"], d["acc_dr"]], device=dev)
             if modal and ns:
-                wp.launch(XK.pk_support_gs, dim=1,
+                # support/modal coupling = PARALLEL block solve (Woodbury onto the
+                # shared reduced block). assemble (rows) → H (k×k) → rhs → solve
+                # (dim=1, kk small) → apply (rows, scatter) → apply body (full).
+                wp.launch(XK.pk_support_assemble, dim=ns,
                           inputs=[d["X"], d["Q"], d["invm"], d["invIl"], ns,
                                   d["sup_bi"], d["sup_off"], d["sup_yrest"],
                                   d["sup_Uy"], d["sup_lam"], d["sup_pid"], r,
-                                  d["q"], d["wq"], has_cargo, ck, d["cg_a"],
-                                  d["cg_mq"], d["cg_phi"], at_sup, mrelax],
+                                  d["q"], has_cargo, ck, d["cg_a"], d["cg_phi"],
+                                  at_sup, d["sup_G"], d["sup_w"], d["sup_b"],
+                                  d["sup_D"], d["sup_act"]], device=dev)
+                wp.launch(XK.pk_support_hq, dim=(kk, kk),
+                          inputs=[kk, ns, r, d["wq"], d["cg_mq"], d["sup_G"],
+                                  d["sup_w"], d["blkH"]], device=dev)
+                wp.launch(XK.pk_support_rhs, dim=kk,
+                          inputs=[kk, ns, d["sup_G"], d["sup_w"], d["sup_b"],
+                                  d["blkR"]], device=dev)
+                wp.launch(XK.pk_support_solve, dim=1,
+                          inputs=[kk, beps, d["blkH"], d["blkR"], d["blkU"]],
                           device=dev)
+                wp.launch(XK.pk_support_apply, dim=ns,
+                          inputs=[d["X"], d["Q"], d["invm"], d["invIl"], ns,
+                                  d["sup_bi"], d["sup_off"], d["sup_lam"], r, kk,
+                                  d["sup_G"], d["sup_b"], d["sup_D"], d["sup_act"],
+                                  d["wq"], has_cargo, ck, d["cg_mq"], d["blkU"],
+                                  srelax, d["acc_dp"], d["acc_dr"], d["acc_dq"],
+                                  d["acc_da"]], device=dev)
+                wp.launch(XK.pk_support_apply_body, dim=n,
+                          inputs=[n, d["X"], d["Q"], d["invm"], d["acc_dp"],
+                                  d["acc_dr"]], device=dev)
+                wp.launch(XK.pk_apply_q, dim=r,
+                          inputs=[r, d["q"], d["acc_dq"]], device=dev)
+                if has_cargo:
+                    wp.launch(XK.pk_apply_a, dim=ck,
+                              inputs=[ck, d["cg_a"], d["acc_da"]], device=dev)
 
         # ---- velocity prep (parallel) + averaged Jacobi velocity solve ----
         wp.launch(XK.pk_velupd, dim=n,
@@ -955,8 +1005,11 @@ class SolverXPBD:
                 for bi in self._cargo:
                     self._project_cargo_elastic(bi, cargo_an[bi], h, inv_h2)
                 at_sup = self.support_compliance * inv_h2   # soften the support contact
-                for sc in self._support:
-                    self._project_support(sc, at_sup)
+                if self._support_block:
+                    self._project_support_block(at_sup)
+                else:
+                    for sc in self._support:
+                        self._project_support(sc, at_sup)
 
         # ---- velocity update v = (x − x_prev)/h, ω = log(Δq)/h ----------
         for i in range(n):
@@ -1203,6 +1256,125 @@ class SolverXPBD:
         flex = float(G_a @ a)
         MgG = self._cargo_Minv[bi] @ G_a
         return (G_a, MgG), flex
+
+    def _project_support_block(self, a_tilde: float) -> None:
+        """ONE block projection of ALL support rows at once — the parallel-safe
+        replacement for the serial-GS per-row sweep `_project_support`.
+
+        The support rows couple to a SHARED reduced block z = [q (modes); a
+        (cargo)]: every row reads and writes all of q (∂C/∂q = −U_y). That makes
+        them a dense hub — graph coloring degenerates to fully serial, and averaged
+        Jacobi (each row sees only its OWN modal diagonal U_y²·wq) under-estimates
+        the shared stiffness and over-drives the stiff q, so it rings up and
+        diverges on an impact. Instead, condense all rows onto the small dense
+        modal block and solve it EXACTLY via Woodbury (paper Eq. 2 Schur structure,
+        specialized to the reduced support constraint):
+
+            S Δλ = b,   S = D + G Mz⁻¹ Gᵀ,   D = diag(w_body,s + α̃)
+            Δλ = D⁻¹b − D⁻¹G H⁻¹(Gᵀ D⁻¹b),   H = Mz + Gᵀ D⁻¹ G   (k×k)
+
+        where row s contributes the shared-DOF Jacobian G_s = [−U_y[s]; −G_a[s]]
+        (length k = #active modes + #cargo modes), Mz⁻¹ = diag([wq; 1/cg_mq]) is
+        the reduced inverse mass, and b_s = −(C_s + α̃·λ_s). H is the (≈12-DOF)
+        "block solve on the modal DOFs" the hub needs; it is SPD so a Cholesky
+        suffices. The modal/cargo correction Δz = Mz⁻¹ Gᵀ Δλ is then EXACT — no
+        `modal_relax` under-relaxation, because the cross-row coupling is already
+        inside H.
+
+        # DEVIATION (vs serial `_project_support`): the body block D is taken
+        # DIAGONAL — same-body corner cross-coupling (a box's 8 corners share its
+        # 6-DOF) is left to the outer GS iteration + contact deg-averaging, exactly
+        # as the parallel contact path already does. This changes only the
+        # convergence path, not the fixed point: at Δλ=0 every active row still
+        # satisfies C_s = −α̃·λ_s (identical to the serial-GS fixed point).
+        """
+        sup = self._support
+        if not sup:
+            return
+        X, Q, invm, q, wq = self._X, self._Q, self._invm, self._q, self._wq
+
+        # shared-DOF layout: active modes (wq>0) followed by one cargo a-block
+        midx = np.nonzero(wq > 0.0)[0]
+        rm = midx.shape[0]
+        cbi = self._cargo_dev_bi
+        if cbi < 0:
+            cset = {sc.cargo_bi for sc in sup if sc.cargo_bi >= 0}
+            cbi = next(iter(cset)) if len(cset) == 1 else -1
+        ck = 0
+        cidx = None
+        if cbi >= 0:
+            cg_mq = np.diag(np.asarray(self._cargo[cbi].Mq_block, dtype=np.float64))
+            cidx = np.nonzero(cg_mq > 0.0)[0]
+            ck = cidx.shape[0]
+        k = rm + ck
+        if k == 0:
+            return
+        Mzinv = np.empty(k)                       # = diag([wq; 1/cg_mq])
+        Mzinv[:rm] = wq[midx]
+        if ck:
+            Mzinv[rm:] = 1.0 / cg_mq[cidx]
+
+        # --- parallel assemble: per active row build G_s, D_s, b_s; reduce H, rhs
+        H = np.zeros((k, k))
+        rhs = np.zeros(k)
+        rows = []
+        for sc in sup:
+            bi = sc.bi
+            R = _quat_to_R(Q[bi])
+            r_w = R @ sc.off
+            corner_y = X[bi][1] + r_w[1]
+            surf = sc.y_rest + float(sc.U_y @ q)
+            G_a_full = None
+            if sc.cargo_bi == cbi and cbi >= 0:
+                Phi = np.asarray(self._cargo[cbi].corner_modal[sc.pid],
+                                 dtype=np.float64)        # (3, k_full)
+                G_a_full = (R @ Phi)[1, :]
+                surf += float(G_a_full @ self._cargo_a[cbi])
+            C = corner_y - surf
+            if C >= 0.0 and sc.lam == 0.0:               # inactive: skip
+                continue
+            j_ang = np.array([-r_w[2], 0.0, r_w[0]])      # cross(r_w, e_y)
+            inv_Iw = self._inv_I_world(bi, R)
+            wb = invm[bi] + float(j_ang @ (inv_Iw @ j_ang))
+            Gs = np.zeros(k)
+            Gs[:rm] = -sc.U_y[midx]
+            if G_a_full is not None and ck:
+                Gs[rm:] = -G_a_full[cidx]
+            D = wb + a_tilde
+            b = -(C + a_tilde * sc.lam)
+            invD = 1.0 / D
+            H += invD * np.outer(Gs, Gs)                 # Σ (1/D) Gs Gsᵀ
+            rhs += (invD * b) * Gs                        # Σ (1/D) b Gs
+            rows.append((sc, bi, j_ang, inv_Iw, Gs, D, b))
+        if not rows:
+            return
+
+        # --- dim=1 dense solve of the modal block: u = H⁻¹ rhs, H = Mz + GᵀD⁻¹G
+        H[np.diag_indices(k)] += 1.0 / Mzinv             # + Mz (= diag([mq; cg_mq]))
+        u = np.linalg.solve(H, rhs)
+
+        # --- apply: SOR-damped block correction (body push + Δz to q/a). The block
+        # direction is the EXACT coupled solve, so any factor ≤ 1 is stable (damped
+        # descent) and reaches the same fixed point; `relax` < 1 matches the serial
+        # GS gentleness so the stiff surface does not snap-respond in one substep
+        # (an exact, relax=1 q-jump becomes velocity v=(x−x_prev)/h and over-energizes
+        # light bodies). Body and q share the SAME factor → self-consistent.
+        relax = self._support_block_relax
+        dz = np.zeros(k)
+        for (sc, bi, j_ang, inv_Iw, Gs, D, b) in rows:
+            dlam = relax * ((b - float(Gs @ u)) / D)
+            new = max(0.0, sc.lam + dlam)
+            dlam = new - sc.lam
+            sc.lam = new
+            if dlam == 0.0:
+                continue
+            X[bi][1] += invm[bi] * dlam
+            Q[bi] = _quat_apply_rotvec(Q[bi], (inv_Iw @ j_ang) * dlam)
+            dz += Gs * dlam                              # Σ Gs Δλ
+        dz *= Mzinv                                     # Δz = Mz⁻¹ Gᵀ Δλ
+        q[midx] += dz[:rm]
+        if ck:
+            self._cargo_a[cbi][cidx] += dz[rm:]
 
     def _project_cargo_elastic(self, bi: int, an, h: float,
                                inv_h2: float) -> None:

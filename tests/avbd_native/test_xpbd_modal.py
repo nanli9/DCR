@@ -135,5 +135,39 @@ def test_cross_solver_two_way_signature():
             f"{kind}: dynamic must dominate frozen ({dyn:.2e} vs {frz:.2e})")
 
 
+def test_support_block_tracks_serial_gs():
+    """The parallel-safe support BLOCK solve (`_project_support_block`: condense
+    ALL support rows onto the shared modal Hessian H = Mz + Σ_s (1/D_s)·G_sG_sᵀ,
+    Woodbury, SOR-damped) must track the serial-GS reference (`_project_support`)
+    on the truck impact — finite, bounded, dissipative (no KE injection, resting
+    bodies stay on the road), with the modal surface q in close agreement. This is
+    the numpy reference the device `pk_support_*` kernels mirror; naive averaged
+    Jacobi over the shared stiff q diverges here."""
+    from scenes.reduced_truck import build_reduced_truck
+
+    def run(block):
+        h = build_reduced_truck(solver="xpbd", device="cpu", iterations=12,
+                                avbd_substeps=3, cargo_material="fem_rigid")
+        s = h.world._solver
+        s._force_warp = False                # numpy reference path
+        s._support_block = block
+        peak = 0.0
+        for _ in range(150):                 # impact lands ~step 45
+            h.world.step()
+            peak = max(peak, float(np.abs(s.positions()).max()))
+        return s, peak
+
+    ss, pks = run(False)
+    sb, pkb = run(True)
+    Pb = sb.positions()
+    assert np.all(np.isfinite(Pb)), "block solve diverged (NaN)"
+    assert pkb < 2.0, f"block unbounded (peakX={pkb:.2f})"
+    assert abs(pkb - pks) < 0.4, f"peakX disagree: serial={pks:.2f} block={pkb:.2f}"
+    assert float(Pb[:-1, 1].max()) < 0.6, (
+        f"resting body flew under block (maxY={float(Pb[:-1, 1].max()):.2f})")
+    dq = float(np.abs(ss.modal_q - sb.modal_q).max())
+    assert dq < 0.05, f"modal surface q disagree (|Δq|max={dq:.3f})"
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

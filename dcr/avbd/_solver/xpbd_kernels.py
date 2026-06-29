@@ -1308,89 +1308,6 @@ def pk_cargo_elastic(ck: int, cg_a: wp.array(dtype=wp.float64),
 
 
 @wp.kernel
-def pk_support_gs(
-        X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
-        invm: wp.array(dtype=wp.float64), invIl: wp.array(dtype=wp.mat33d),
-        ns: int, sup_bi: wp.array(dtype=wp.int32),
-        sup_off: wp.array(dtype=wp.vec3d), sup_yrest: wp.array(dtype=wp.float64),
-        sup_Uy: wp.array(dtype=wp.float64, ndim=2),
-        sup_lam: wp.array(dtype=wp.float64), sup_pid: wp.array(dtype=wp.int32),
-        r: int, q: wp.array(dtype=wp.float64), wq: wp.array(dtype=wp.float64),
-        has_cargo: int, ck: int, cg_a: wp.array(dtype=wp.float64),
-        cg_mq: wp.array(dtype=wp.float64),
-        cg_phi: wp.array(dtype=wp.float64, ndim=3),
-        at_sup: wp.float64, modal_relax: wp.float64):
-    """SERIAL Gauss–Seidel sweep over ALL support rows (dim=1, single thread) —
-    a faithful device copy of the numpy `_project_support` GS loop. The shared
-    modal q (and cargo a) is a single stiff DOF that every row couples to; the
-    parallel averaged-Jacobi schedule rings it up and diverges on an impact, so
-    the support/modal coupling runs GS — each row sees the q / a / body updates of
-    the prior rows immediately (immediate writes, no accumulator), exactly like
-    the proven-stable serial path. The body correction uses the FULL dlam (no
-    modal_relax); only q / a are under-relaxed (modal_relax) for GS stability over
-    the stiff real eigenbasis (Kq up to ~3e11). Runs AFTER the parallel contact
-    apply each iteration → GS order contacts→support (matches the serial path)."""
-    if wp.tid() != 0:
-        return
-    for s in range(ns):
-        bi = sup_bi[s]
-        R = quat_to_R(Q[bi])
-        r_w = R * sup_off[s]
-        corner_y = X[bi][1] + r_w[1]
-        surf = sup_yrest[s]
-        for i in range(r):
-            surf = surf + sup_Uy[s, i] * q[i]
-        pid = sup_pid[s]
-        has_g = int(0)
-        if has_cargo != 0 and pid >= 0:
-            has_g = 1
-            flex = _ZERO
-            for cc in range(ck):
-                ga = R[1, 0] * cg_phi[pid, 0, cc] + R[1, 1] * cg_phi[pid, 1, cc] \
-                    + R[1, 2] * cg_phi[pid, 2, cc]
-                flex = flex + ga * cg_a[cc]
-            surf = surf + flex
-        C = corner_y - surf
-        if C >= _ZERO and sup_lam[s] == _ZERO:
-            continue
-        j_ang = wp.vec3d(-r_w[2], _ZERO, r_w[0])
-        invIw = iIw(R, invIl[bi])
-        w = invm[bi] + wp.dot(j_ang, invIw * j_ang)
-        for i in range(r):
-            w = w + sup_Uy[s, i] * sup_Uy[s, i] * wq[i]
-        if has_g == 1:
-            for cc in range(ck):
-                ga = R[1, 0] * cg_phi[pid, 0, cc] + R[1, 1] * cg_phi[pid, 1, cc] \
-                    + R[1, 2] * cg_phi[pid, 2, cc]
-                mgg = _ZERO
-                if cg_mq[cc] > _ZERO:
-                    mgg = ga / cg_mq[cc]
-                w = w + ga * mgg
-        dlam = (-C - at_sup * sup_lam[s]) / (w + at_sup)
-        new = sup_lam[s] + dlam
-        if new < _ZERO:
-            new = _ZERO
-        dlam = new - sup_lam[s]
-        sup_lam[s] = new
-        if dlam == _ZERO:
-            continue
-        # immediate body update (full dlam, normal e_y + angular) — GS
-        X[bi] = X[bi] + wp.vec3d(_ZERO, invm[bi] * dlam, _ZERO)
-        Q[bi] = quat_apply_rotvec(Q[bi], (invIw * j_ang) * dlam)
-        # immediate q / a update (under-relaxed, exactly as numpy _project_support)
-        for i in range(r):
-            q[i] = q[i] + modal_relax * (-sup_Uy[s, i] * wq[i]) * dlam
-        if has_g == 1:
-            for cc in range(ck):
-                ga = R[1, 0] * cg_phi[pid, 0, cc] + R[1, 1] * cg_phi[pid, 1, cc] \
-                    + R[1, 2] * cg_phi[pid, 2, cc]
-                mgg = _ZERO
-                if cg_mq[cc] > _ZERO:
-                    mgg = ga / cg_mq[cc]
-                cg_a[cc] = cg_a[cc] + modal_relax * mgg * dlam
-
-
-@wp.kernel
 def pk_support_velsolve_gs(
         Q: wp.array(dtype=wp.quatd), V: wp.array(dtype=wp.vec3d),
         W: wp.array(dtype=wp.vec3d), invm: wp.array(dtype=wp.float64),
@@ -1434,6 +1351,237 @@ def pk_support_velsolve_gs(
         sup_jt[s] = new_jt
         V[bi] = V[bi] + invm[bi] * dP
         W[bi] = W[bi] + invIw * wp.cross(r_w, dP)
+
+
+# ---------------------------------------------------------------------------
+# Support/modal coupling as a PARALLEL block solve (Woodbury / Schur onto the
+# shared reduced modal block) — the device port of numpy `_project_support_block`.
+# The support rows share one stiff modal hub q (every row reads/writes all of q),
+# so per-row averaged Jacobi over-drives it and diverges; condensing all rows
+# onto the small dense block H = Mz + Σ_s (1/D_s)·G_sG_sᵀ and solving it exactly
+# is the AVBD-style gather-and-solve (mirrors modal_qblock_kernels.k_modal_hq /
+# k_modal_solve), made parallel: per-row assemble/apply fan out (dim=ns), only
+# the tiny k×k linear solve is dim=1 (as in AVBD). Stages per position iteration:
+#   assemble (rows) → hq (k×k) → rhs (k) → solve (1) → apply (rows) → apply_body.
+# ---------------------------------------------------------------------------
+@wp.kernel
+def pk_support_assemble(
+        X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+        invm: wp.array(dtype=wp.float64), invIl: wp.array(dtype=wp.mat33d),
+        ns: int, sup_bi: wp.array(dtype=wp.int32),
+        sup_off: wp.array(dtype=wp.vec3d), sup_yrest: wp.array(dtype=wp.float64),
+        sup_Uy: wp.array(dtype=wp.float64, ndim=2),
+        sup_lam: wp.array(dtype=wp.float64), sup_pid: wp.array(dtype=wp.int32),
+        r: int, q: wp.array(dtype=wp.float64), has_cargo: int, ck: int,
+        cg_a: wp.array(dtype=wp.float64),
+        cg_phi: wp.array(dtype=wp.float64, ndim=3), at_sup: wp.float64,
+        sup_G: wp.array(dtype=wp.float64, ndim=2),
+        sup_w: wp.array(dtype=wp.float64), sup_b: wp.array(dtype=wp.float64),
+        sup_D: wp.array(dtype=wp.float64), sup_act: wp.array(dtype=wp.float64)):
+    """Per active support row (dim=ns): gap C_s, body diagonal D_s = w_body + α̃,
+    rhs b_s = −(C_s + α̃·λ_s), and the shared-DOF Jacobian G_s = [−U_y; −G_a]
+    (stored in sup_G). sup_w = active/D_s zeroes inactive rows out of the block."""
+    s = wp.tid()
+    if s >= ns:
+        return
+    bi = sup_bi[s]
+    R = quat_to_R(Q[bi])
+    r_w = R * sup_off[s]
+    corner_y = X[bi][1] + r_w[1]
+    surf = sup_yrest[s]
+    for i in range(r):
+        surf = surf + sup_Uy[s, i] * q[i]
+        sup_G[s, i] = -sup_Uy[s, i]                 # modal Jacobian ∂C/∂q
+    pid = sup_pid[s]
+    if has_cargo != 0 and pid >= 0:
+        for cc in range(ck):
+            ga = R[1, 0] * cg_phi[pid, 0, cc] + R[1, 1] * cg_phi[pid, 1, cc] \
+                + R[1, 2] * cg_phi[pid, 2, cc]
+            sup_G[s, r + cc] = -ga                  # cargo Jacobian ∂C/∂a
+            surf = surf + ga * cg_a[cc]
+    else:
+        for cc in range(ck):
+            sup_G[s, r + cc] = _ZERO
+    C = corner_y - surf
+    if C >= _ZERO and sup_lam[s] == _ZERO:          # inactive: out of the block
+        sup_act[s] = _ZERO
+        sup_w[s] = _ZERO
+        sup_b[s] = _ZERO
+        sup_D[s] = _ONE
+        return
+    j_ang = wp.vec3d(-r_w[2], _ZERO, r_w[0])
+    invIw = iIw(R, invIl[bi])
+    D = invm[bi] + wp.dot(j_ang, invIw * j_ang) + at_sup
+    sup_D[s] = D
+    sup_b[s] = -(C + at_sup * sup_lam[s])
+    sup_w[s] = _ONE / D
+    sup_act[s] = _ONE
+
+
+@wp.kernel
+def pk_support_hq(kk: int, ns: int, r: int, wq: wp.array(dtype=wp.float64),
+                  cg_mq: wp.array(dtype=wp.float64),
+                  sup_G: wp.array(dtype=wp.float64, ndim=2),
+                  sup_w: wp.array(dtype=wp.float64),
+                  blkH: wp.array(dtype=wp.float64, ndim=2)):
+    """H[a,b] = Mz[a,b] + Σ_s (1/D_s)·G[s,a]·G[s,b]   (dim=(kk,kk)). Mz diagonal =
+    [1/wq; cg_mq] (the reduced mass); a frozen mode (wq=0 / cg_mq=0) gets a huge
+    diagonal so its correction is solved to ≈0. Mirrors AVBD k_modal_hq."""
+    a, b = wp.tid()
+    acc = _ZERO
+    if a == b:
+        if a < r:
+            if wq[a] > _ZERO:
+                acc = _ONE / wq[a]
+            else:
+                acc = wp.float64(1.0e30)
+        else:
+            cc = a - r
+            if cg_mq[cc] > _ZERO:
+                acc = cg_mq[cc]
+            else:
+                acc = wp.float64(1.0e30)
+    for s in range(ns):
+        acc = acc + sup_w[s] * sup_G[s, a] * sup_G[s, b]
+    blkH[a, b] = acc
+
+
+@wp.kernel
+def pk_support_rhs(kk: int, ns: int,
+                   sup_G: wp.array(dtype=wp.float64, ndim=2),
+                   sup_w: wp.array(dtype=wp.float64),
+                   sup_b: wp.array(dtype=wp.float64),
+                   blkR: wp.array(dtype=wp.float64)):
+    """rhs[a] = Σ_s (1/D_s)·b_s·G[s,a]  (= Gᵀ D⁻¹ b). dim=kk."""
+    a = wp.tid()
+    acc = _ZERO
+    for s in range(ns):
+        acc = acc + sup_w[s] * sup_b[s] * sup_G[s, a]
+    blkR[a] = acc
+
+
+@wp.kernel
+def pk_support_solve(kk: int, eps: wp.float64,
+                     blkH: wp.array(dtype=wp.float64, ndim=2),
+                     blkR: wp.array(dtype=wp.float64),
+                     blkU: wp.array(dtype=wp.float64)):
+    """Solve (H + ε·I)·u = rhs by Gaussian elimination with partial pivot, into
+    blkU. Single thread (GE is sequential; kk≈12-24 is small) — mirrors AVBD
+    k_modal_solve. blkH is mutated in place as the working upper-triangular."""
+    if wp.tid() != 0:
+        return
+    for a in range(kk):
+        blkH[a, a] = blkH[a, a] + eps
+        blkU[a] = blkR[a]
+    for col in range(kk):
+        piv = col
+        big = wp.abs(blkH[col, col])
+        for rr in range(col + 1, kk):
+            v = wp.abs(blkH[rr, col])
+            if v > big:
+                big = v
+                piv = rr
+        if piv != col:
+            for cc in range(kk):
+                tmp = blkH[col, cc]
+                blkH[col, cc] = blkH[piv, cc]
+                blkH[piv, cc] = tmp
+            tb = blkU[col]
+            blkU[col] = blkU[piv]
+            blkU[piv] = tb
+        pivot = blkH[col, col]
+        for rr in range(col + 1, kk):
+            factor = blkH[rr, col] / pivot
+            if factor != _ZERO:
+                for cc in range(col, kk):
+                    blkH[rr, cc] = blkH[rr, cc] - factor * blkH[col, cc]
+                blkU[rr] = blkU[rr] - factor * blkU[col]
+    for ii in range(kk):
+        col = kk - 1 - ii
+        acc = blkU[col]
+        for cc in range(col + 1, kk):
+            acc = acc - blkH[col, cc] * blkU[cc]
+        blkU[col] = acc / blkH[col, col]
+
+
+@wp.kernel
+def pk_support_apply(
+        X: wp.array(dtype=wp.vec3d), Q: wp.array(dtype=wp.quatd),
+        invm: wp.array(dtype=wp.float64), invIl: wp.array(dtype=wp.mat33d),
+        ns: int, sup_bi: wp.array(dtype=wp.int32),
+        sup_off: wp.array(dtype=wp.vec3d), sup_lam: wp.array(dtype=wp.float64),
+        r: int, kk: int, sup_G: wp.array(dtype=wp.float64, ndim=2),
+        sup_b: wp.array(dtype=wp.float64), sup_D: wp.array(dtype=wp.float64),
+        sup_act: wp.array(dtype=wp.float64), wq: wp.array(dtype=wp.float64),
+        has_cargo: int, ck: int, cg_mq: wp.array(dtype=wp.float64),
+        blkU: wp.array(dtype=wp.float64), relax: wp.float64,
+        acc_dp: wp.array(dtype=wp.float64), acc_dr: wp.array(dtype=wp.float64),
+        acc_dq: wp.array(dtype=wp.float64), acc_da: wp.array(dtype=wp.float64)):
+    """Per active row (dim=ns): Δλ = relax·(b_s − G_s·u)/D_s (clamped λ≥0), then
+    scatter the body push (FULL — multi-corner over-lift is damped by `relax`, not
+    deg-averaging, which the SAME-λ q-hub would otherwise desync) into acc_dp/acc_dr
+    and the modal/cargo drive Δz = Mz⁻¹ Gᵀ Δλ (pre-scaled by wq / 1/cg_mq) into
+    acc_dq/acc_da. q/a SUM over all corners (full hub multiplicity)."""
+    s = wp.tid()
+    if s >= ns:
+        return
+    if sup_act[s] == _ZERO:
+        return
+    Gu = _ZERO
+    for a in range(kk):
+        Gu = Gu + sup_G[s, a] * blkU[a]
+    dlam = relax * ((sup_b[s] - Gu) / sup_D[s])
+    new = sup_lam[s] + dlam
+    if new < _ZERO:
+        new = _ZERO
+    dlam = new - sup_lam[s]
+    sup_lam[s] = new
+    if dlam == _ZERO:
+        return
+    bi = sup_bi[s]
+    wp.atomic_add(acc_dp, 3 * bi + 1, invm[bi] * dlam)   # body normal (e_y)
+    R = quat_to_R(Q[bi])
+    r_w = R * sup_off[s]
+    j_ang = wp.vec3d(-r_w[2], _ZERO, r_w[0])
+    invIw = iIw(R, invIl[bi])
+    dr = (invIw * j_ang) * dlam
+    wp.atomic_add(acc_dr, 3 * bi + 0, dr[0])
+    wp.atomic_add(acc_dr, 3 * bi + 1, dr[1])
+    wp.atomic_add(acc_dr, 3 * bi + 2, dr[2])
+    for i in range(r):                                   # Δq_i = wq_i·G[s,i]·Δλ
+        wp.atomic_add(acc_dq, i, wq[i] * sup_G[s, i] * dlam)
+    if has_cargo != 0:
+        for cc in range(ck):
+            wi = _ZERO
+            if cg_mq[cc] > _ZERO:
+                wi = _ONE / cg_mq[cc]
+            wp.atomic_add(acc_da, cc, wi * sup_G[s, r + cc] * dlam)
+
+
+@wp.kernel
+def pk_support_apply_body(nb: int, X: wp.array(dtype=wp.vec3d),
+                          Q: wp.array(dtype=wp.quatd),
+                          invm: wp.array(dtype=wp.float64),
+                          acc_dp: wp.array(dtype=wp.float64),
+                          acc_dr: wp.array(dtype=wp.float64)):
+    """Apply the summed support body correction FULL (relax already folded into
+    Δλ; no deg-average — the over-lift is SOR-damped), then zero the accumulator.
+    Separate from pk_apply_body, which deg-averages the contact correction."""
+    i = wp.tid()
+    if i >= nb:
+        return
+    if invm[i] != _ZERO:
+        X[i] = X[i] + wp.vec3d(acc_dp[3 * i + 0], acc_dp[3 * i + 1],
+                               acc_dp[3 * i + 2])
+        Q[i] = quat_apply_rotvec(Q[i], wp.vec3d(acc_dr[3 * i + 0],
+                                                acc_dr[3 * i + 1],
+                                                acc_dr[3 * i + 2]))
+    acc_dp[3 * i + 0] = _ZERO
+    acc_dp[3 * i + 1] = _ZERO
+    acc_dp[3 * i + 2] = _ZERO
+    acc_dr[3 * i + 0] = _ZERO
+    acc_dr[3 * i + 1] = _ZERO
+    acc_dr[3 * i + 2] = _ZERO
 
 
 @wp.kernel
