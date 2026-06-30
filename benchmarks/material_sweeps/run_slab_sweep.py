@@ -30,8 +30,7 @@ import matplotlib.pyplot as plt   # noqa: E402
 
 from scenes.reduced_shelf import build_reduced_shelf
 from benchmarks.material_sweeps.sweep_common import (
-    SLAB_MATERIALS, SHELF_L, SHELF_W, SHELF_T, eb_f1,
-    measure_ring_freq, coupling_metrics,
+    SLAB_MATERIALS, SCENES, eb_f1, measure_ring_freq, coupling_metrics,
 )
 from benchmarks.material_sweeps.fem_reference import (
     fem_plate_ss, euler_bernoulli_ss_selfweight_deflection,
@@ -44,6 +43,7 @@ SOLVERS = ("xpbd", "avbd")
 def gather(quick=False):
     rows = []
     nf = 140 if quick else 200
+    L, W, t = SCENES["shelf"]["L"], SCENES["shelf"]["W"], SCENES["shelf"]["t"]
     # order materials by sqrt(E/rho) (the bending sound speed).
     order = sorted(SLAB_MATERIALS,
                    key=lambda k: (SLAB_MATERIALS[k]["youngs"]
@@ -51,17 +51,18 @@ def gather(quick=False):
     for name in order:
         mat = SLAB_MATERIALS[name]
         ceff = (mat["youngs"] / mat["density"]) ** 0.5
-        f_eb = eb_f1(**mat)
+        f_eb = eb_f1(**mat, L=L, t=t)
         # (B) full-FEM truth — solver-independent, once per material.
-        ff, d_fem, nv = fem_plate_ss(SHELF_L, SHELF_W, SHELF_T,
-                                     mat["youngs"], mat["poisson"], mat["density"])
+        ff, d_fem, nv = fem_plate_ss(L, W, t, mat["youngs"], mat["poisson"],
+                                     mat["density"])
         f_fem = float(ff[0])
         d_eb = euler_bernoulli_ss_selfweight_deflection(
-            SHELF_L, SHELF_T, mat["youngs"], mat["poisson"], mat["density"])
+            L, t, mat["youngs"], mat["poisson"], mat["density"])
         for solver in SOLVERS:
             cm = coupling_metrics(build_reduced_shelf, solver, build_kw=mat,
                                   n_frames=nf)
-            f_meas, hz = measure_ring_freq(mat, solver)
+            f_meas, hz = measure_ring_freq(build_reduced_shelf, solver, L=L, t=t,
+                                           build_kw=mat, f_hint=f_eb)
             rows.append(dict(
                 material=name, solver=solver, E=mat["youngs"],
                 rho=mat["density"], nu=mat["poisson"], c_eff=ceff,
@@ -69,7 +70,7 @@ def gather(quick=False):
                 fem_nodes=nv, d_fem=d_fem, d_eb=d_eb,
                 twoway=cm["twoway_ratio"], passivity=cm["passivity"],
                 Eslab=cm["Eslab_peak"], Eimp=cm["Eimp_peak"],
-                slab_rings=cm["slab_rings"], finite=cm["finite"],
+                finite=cm["finite"],
             ))
             print(f"  {name:9s}/{solver}: f_EB={f_eb:6.1f} f_FEM={f_fem:6.1f} "
                   f"f_meas={f_meas:6.1f}Hz  two-way={cm['twoway_ratio']:5.1f}x  "
@@ -144,12 +145,13 @@ def fig_fem(rows, order):
     fig, ax = plt.subplots(1, 3, figsize=(16, 4.5))
 
     # (a) linear-tet shear-locking convergence for the steel slab.
+    L, W, t = SCENES["shelf"]["L"], SCENES["shelf"]["W"], SCENES["shelf"]["t"]
     steel = SLAB_MATERIALS["steel"]
-    f1_eb = eb_f1(**steel)
+    f1_eb = eb_f1(**steel, L=L, t=t)
     nzs = [2, 3, 4, 5]
     rr = []
     for nz in nzs:
-        ff, _, _ = fem_plate_ss(SHELF_L, SHELF_W, SHELF_T, steel["youngs"],
+        ff, _, _ = fem_plate_ss(L, W, t, steel["youngs"],
                                 steel["poisson"], steel["density"],
                                 nx=16 * nz, ny=2 * nz + 4, nz=nz, n_modes=1)
         rr.append(ff[0] / f1_eb)
@@ -198,7 +200,7 @@ def main():
     p2 = fig_fem(rows, order)
     keys = ["material", "solver", "E", "rho", "nu", "c_eff", "f_eb", "f_fem",
             "f_meas", "hz", "fem_nodes", "d_fem", "d_eb", "twoway", "passivity",
-            "Eslab", "Eimp", "slab_rings", "finite"]
+            "Eslab", "Eimp", "finite"]
     with open(os.path.join(OUT, "slab_material_sweep.csv"), "w", newline="") as fh:
         wcsv = csv.DictWriter(fh, fieldnames=keys)
         wcsv.writeheader()

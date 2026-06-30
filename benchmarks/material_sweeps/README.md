@@ -1,128 +1,112 @@
 # Material sweeps — is the native two-way slab⇄object coupling physically accurate?
 
 **Isolated benchmark.** Everything here lives under `benchmarks/material_sweeps/`
-and imports the `dcr` library / scenes / the committed energy-loop probe
-**read-only** — no original code is modified. All runs use the **symplectic
-(implicit-midpoint) modal step** for both solvers (the solver source default is
-`_modal_symplectic = False` = backward-Euler; the benchmark forces symplectic
-everywhere, per the project default).
+and imports the `dcr` library / scenes **read-only**, setting solver config at
+**runtime** — no original code is modified.
+
+**Two settings, applied to BOTH solvers** (the solver-source defaults are wrong for
+a physical ring and must be set explicitly):
+- **symplectic modal step** — source default `_modal_symplectic = False` (BE).
+- **modal relaxation `0.7`** — source defaults under-relax the modal block and
+  suppress the ring: AVBD `_modal_relax = 0.1`, XPBD `modal_relax = 0.25`
+  (+ `_support_block_relax`). Set to **0.7** for both.
+
+> Correction vs an earlier draft of this benchmark: with the default relax (0.1)
+> and an FFT that locked onto the slow contact-settling envelope, AVBD *appeared*
+> not to ring (~2 Hz). That was an artifact. At relax 0.7, with the settling
+> high-passed out before the FFT, **AVBD rings at the modal frequency** like XPBD.
+
+Cargo is **out of scope** (per project scope); only the non-cargo scenes
+(shelf / ledge / dinner) are swept.
 
 Reproduce:
 ```
-.venv/bin/python benchmarks/material_sweeps/fem_reference.py      # FEM-truth self-test
-.venv/bin/python benchmarks/material_sweeps/run_slab_sweep.py     # slab sweep + physics accuracy
-.venv/bin/python benchmarks/material_sweeps/run_cargo_sweep.py    # cargo sweep
+.venv/bin/python benchmarks/material_sweeps/fem_reference.py     # FEM-truth self-test
+.venv/bin/python benchmarks/material_sweeps/run_slab_sweep.py    # slab material sweep + physics accuracy
+.venv/bin/python benchmarks/material_sweeps/run_scene_sweep.py   # multi-scene verification
 ```
-Outputs in `out/`: `slab_physics_accuracy.png`, `fem_vs_analytic.png`,
-`cargo_material_sweep.png`, `slab_material_sweep.csv`, `cargo_material_sweep.csv`.
+Out (`out/`): `slab_physics_accuracy.png`, `fem_vs_analytic.png`, `scene_sweep.png`,
+`slab_material_sweep.csv`, `scene_sweep.csv`.
 
 ---
 
 ## 1. Slab material sweep + physics accuracy  (`slab_physics_accuracy.png`)
 
-Shelf scene, slab `youngs`/`density`/`poisson` swept across realistic materials,
-both native solvers, symplectic. Ground truth on two independent legs:
-**(A) analytic Euler-Bernoulli** (the synthetic basis's own model) and
-**(B) a full 3D solid-FEM simply-supported plate** (`fem_reference.py`).
+Shelf scene (plate 0.8×0.3×0.03 m), slab `youngs`/`density`/`poisson` swept, both
+solvers, symplectic + relax 0.7. Ground truth on two independent legs: **(A)**
+analytic Euler-Bernoulli (the synthetic basis's own model) and **(B)** a full 3D
+solid-FEM simply-supported plate (`fem_reference.py`).
 
-| material | E [GPa] | ρ | √(E/ρ) | EB f₁ | FEM f₁ (B) | **XPBD measured** | AVBD measured | XPBD two-way | passivity |
-|----------|--------:|---:|-------:|------:|-----------:|------------------:|--------------:|-------------:|----------:|
-| soft     | 0.5 | 600  |  913 |  20.3 |  21.1 | **20.0 Hz** | 2.0 Hz |  29× | 0.11 |
-| oak      | 11  | 700  | 3963 |  89.9 |  92.3 | **90.0 Hz** | 2.0 Hz | 143× | 0.39 |
-| steel    | 200 | 7850 | 5048 | 112.5 | 116.8 | **110.1 Hz**| 2.0 Hz |  65× | 0.00 |
-| aluminum | 69  | 2700 | 5055 | 113.8 | 117.4 | **112.1 Hz**| 2.0 Hz |  50× | 0.01 |
-| glass    | 70  | 2500 | 5292 | 115.3 | 121.9 | **114.0 Hz**| 2.0 Hz |  49× | 0.01 |
+| material | E [GPa] | √(E/ρ) | EB f₁ | FEM f₁ (B) | XPBD meas | AVBD meas | XPBD two-way | AVBD two-way | passivity (X/A) |
+|----------|--------:|-------:|------:|-----------:|----------:|----------:|-------------:|-------------:|-----------------|
+| soft     | 0.5 |  913 |  20.3 |  21.1 | 15.4 | 22.1 | 15× |   6× | 0.44 / 0.62 |
+| oak      | 11  | 3963 |  89.9 |  92.3 | 88.1 | 96.9 | 60× | 172× | 0.99 / 0.40 |
+| steel    | 200 | 5048 | 112.5 | 116.8 |111.7 |113.4 | 48× | 301× | 0.02 / 0.04 |
+| aluminum | 69  | 5055 | 113.8 | 117.4 |115.1 |115.1 | 17× |  77× | 0.04 / 0.11 |
+| glass    | 70  | 5292 | 115.3 | 121.9 |114.9 |116.6 | 15× |  74× | 0.04 / 0.11 |
 
 **Findings:**
 
-1. **XPBD reproduces the physical ring frequency** — the measured slab ring (FFT
-   of the fundamental modal coordinate `q0(t)`, sampled at a fine timestep) lands
-   within **0.4–5 %** of the analytic Euler-Bernoulli `f₁` for every material, soft
-   to steel. The two-way coupling is *physically accurate in the time domain*.
+1. **Both solvers reproduce the physical ring frequency** — measured ring (detrended
+   FFT of `q0(t)`) lands within **~1–9 %** of the analytic Euler-Bernoulli `f₁` for
+   oak/steel/aluminium/glass, on both solvers. The softest slab is the noisiest case
+   (XPBD 15.4 / AVBD 22.1 vs EB 20.3) — light, heavily-damped, low frequency where
+   the settling-vs-ring separation is hardest.
 
-2. **f ∝ √(E/ρ)** — the bending-frequency scaling law holds: steel (200 GPa) and
-   aluminium (69 GPa) ring at nearly the **same** frequency (112 vs 114 Hz) because
-   their √(E/ρ) sound speeds are nearly equal, despite a 3× stiffness gap. Panel
-   (b) shows EB, FEM, and XPBD-measured all collapsing onto one line through the
-   origin.
+2. **f ∝ √(E/ρ)** — steel (200 GPa) and aluminium (69 GPa) ring at nearly the same
+   frequency (≈112–115 Hz) because their sound speeds are nearly equal despite a 3×
+   stiffness gap; panel (b) shows EB, FEM, and both measured frequencies collapsing
+   onto one line through the origin.
 
-3. **AVBD does NOT ring at the modal frequency** — measured 2.0 Hz at *every*
-   material (the slow contact/settling envelope, not the structural mode). This
-   **survives switching BE → symplectic**, so it is not an integrator artifact.
-   Diagnostic on the soft slab: AVBD's `q0` swing is 6× smaller than XPBD's and
-   carries only **0.022×** the amplitude at the modal frequency — the fast mode is
-   suppressed by AVBD's augmented-Lagrangian **contact-penalty iterations**, which
-   dissipate the modal velocity each step. Symplectic integration of the modal
-   block alone cannot restore a ring the contact solve removes.
+3. **Both solvers are two-way** (freeze-q̇ control), 6–300×. AVBD's coupling is now
+   strong (it was ~1× at the default relax).
 
-4. **Energy passivity holds** — slab ring peak / impactor KE < 1 for every
-   material and solver (panel d). Stiffer slabs (steel, glass) transfer almost no
-   energy to the ring (passivity ≈ 0) because they barely deflect; soft/oak
-   transfer more (0.11, 0.39). No injection.
+4. **Energy passivity holds** — slab ring peak / impactor KE < 1 for every material
+   and solver (panel d; oak/XPBD is closest at 0.99). No injection.
 
 ## 2. Full-FEM truth leg (B)  (`fem_vs_analytic.png`)
 
-The shelf support is a **synthetic analytic basis** (sine bending modes +
-Gaussian static bumps), *not* a meshed FEM eigensolve — so "is that basis itself
-faithful?" is a real question. We mesh the same slab as a 3D tet solid
-(`dcr.geom.make_slab_tet_mesh` + `dcr.fem.FEMModel`), impose simply-supported BCs
-(own per-DOF reduction — pin transverse `y` on the two x-end edges + minimal
-in-plane anchors), and solve the generalized eigenproblem.
+The shelf support is a **synthetic analytic basis** (sine bending modes + Gaussian
+static bumps), not a meshed FEM eigensolve — so we independently mesh the same slab
+as a 3D tet solid (`dcr.geom.make_slab_tet_mesh` + `dcr.fem.FEMModel`), impose
+simply-supported BCs (own per-DOF reduction), and solve the eigenproblem.
 
-- **(a) convergence:** linear tets **shear-lock** and overestimate bending
-  stiffness on coarse through-thickness meshes; refining drives `f_FEM/f_EB` from
-  1.25 → 1.02. The synthetic basis's analytic `f₁` is the converged limit.
-- **(b) per material:** converged 3D-FEM `f₁` agrees with Euler-Bernoulli to **~4 %**.
-- **(c) static self-weight deflection:** FEM vs analytic SS strip agree to ~7 %.
-- Caveat: higher FEM modes interleave torsion / width modes that the 1-D strip
-  basis omits, so only the **fundamental** is compared mode-to-mode.
+- **(a)** linear tets shear-lock and overestimate stiffness on coarse
+  through-thickness meshes; refining drives `f_FEM/f_EB` 1.25 → 1.02.
+- **(b)** converged 3D-FEM `f₁` agrees with Euler-Bernoulli to **~4 %**.
+- **(c)** static self-weight deflection agrees to ~7 %.
+- Caveat: higher FEM modes mix torsion/width modes the 1-D strip basis omits — only
+  the fundamental is compared mode-to-mode.
 
 → **The synthetic basis is a physically faithful thin-plate model for the
-fundamental bending mode**, validated independently of the analytic formula.
+fundamental**, validated independently of the analytic formula.
 
-## 3. Cargo material sweep  (`cargo_material_sweep.png`)
+## 3. Multi-scene verification  (`scene_sweep.png`)
 
-The cargo is the deformable cube riding **on the impactor** (native M2,
-`add_native_cargo`); `rigid / fem_rigid / fem / abd`. Shelf scene, symplectic.
+Each scene's own reduced-support geometry, default material, symplectic + relax 0.7.
 
-| cargo | solver | two-way | slab ring | passivity | impactor KE | note |
-|-------|--------|--------:|----------:|----------:|------------:|------|
-| rigid     | XPBD | 29×  | 3.3 J | 0.11 |  29 J | baseline (k=0, no elastic modes) |
-| fem_rigid | XPBD | 76×  | 5.4 J | 0.19 |  29 J | deformable cargo ↑ ring + coupling |
-| fem       | XPBD | 76×  | 5.4 J | 0.19 |  29 J | ≡ fem_rigid here (co-rotation immaterial for the small cube) |
-| abd       | XPBD | 367× | 910 J | **2.96** | **307 J** | **BLOW-UP — unstable, not physics** |
-| *any*     | AVBD | —    | —     | —    | —     | **unsupported: symplectic+cargo not wired in Solver6DOF** |
+| scene  | geometry (L×W×t) | EB f₁ | XPBD meas | AVBD meas | XPBD two-way | AVBD two-way |
+|--------|------------------|------:|----------:|----------:|-------------:|-------------:|
+| shelf  | 0.8×0.3×0.03 |  20.3 | 15.4 (24%) | 22.1 (8%) | 15× |  6× |
+| ledge  | 1.2×0.8×0.08 | 118.1 | 118.4 (0%) | 118.4 (0%) | 98× | 0.6× |
+| dinner | 1.2×1.0×0.03 |  44.3 |  43.3 (2%) |  43.3 (2%) | 41× | 47× |
 
-**Findings:**
-
-- A **deformable cargo (`fem_rigid`/`fem`) modestly strengthens** the slab ring
-  (3.3 → 5.4 J) and the two-way ratio (29 → 76×) vs a rigid cargo — its elastic
-  modes add energy-transfer pathways into the augmented modal vector. `fem_rigid`
-  and `fem` are indistinguishable for this small cargo (co-rotation doesn't matter
-  at this scale).
-- **`abd` cargo is numerically unstable** under XPBD at these settings: passivity
-  **2.96 > 1** (energy *injection*, not bounded) and impactor KE 307 J vs 29 J — a
-  blow-up (cf. the known XPBD-at-high-modal-impedance instability), **flagged, not
-  a physical result**.
-- **AVBD + cargo is not available under symplectic** — `Solver6DOF` raises
-  `NotImplementedError("_modal_symplectic is host non-cargo only …")`. Honouring
-  the symplectic default, those configs are recorded as unsupported rather than
-  silently run under BE.
-
-### Caveat on the cargo numbers
-The cargo's own internal elastic energy is folded into the augmented modal vector
-`[q_slab; a_cargo]` and is **not separately instrumented**; what is reported is the
-cargo material's effect on the slab/impactor-**observable** coupling.
+- **ledge & dinner ring essentially exactly** (0–2 % vs EB) on both solvers.
+- **Two-way is strong** in 5/6 configs. The one exception is **ledge / AVBD: it
+  rings but does not launch the resting object** (two-way 0.6× < 1) — the ring is
+  present yet the object KE is no larger than the frozen-q̇ control there; reported
+  as-is, not cherry-picked.
+- Passivity < 1 everywhere.
 
 ---
 
 ## Bottom line
-- **The native two-way coupling is physically accurate for XPBD** — the slab rings
-  at its true natural frequency (validated against both Euler-Bernoulli *and* a 3D
-  full-FEM plate, 0.4–5 %), obeys f ∝ √(E/ρ), and stays energy-passive across a
-  10²–10³× stiffness range.
-- **AVBD is two-way but not time-domain-faithful** — its contact-penalty solve
-  over-damps the modal ring; the slab settles quasi-statically instead of ringing.
-- These complement the earlier `docs/native_energy_loop/` study (which proved the
-  loop is two-way and dissipative); here we show it is also *quantitatively correct*
-  vs structural-dynamics ground truth, for XPBD.
+- **With symplectic + modal relax 0.7, the native two-way coupling is physically
+  accurate for BOTH solvers** — the slab rings at its true natural frequency
+  (validated against Euler-Bernoulli *and* a 3D full-FEM plate), obeys f ∝ √(E/ρ),
+  and stays energy-passive across a 10²–10³× stiffness range and three scenes.
+- **The modal relaxation is the key knob.** At the source default (0.1/0.25) the
+  modal block is under-relaxed and the ring is suppressed (most visibly for AVBD);
+  at 0.7 both solvers ring.
+- Remaining rough edges: the soft-shelf measurement is noisy (low freq, heavy
+  damping), and ledge/AVBD rings without transferring to the resting object.

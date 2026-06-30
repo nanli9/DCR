@@ -1,107 +1,160 @@
 """Shared helpers for the material sweeps. ISOLATED benchmark code.
 
-Imports the scene builders and the committed energy-loop probe READ-ONLY (it
-reuses `scripts.probe_native_energy_loop.run`/`loop_metrics` for the two-way /
-energy metrics, and adds its own fine-timestep modal ring-frequency measurement).
-Nothing in the original tree is modified.
+Self-contained run/record loop (imports scenes + rigid KE READ-ONLY, sets solver
+config at RUNTIME — never modifies original code). Both solvers use the
+**symplectic** modal step and modal relaxation **0.7** (the solver-source defaults
+are BE and relax 0.1/0.25, which under-relax the modal block and suppress the
+ring — set explicitly here per the project default).
+
+Solver relaxation knobs:
+  AVBD (Solver6DOF): sol._modal_relax
+  XPBD (SolverXPBD): sol.modal_relax  (and sol._support_block_relax mirrors it)
 """
 from __future__ import annotations
 
 import numpy as np
 
 from scenes.reduced_shelf import build_reduced_shelf
+from scenes.reduced_ledge import build_reduced_ledge
+from scenes.reduced_dinner_table import build_reduced_dinner_table
+from dcr.rigid.energy import rigid_kinetic_energy
 
-# Read-only reuse of the committed probe (two-way ratio + energy bookkeeping).
-from scripts.probe_native_energy_loop import run as probe_run, loop_metrics
+G = 9.81
+RELAX = 0.7   # modal relaxation for BOTH solvers (NOT the 0.1/0.25 source default)
 
+# Non-cargo scenes + their reduced-support plate geometry (length L, width W,
+# thickness t) for the Euler-Bernoulli / full-FEM ground truth.
+SCENES = {
+    "shelf":  dict(build=build_reduced_shelf,         L=0.8, W=0.3, t=0.03),
+    "ledge":  dict(build=build_reduced_ledge,         L=1.2, W=0.8, t=0.08),
+    "dinner": dict(build=build_reduced_dinner_table,  L=1.2, W=1.0, t=0.03),
+}
 
-# --------------------------------------------------------------------------- #
-# Material tables                                                             #
-# --------------------------------------------------------------------------- #
-# Slab materials: (E [Pa], rho [kg/m^3], nu).  sqrt(E/rho) = bending sound speed;
-# note steel and aluminium have nearly equal sqrt(E/rho) -> near-equal bending
-# frequency for the same geometry despite very different stiffness.
+# Slab materials: (E [Pa], rho, nu). sqrt(E/rho) = bending sound speed (steel and
+# aluminium are nearly equal -> near-equal bending frequency for fixed geometry).
 SLAB_MATERIALS = {
     "steel":    dict(youngs=2.0e11, density=7850.0, poisson=0.30),
     "aluminum": dict(youngs=6.9e10, density=2700.0, poisson=0.33),
     "glass":    dict(youngs=7.0e10, density=2500.0, poisson=0.22),
     "oak":      dict(youngs=1.1e10, density=700.0,  poisson=0.35),
-    "soft":     dict(youngs=5.0e8,  density=600.0,  poisson=0.30),  # scene default
+    "soft":     dict(youngs=5.0e8,  density=600.0,  poisson=0.30),
 }
 
-CARGO_MATERIALS = ["rigid", "fem_rigid", "fem", "abd"]
 
-# Shelf slab geometry (matches scenes/reduced_shelf.py defaults).
-SHELF_L, SHELF_W, SHELF_T = 0.8, 0.3, 0.03
-
-
-def eb_f1(youngs, density, poisson, L=SHELF_L, t=SHELF_T):
+def eb_f1(youngs, density, poisson, L, t):
     """Fundamental simply-supported Euler-Bernoulli bending frequency [Hz] —
-    exactly the synthetic shelf basis's lowest oscillator."""
+    exactly the synthetic basis's lowest oscillator for that scene's geometry."""
     D = youngs * t ** 3 / (12.0 * (1.0 - poisson ** 2))
     mu = density * t
     return (np.pi / L) ** 2 * np.sqrt(D / mu) / (2.0 * np.pi)
 
 
-# --------------------------------------------------------------------------- #
-# Fine-timestep modal ring-frequency measurement                              #
-# --------------------------------------------------------------------------- #
-def measure_ring_freq(mat, solver, *, iterations=16, substeps=4, hz=None,
-                      settle_s=0.30, window_s=0.5):
-    """Drop the impactor and FFT the fundamental modal coordinate q0(t) over a
-    post-impact window, sampled at `hz` (must beat 2*f to avoid aliasing).
-    Returns (measured_f1_Hz, hz_used)."""
-    f1 = eb_f1(**mat)
-    if hz is None:
-        hz = max(600.0, 24.0 * f1)         # >= ~12 samples per period
-    h = 1.0 / hz
-    H = build_reduced_shelf(device="cpu", iterations=int(iterations),
-                            avbd_substeps=int(substeps), solver=solver,
-                            h=h, **mat)
-    w = H.world
-    sol = w._solver
-    sol._modal_symplectic = True   # user default: symplectic modal step (NOT BE)
+def _set_relax(sol, solver, relax):
     if solver == "avbd":
-        getq = lambda: np.asarray(sol._q_modal_host, dtype=np.float64)
+        sol._modal_relax = float(relax)
     else:
-        getq = lambda: np.asarray(sol._q, dtype=np.float64)
+        sol.modal_relax = float(relax)
+        sol._support_block_relax = float(relax)
+
+
+def _build(build_fn, solver, build_kw, h, *, relax, freeze, symplectic=True):
+    """Build a scene and configure the solver at runtime. Returns (handle, sol)."""
+    kw = dict(device="cpu", iterations=16, avbd_substeps=4, solver=solver, h=h)
+    if build_kw:
+        kw.update(build_kw)
+    H = build_fn(**kw)
+    sol = H.world._solver
+    # frozen control runs BE (q̇≡0 ⇒ symplectic and BE coincide; avoids the
+    # symplectic-predict None-deref the committed probe also sidesteps).
+    sol._modal_symplectic = bool(symplectic) and not bool(freeze)
+    _set_relax(sol, solver, relax)
+    fz = "_modal_freeze_qdot" if solver == "avbd" else "_freeze_qdot"
+    if hasattr(sol, fz):
+        setattr(sol, fz, bool(freeze))
+    return H, sol
+
+
+def _getq(sol, solver):
+    return (np.asarray(sol._q_modal_host, dtype=np.float64) if solver == "avbd"
+            else np.asarray(sol._q, dtype=np.float64))
+
+
+# --------------------------------------------------------------------------- #
+# Modal ring-frequency measurement (fine timestep, detrended)                 #
+# --------------------------------------------------------------------------- #
+def measure_ring_freq(build_fn, solver, *, L, t, build_kw=None, relax=RELAX,
+                      f_hint=None, settle_s=0.30, window_s=0.6):
+    """FFT the fundamental modal coordinate q0(t) over a post-impact window. The
+    slow contact-settling envelope is removed by a moving-average high-pass
+    (window ~1.5 ring periods) so the FFT resolves the RING, not the drift."""
+    f1 = f_hint if f_hint else 50.0
+    hz = max(600.0, 24.0 * f1)
+    h = 1.0 / hz
+    H, sol = _build(build_fn, solver, build_kw, h, relax=relax, freeze=False)
+    w = H.world
     for _ in range(int(settle_s * hz)):
         w.step()
     n = int(window_s * hz)
     q0 = np.empty(n)
     for i in range(n):
         w.step()
-        q0[i] = getq()[0]
-    q0 = q0 - q0.mean()
-    spec = np.abs(np.fft.rfft(q0 * np.hanning(n)))
-    freqs = np.fft.rfftfreq(n, d=h)
-    f_meas = float(freqs[1 + int(np.argmax(spec[1:]))]) if n > 4 else 0.0
-    return f_meas, hz
+        q0[i] = _getq(sol, solver)[0]
+    if not np.all(np.isfinite(q0)):
+        return float("nan"), hz
+    win = max(3, int(hz / max(f1, 1.0) * 1.5))
+    if 2 * win < n:
+        trend = np.convolve(q0, np.ones(win) / win, mode="same")
+        qc = (q0 - trend)[win:-win]
+    else:
+        qc = q0 - q0.mean()
+    if qc.size < 8:
+        return float("nan"), hz
+    spec = np.abs(np.fft.rfft(qc * np.hanning(qc.size)))
+    freqs = np.fft.rfftfreq(qc.size, d=h)
+    return float(freqs[1 + int(np.argmax(spec[1:]))]), hz
 
 
 # --------------------------------------------------------------------------- #
-# Two-way ratio + energy metrics (reuses the committed probe, read-only)      #
+# Two-way coupling + energy (own freeze control, relax-aware)                 #
 # --------------------------------------------------------------------------- #
-def coupling_metrics(build_fn, solver, *, build_kw, iterations=16, substeps=4,
-                     n_frames=200):
-    """Two-way ratio (object KE peak two-way / one-way) + slab ring + impactor
-    KE + passivity, via the committed energy-loop probe (read-only)."""
-    rec2 = probe_run(build_fn, solver, iterations=iterations, substeps=substeps,
-                     n_frames=n_frames, freeze_qdot=False, build_kw=build_kw)
-    rec1 = probe_run(build_fn, solver, iterations=iterations, substeps=substeps,
-                     n_frames=n_frames, freeze_qdot=True, build_kw=build_kw)
-    m2, m1 = loop_metrics(rec2), loop_metrics(rec1)
-    ratio = (m2["ErestKE_peak"] / m1["ErestKE_peak"]
-             if m1["ErestKE_peak"] > 1e-12 else float("inf"))
+def _run_energy(build_fn, solver, *, build_kw, relax, freeze, n_frames, settle=8):
+    h = 1.0 / 120.0
+    H, sol = _build(build_fn, solver, build_kw, h, relax=relax, freeze=freeze)
+    w = H.world
+    imp = H.impactor_idx
+    books = [i for i in H.probe_indices if i != imp]
+    imp_body = w._descs[imp].dcr_body
+    book_bodies = [w._descs[b].dcr_body for b in books]
+    for _ in range(settle):
+        w.step()
+    Eimp_pk = 0.0
+    Eslab_pk = 0.0
+    obj_ke = np.zeros(len(books))
+    for _ in range(n_frames):
+        w.step()
+        Eimp_pk = max(Eimp_pk, rigid_kinetic_energy([imp_body]))
+        Eslab_pk = max(Eslab_pk, float(getattr(sol, "last_modal_KE", 0.0))
+                       + float(getattr(sol, "last_modal_PE", 0.0)))
+        for j, b in enumerate(book_bodies):
+            obj_ke[j] = max(obj_ke[j], rigid_kinetic_energy([b]))
+    finite = (np.isfinite(Eimp_pk) and np.isfinite(Eslab_pk)
+              and np.all(np.isfinite(obj_ke)))
+    return dict(Eimp=Eimp_pk, Eslab=Eslab_pk,
+                objKE=float(obj_ke.max() if obj_ke.size else 0.0),
+                finite=bool(finite))
+
+
+def coupling_metrics(build_fn, solver, *, build_kw=None, relax=RELAX, n_frames=200):
+    """Two-way ratio (object KE peak two-way / one-way) + slab ring + passivity,
+    at symplectic + the given modal relaxation."""
+    two = _run_energy(build_fn, solver, build_kw=build_kw, relax=relax,
+                      freeze=False, n_frames=n_frames)
+    one = _run_energy(build_fn, solver, build_kw=build_kw, relax=relax,
+                      freeze=True, n_frames=n_frames)
+    ratio = (two["objKE"] / one["objKE"] if one["objKE"] > 1e-12 else float("inf"))
     return dict(
         twoway_ratio=ratio,
-        Eimp_peak=m2["Eimp_peak"],
-        Eslab_peak=m2["Eslab_peak"],
-        ErestKE_peak=m2["ErestKE_peak"],
-        slab_rings=m2["slab_rings"],
-        bounces=m2["bounces"],
-        # passivity: modal ring energy injected vs impactor KE available.
-        passivity=(m2["Eslab_peak"] / m2["Eimp_peak"]
-                   if m2["Eimp_peak"] > 1e-12 else 0.0),
-        finite=m2["finite"],
+        Eimp_peak=two["Eimp"], Eslab_peak=two["Eslab"], ErestKE_peak=two["objKE"],
+        passivity=(two["Eslab"] / two["Eimp"] if two["Eimp"] > 1e-12 else 0.0),
+        finite=two["finite"] and one["finite"],
     )
