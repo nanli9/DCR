@@ -98,6 +98,40 @@ Each scene's own reduced-support geometry, default material, symplectic + relax 
   as-is, not cherry-picked.
 - Passivity < 1 everywhere.
 
+## 4. Robustness matrix  (`robustness_passivity.png`, `robustness_twoway.png`, `robustness_detune.png`)
+
+Sweeps the operating knobs and flags every unsafe config: scene{shelf,ledge,dinner}
+× solver{xpbd,avbd} × relax{0.1,0.25,0.5,0.7,1.0} × budget(iters,substeps)
+{(8,2),(16,4),(32,8)} = **90 configs**, default material, h=1/120. Flags: BLOWUP
+(non-finite or passivity>2), INJECT (1<passivity≤2), DETUNE (ring err>15%), DEAD
+(two-way<2), else OK. `robustness_matrix.csv` has every config.
+
+**Flag counts:** OK 52/90, DEAD 17, BLOWUP 10, DETUNE 9, INJECT 2.
+
+The two solvers fail in **opposite** ways — there is no single config that is both
+energy-safe and strongly coupled on every scene:
+
+- **XPBD — strong coupling, but blows up at low budget.** All **12** XPBD
+  injection/blowup configs are at budget **(8,2)** — *every one of them*; and they
+  get monotonically worse with relax (shelf passivity 1.4 → 12 → 27 → 54 → 124 as
+  relax 0.1 → 1.0). At budget ≥ (16,4) XPBD never injects (passivity 0.03–0.7) and
+  couples strongly (14–14000×). **Rule: never run XPBD at (8,2); use iters≥16,
+  substeps≥4.**
+- **AVBD — never injects, but coupling is scene-dependent.** AVBD is energy-passive
+  in **all 45** configs (passivity ≤ 0.73 everywhere, 0 BLOWUP/INJECT). Its failure
+  mode is **DEAD coupling (16 configs)**: `ledge`/AVBD essentially never transfers
+  to the resting object (two-way 0.03–0.6, and it gets *worse* with budget), and
+  shelf/dinner are DEAD at low relax/budget. AVBD also needs **relax ≥ 0.5** for
+  ring fidelity — below that the ring detunes 28–90% (`robustness_detune.png`).
+- **Detune:** XPBD rings accurately (ledge/dinner ~0%) except the noisy soft-shelf
+  (13–24%, crossing 15% near relax 0.5–0.7). AVBD detune falls below 15% only for
+  relax ≥ 0.5.
+
+**Safe operating point:** **relax 0.7, budget ≥ (16,4)** — OK for 5 of 6
+scene/solver combos. The standing exceptions are `ledge`/AVBD (rings but DEAD
+coupling) and the soft-shelf XPBD frequency noise. The single most dangerous knob
+is **low budget (8,2) under XPBD** (energy injection up to 167×).
+
 ---
 
 ## Bottom line
@@ -110,3 +144,6 @@ Each scene's own reduced-support geometry, default material, symplectic + relax 
   at 0.7 both solvers ring.
 - Remaining rough edges: the soft-shelf measurement is noisy (low freq, heavy
   damping), and ledge/AVBD rings without transferring to the resting object.
+- **Robustness is real but bounded** (§4): the two solvers fail oppositely — XPBD
+  injects energy at low budget (8,2), AVBD never injects but often fails to couple.
+  Safe envelope: **relax 0.7, iters ≥ 16, substeps ≥ 4**, avoiding XPBD at (8,2).

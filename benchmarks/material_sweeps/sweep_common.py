@@ -57,9 +57,11 @@ def _set_relax(sol, solver, relax):
         sol._support_block_relax = float(relax)
 
 
-def _build(build_fn, solver, build_kw, h, *, relax, freeze, symplectic=True):
+def _build(build_fn, solver, build_kw, h, *, relax, freeze, symplectic=True,
+           iters=16, substeps=4):
     """Build a scene and configure the solver at runtime. Returns (handle, sol)."""
-    kw = dict(device="cpu", iterations=16, avbd_substeps=4, solver=solver, h=h)
+    kw = dict(device="cpu", iterations=int(iters), avbd_substeps=int(substeps),
+              solver=solver, h=h)
     if build_kw:
         kw.update(build_kw)
     H = build_fn(**kw)
@@ -83,14 +85,16 @@ def _getq(sol, solver):
 # Modal ring-frequency measurement (fine timestep, detrended)                 #
 # --------------------------------------------------------------------------- #
 def measure_ring_freq(build_fn, solver, *, L, t, build_kw=None, relax=RELAX,
-                      f_hint=None, settle_s=0.30, window_s=0.6):
+                      f_hint=None, settle_s=0.30, window_s=0.6,
+                      iters=16, substeps=4):
     """FFT the fundamental modal coordinate q0(t) over a post-impact window. The
     slow contact-settling envelope is removed by a moving-average high-pass
     (window ~1.5 ring periods) so the FFT resolves the RING, not the drift."""
     f1 = f_hint if f_hint else 50.0
     hz = max(600.0, 24.0 * f1)
     h = 1.0 / hz
-    H, sol = _build(build_fn, solver, build_kw, h, relax=relax, freeze=False)
+    H, sol = _build(build_fn, solver, build_kw, h, relax=relax, freeze=False,
+                    iters=iters, substeps=substeps)
     w = H.world
     for _ in range(int(settle_s * hz)):
         w.step()
@@ -117,9 +121,11 @@ def measure_ring_freq(build_fn, solver, *, L, t, build_kw=None, relax=RELAX,
 # --------------------------------------------------------------------------- #
 # Two-way coupling + energy (own freeze control, relax-aware)                 #
 # --------------------------------------------------------------------------- #
-def _run_energy(build_fn, solver, *, build_kw, relax, freeze, n_frames, settle=8):
+def _run_energy(build_fn, solver, *, build_kw, relax, freeze, n_frames, settle=8,
+                iters=16, substeps=4):
     h = 1.0 / 120.0
-    H, sol = _build(build_fn, solver, build_kw, h, relax=relax, freeze=freeze)
+    H, sol = _build(build_fn, solver, build_kw, h, relax=relax, freeze=freeze,
+                    iters=iters, substeps=substeps)
     w = H.world
     imp = H.impactor_idx
     books = [i for i in H.probe_indices if i != imp]
@@ -144,13 +150,14 @@ def _run_energy(build_fn, solver, *, build_kw, relax, freeze, n_frames, settle=8
                 finite=bool(finite))
 
 
-def coupling_metrics(build_fn, solver, *, build_kw=None, relax=RELAX, n_frames=200):
+def coupling_metrics(build_fn, solver, *, build_kw=None, relax=RELAX, n_frames=200,
+                     iters=16, substeps=4):
     """Two-way ratio (object KE peak two-way / one-way) + slab ring + passivity,
     at symplectic + the given modal relaxation."""
     two = _run_energy(build_fn, solver, build_kw=build_kw, relax=relax,
-                      freeze=False, n_frames=n_frames)
+                      freeze=False, n_frames=n_frames, iters=iters, substeps=substeps)
     one = _run_energy(build_fn, solver, build_kw=build_kw, relax=relax,
-                      freeze=True, n_frames=n_frames)
+                      freeze=True, n_frames=n_frames, iters=iters, substeps=substeps)
     ratio = (two["objKE"] / one["objKE"] if one["objKE"] > 1e-12 else float("inf"))
     return dict(
         twoway_ratio=ratio,
