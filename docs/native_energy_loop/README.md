@@ -31,7 +31,23 @@ two directions are one shared constraint.
 corners of a 1 kg book sum to the supported weight to a few %:
 AVBD 9.05→9.42 N, XPBD 9.6 N vs `m·g = 9.81 N` (`/tmp/calib_probe.py`). A box has
 8 support rows; the bottom 4 carry the load, the top 4 read 0 — "the four contact
-points."
+points." The 6 kg shelf impactor likewise settles to its own weight after impact
+(4 corners × ~14.7 N ≈ 58.9 N = 6·g), with a large transient at the strike:
+XPBD 569 N, AVBD 417 N peak (`loop_*`/`percontact_*` panel 1).
+
+**Logging fix (impactor force — corrected 2026-06-30).** The force/gap extractors
+filter solver rows by SOLVER body index (`sc.bi` / `row.body_a`), but were being
+queried with DCR body indices (`impactor_idx`, `probe_indices`). The two spaces
+are offset (shelf: DCR k → solver k−1), so the resting-object panels read a
+*neighbouring* body's rows and the impactor panel — whose DCR index exceeds every
+solver index — matched nothing and read a **flat zero**. The impactor is in fact a
+tracked modal-support body (8 support rows; it is placed at contact zone
+`(0.22, 0.0)`), so its force was never zero — only mis-logged. Fixed in
+`probe_native_energy_loop.py` (`_solver_body_idx`, DCR→solver translation); no
+solver math touched. The energy/lift/two-way metrics were never affected (they
+come from real body state, not the force extractor), so Verifications 1–3 below
+are unchanged; only the per-corner force curves and the `bounces` counts (which
+read the now-correct body's gap) moved.
 
 Also logged: impactor KE `Eimp`, slab modal ring `Eslab = last_modal_KE+PE`,
 resting-object total mech energy `Erest = KE + m·g·lift` (so the launch is visible
@@ -44,7 +60,7 @@ ordered, not simultaneous — energy flows around the loop:
 
 | scene/solver | impactor dump | slab ring peak | object KE peak | object re-ring landings |
 |--------------|---------------|----------------|----------------|--------------------------|
-| shelf/xpbd   | 250 ms        | 250 ms         | **275 ms**     | 6 (258,375,417,467,508 ms) |
+| shelf/xpbd   | 250 ms        | 250 ms         | **275 ms**     | 5 (258…508 ms)            |
 | dinner/xpbd  | 250 ms        | 250 ms         | **258 ms**     | 7 (250…458 ms)            |
 | shelf/avbd   | 250 ms        | 250 ms         | 267 ms         | 1 (weak)                  |
 

@@ -101,6 +101,22 @@ def _active4(arr):
     return a[np.sort(idx)]
 
 
+def _solver_body_idx(world, dcr_idx):
+    """Map a DCR body index to its SOLVER-side body index.
+
+    The force/gap extractors filter solver rows by `sc.bi` (XPBD) / `row.body_a`
+    (AVBD), which are SOLVER body indices — NOT the DCR indices carried by the
+    scene handle (`impactor_idx`, `probe_indices`). The two spaces are offset
+    (e.g. shelf: DCR k → solver k-1), so querying by DCR index silently returned
+    the wrong body's rows for the resting objects and an EMPTY set for the
+    impactor (whose DCR index exceeds every solver index) — a flat-zero force.
+    Returns None if the body has no solver presence (genuinely no support rows).
+    """
+    desc = world._descs[dcr_idx]
+    ab = getattr(desc, "avbd_body", None)
+    return None if ab is None else int(ab.index)
+
+
 # --------------------------------------------------------------------------- #
 # One run                                                                     #
 # --------------------------------------------------------------------------- #
@@ -129,6 +145,10 @@ def run(build_fn, solver, *, iterations, substeps, n_frames=220,
     imp_body = world._descs[imp].dcr_body
     book_bodies = [world._descs[b].dcr_body for b in books]
     m_books = [b.mass for b in book_bodies]
+    # DCR -> solver body index for the force/gap extractors (BUGFIX: the solver
+    # rows are keyed by solver index, not DCR index — see _solver_body_idx).
+    imp_sidx = _solver_body_idx(world, imp)
+    book_sidx = [_solver_body_idx(world, b) for b in books]
     h = 1.0 / 120.0
 
     # settle a few frames, then snapshot each book's rest height for grav PE.
@@ -149,13 +169,13 @@ def run(build_fn, solver, *, iterations, substeps, n_frames=220,
             ke = rigid_kinetic_energy([b])
             ke_track[bi_local] = max(ke_track[bi_local], ke)
             lift = float(b.position[1]) - yb
-            ff, gg = _corner_forces_gaps(sol, solver, books[bi_local])
+            ff, gg = _corner_forces_gaps(sol, solver, book_sidx[bi_local])
             f4 = _active4(ff)
             gmin = np.nanmin(gg) if np.any(np.isfinite(gg)) else 0.0
             frame.append((ke + m * G * lift, ke, lift, gmin, f4))
         series_per_book.append(frame)
 
-        fi, _gi = _corner_forces_gaps(sol, solver, imp)
+        fi, _gi = _corner_forces_gaps(sol, solver, imp_sidx)
         rec["t"].append(f * h)
         rec["Eimp"].append(rigid_kinetic_energy([imp_body]))
         rec["Eslab"].append(float(getattr(sol, "last_modal_KE", 0.0))
