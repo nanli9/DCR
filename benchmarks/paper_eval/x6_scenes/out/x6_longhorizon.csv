@@ -1,0 +1,4 @@
+arm,max_ring_J,cum_gain_J,cum_loss_J,gain_over_loss,passive
+clamp_on,32.8504,32.8504,32.8504,1.0000,True
+clamp_off,173830.0629,,,,
+injection_ratio_off_over_on,5291.56,,,,
