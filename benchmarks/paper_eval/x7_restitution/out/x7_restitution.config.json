@@ -1,0 +1,39 @@
+{
+  "figure": "x7_restitution",
+  "stage": "X0",
+  "git_sha": "03c24fe",
+  "generated_utc": "2026-07-02T15:56:28+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "modal_table_pot_drop"
+  ],
+  "solvers": [
+    "dcr",
+    "native-xpbd"
+  ],
+  "note": "injected-vibration/contact-loss vs restitution; DCR forced-IIR vs native X1 clamp",
+  "restitutions": [
+    0.0,
+    0.3,
+    0.5,
+    0.7,
+    0.9,
+    0.95,
+    0.98,
+    0.99
+  ],
+  "native_ratio": 0.052726303419082965
+}
