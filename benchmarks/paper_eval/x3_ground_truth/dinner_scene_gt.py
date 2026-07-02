@@ -64,8 +64,8 @@ class DinnerSpec:
     alpha1: float = 1.0e-5
     # objects (x, z), half-extents (hx,hy,hz), mass — mirror reduced_dinner_table
     pot_half: tuple = (0.13, 0.065, 0.082)
-    pot_mass: float = 8.0
-    pot_drop: float = 0.20
+    pot_mass: float = 16.0        # heavier impactor (was 8) — bigger kick
+    pot_drop: float = 0.45        # faster impact (was 0.20; v_entry≈3.0 m/s)
     plate_xz: tuple = ((-0.32, -0.28), (-0.32, 0.28), (0.32, -0.28), (0.32, 0.28))
     plate_half: tuple = (0.085, 0.010, 0.085)
     plate_mass: float = 0.4
