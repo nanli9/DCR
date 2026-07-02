@@ -390,6 +390,8 @@ def run_native(
             q = getattr(sol, "_q", None)
         return np.asarray(q, dtype=np.float64).copy()
 
+    imp_body = world._descs[build.impactor_idx].dcr_body
+
     for _ in range(settle):
         world.step()
     y0 = [float(b.position[1]) for b in bystanders]
@@ -397,6 +399,7 @@ def run_native(
 
     t0 = _time.time()
     q_series, Eslab = [], []
+    imp_y, by_y = [], []                              # per-frame body trajectories
     by_ke = np.zeros(len(bystanders))
     by_lift = np.zeros(len(bystanders))
     for _ in range(n_frames):
@@ -404,6 +407,8 @@ def run_native(
         q_series.append(_q_now())
         Eslab.append(float(getattr(sol, "last_modal_KE", 0.0))
                      + float(getattr(sol, "last_modal_PE", 0.0)))
+        imp_y.append(float(imp_body.position[1]))
+        by_y.append([float(b.position[1]) for b in bystanders])
         for i, b in enumerate(bystanders):
             by_ke[i] = max(by_ke[i], rigid_kinetic_energy([b]))
             by_lift[i] = max(by_lift[i], float(b.position[1]) - y0[i])
@@ -415,5 +420,8 @@ def run_native(
     return dict(
         q=q_series, u_field=u_field, probe_defl_xz=probe_defl_xz,
         Eslab=np.array(Eslab), by_ke=by_ke, by_lift=by_lift, m_by=m_by,
+        imp_y=np.array(imp_y), by_y=np.array(by_y),
+        imp_x=scene.impactor_x, by_xs=list(xs),
+        imp_half=scene.impactor_half, by_half=scene.bystander_half,
         num_modes=int(num_modes), solver=solver, wall_s=wall,
         sim_s=n_frames * h, dt=h, rs=build.rs, modal=build.modal)
