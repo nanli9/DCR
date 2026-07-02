@@ -1,0 +1,7 @@
+capability,rigid-only,paper-DCR,native
+distant-response machinery,none,post-solve forced-IIR kick,in-solver modal DOF (two-way)
+hand-tuned response params,0,"num_modes, C/β/r0 (spatial), Rayleigh α0/α1",relax + budget (shared)
+energy-bounded (passive),n/a (rigid),"NO (double-counts, see X7)","YES (X1 clamp, ≤ loss)"
+back-reaction: support sag under load,no,no (one-way kick),yes (q co-solved)
+back-reaction: re-ring on object landing,no,no,yes
+ground-truth-validated magnitude,n/a,not shown,yes (X3)
