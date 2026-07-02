@@ -1,0 +1,3 @@
+### X1 robustness: XPBD clamp OFF vs ON ###
+  shelf   relax=0.7  4x1: passivity OFF=  6333.22 -> ON= 1.197  passive=True clamp=107/108
+  shelf   relax=0.7  8x2: passivity OFF=    53.73 -> ON= 1.011  passive=True clamp=158/216

@@ -563,6 +563,17 @@ class Solver6DOF:
         self.last_modal_KE = 0.0
         self.last_modal_PE = 0.0
         self.last_q_norm = 0.0
+        # Stage X1 — passive-energy clamp (foundation §15; passivity.py). Default
+        # OFF (behaviour-neutral); host non-cargo symplectic path only. AVBD does
+        # not inject in documented configs, so this is inert there — wired for the
+        # "both solvers" ledger guarantee and uniformity with XPBD.
+        self._enforce_modal_passivity = False
+        self._modal_eta = 1.0
+        self._psv_monitor_only = True   # AVBD is passive; monitor, don't clamp
+        self._psv_ledger = None
+        self._E_rig_pre = 0.0
+        self._E_modal_pre = 0.0
+        self._psv_x_pre = None
 
     # ---- Scene building -----------------------------------------------------
 
@@ -2160,6 +2171,21 @@ class Solver6DOF:
         frozen-q̇ counterfactual the h·q̇ⁿ term is dropped (quasi-static mode)."""
         h = float(self.dt)
         self._q_n = self._q_modal_host.copy()
+        # Stage X1: snapshot pre-substep rigid KE + positions + modal energy for
+        # the passive clamp in _modal_commit (foundation §15). Host non-cargo path.
+        if (self._enforce_modal_passivity and not self._modal_freeze_qdot
+                and self._modal_symplectic):
+            from .passivity import (rigid_mechanical_energy, modal_mech_energy,
+                                    PassivityLedger)
+            if self._psv_ledger is None:
+                self._psv_ledger = PassivityLedger(eta=float(self._modal_eta))
+            V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self.q.numpy()
+            self._psv_x_pre = self.x.numpy().copy()
+            self._E_rig_pre = rigid_mechanical_energy(
+                V, Wo, Qq, self._mass, self._inv_I_local)
+            _ke0, _pe0 = modal_mech_energy(self._qdot_modal_host,
+                                           self._q_modal_host, self._Mq, self._Kq)
+            self._E_modal_pre = _ke0 + _pe0
         h_pred = 0.0 if self._modal_freeze_qdot else h
         q_hat = self._q_n + h_pred * self._qdot_modal_host
         # DEVIATION (gravity placement, symplectic_stepper §"gravity placement"):
@@ -2295,6 +2321,46 @@ class Solver6DOF:
         self.last_modal_KE = float(0.5 * qd @ self._Mq @ qd)
         self.last_modal_PE = float(0.5 * q @ self._Kq @ q)
         self.last_q_norm = float(np.linalg.norm(q))
+
+        # ---- Stage X1: passive-energy clamp (foundation §15) ----------------
+        if (self._enforce_modal_passivity and not self._modal_freeze_qdot
+                and self._modal_symplectic and self._psv_ledger is not None
+                and self._psv_x_pre is not None):
+            from .passivity import (rigid_mechanical_energy, modal_mech_energy,
+                                    passivity_gamma)
+            V = self.v.numpy(); Wo = self.omega.numpy()
+            Qq = self.q.numpy(); Xx = self.x.numpy()
+            E_rig_post = rigid_mechanical_energy(
+                V, Wo, Qq, self._mass, self._inv_I_local)
+            grav = np.asarray(self.gravity, dtype=np.float64)
+            grav_work = 0.0
+            for _i in range(len(self._mass)):
+                if float(self._mass[_i]) <= 0.0:
+                    continue
+                grav_work += float(self._mass[_i]) * float(
+                    grav @ (Xx[_i] - self._psv_x_pre[_i]))
+            rigid_loss = (self._E_rig_pre - E_rig_post) + grav_work
+            ke_new, pe_new = modal_mech_energy(qd, q, self._Mq, self._Kq)
+            e_modal_new = ke_new + pe_new
+            budget = self._psv_ledger.deposit(rigid_loss)
+            gamma = passivity_gamma(e_modal_new, self._E_modal_pre, budget,
+                                    tol=self._psv_ledger.tol)
+            # AVBD is empirically passive (audit: passivity ≤ 0.73, never injects);
+            # its energy transfers with a 1-substep PE-leads-KE lag, so an active
+            # clamp would steal in-transit energy. Default MONITOR-ONLY: record the
+            # (unclamped) ledger to CONFIRM passivity, don't perturb the solver.
+            if self._psv_monitor_only:
+                gamma = 1.0
+            if gamma < 1.0:
+                self._q_modal_host = self._q_modal_host * gamma
+                self._qdot_modal_host = self._qdot_modal_host * gamma
+                self.q_modal.assign(self._q_modal_host.astype(np.float32))
+                e_modal_new = gamma * gamma * e_modal_new
+                self.last_modal_KE = gamma * gamma * ke_new
+                self.last_modal_PE = gamma * gamma * pe_new
+                self.last_q_norm = float(np.linalg.norm(self._q_modal_host))
+            self._psv_ledger.commit(e_modal_new - self._E_modal_pre, budget, gamma,
+                                    e_modal_now=e_modal_new)
 
     def _ensure_iir_coeffs(self, h: float) -> None:
         """Per-mode IIR coefficients (paper Eq. 10) for the damped SDOF

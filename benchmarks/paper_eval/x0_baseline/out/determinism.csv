@@ -1,0 +1,6 @@
+scene,solver,trial,twoway_ratio
+shelf,xpbd,0,14.640797
+shelf,xpbd,1,14.640797
+shelf,xpbd,2,14.640797
+
+mean,14.640797,spread_frac,0.000000,tol,0.05,pass,True
