@@ -1,3 +1,28 @@
 ### X1 robustness: XPBD clamp OFF vs ON ###
   shelf   relax=0.7  4x1: passivity OFF=  6333.22 -> ON= 1.197  passive=True clamp=107/108
   shelf   relax=0.7  8x2: passivity OFF=    53.73 -> ON= 1.011  passive=True clamp=158/216
+  shelf   relax=0.7 16x4: passivity OFF=     0.44 -> ON= 0.437  passive=True clamp=0/432
+  shelf   relax=0.7 32x8: passivity OFF=     0.47 -> ON= 0.469  passive=True clamp=0/864
+  shelf   relax=1.0  4x1: passivity OFF= 10962.07 -> ON= 1.221  passive=True clamp=107/108
+  shelf   relax=1.0  8x2: passivity OFF=   123.66 -> ON= 1.002  passive=True clamp=164/216
+  shelf   relax=1.0 16x4: passivity OFF=     0.68 -> ON= 0.679  passive=True clamp=16/432
+  shelf   relax=1.0 32x8: passivity OFF=     0.70 -> ON= 0.698  passive=True clamp=0/864
+  ledge   relax=0.7  4x1: passivity OFF= 56266.17 -> ON= 1.067  passive=True clamp=97/108
+  ledge   relax=0.7  8x2: passivity OFF=    47.43 -> ON= 1.016  passive=True clamp=96/216
+  ledge   relax=0.7 16x4: passivity OFF=     0.22 -> ON= 0.220  passive=True clamp=0/432
+  ledge   relax=0.7 32x8: passivity OFF=     0.24 -> ON= 0.239  passive=True clamp=0/864
+  ledge   relax=1.0  4x1: passivity OFF=119533.86 -> ON= 1.066  passive=True clamp=101/108
+  ledge   relax=1.0  8x2: passivity OFF=   167.69 -> ON= 1.012  passive=True clamp=98/216
+  ledge   relax=1.0 16x4: passivity OFF=     0.32 -> ON= 0.320  passive=True clamp=0/432
+  ledge   relax=1.0 32x8: passivity OFF=     0.41 -> ON= 0.411  passive=True clamp=0/864
+  dinner  relax=0.7  4x1: passivity OFF=  2415.14 -> ON= 1.042  passive=True clamp=67/108
+  dinner  relax=0.7  8x2: passivity OFF=     2.15 -> ON= 0.221  passive=True clamp=78/216
+  dinner  relax=0.7 16x4: passivity OFF=     0.22 -> ON= 0.222  passive=True clamp=0/432
+  dinner  relax=0.7 32x8: passivity OFF=     0.25 -> ON= 0.253  passive=True clamp=0/864
+  dinner  relax=1.0  4x1: passivity OFF=  5141.15 -> ON= 1.057  passive=True clamp=73/108
+  dinner  relax=1.0  8x2: passivity OFF=     2.65 -> ON= 0.193  passive=True clamp=58/216
+  dinner  relax=1.0 16x4: passivity OFF=     0.38 -> ON= 0.379  passive=True clamp=0/432
+  dinner  relax=1.0 32x8: passivity OFF=     0.42 -> ON= 0.421  passive=True clamp=0/864
+
+OFF: 12/24 cells inject (passivity>1). ON: 24/24 cells pass the ledger invariant.
+wrote robustness_clamp.csv, robustness_clamp.png to /home/nan/Desktop/DCR/benchmarks/paper_eval/x1_passivity/out/
