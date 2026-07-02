@@ -1,8 +1,14 @@
 # Paper-experiments plan — execution status
 
 Tracks `prompts/paper_experiments_execution_plan.md` (stages X0–X7). Branch
-`stageX1-native-passivity`. Honest state: what is **done + verified** vs what
+`stageX3-ground-truth`. Honest state: what is **done + verified** vs what
 **remains** (with the concrete next step, so it is not fake-completed).
+
+> **All 8 stages now have deliverables.** See **`AUDIT_BRIEF.md`** for the
+> consolidated per-stage audit + claims→evidence map. Summary: X0, X1, X3, X5,
+> X7 fully done; X2 (core), X4 (refutation), X6 (long-horizon passivity) partial
+> with the remaining pieces scoped. C2 (passive) and C3 (two-way correctness) are
+> strongly evidenced.
 
 ## Done + verified
 
