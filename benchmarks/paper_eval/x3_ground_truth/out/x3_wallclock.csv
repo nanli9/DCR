@@ -1,0 +1,4 @@
+arm,wall_s,sim_s,wall_per_sim_s
+full_fem_gt,21.364,0.728,29.366
+native_h120,3.771,1.600,2.357
+speedup_x,12.46,,

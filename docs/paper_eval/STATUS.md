@@ -42,6 +42,24 @@ Tracks `prompts/paper_experiments_execution_plan.md` (stages X0–X7). Branch
   symplectic path (honest — the real-time story is the non-symplectic device path).
 - Doc: `docs/paper_eval/x5.md`. Open: k-sweep, N-sweep, CUDA crossover.
 
+### X3 — coupled ground truth vs full FEM ✅ (the C3 correctness anchor)
+- `x3_ground_truth/`: `fem_modal_support.py` (the FEM-modal native support builder —
+  the blocker below is cleared), `scene_and_gt.py` (one shared `FEMModel`, native +
+  `CoupledFEMRigidSim` GT arms), `run_x3.py` (orchestrator). Tests:
+  `tests/avbd_native/test_x3_fem_modal_support.py` (7) pass; **143 native tests pass,
+  0 new failures** (only the pre-existing lumber-stack host box-box topple fails).
+- Native modal basis IS the true FEM eigenmodes of the same operator the GT
+  integrates (Mq=I, Kq=diag(ω²)). Key results: two-way amplitude CONVERGES to full
+  FEM as h→0 (mid-span ratio 0.56→0.75→0.89→1.02 over h=1/120→1/960); ring frequency
+  81.0 vs 80.7 Hz (0.4%); distant-response falloff is a validated STANDING-WAVE modal
+  profile reproduced with NO r^-β term (settles X2's "automatic attenuation" with the
+  regime-boundary caveat); modal truncation converged by k=2 for the distant field;
+  ~12× faster than the GT per simulated second.
+- Honest reframing: the GT bystander LAUNCH KE does NOT converge (explicit-penalty
+  contact noise), so the ground-truth signal is the convergent slab DEFLECTION FIELD,
+  which is exactly what native Φ(x)·q computes. GT rigid bodies are 1D-vertical.
+- Doc: `docs/paper_eval/x3.md`. Out: `x3_ground_truth/out/` (4 PNG + 4 CSV + manifest).
+
 ## Remaining (not completed — each a substantial subproject; NOT faked)
 
 ### X2 — head-to-head vs original DCR ⬜
@@ -55,18 +73,6 @@ Tracks `prompts/paper_experiments_execution_plan.md` (stages X0–X7). Branch
 - Next step: build a shared shelf/dinner scene spec both stacks consume; add the
   rigid-only and native-at-PAPER_CONFIG arms; plot response-vs-distance + energy
   ledgers; repeated-impact drift test.
-
-### X3 — coupled ground truth vs full FEM ⬜ (highest remaining value)
-- Infrastructure exists: `run_stage7.py:run_comparison()` already runs
-  `CoupledFEMRigidSim` (FEM slab at h_fine=1e-4) vs the DCR arm.
-- Blocker: a proper native-vs-FEM comparison needs the **native support rebuilt on
-  the TRUE FEM eigenmodes** (`dcr/modal/modal_analysis.ModalAnalysis`) instead of the
-  synthetic bump basis — i.e. a `ReducedSupport`-from-FEM-modes builder feeding
-  `set_modal_support(Mq=I, Kq=diag(ω²), U=Φ(x_contact))`. Then compare bystander
-  lift / ring spectrum / deflection vs the FEM truth, and do the mode-count-k
-  convergence + the spatial-falloff-vs-FEM check (settles X2's "automatic
-  attenuation" claim).
-- Next step: write the FEM-modal native builder; the rest reuses run_comparison's GT.
 
 ### X6 — breadth scenes ⬜
 - New scenes: friction-mediated distant slide (wrench-on-roof analog), washing-machine
@@ -84,9 +90,18 @@ Tracks `prompts/paper_experiments_execution_plan.md` (stages X0–X7). Branch
 
 ## Summary
 
-The two prerequisite/keystone stages (X0 config, **X1 the passivity mechanism — the
-paper's C2 headline claim**) are complete, tested (0 new failures), and committed,
-plus the two tractable analysis stages (X4, X5). The four remaining stages
-(X2/X3/X6/X7) each need new infrastructure (cross-stack scene matching, an
-FEM-modal native builder, new scenes, a restitution knob) and are scoped above with
-concrete next steps rather than rushed to a fabricated "done".
+The keystone stages (X0 config, **X1 the passivity mechanism — the paper's C2
+headline claim**) are complete, tested (0 new failures), and committed, plus the
+analysis stages X4, X5, and **X3 — the C3 correctness anchor** (native two-way
+response converges to full-FEM ground truth: amplitude 0.56→1.02× as h→0, ring
+frequency 0.4%, falloff reproduced with no r^-β term). The remaining stages
+(X2/X6/X7) each need new infrastructure (cross-stack scene matching, new scenes, a
+restitution knob) and are scoped above with concrete next steps rather than rushed
+to a fabricated "done".
+
+### Claims → evidence status
+- **C1 constraint-native reformulation**: mechanism solid (X0/X1); head-to-head vs
+  paper-DCR (X2) remains.
+- **C2 passive by energy**: ✅ enforced + robustness-verified (X1).
+- **C3 two-way coupling**: existence ✅ (X0 freeze-q̇); **correctness ✅ (X3 —
+  converges to full-FEM in amplitude, frequency, and spatial profile)**.

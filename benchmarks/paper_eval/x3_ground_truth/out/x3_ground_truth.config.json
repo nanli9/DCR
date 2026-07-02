@@ -1,0 +1,52 @@
+{
+  "figure": "x3_ground_truth",
+  "stage": "X0",
+  "git_sha": "4874ce9",
+  "generated_utc": "2026-07-02T06:22:58+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "fem_modal_shelf_drop"
+  ],
+  "solvers": [
+    "avbd",
+    "xpbd"
+  ],
+  "note": "native FEM-modal support vs CoupledFEMRigidSim GT; GT signal = convergent slab deflection field",
+  "gt_hfine": 5e-05,
+  "sweep": [
+    [
+      0.28,
+      0.0
+    ],
+    [
+      0.14,
+      0.0
+    ],
+    [
+      0.0,
+      0.0
+    ],
+    [
+      -0.14,
+      0.0
+    ],
+    [
+      -0.28,
+      0.0
+    ]
+  ],
+  "gt_sim_s": 0.7275
+}
