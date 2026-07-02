@@ -1,0 +1,19 @@
+### X4 chatter ↔ ring correlation @ PAPER_CONFIG ###
+  shelf  /xpbd: rebounds= 8  ring= 12639.5mJ  Fimp_peak=   640N  two-way= 14.64x  objKE= 440.3mJ
+Warp 1.13.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 3060 Laptop GPU" (6 GiB, sm_86, mempool enabled)
+   Kernel cache:
+     /home/nan/.cache/warp/1.13.0
+Module dcr.avbd._solver.kernels_6dof 30217d3 load on device 'cpu' took 1.23 ms  (cached)
+  shelf  /avbd: rebounds=10  ring= 17765.1mJ  Fimp_peak=   563N  two-way=  6.18x  objKE= 225.5mJ
+  ledge  /xpbd: rebounds= 3  ring= 84670.3mJ  Fimp_peak=  7072N  two-way= 97.61x  objKE=  93.4mJ
+  ledge  /avbd: rebounds= 6  ring= 67040.5mJ  Fimp_peak=  8252N  two-way=  0.59x  objKE=   1.9mJ
+  dinner /xpbd: rebounds=35  ring=  8568.4mJ  Fimp_peak=   229N  two-way= 40.90x  objKE=  54.7mJ
+  dinner /avbd: rebounds=28  ring= 16358.9mJ  Fimp_peak=   350N  two-way= 46.58x  objKE=  54.5mJ
+
+corr(impactor rebounds, slab ring energy) = -0.66 across 6 scene-solver runs
+mean impactor rebounds: XPBD=15.3  AVBD=14.7
+wrote chatter.csv to /home/nan/Desktop/DCR/benchmarks/paper_eval/x4_divergence/out/

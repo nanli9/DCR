@@ -1,0 +1,17 @@
+### X5 perf @ PAPER_CONFIG (CPU host, 100 frames) ###
+  shelf  /xpbd: nb=6 modes=16  mean= 41.40ms worst= 65.02ms  modal+=-26.64ms clamp+= 1.30ms   24.2 steps/s
+Warp 1.13.0 initialized:
+   CUDA Toolkit 12.9, Driver 13.2
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 3060 Laptop GPU" (6 GiB, sm_86, mempool enabled)
+   Kernel cache:
+     /home/nan/.cache/warp/1.13.0
+Module dcr.avbd._solver.kernels_6dof 30217d3 load on device 'cpu' took 1.93 ms  (cached)
+  shelf  /avbd: nb=6 modes=16  mean= 31.37ms worst= 35.56ms  modal+= 0.97ms clamp+= 0.95ms   31.9 steps/s
+  ledge  /xpbd: nb=5 modes=16  mean= 70.26ms worst= 95.68ms  modal+=-7.57ms clamp+= 1.66ms   14.2 steps/s
+  ledge  /avbd: nb=5 modes=16  mean= 28.75ms worst= 30.00ms  modal+=-0.30ms clamp+= 1.66ms   34.8 steps/s
+  dinner /xpbd: nb=17 modes=24  mean=162.39ms worst=224.19ms  modal+=-23.29ms clamp+= 1.61ms    6.2 steps/s
+  dinner /avbd: nb=17 modes=24  mean= 58.26ms worst= 70.83ms  modal+=-5.74ms clamp+= 2.16ms   17.2 steps/s
+
+0/6 scene-solver configs are real-time at 120 Hz (≤ 8.33 ms/step). wrote perf.csv

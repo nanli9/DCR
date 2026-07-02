@@ -1,0 +1,7 @@
+scene,solver,nb,modes,mean_ms,worst_ms,rigid_ms,modal_overhead_ms,clamp_overhead_ms,steps_per_s
+shelf,xpbd,6,16,41.4,65.02,68.04,-26.64,1.302,24.15
+shelf,avbd,6,16,31.37,35.56,30.4,0.9688,0.9489,31.88
+ledge,xpbd,5,16,70.26,95.68,77.83,-7.567,1.661,14.23
+ledge,avbd,5,16,28.75,30,29.05,-0.2953,1.657,34.78
+dinner,xpbd,17,24,162.4,224.2,185.7,-23.29,1.611,6.158
+dinner,avbd,17,24,58.26,70.83,63.99,-5.736,2.164,17.16

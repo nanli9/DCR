@@ -1,0 +1,7 @@
+scene,solver,impactor_rebounds,slab_ring_mJ,slab_rings,Fimp_peak_N,twoway_ratio,objKE_mJ
+shelf,xpbd,8,1.264e+04,23,639.8,14.64,440.3
+shelf,avbd,10,1.777e+04,4,562.5,6.184,225.5
+ledge,xpbd,3,8.467e+04,4,7072,97.61,93.37
+ledge,avbd,6,6.704e+04,2,8252,0.5907,1.89
+dinner,xpbd,35,8568,2,228.9,40.9,54.67
+dinner,avbd,28,1.636e+04,3,350.5,46.58,54.47
