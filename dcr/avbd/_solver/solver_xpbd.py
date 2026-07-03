@@ -326,6 +326,12 @@ class SolverXPBD:
         self._support: list[_SupportContact] = []
         self.last_modal_KE = 0.0
         self.last_modal_PE = 0.0
+        # Stage X1 — passive-energy clamp (foundation §15; dcr/avbd/_solver/passivity.py).
+        # Default OFF (behaviour-neutral); the paper harness turns it on. Host path only.
+        self._enforce_modal_passivity = False
+        self._modal_eta = 1.0
+        self._psv_ledger = None
+        self._E_rig_pre = 0.0
         # Cargo (Stage 4): augmented modal vector Q = [q_support; a_cargo…].
         self._cargo: dict = {}        # body_idx -> cargo body model
         self._cargo_a: dict = {}      # body_idx -> (k,) amplitude
@@ -452,6 +458,8 @@ class SolverXPBD:
         else:
             self._modal_grav_acc = self._wq * np.asarray(f_q_grav, dtype=np.float64)
         self._modal = True
+        from .passivity import PassivityLedger
+        self._psv_ledger = PassivityLedger(eta=float(self._modal_eta))
 
     def add_support_contact_corner(
         self,
@@ -1036,6 +1044,20 @@ class SolverXPBD:
         x_prev = X.copy()
         q_prev = Q.copy()
 
+        # Stage X1: snapshot rigid KE + modal energy at substep start, for the
+        # passive-energy clamp at substep end (foundation §15). Host path only.
+        _psv = (self._modal and self._enforce_modal_passivity
+                and not self._freeze_qdot)
+        if _psv:
+            from .passivity import rigid_mechanical_energy, modal_mech_energy
+            # Pure rigid KE at substep start (gravity handled reversibly via its
+            # work below, so free ballistic motion registers zero contact loss).
+            self._E_rig_pre = rigid_mechanical_energy(
+                V, W, Q, self._mass, self._invIl)
+            _ke0, _pe0 = modal_mech_energy(self._qdot, self._q,
+                                           self._mq, self._kq)
+            self._E_modal_pre = _ke0 + _pe0
+
         # ---- predict (inertial) -----------------------------------------
         for i in range(n):
             if invm[i] == 0.0:
@@ -1172,6 +1194,43 @@ class SolverXPBD:
 
         self._last_max_penetration = max(
             (self._penetration(c) for c in contacts), default=0.0)
+
+        # ---- Stage X1: passive-energy clamp (foundation §15) ----------------
+        # Now that the velocity solve has finalised the rigid velocities, measure
+        # the rigid KE lost this substep and scale q̇ so the modal-energy gain fits
+        # η·(rigid loss). Inert (α=1) unless the substep injects. See passivity.py.
+        if _psv:
+            from .passivity import (rigid_kinetic_energy, modal_mech_energy,
+                                    passivity_gamma)
+            E_rig_post = rigid_kinetic_energy(V, W, Q, self._mass, self._invIl)
+            # Contact-dissipated rigid energy = gravity work − ΔKE (foundation §15).
+            # Zero for free ballistic motion (KE change == gravity work); positive
+            # only when the contact/velocity solve inelastically removes KE. This is
+            # the reservoir's ONLY funding source, so a bouncing impactor cannot
+            # over-credit the budget with its reversible gravitational PE.
+            grav_work = 0.0
+            for _i in range(n):
+                if invm[_i] == 0.0:
+                    continue
+                grav_work += self._mass[_i] * float(
+                    self.gravity @ (X[_i] - x_prev[_i]))
+            rigid_loss = (self._E_rig_pre - E_rig_post) + grav_work
+            ke_new, pe_new = modal_mech_energy(self._qdot, self._q,
+                                               self._mq, self._kq)
+            e_modal_new = ke_new + pe_new
+            budget = self._psv_ledger.deposit(rigid_loss)   # reservoir += η·loss
+            gamma = passivity_gamma(e_modal_new, self._E_modal_pre, budget,
+                                    tol=self._psv_ledger.tol)
+            if gamma < 1.0:
+                # project the over-shot modal state onto the passive manifold
+                self._q = self._q * gamma
+                self._qdot = self._qdot * gamma
+                e_modal_new = gamma * gamma * e_modal_new
+                self.last_modal_KE = gamma * gamma * ke_new
+                self.last_modal_PE = gamma * gamma * pe_new
+            dE_modal = e_modal_new - self._E_modal_pre
+            self._psv_ledger.commit(dE_modal, budget, gamma,
+                                    e_modal_now=e_modal_new)
 
     # -- contact generation -------------------------------------------------
     def _collect_contacts(self) -> list[_Contact]:
