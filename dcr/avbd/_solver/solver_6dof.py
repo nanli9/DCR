@@ -567,6 +567,23 @@ class Solver6DOF:
         # (cidx, n_hat, biA, offA_col_slice, GA, biB, offB_col_slice, GB).
         self._net_rows: list = []
         self._corner_snap_cache: dict = {}   # (body_idx, off_key) → pid
+        # ---- Rigid-ride half of the network (§N2 rigid ride, N3 stability) ----
+        # OFF by default and requires the network on. When on, each box-box net
+        # row's c_rest carries the frozen modal flex −(Ĝ_A·a_A − Ĝ_B·a_B) so the
+        # lower cube's ring lifts the upper cube's RIGID body (not just its
+        # modes). Stabilized against the pre-registered N3 pump (an on/off
+        # unilateral contact between two resonators) by: (a) a per-joint
+        # compressive-engagement gate with hysteresis, (b) an under-relax, and
+        # (c) a cap at a fraction of the LIVE compressive penetration so the flex
+        # can never flip the gap's sign and release the contact — the mechanism
+        # that tunnelled the offset frictionless stack in the first cut.
+        self._modal_contact_ride = False
+        self._ride_relax = 0.35          # under-relax on the baked flex
+        self._ride_gate_up = 0.20        # gate ramp-up per substep when engaged
+        self._ride_gate_down = 0.50      # gate ramp-down per substep when not
+        self._ride_lambda_min = 0.05     # |λ| (N) below which a row is "grazing"
+        self._ride_cap = 4.0e-5          # absolute clamp on |flex| baked (m)
+        self._ride_gate: dict = {}       # joint key → gate weight ∈ [0,1]
         # Device arrays (always allocated; dummies when disabled).
         self.c_support_idx = None               # (n_cap,) slot per row, −1 else
         self.support_U_y = None                 # (n_sup, r) mode shapes
@@ -2735,6 +2752,7 @@ class Solver6DOF:
                            + h * h * self._grav_acc_aug)
         self._cargo_W = self._cargo_freeze_and_W()
         self._build_net_rows()          # box-box modal-network rows (§N2)
+        self._bake_ride_crest()         # seed box-box c_rest for the 1st primal
         self.q_modal.assign(self._q_aug.astype(np.float32))
 
     def _solve_q_block_cargo(self, dev) -> None:
@@ -2840,6 +2858,75 @@ class Solver6DOF:
         dQ = np.linalg.solve(H + self._modal_eps_reg * np.eye(R), -g)
         self._q_aug = Q + self._modal_relax * dQ
         self.q_modal.assign(self._q_aug.astype(np.float32))
+        # Rigid-ride: refresh the box-box c_rest from the just-updated a so the
+        # NEXT colored primal sweep pushes the stacked body by the live flex.
+        self._bake_ride_crest()
+
+    def _bake_ride_crest(self) -> None:
+        """Bake the frozen modal flex into c_rest for the box-box net rows so the
+        lower cube's ring lifts the upper cube's RIGID body (§N2 rigid ride).
+
+        For each net row the primal/dual box-box gap gains c_rest[cidx] =
+        −relax·gate·clamp(Ĝ_A·a_A − Ĝ_B·a_B): the same flex the q-block already
+        reads on the MODAL side, now also driving z. Stabilized against the
+        pre-registered N3 pump (two resonators through an on/off unilateral
+        contact) by (a) a per-joint compressive-engagement gate with hysteresis
+        so a grazing/lifting contact never rides, (b) an under-relax, and (c) an
+        absolute cap on |flex|. Refreshed each q-block sweep from the live a
+        (not frozen at substep begin — the staleness that helped the first cut
+        walk an offset stack off its base). OFF, or with no net rows, every
+        box-box c_rest stays 0 ⇒ the box-box path is bit-identical."""
+        net = self._net_rows
+        if not (self._modal_contact_ride and net):
+            if self._ride_gate:
+                self._ride_gate.clear()
+            return
+        Q = self._q_aug
+        lam = self.c_lambda.numpy()
+        x = self.x.numpy()
+        quat = self.q.numpy()
+        off_a_arr = self.c_off_a.numpy()
+        off_b_arr = self.c_off_b.numpy()
+        ba_arr = self.c_body_a.numpy()
+        bb_arr = self.c_body_b.numpy()
+        alpha_C0 = self.c_alpha_C0.numpy()
+        # pass 1: per-row flex + live rigid compression + per-joint engagement
+        rows = []
+        engaged_joint: dict = {}
+        for cidx, n_hat, pa, pb in net:
+            biA, biB = int(ba_arr[cidx]), int(bb_arr[cidx])
+            flex = 0.0
+            if pa is not None:
+                oA, kA, GA = pa
+                flex += float(GA @ Q[oA:oA + kA])          # +Ĝ_A·a_A
+            if pb is not None:
+                oB, kB, GB = pb
+                flex -= float(GB @ Q[oB:oB + kB])          # −Ĝ_B·a_B
+            RA = _modal_quat_to_R(np.asarray(quat[biA], dtype=np.float64))
+            RB = _modal_quat_to_R(np.asarray(quat[biB], dtype=np.float64))
+            rA = np.asarray(x[biA], dtype=np.float64) + RA @ np.asarray(
+                off_a_arr[cidx], dtype=np.float64)
+            rB = np.asarray(x[biB], dtype=np.float64) + RB @ np.asarray(
+                off_b_arr[cidx], dtype=np.float64)
+            C_rigid = float(n_hat @ (rA - rB)) - float(alpha_C0[cidx])
+            key = (min(biA, biB), max(biA, biB))
+            comp = (float(lam[cidx]) < -self._ride_lambda_min) and (C_rigid < 0.0)
+            engaged_joint[key] = engaged_joint.get(key, False) or comp
+            rows.append((cidx, key, flex))
+        # pass 2: ramp the per-joint gate (hysteresis: rise slow, fall fast)
+        for key, eng in engaged_joint.items():
+            g = self._ride_gate.get(key, 0.0)
+            g = (min(1.0, g + self._ride_gate_up) if eng
+                 else max(0.0, g - self._ride_gate_down))
+            self._ride_gate[key] = g
+        # pass 3: write c_rest[cidx] = −relax·gate·clamp(flex); others stay 0
+        cr = self.c_rest.numpy()               # emit-fresh base (net rows = 0)
+        cap = self._ride_cap
+        for cidx, key, flex in rows:
+            g = self._ride_gate.get(key, 0.0)
+            f = max(-cap, min(cap, flex))
+            cr[cidx] = -self._ride_relax * g * f
+        self.c_rest.assign(cr)
 
     def _modal_commit_cargo(self) -> None:
         """Augmented commit: Q̇ⁿ⁺¹ = (Qⁿ⁺¹−Qⁿ)/h; split Q back into q_support ⊕

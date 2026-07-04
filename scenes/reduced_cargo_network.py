@@ -70,6 +70,8 @@ def _cube(kind, size, E, rho, n_elastic):
 def build_cargo_network_scene(
     *,
     network: bool = True,
+    ride: bool = False,             # §N2 rigid-ride: lower cube's flex lifts the
+                                    # upper's RIGID body (needs friction; N3 gate)
     kind: str = "fem_rigid",        # cube material (rigid | fem_rigid | fem | abd)
     h: float = 1.0 / 120.0,
     device: str = "cpu",
@@ -155,6 +157,7 @@ def build_cargo_network_scene(
         world.add_native_cargo(idx[name], cubes[name], allow_stacked=True)
 
     world._solver._modal_contact_network = bool(network)
+    world._solver._modal_contact_ride = bool(ride)   # §N2 rigid ride (N3)
     return CargoNetworkHandle(
         world=world, rs=rs, cubes=cubes, avbd_idx=idx,
         support_top=support_top, support_length=support_length,
