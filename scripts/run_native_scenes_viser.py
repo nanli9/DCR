@@ -234,6 +234,10 @@ class UnifiedViser:
         # the ring of the cube under it through the box-box modal network. ON by
         # default; toggle live to see the upper cube's flex appear/vanish.
         self.network = not bool(getattr(args, "no_network", False))
+        # §N2 rigid ride: the lower cube's flex also lifts the upper cube's RIGID
+        # body (not just its modes). Default OFF (requires the network + friction;
+        # frictionless-offset drops can tunnel — the N3 gate).
+        self.ride = bool(getattr(args, "ride", False))
         self.show_proxy = False
         self.static_view = False
         self._pending_rebuild = False
@@ -314,7 +318,8 @@ class UnifiedViser:
             # fed by the ring of the cube under it. AVBD-only (network is native
             # to Solver6DOF); its own kwarg names, so build it directly.
             self.handle = build_cargo_network_scene(
-                network=self.network, kind=self.kind, device=self.device,
+                network=self.network, ride=self.ride, kind=self.kind,
+                device=self.device,
                 solver="avbd", iterations=int(self.knob_iters),
                 substeps=int(self.knob_subs),
                 support_thickness=float(self.knob_thickness),
@@ -519,6 +524,17 @@ class UnifiedViser:
                          "only contact (box-box) carries no modal column ⇒ inert. "
                          "Raise 'cube flex ×' to ~250 to see it.")
                 self.gui_network.on_update(self._network_changed)         # live
+                self.gui_ride = g.add_checkbox(
+                    "rigid ride (flex lifts the stacked body)",
+                    initial_value=self.ride,
+                    hint="§N2 rigid-ride (live, cargo scene, AVBD): the box-box "
+                         "gap also reads the flex, so the stacked cube's RIGID "
+                         "body responds to the ring beneath it (not just its "
+                         "modes). Stable with friction; needs the network on. "
+                         "NOTE: the effect is ~15µm, BELOW the contact jitter — "
+                         "sub-visible live; verify it via the ON−OFF difference "
+                         "in docs/network/network_ride.png.")
+                self.gui_ride.on_update(self._ride_changed)               # live
         with g.add_folder("Visualization"):
             self.gui_cube_exag = g.add_slider(
                 "cube flex ×", 1.0, _EXAG_MAX, 1.0, self.cube_exag,
@@ -650,6 +666,16 @@ class UnifiedViser:
         sol = self.world._solver
         if hasattr(sol, "_modal_contact_network"):
             sol._modal_contact_network = self.network
+            sol._graph = None                       # force CUDA-graph recapture
+
+    def _ride_changed(self, _evt):
+        """Toggle the §N2 rigid ride live (the box-box gap reads the flex, so the
+        stacked body responds to the ring). Read each q-block sweep
+        (`_bake_ride_crest`), so no rebuild is needed."""
+        self.ride = bool(self.gui_ride.value)
+        sol = self.world._solver
+        if hasattr(sol, "_modal_contact_ride"):
+            sol._modal_contact_ride = self.ride
             sol._graph = None                       # force CUDA-graph recapture
 
     def _render_thick_changed(self, _evt):
@@ -806,6 +832,11 @@ def main():
     ap.add_argument("--no-network", action="store_true",
                     help="cargo scene only: start with the §N2 box-box modal "
                          "network OFF (the stacked cube inert). Default ON. "
+                         "Toggle live in the GUI.")
+    ap.add_argument("--ride", action="store_true",
+                    help="cargo scene only: start with the §N2 rigid ride ON "
+                         "(the lower cube's flex also lifts the stacked cube's "
+                         "RIGID body). Default OFF; needs the network + friction. "
                          "Toggle live in the GUI.")
     ap.add_argument("--cube-exag", type=float, default=1.0,
                     help="initial cube-flex render exaggeration (1 = true scale)")

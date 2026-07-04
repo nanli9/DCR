@@ -517,6 +517,16 @@ def primal_update_6dof(
                 j_ang = -wp.cross(r_self_w, n_hat)
             n_for_G = n_hat
             have_G = True
+            # Rigid-ride (§N2 unified gap): the deformed contact point of each
+            # participant is x + R(r̄ + Φa), so the true gap is
+            #   C = n̂·(p_A − p_B) = C_rigid + (Ĝ_A·a_A − Ĝ_B·a_B).
+            # c_rest[cj] = −(Ĝ_A·a_A − Ĝ_B·a_B), gated/relaxed/penetration-capped
+            # host-side (_bake_ride_crest) so the lower cube's flex lifts the
+            # stacked body WITHOUT ever releasing a compressive contact (N3
+            # stability gate). Zero for every box-box row unless the modal
+            # contact ride is on ⇒ bit-identical otherwise.
+            # DEVIATION: frozen-per-iteration corner-snapped Φ (N2 sampling).
+            C = C - c_rest[cj]
         elif t == SUPPORT_CONTACT_6DOF:
             # The body rests on the deformed modal surface (foundation
             # "Contact as a constraint on (z, q)"). Body Jacobian is the FLOOR
@@ -1540,6 +1550,7 @@ def dual_update_6dof(
         n_hat = c_world_anchor[j]
         C = eval_box_box_C(x[c_body_a[j]], q[c_body_a[j]], c_off_a[j],
                            x[c_body_b[j]], q[c_body_b[j]], c_off_b[j], n_hat)
+        C = C - c_rest[j]      # rigid-ride flex (§N2), 0 unless the ride is on
     elif t == SUPPORT_CONTACT_6DOF:
         # g = corner_y − (y_rest + U_y·q): same live modal surface as primal.
         sidx = c_support_idx[j]
