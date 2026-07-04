@@ -2,7 +2,10 @@
 
 One viewer over the full matrix (native dual-solver build):
 
-  * scene    — cargo (single deformable cube on the support) | the four
+  * scene    — cargo (§N2 modal-network stack: FIVE deformable cubes on the
+               support — a resting cube, a dropped impactor, and an offset
+               3-high stack where the ring climbs the tower cube-to-cube through
+               the box-box modal network; live ON/OFF toggle) | the four
                production scenes truck / ledge / shelf / dinner (a deformable
                impactor + rigid bystanders on the reduced-modal support).
   * solver   — avbd (SolverAVBD, Augmented-Lagrangian) | xpbd (SolverXPBD,
@@ -59,7 +62,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scenes.reduced_fem_rigid_cargo import build_cargo_scene
+from scenes.reduced_cargo_network import build_cargo_network_scene
 from scenes.reduced_truck import build_reduced_truck
 from scenes.reduced_ledge import build_reduced_ledge
 from scenes.reduced_shelf import build_reduced_shelf
@@ -113,8 +116,8 @@ def _mat_color_u8(material: str) -> tuple:
 # on a scene change). `mass`/`drop`/`v0` map onto whichever kwarg the builder
 # exposes (impactor_* / pot_* / drop_height) — filtered by signature at build.
 SCENE_SPEC = {
-    "cargo":  dict(label="cube",    thickness=0.020, mass=None, mass_rng=(0.1, 5.0),
-                   drop=0.04, drop_rng=(0.0, 1.0), v0=0.0,  iters=8, subs=4,
+    "cargo":  dict(label="impactor", thickness=0.020, mass=None, mass_rng=(0.1, 5.0),
+                   drop=0.22, drop_rng=(0.0, 0.8), v0=0.0,  iters=12, subs=4,
                    material="wood"),
     "truck":  dict(label="crate",   thickness=0.060, mass=40.0, mass_rng=(1.0, 120.0),
                    drop=0.70, drop_rng=(0.0, 2.0), v0=0.0,  iters=8, subs=4,
@@ -226,6 +229,11 @@ class UnifiedViser:
         self.speed = 0.5
         self.cube_exag = float(args.cube_exag)
         self.support_exag = float(args.support_exag)
+        # Modal contact network (§N2): the cargo scene is a 4-cube stack demo
+        # (resting cube | impactor | offset stack) where the stacked cube feels
+        # the ring of the cube under it through the box-box modal network. ON by
+        # default; toggle live to see the upper cube's flex appear/vanish.
+        self.network = not bool(getattr(args, "no_network", False))
         self.show_proxy = False
         self.static_view = False
         self._pending_rebuild = False
@@ -268,6 +276,8 @@ class UnifiedViser:
         # is the documented abd → AVBD fallback (abd's stiff nonlinear V⊥ is the
         # XPBD caveat; _effective_solver handles it).
         eff = _effective_solver(self.solver, self.kind)
+        if self.scene == "cargo":
+            eff = "avbd"     # the box-box modal network is AVBD-native (XPBD = N5)
         self._eff_solver = eff
         rd = self.device.startswith("cuda")
         mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
@@ -299,24 +309,37 @@ class UnifiedViser:
             cand["impactor_mass"] = float(self.knob_mass)
             cand["pot_mass"] = float(self.knob_mass)
         if self.scene == "cargo":
-            cand["spin"] = float(self.args.spin)
-            cand["kind"] = self.kind          # cargo takes the material positionally
-            builder = build_cargo_scene
+            # The cargo scene is the §N2 modal-network stack: 4 deformable cubes
+            # (resting | impactor | offset stack) on the slab, the stacked cube
+            # fed by the ring of the cube under it. AVBD-only (network is native
+            # to Solver6DOF); its own kwarg names, so build it directly.
+            self.handle = build_cargo_network_scene(
+                network=self.network, kind=self.kind, device=self.device,
+                solver="avbd", iterations=int(self.knob_iters),
+                substeps=int(self.knob_subs),
+                support_thickness=float(self.knob_thickness),
+                support_youngs=float(mat.youngs),
+                support_density=float(mat.density),
+                impactor_drop=float(self.knob_drop), device_resident=rd)
         else:
             builder = _PROD[self.scene]
-        params = inspect.signature(builder).parameters
-        # filter to what each (heterogeneous) builder actually accepts: cargo
-        # takes `kind`, the production scenes take `cargo_material`, dinner has
-        # no support_thickness / impactor_v0, etc.
-        kwargs = {k: v for k, v in cand.items() if k in params}
-        self.handle = builder(**kwargs)
+            params = inspect.signature(builder).parameters
+            # filter to what each (heterogeneous) builder actually accepts: the
+            # production scenes take cargo_material, dinner has no
+            # support_thickness / impactor_v0, etc.
+            kwargs = {k: v for k, v in cand.items() if k in params}
+            self.handle = builder(**kwargs)
         self.rs = self.handle.rs
         self.world = self.handle.world
         # No coupler: both solvers are native. The deformable cube state and all
         # HUD diagnostics come from self.world._solver directly.
-        self._cargo_idx = (getattr(self.handle, "avbd_idx", None)
-                           if self.scene == "cargo"
-                           else getattr(self.handle, "cargo_avbd_idx", None))
+        # HUD cargo index: the STACKED (upper) cube for the network cargo scene —
+        # the one whose |a| the network makes ring; the impactor's cargo idx
+        # otherwise.
+        if self.scene == "cargo":
+            self._cargo_idx = self.handle.avbd_idx["upper"]
+        else:
+            self._cargo_idx = getattr(self.handle, "cargo_avbd_idx", None)
         if self._cargo_idx is None:
             self._cargo_idx = getattr(self.rs, "_native_cargo_avbd_idx", None)
         self._q_static = self.rs.q.copy()
@@ -330,15 +353,20 @@ class UnifiedViser:
         self._make_meshes()
 
     def _collect_render(self):
-        """Build the box list (rigid bystanders) + the deformable impactor."""
-        self._boxes = []     # (avbd_idx, half, color_u8)
-        self._deform = None  # (cube, avbd_idx, color_u8)
-        self._deform_half = None
+        """Build the rigid-box list + the LIST of deformable cargo cubes. The
+        cargo scene has FOUR deformables (the modal-network stack); the
+        production scenes have one (the impactor) + rigid bystanders."""
+        self._boxes = []      # (avbd_idx, half, color_u8)
+        self._deforms = []    # list of {name, cube, idx, col, half}
         if self.scene == "cargo":
-            h = self.handle.cube.half_extent
-            self._deform = (self.handle.cube, self.handle.avbd_idx,
-                            _CUBE_COLOR[self.kind])
-            self._deform_half = (h, h, h)
+            # colour the two STACKED (box-box-only) cubes warm (the eye tracks
+            # the ring climbing the tower), the slab-resting cubes by material.
+            hl = {"mid": (240, 165, 60), "upper": (232, 113, 10)}
+            for name, cube in self.handle.cubes.items():
+                h = cube.half_extent
+                self._deforms.append(dict(
+                    name=name, cube=cube, idx=self.handle.avbd_idx[name],
+                    col=hl.get(name, _CUBE_COLOR[self.kind]), half=(h, h, h)))
             return
         imp_dcr = self.handle.impactor_idx
         cargo_idx = self.handle.cargo_avbd_idx
@@ -351,10 +379,10 @@ class UnifiedViser:
             col = tuple(int(255 * c) for c in b.color)
             self._boxes.append((int(desc.avbd_body.index), b.half_extents, col))
         if self.handle.cargo_cube is not None and cargo_idx is not None:
-            self._deform = (self.handle.cargo_cube, cargo_idx,
-                            _CUBE_COLOR[self.kind])
             imp = next(b for b in self.handle.bodies if b.dcr_idx == imp_dcr)
-            self._deform_half = imp.half_extents
+            self._deforms.append(dict(
+                name="impactor", cube=self.handle.cargo_cube, idx=cargo_idx,
+                col=_CUBE_COLOR[self.kind], half=imp.half_extents))
         else:
             # rigid impactor (cargo_material=None): render it as a box too.
             for b in self.handle.bodies:
@@ -381,27 +409,26 @@ class UnifiedViser:
                 f"/box_{i}", vertices=_box_verts(half, P[idx], Q[idx]),
                 faces=_BOX_FACES, color=col, flat_shading=True, side="double")
             self._box_meshes.append(m)
-        self._deform_mesh = None
-        if self._deform is not None:
-            cube, idx, col = self._deform
-            self._deform_mesh = self.server.scene.add_mesh_simple(
-                "/deform", vertices=self._deform_verts(),
-                faces=self._deform_faces(), color=col,
-                flat_shading=True, side="double")
+        self._deform_meshes = []
+        for k, d in enumerate(self._deforms):
+            self._deform_meshes.append(self.server.scene.add_mesh_simple(
+                f"/deform_{k}", vertices=self._deform_verts(d),
+                faces=self._deform_faces(d), color=d["col"],
+                flat_shading=True, side="double"))
 
     def _render_q(self):
         return self._q_static if self.static_view else self.rs.q
 
-    def _deform_faces(self) -> np.ndarray:
+    def _deform_faces(self, d) -> np.ndarray:
         if self.show_proxy:
             return _BOX_FACES
-        return self._deform[0].surf_faces.astype(np.int32)
+        return d["cube"].surf_faces.astype(np.int32)
 
-    def _deform_verts(self) -> np.ndarray:
-        cube, idx, _ = self._deform
+    def _deform_verts(self, d) -> np.ndarray:
+        cube, idx = d["cube"], d["idx"]
         P, Q = self.world._solver.positions(), self.world._solver.orientations()
         if self.show_proxy:                      # the rigid collision box
-            return _box_verts(self._deform_half, P[idx], Q[idx])
+            return _box_verts(d["half"], P[idx], Q[idx])
         qx = Q[idx]
         z = np.zeros(7 + cube.k)
         z[0:3] = P[idx].astype(np.float64)
@@ -410,8 +437,9 @@ class UnifiedViser:
         return cube.deformed_surface(z, self.cube_exag).astype(np.float32)
 
     def _rebuild(self):
-        names = ["/support", "/deform"] + [f"/box_{i}"
-                                           for i in range(len(self._boxes))]
+        names = (["/support"]
+                 + [f"/deform_{k}" for k in range(len(self._deforms))]
+                 + [f"/box_{i}" for i in range(len(self._boxes))])
         for n in names:
             try:
                 self.server.scene.remove_by_name(n)
@@ -481,6 +509,16 @@ class UnifiedViser:
                      "host q-block. AVBD needs modal under-relax ≳ 0.5 to ring; "
                      "XPBD rings at its 0.25 default.")
             self.gui_symplectic.on_update(self._symplectic_changed)      # live
+            if self.scene == "cargo":
+                self.gui_network = g.add_checkbox(
+                    "modal contact network (stacked coupling)",
+                    initial_value=self.network,
+                    hint="§N2 (live, cargo scene, AVBD): box-box contacts between "
+                         "cargo cubes carry modal columns, so the STACKED cube "
+                         "(orange, right) rings from the cube under it. OFF ⇒ its "
+                         "only contact (box-box) carries no modal column ⇒ inert. "
+                         "Raise 'cube flex ×' to ~250 to see it.")
+                self.gui_network.on_update(self._network_changed)         # live
         with g.add_folder("Visualization"):
             self.gui_cube_exag = g.add_slider(
                 "cube flex ×", 1.0, _EXAG_MAX, 1.0, self.cube_exag,
@@ -604,21 +642,33 @@ class UnifiedViser:
         else:
             self._set_solver_symplectic(self.symplectic)
 
+    def _network_changed(self, _evt):
+        """Toggle the §N2 box-box modal network live. The flag is read each
+        substep (`_build_net_rows`), so no rebuild is needed — the stacked cube
+        starts/stops ringing on the next step."""
+        self.network = bool(self.gui_network.value)
+        sol = self.world._solver
+        if hasattr(sol, "_modal_contact_network"):
+            sol._modal_contact_network = self.network
+            sol._graph = None                       # force CUDA-graph recapture
+
     def _render_thick_changed(self, _evt):
         self.render_thick = max(0.0, float(self.gui_render_thick.value) / 1e3)
 
     def _proxy_changed(self, _evt):
         self.show_proxy = bool(self.gui_proxy.value)
-        if self._deform_mesh is not None:         # face topology changes
+        # face topology changes (skinned surface ↔ collision box) → recreate all
+        for k in range(len(self._deform_meshes)):
             try:
-                self.server.scene.remove_by_name("/deform")
+                self.server.scene.remove_by_name(f"/deform_{k}")
             except Exception:
                 pass
-            cube, idx, col = self._deform
-            self._deform_mesh = self.server.scene.add_mesh_simple(
-                "/deform", vertices=self._deform_verts(),
-                faces=self._deform_faces(), color=col,
-                flat_shading=True, side="double")
+        self._deform_meshes = []
+        for k, d in enumerate(self._deforms):
+            self._deform_meshes.append(self.server.scene.add_mesh_simple(
+                f"/deform_{k}", vertices=self._deform_verts(d),
+                faces=self._deform_faces(d), color=d["col"],
+                flat_shading=True, side="double"))
 
     def _apply_knobs_from_gui(self):
         self.material = self.gui_material.value
@@ -689,8 +739,8 @@ class UnifiedViser:
                         self.world._solver.orientations())
                 for m, (idx, half, _) in zip(self._box_meshes, self._boxes):
                     m.vertices = _box_verts(half, P[idx], Q[idx])
-                if self._deform_mesh is not None:
-                    self._deform_mesh.vertices = self._deform_verts()
+                for m, d in zip(self._deform_meshes, self._deforms):
+                    m.vertices = self._deform_verts(d)
                 self.support.vertices = _slab_verts(
                     self.rs, self._render_q(), self.support_exag,
                     self.render_thick)
@@ -753,6 +803,10 @@ def main():
                          "non-cargo acceptance shelf. Required for the "
                          "symplectic modal path (host non-cargo only).")
     ap.add_argument("--spin", type=float, default=4.0)
+    ap.add_argument("--no-network", action="store_true",
+                    help="cargo scene only: start with the §N2 box-box modal "
+                         "network OFF (the stacked cube inert). Default ON. "
+                         "Toggle live in the GUI.")
     ap.add_argument("--cube-exag", type=float, default=1.0,
                     help="initial cube-flex render exaggeration (1 = true scale)")
     ap.add_argument("--support-exag", type=float, default=1.0,

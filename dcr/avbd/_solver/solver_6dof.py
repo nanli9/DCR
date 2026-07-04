@@ -547,6 +547,26 @@ class Solver6DOF:
         self._n_modes_tot = 1                        # R_tot = r + Σ k (= r else)
         self._a_cargo_host: dict[int, np.ndarray] = {}     # body_idx → a
         self._adot_cargo_host: dict[int, np.ndarray] = {}  # body_idx → ȧ
+        # ---- Modal contact network (foundation: modal_contact_network §N2) ----
+        # Default OFF ⇒ behaviour-neutral: only SUPPORT_CONTACT rows carry modal
+        # columns (a cube rings the slab, and the slab rings the cube). When ON,
+        # BOX_BOX contact rows between cargo bodies ALSO carry modal columns, so a
+        # stacked cube feels the ring of the cube under it: the shared box-box
+        # multiplier loads BOTH participants' a-blocks (∂C/∂a_A = +n̂ᵀR_AΦ_A,
+        # ∂C/∂a_B = −n̂ᵀR_BΦ_B — Newton's third law on Q). The slab is the
+        # degenerate participant of this same gap (zero rigid DOFs, world-fixed
+        # field), i.e. today's support row is the special case.
+        self._modal_contact_network = False
+        # Per-body ȧ freeze (the §N2 counterfactual): body indices whose cargo
+        # modes are held non-ringing (ȧ ≡ 0) — the "does the upper cube ring
+        # BECAUSE the lower one rings?" control, mirroring the global
+        # `_modal_freeze_qdot` but per participant.
+        self._freeze_adot: set[int] = set()
+        # Per-substep frozen box-box network rows (built at substep begin, read by
+        # the q-block and — for the rigid ride — baked into c_rest). Each entry:
+        # (cidx, n_hat, biA, offA_col_slice, GA, biB, offB_col_slice, GB).
+        self._net_rows: list = []
+        self._corner_snap_cache: dict = {}   # (body_idx, off_key) → pid
         # Device arrays (always allocated; dummies when disabled).
         self.c_support_idx = None               # (n_cap,) slot per row, −1 else
         self.support_U_y = None                 # (n_sup, r) mode shapes
@@ -2621,6 +2641,89 @@ class Solver6DOF:
         self.c_world_anchor.assign(anc)
         return W
 
+    # ---- Modal contact network (foundation modal_contact_network §N2) --------
+    def _corner_snap_pid(self, body, off) -> int:
+        """Nearest cube-corner pid to a body-frame (COM-relative) contact point
+        `off`. Box-box SAT contacts land on corners/edges and the modal field is
+        smooth, so the nearest corner's Φ_c is a faithful sample — the same
+        corner Φ the support path reuses via its fixed per-slot pid.
+        # DEVIATION (modal_contact_network §N2 sampling): corner-snapped Φ, not
+        # Φ interpolated at the exact SAT contact point (a refinement)."""
+        cb = np.asarray(body.corner_body, dtype=np.float64)          # (P,3)
+        d = cb - np.asarray(off, dtype=np.float64)
+        return int(np.argmin(np.einsum("ij,ij->i", d, d)))
+
+    def _build_net_rows(self) -> None:
+        """Freeze this substep's box-box modal-network rows (staggered, like
+        `_cargo_freeze_and_W`). Scan the emitted BOX_BOX rows whose ≥1
+        participant is a cargo body; for each cargo participant record the
+        co-rotated modal gradient G_X = n̂ᵀ·R_X·Φ_c (∂C/∂a — the box-box analogue
+        of the support's U_y / G_a) in that body's a-block columns, so the
+        q-block's ONE shared multiplier loads BOTH participants' modes with
+        opposite signs (∂C/∂a_A = +G_A, ∂C/∂a_B = −G_B — Newton's third law on
+        Q). The slab support is the degenerate case of this same gap.
+
+        This is the MODAL half of the loop (both cubes' modes ring through the
+        shared contact). The RIGID-ride half — baking the frozen flex
+        n̂·(R_A Φ_A a_A − R_B Φ_B b_B) into the box-box primal gap so the stacked
+        body is also pushed by the ring — is DEFERRED: a first cut (c_rest bake +
+        a `C -= c_rest` read in the box-box primal) chatters the on/off contact
+        and walks an offset frictionless stack off its base (the plan's N3
+        stability gate). It needs the N3 clamp/relax work before it is safe, so
+        it is intentionally NOT wired here. OFF (or with no cargo box-box pair)
+        `_net_rows` is empty ⇒ behaviour-neutral (foundation §N2 hard rule 1)."""
+        self._net_rows = []
+        if not (self._modal_contact_network and self._cargo_bodies):
+            return
+        n_static = self._gpu_pool_n_static
+        n_active = min(int(self.n_active_rows.numpy()[0]),
+                       self._gpu_pool_n_capacity)
+        if n_active <= n_static:
+            return
+        ctype = self.c_type.numpy()
+        ba = self.c_body_a.numpy()
+        bb = self.c_body_b.numpy()
+        offa = self.c_off_a.numpy()
+        offb = self.c_off_b.numpy()
+        anc = self.c_world_anchor.numpy()
+        act = self.c_active.numpy()
+        quat = self.q.numpy()
+        R_cache: dict[int, np.ndarray] = {}
+
+        def _Rm(bi: int) -> np.ndarray:
+            Rm = R_cache.get(bi)
+            if Rm is None:
+                Rm = R_cache[bi] = _modal_quat_to_R(
+                    np.asarray(quat[bi], dtype=np.float64))
+            return Rm
+
+        def _participant(bi: int, off, n_hat) -> tuple | None:
+            """(a-block offset, k, modal gradient G=n̂ᵀRΦ) for a cargo body,
+            else None (non-cargo or rigid k=0 body — no modal column)."""
+            if bi not in self._cargo_bodies:
+                return None
+            body = self._cargo_bodies[bi]
+            k = int(body.Mq_block.shape[0])
+            if k == 0:                       # rigid cargo (no modes) — no column
+                return None
+            Phi_c = np.asarray(
+                body.corner_modal[self._corner_snap_pid(body, off)],
+                dtype=np.float64)                                    # (3,k)
+            M = _Rm(bi) @ Phi_c if getattr(body, "corotate", True) else Phi_c
+            G = n_hat @ M                                            # (k,) = n̂ᵀRΦ
+            return (self._cargo_offset[bi], k, G)
+
+        for cidx in range(n_static, n_active):
+            if act[cidx] == 0 or int(ctype[cidx]) != BOX_BOX_CONTACT_6DOF:
+                continue
+            biA, biB = int(ba[cidx]), int(bb[cidx])
+            n_hat = np.asarray(anc[cidx], dtype=np.float64)
+            pa = _participant(biA, offa[cidx], n_hat)
+            pb = _participant(biB, offb[cidx], n_hat)
+            if pa is None and pb is None:
+                continue
+            self._net_rows.append((cidx, n_hat, pa, pb))
+
     def _modal_predict_cargo(self) -> None:
         """Augmented predictor Q̃ = Qⁿ + h·Q̇ⁿ (+ h²·grav_acc) + the cargo freeze.
         Builds the per-slot W and seeds the float32 mirror q_modal with Qⁿ (the
@@ -2631,6 +2734,7 @@ class Solver6DOF:
         self._q_hat_aug = (self._q_n_aug + h_pred * self._qdot_aug
                            + h * h * self._grav_acc_aug)
         self._cargo_W = self._cargo_freeze_and_W()
+        self._build_net_rows()          # box-box modal-network rows (§N2)
         self.q_modal.assign(self._q_aug.astype(np.float32))
 
     def _solve_q_block_cargo(self, dev) -> None:
@@ -2678,6 +2782,48 @@ class Solver6DOF:
                 continue
             g = g - Ws * f
             H = H + rho * np.outer(Ws, Ws)
+        # ---- Modal contact network: box-box rows between cargo bodies (§N2) --
+        # A stacked cube feels the ring of the cube under it: the shared box-box
+        # multiplier f loads BOTH participants' a-blocks. The modal columns G_X
+        # (and n̂) are FROZEN at substep begin (staggered, `_build_net_rows`); the
+        # rigid gap C_geom is read LIVE from the current poses each q-block sweep,
+        # exactly as the support loop above recomputes corner_y live against a
+        # frozen W. Ws = [−G_A in A's a-cols | +G_B in B's a-cols] ⇒ C = C_geom −
+        # Ws·Q (Newton's third law: one f, opposite-sign columns).
+        if self._net_rows:
+            off_a_arr = self.c_off_a.numpy()
+            off_b_arr = self.c_off_b.numpy()
+            ba_arr = self.c_body_a.numpy()
+            bb_arr = self.c_body_b.numpy()
+            for cidx, n_hat, pa, pb in self._net_rows:
+                if act[cidx] == 0:
+                    continue
+                biA, biB = int(ba_arr[cidx]), int(bb_arr[cidx])
+                RA = _modal_quat_to_R(np.asarray(quat[biA], dtype=np.float64))
+                RB = _modal_quat_to_R(np.asarray(quat[biB], dtype=np.float64))
+                rA = np.asarray(x[biA], dtype=np.float64) + RA @ np.asarray(
+                    off_a_arr[cidx], dtype=np.float64)
+                rB = np.asarray(x[biB], dtype=np.float64) + RB @ np.asarray(
+                    off_b_arr[cidx], dtype=np.float64)
+                # box-box is a hard row (stiffness=inf): C_geom = n̂·(rA−rB) − αC0
+                # matches the primal's rigid gap; the modal flex is added below.
+                C = float(n_hat @ (rA - rB)) - float(alpha_C0[cidx])
+                Ws = np.zeros(R, dtype=np.float64)
+                if pa is not None:
+                    oA, kA, GA = pa
+                    Ws[oA:oA + kA] = -GA
+                    C = C + float(GA @ Q[oA:oA + kA])      # +∂C/∂a_A · a_A
+                if pb is not None:
+                    oB, kB, GB = pb
+                    Ws[oB:oB + kB] = GB
+                    C = C - float(GB @ Q[oB:oB + kB])      # −∂C/∂a_B · b_B
+                lam_eff = float(lam[cidx])       # box-box hard ⇒ λ_eff = c_lambda
+                rho = float(pen[cidx])
+                f = min(rho * C + lam_eff, 0.0)
+                if f >= 0.0:
+                    continue
+                g = g - Ws * f
+                H = H + rho * np.outer(Ws, Ws)
         # Nonlinear cargo internal (abd V⊥, ABD Eq.6-8): Kq_block = 0, so the
         # elastic stiffness is the quartic V⊥, linearized at the CURRENT a each
         # iteration — a damped Newton step on V⊥ inside the block-GS q-block (the
@@ -2702,6 +2848,15 @@ class Solver6DOF:
         r = self._n_modes
         if not self._modal_freeze_qdot:
             self._qdot_aug = (self._q_aug - self._q_n_aug) / h
+        # §N2 per-body ȧ freeze: hold the listed cubes' modes non-ringing (ȧ≡0)
+        # so their block deflects quasi-statically but carries no kinetic ring —
+        # the counterfactual for "does the stacked cube ring BECAUSE this one does?"
+        for bi in self._freeze_adot:
+            o = self._cargo_offset.get(bi)
+            if o is None:
+                continue
+            k = int(self._cargo_bodies[bi].Mq_block.shape[0])
+            self._qdot_aug[o:o + k] = 0.0
         self._q_modal_host = self._q_aug[:r].copy()
         self._qdot_modal_host = self._qdot_aug[:r].copy()
         for bi in self._cargo_bodies:

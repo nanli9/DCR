@@ -519,13 +519,20 @@ class AVBDDCRWorld:
         self._native_modal_enabled = True
         s._dirty = True
 
-    def add_native_cargo(self, body_avbd_idx: int, cargo_body) -> None:
+    def add_native_cargo(self, body_avbd_idx: int, cargo_body,
+                         allow_stacked: bool = False) -> None:
         """Register a deformable cargo cube on the NATIVE modal path (M2). Call
         AFTER `enable_reduced_modal_support` has retyped the cube's support-height
         contacts to SUPPORT_CONTACT rows: this maps each of the cube's converted
         slots to its corner pid (by matching the corner offset to the cargo body's
         rest corners) and installs the cube's elastic block into the augmented
-        modal vector (Solver6DOF.add_cargo_native). No coupler."""
+        modal vector (Solver6DOF.add_cargo_native). No coupler.
+
+        `allow_stacked=True` registers a cube that rests on ANOTHER cube (not the
+        slab) and so has NO support-contact rows: its elastic modes are still a
+        native block of Q and are coupled through the box-box modal network
+        (`_modal_contact_network`, §N2) — the stacked cube that feels the ring of
+        the one under it."""
         s = self._solver
         cb = np.asarray(cargo_body.corner_body, dtype=np.float64)
         support_rows: list[tuple[int, int]] = []
@@ -538,10 +545,12 @@ class AVBDDCRWorld:
                     continue
                 pid = int(np.argmin(np.linalg.norm(cb - sc.off, axis=1)))
                 support_rows.append((slot, pid))
-            if not support_rows:
+            if not support_rows and not allow_stacked:
                 raise RuntimeError(
                     f"add_native_cargo: no support-contact rows for body "
-                    f"{body_avbd_idx} (call enable_reduced_modal_support first).")
+                    f"{body_avbd_idx} (call enable_reduced_modal_support first, "
+                    f"or pass allow_stacked=True for a stacked cube). NOTE: the "
+                    f"box-box modal network is AVBD-only for now (XPBD is N5).")
             s.add_cargo(int(body_avbd_idx), cargo_body, support_rows)
             return
 
@@ -554,10 +563,11 @@ class AVBDDCRWorld:
             off = np.asarray(row.off_a, dtype=np.float64)
             pid = int(np.argmin(np.linalg.norm(cb - off, axis=1)))
             support_rows.append((slot, pid))
-        if not support_rows:
+        if not support_rows and not allow_stacked:
             raise RuntimeError(
                 f"add_native_cargo: no SUPPORT_CONTACT rows for body "
-                f"{body_avbd_idx} (call enable_reduced_modal_support first).")
+                f"{body_avbd_idx} (call enable_reduced_modal_support first, or "
+                f"pass allow_stacked=True for a cube resting on another cube).")
         s.add_cargo_native(int(body_avbd_idx), cargo_body, support_rows)
 
     def attach_reduced_dcr_postkick(
