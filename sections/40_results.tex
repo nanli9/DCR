@@ -1,0 +1,56 @@
+\section{Results}
+\label{sec:results}
+
+\todo{Add the X-suite (paper-claims audit) tables and the FEM-convergence plot.}
+
+\subsection{Contact forces balance a cube stack}
+\label{sec:results:ledger}
+\note{Numbers below are read straight off the solver's contact multipliers; see
+\texttt{docs/sheldon\_report/} and its reproduce script --- analysis only, no solver
+code changed.} A modal slab carries a plain resting control cube and a 3-high zig-zag
+stack (base/mid/upper); each cube carries its own reduced modes. Reading the
+multipliers (Table~\ref{tab:ledger}), each joint carries exactly the weight above it,
+with no per-joint tuning --- the shared multiplier balances the tower on its own.
+
+\begin{table}[t]\centering
+\caption{Static contact ledger (settled), $m g = 5.886$~N.}
+\label{tab:ledger}
+\begin{tabular}{lccc}
+\toprule
+joint & measured & expected & error \\
+\midrule
+resting cube $\to$ slab                & 5.889~N & $mg$  & 0.06\% \\
+base cube $\to$ slab                   & 17.99~N & $3mg$ & 1.9\%  \\
+base $\leftrightarrow$ mid (box--box)  & 11.93~N & $2mg$ & 1.4\%  \\
+mid $\leftrightarrow$ upper (box--box) & 5.82~N  & $mg$  & 1.1\%  \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]\centering
+  \includegraphics[width=\linewidth]{contact_forces.png}
+  \caption{Per-corner / per-joint normal contact force vs.\ time. The plain resting
+  cube shares $mg$ evenly across its 4 corners; the stack foot carries $3mg$ split
+  \emph{unevenly} where the tower leans; the top cube --- two box--box hops from the
+  slab --- rings only when the network is on ($|\amp|\!\equiv\!0$ off), the two-way
+  discriminator.}
+  \label{fig:forces}
+\end{figure}
+
+\subsection{Two-way through the network}
+\label{sec:results:network}
+The \texttt{upper} cube touches only \texttt{mid}; with the modal contact network on
+it rings ($|\amp|$ peak $\approx 1.1\times10^{-5}$), off it is identically zero. The
+vibration reaching it arrives only through the shared contacts. The modal compliance
+also \emph{smooths} the box--box force (joint-force ripple $\pm2.72$~N off
+$\to \pm1.48$~N on, mean unchanged at $mg$).
+
+\subsection{Full-FEM ground truth}
+\label{sec:results:fem}
+\todo{Report the C3 convergence: reduced-vs-full-FEM ratio $0.56 \to 1.02$ as
+$h\to0$ (X-suite).}
+
+\subsection{The passivity bound bites when it must}
+\label{sec:results:passivity}
+\todo{Report X1: clamp off injects up to ${\sim}1.2\times10^{5}\times$; clamp on is
+passive; inert at high iteration budget, active at the low budget ($8\times2$).}

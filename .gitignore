@@ -1,0 +1,18 @@
+# LaTeX build artifacts
+*.aux
+*.bbl
+*.blg
+*.log
+*.out
+*.toc
+*.lof
+*.lot
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.dvi
+*.nav
+*.snm
+*.vrb
+# compiled output (Overleaf builds its own)
+main.pdf

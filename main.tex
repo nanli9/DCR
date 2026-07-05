@@ -1,0 +1,66 @@
+% =====================================================================
+%  Passivity-Bounded Two-Way Modal Contact in a Real-Time
+%  Augmented-Lagrangian Solver   --   DCR follow-up paper (DRAFT)
+%
+%  Builds with:  latexmk -pdf main.tex   (pdflatex -> bibtex -> pdflatex x2)
+%  Draft uses the standard `article` class for portability so it compiles
+%  anywhere (incl. Overleaf) without the venue class files.
+%
+%  SUBMISSION: swap `article` for the Eurographics / CGF class (eg-alpha)
+%  -- see the NOTE below.
+%
+%  CLAIM DISCIPLINE: see ../docs/novelty_positioning.md (do/don't list) and
+%  CLAUDE.md 14 ("claims to avoid"). Do NOT claim "first two-way".
+% =====================================================================
+\documentclass[11pt]{article}
+% NOTE (submission): replace with the Eurographics class, e.g.
+%   \documentclass{egpubl}\usepackage{cgf}...  and use \teaser/\CGFccby.
+%   Kept as `article` for now so the draft builds without EG class files.
+
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{times}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage{booktabs}
+\usepackage[table,dvipsnames]{xcolor}
+\usepackage{pifont}
+\usepackage[round]{natbib}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=MidnightBlue,citecolor=MidnightBlue,urlcolor=MidnightBlue}
+
+% ---- draft helpers (delete for camera-ready) ----
+\newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+\newcommand{\note}[1]{\textcolor{Plum}{\textit{(#1)}}}
+\newcommand{\yes}{\textcolor{ForestGreen}{\ding{51}}}
+\newcommand{\no}{\textcolor{BrickRed}{\ding{55}}}
+
+% ---- notation ----
+\newcommand{\amp}{\mathbf{a}}          % modal amplitude vector (the code's q)
+\newcommand{\nvec}{\hat{\mathbf{n}}}
+\newcommand{\Phimat}{\boldsymbol{\Phi}}
+\newcommand{\Ghat}{\hat{\mathbf{G}}}
+\newcommand{\dEmod}{\Delta E_{\mathrm{modal}}}
+\newcommand{\dErig}{\Delta E_{\mathrm{rigid}}}
+
+\title{Passivity-Bounded Two-Way Modal Contact\\[2pt]
+       in a Real-Time Augmented-Lagrangian Solver\\[6pt]
+       \large\note{working title --- draft \today}}
+\author{Nan Li\thanks{University of Southern California, \texttt{nli62220@usc.edu}}
+        \and \note{co-authors / advisor TBD}}
+\date{}
+
+\begin{document}
+\maketitle
+
+\input{sections/00_abstract}
+\input{sections/10_introduction}
+\input{sections/20_related_work}
+\input{sections/30_method}
+\input{sections/40_results}
+\input{sections/50_conclusion}
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\end{document}

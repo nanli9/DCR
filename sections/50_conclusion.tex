@@ -1,0 +1,24 @@
+\section{Conclusion and Limitations}
+\label{sec:conclusion}
+
+\todo{Write once results are frozen.}
+
+We embedded vibration modes as first-class compliant-constraint DOFs in a real-time
+augmented-Lagrangian rigid solver, driven two-way by a shared unilateral contact
+multiplier, and made the coupling stable at a fixed low iteration budget with an
+enforced passivity bound $\dEmod\le\eta\,\dErig$.
+
+\paragraph*{Limitations \note{(binding: foundation \S14 ``claims to avoid'').}}
+\begin{itemize}
+  \item The two-way coupling \emph{mechanism} is not new
+        (\citealp{zheng2011}); the contribution is its real-time-AL embedding and the
+        passivity bound.
+  \item The bound applies to the modal-path injection only; the
+        spatial-attenuation path is empirical and not energy-budgeted.
+  \item \todo{restitution decision; breadth of scenes; the affine (ABD) basis showed
+        a slow secular buildup and would need the same governor before any stability
+        claim.}
+\end{itemize}
+
+\paragraph*{Future work.} A swappable affine (ABD) cargo basis for cheap, robust
+contact, energy-governed the same way; \todo{$\ldots$}

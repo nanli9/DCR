@@ -1,0 +1,52 @@
+\section{Related Work}
+\label{sec:related}
+
+\todo{Expand each paragraph; this is a seeded map from the prior-art audit
+(\texttt{docs/novelty\_positioning.md}).}
+
+\paragraph*{Modal sound and contact.} \citet{zheng2011} carry modal amplitudes as
+generalized coordinates driven two-way by a shared contact multiplier, resolving
+vibration in both the collision and friction stages; the coupling is
+momentum-consistent by construction but solved offline as a global staggered LCP/QP
+at large cost. \citet{james2002dyrt} render one-way real-time modal response
+(display-only, no back-reaction). DCR~\citep{coevoet2020distant} is the real-time,
+one-way distant response this project builds on and generalizes.
+
+\paragraph*{Reduced bodies as contact DOFs.} Affine Body
+Dynamics~\citep{lan2022abd} makes a $9$-DOF affine subspace a native contact DOF
+inside IPC; it captures uniform stretch/shear but not the bending/plate modes that
+carry the distant response, and carries no energy-transfer bound.
+\citet{sheth2015} give fully momentum-conserving reduced deformable contact ---
+two-way and conserving \emph{momentum}, but not bounding \emph{energy}. Classical
+floating-frame / component-mode multibody (\citealp{shabana_multibody};
+energy--momentum integrators, \citealp{betsch2007}) couple modal reduction with
+contact but \emph{conserve} energy rather than \emph{cap} the directional transfer.
+
+\paragraph*{Passivity.} Port-Hamiltonian flexible multibody
+dynamics~\citep{brugnoli2021} and time-domain passivity control in
+haptics~\citep{hannaford2002} give the passivity-inequality \emph{genre}, but not a
+contact$\to$modal transfer budget of the form $\dEmod\le\eta\,\dErig$.
+
+\paragraph*{Real-time augmented-Lagrangian solvers.}
+XPBD~\citep{macklin2016xpbd} and VBD/AVBD~\citep{chen2024vbd,giles2025avbd} host
+rigid and soft contact at a fixed low iteration budget on the GPU, but carry no modal
+DOFs --- the slot this paper fills.
+
+\paragraph*{Positioning.} Table~\ref{tab:positioning} places the method: two-way
+\emph{and} real-time \emph{and} passivity-bounded is the cell neither Zheng and James
+(offline) nor DCR (one-way) occupy.
+
+\begin{table}[t]\centering
+\caption{Where the method sits. \note{Do not claim the first two columns as novel ---
+they are the mechanism Zheng and James already had.}}
+\label{tab:positioning}
+\begin{tabular}{lccc}
+\toprule
+ & two-way & real-time & passivity bound \\
+\midrule
+Zheng \& James 2011 & \yes & \no & \no \\
+DCR (Coevoet 2020)  & \no  & \yes & \no \\
+\textbf{This paper} & \yes & \yes & \yes \\
+\bottomrule
+\end{tabular}
+\end{table}

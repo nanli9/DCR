@@ -1,0 +1,49 @@
+\section{Introduction}
+\label{sec:intro}
+
+\todo{Full intro prose. The skeleton below fixes the framing --- expand, don't drift.}
+
+\paragraph*{Motivation.} Rigid-body simulators are fast because they discard
+deformation, but real objects ring, chatter, and transmit vibration through their
+contacts. Modal reduction restores that behaviour cheaply by tracking a handful of
+vibration modes per body. The open question is how tightly the modal layer is
+\emph{coupled} to contact: whether contact merely \emph{reads} rigid motion and adds
+a cosmetic vibration (one-way), or whether the vibration \emph{reacts} back on the
+bodies and on their neighbours through the same contact (two-way).
+
+\paragraph*{The gap.} \citet{zheng2011} resolve modal vibration inside both the
+collision and frictional-contact stages, producing genuinely coupled motions --- but
+at large computational cost, in an offline velocity-level solver.
+\citet{coevoet2020distant} (DCR) make this affordable for real time by dropping the
+back-reaction: they inject a distant collision response as a one-way velocity change
+and the simulation ``remains rigid.'' Neither offers a guarantee on the \emph{energy}
+the contact injects into the modes.
+
+\paragraph*{This paper.} We embed the vibration modes as native compliant constraints
+inside a real-time augmented-Lagrangian / position-based rigid solver
+(XPBD~\citep{macklin2016xpbd}, VBD/AVBD~\citep{chen2024vbd,giles2025avbd}). One
+unilateral contact multiplier excites the modes and reacts on the bodies within the
+same solver iteration (\S\ref{sec:method}). This real-time regime \emph{creates} a
+failure mode the convergent offline solver never had: an under-converged local solve
+can pump energy into the stiff modal block. Our fix is an enforced per-step passivity
+bound $\dEmod \le \eta\,\dErig$ on the contact$\to$modal transfer, which makes the
+coupling usable at a fixed low iteration budget. We generalize the guarantee across a
+body--body modal contact network and validate against a full-FEM ground truth
+(\S\ref{sec:results}).
+
+\paragraph*{Contributions.}
+\begin{itemize}
+  \item An enforced per-step \textbf{passivity inequality} bounding the
+        contact$\to$modal energy transfer --- absent from prior modal-contact work.
+  \item Vibration modes as \textbf{first-class compliant-constraint DOFs} in a
+        real-time augmented-Lagrangian rigid solver: the two-way coupling of
+        \citet{zheng2011} brought from an offline LCP/QP into the real-time regime.
+  \item That guarantee \textbf{generalized across a body--body modal contact network}
+        --- stacked bodies ring through their shared contacts.
+  \item Validation against a full-FEM ground truth and a contact-force audit
+        (\S\ref{sec:results}).
+\end{itemize}
+
+\note{Do NOT claim ``first two-way rigid--modal coupling'' or ``first modal amplitudes
+as contact DOFs'' --- Zheng and James [2011] have the mechanism. Lead with the
+passivity bound and the real-time-AL embedding.}

@@ -1,0 +1,53 @@
+\section{Method}
+\label{sec:method}
+
+\todo{Expand derivations; cite the paper/foundation equation numbers per CLAUDE.md.}
+
+\subsection{Modes as native contact constraints}
+\label{sec:method:constraint}
+Each body carries mass-normalized linear modes $\Phimat$ with amplitudes $\amp$ (the
+code's $q$). A contact with unit normal $\nvec$ acts on the \emph{deformed} contact
+point of both participants, so the unilateral gap becomes
+\begin{equation}
+  C \;=\; C_{\mathrm{rigid}} \;+\; \big(\Ghat_A\!\cdot\amp_A - \Ghat_B\!\cdot\amp_B\big),
+  \qquad \Ghat_X = \nvec^{\!\top} R_X\, \Phimat_X ,
+  \label{eq:gap}
+\end{equation}
+where $R_X$ is body $X$'s rotation. A single contact multiplier $f\ge 0$ then (i)
+pushes the rigid bodies apart and (ii) drives each participant's modes by
+$+\Ghat_A f$ on $A$ and $-\Ghat_B f$ on $B$. Newton's third law is built in, so the
+coupling is two-way and momentum-consistent by construction --- not a post-solve
+kick. The support contact (body$\leftrightarrow$ground) and the box--box contact
+(body$\leftrightarrow$body) are the \emph{same} row type; that is the whole
+generalization --- every body with modes participates, including stacked bodies that
+only ever touch another body.
+\note{This unified $(z,Q)$ row is documented in \texttt{two\_band\_coupling.html} and
+\texttt{docs/sheldon\_report/README.md}.}
+
+\subsection{Solving the stiff modal block in a local iteration}
+\label{sec:method:solve}
+\todo{Describe the engaged-gated block Gauss--Seidel over the modal $q$-block, the
+rejected cross-term Schur, the under-relaxation ($\texttt{modal\_relax}$), and the
+XPBD Woodbury/Schur condensation. Cite the design note native-modal-qblock-design.}
+A global QP absorbs a stiff modal DOF ($K_q\!\sim\!10^{11}$) implicitly for free; a
+fixed low-iteration \emph{local} solver makes that stiff, dense modal block diverge
+under naive Gauss--Seidel. Making it stable \emph{and} two-way there is the
+algorithmic content of this section, and the reason the passivity bound of
+\S\ref{sec:method:passivity} is needed.
+
+\subsection{The passivity bound}
+\label{sec:method:passivity}
+Because the local solve under-converges, the contact can inject energy into the
+modes. We cap the per-step contact$\to$modal transfer by
+\begin{equation}
+  \dEmod \;\le\; \eta\,\dErig , \qquad \eta\in[0,1],
+  \label{eq:passivity}
+\end{equation}
+enforced globally across all contacts each rigid step (foundation \S15). A passive
+scaling coefficient $\alpha\in[0,1]$ solves the per-step quadratic
+$\dEmod(\alpha)=\alpha b + \tfrac12\alpha^2 a \le E_{\max}$ (foundation \S6),
+so the injected energy never exceeds the fraction $\eta$ of the rigid kinetic energy
+lost during contact resolution.
+\note{DEVIATION from DCR Eq.~10 (forced IIR): the injection is a velocity-level kick
+to $\dot q$ funded by rigid kinetic-energy loss, not a forced response --- see
+CLAUDE.md and the foundation \S15.}
