@@ -297,7 +297,9 @@ class UnifiedViser:
             self.symplectic = True
             self.no_cargo = True
             self.material = "steel"          # stiff board ⇒ dramatic injection
-            self.knob_iters, self.knob_subs = 1, 1
+            # PRODUCTION XPBD budget (1 iter × 16 substeps) — not a 1×1 toy; XPBD
+            # injects here too (~5.5e4 J, scene ~1 J). See docs x1_blowup.
+            self.knob_iters, self.knob_subs = 1, 16
             self.knob_modal_relax = 1.0
             self.passivity = False           # show the blow-up first
         self.render_thick = sp["thickness"]
@@ -969,14 +971,15 @@ def main():
                          "the HUD, not the cubes, is where you see it.")
     ap.add_argument("--inject-xpbd", action="store_true",
                     help="the GENUINE blow-up preset: XPBD support path (shelf, "
-                         "steel board) at the starved budget (iters 1×1, "
-                         "symplectic). XPBD is NOT naturally passive — the modal "
-                         "energy blows up to ~1e8 J (scene has ~1 J) with the "
-                         "clamp OFF; the 'support modal KE' HUD reads the runaway "
-                         "and the board rings violently. Tick 'enforce passivity "
-                         "bound' to bring it to a physical ring. (AVBD, by "
-                         "contrast, is naturally passive — try --scene shelf "
-                         "--solver avbd and the clamp does nothing.)")
+                         "steel board) at a PRODUCTION budget (1 iter × 16 "
+                         "substeps, symplectic — what XPBD actually ships). XPBD "
+                         "is NOT naturally passive — the modal energy blows up to "
+                         "~5e4 J (scene has ~1 J) with the clamp OFF; the 'support "
+                         "modal KE' HUD reads the runaway and the board rings "
+                         "violently. Tick 'enforce passivity bound' to bring it to "
+                         "a physical ring. (AVBD, by contrast, is naturally passive "
+                         "— try --scene shelf --solver avbd and the clamp does "
+                         "nothing.)")
     ap.add_argument("--cube-exag", type=float, default=1.0,
                     help="initial cube-flex render exaggeration (1 = true scale)")
     ap.add_argument("--support-exag", type=float, default=1.0,
