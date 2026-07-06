@@ -52,18 +52,99 @@ def _quat_to_R(qwxyz: np.ndarray) -> np.ndarray:
     ], dtype=np.float64)
 
 
-def rigid_mechanical_energy(V, W, Q, mass, invIl, X=None, gravity=None) -> float:
+def _quat_to_R_batch(Q: np.ndarray) -> np.ndarray:
+    """Batched (m,4) wxyz → (m,3,3) rotation, matching `_quat_to_R` elementwise
+    (including the n<1e-30 degenerate-quat → identity guard: s=0 ⇒ R=I)."""
+    w, x, y, z = Q[:, 0], Q[:, 1], Q[:, 2], Q[:, 3]
+    nrm = w * w + x * x + y * y + z * z
+    ok = nrm >= 1e-30
+    s = np.where(ok, 2.0 / np.where(ok, nrm, 1.0), 0.0)
+    R = np.empty((Q.shape[0], 3, 3), dtype=np.float64)
+    R[:, 0, 0] = 1.0 - s * (y * y + z * z); R[:, 0, 1] = s * (x * y - w * z);       R[:, 0, 2] = s * (x * z + w * y)  # noqa: E702
+    R[:, 1, 0] = s * (x * y + w * z);       R[:, 1, 1] = 1.0 - s * (x * x + z * z); R[:, 1, 2] = s * (y * z - w * x)  # noqa: E702
+    R[:, 2, 0] = s * (x * z - w * y);       R[:, 2, 1] = s * (y * z + w * x);       R[:, 2, 2] = 1.0 - s * (x * x + y * y)  # noqa: E702
+    return R
+
+
+def local_inertia_from_invIl(invIl) -> np.ndarray:
+    """Body-LOCAL inertia I_local = inv(invIl), stacked (n,3,3). A singular row
+    (a static body, whose invIl is zero) maps to a zero matrix — so the caller's
+    angular term drops that body, exactly as the reference loop's try/except skip.
+
+    invIl is CONSTANT for a rigid body, so a caller stepping many substeps should
+    precompute this ONCE and pass it to `rigid_mechanical_energy(..., Il=)`, which
+    then skips the per-call 3×3 inversion (part of the §15 clamp's energy
+    accounting cost — see docs/avbd_native/passivity_cap_cost.md).
+    """
+    A = np.asarray(invIl, dtype=np.float64)
+    if A.ndim != 3 or A.shape[0] == 0:
+        return np.zeros((0, 3, 3), dtype=np.float64)
+    Il = np.zeros_like(A)
+    for i in range(A.shape[0]):
+        try:
+            Il[i] = np.linalg.inv(A[i])
+        except np.linalg.LinAlgError:
+            pass   # singular ⇒ leave zero (angular contribution dropped)
+    return Il
+
+
+def rigid_mechanical_energy(V, W, Q, mass, invIl, X=None, gravity=None,
+                            Il=None) -> float:
     """Total rigid MECHANICAL energy Σ_b [½m‖v‖² + ½ωᵀI_worldω − m·(g·x)].
 
     V,W: (n,3) world linear/angular velocity. Q: (n,4) wxyz quats. mass: (n,) or
     list. invIl: (n,3,3) body-LOCAL inverse inertia (I_local = inv(invIl)); static
     bodies (m≤0) are skipped. Angular part uses ω_local = Rᵀω.
 
+    Il: optional precomputed (n,3,3) LOCAL inertia = inv(invIl). Since invIl is
+    constant, a caller stepping many substeps should precompute it once (via
+    `local_inertia_from_invIl`) and pass it here to skip the per-call inversion.
+    When None it is computed from invIl (the reference path).
+
     When X (n,3 positions) and gravity (3-vec accel, e.g. (0,-9.81,0)) are given,
     the gravitational potential −m·(g·x) is included, so a body settling onto the
     support (grav PE → elastic modal PE) registers as a mechanical LOSS that funds
     the modal gain. Omitting them recovers the pure-KE energy.
+
+    Vectorized over bodies (batched Rᵀω and the quadratic forms); parity with the
+    scalar reference `_rigid_mechanical_energy_loop` is asserted in
+    tests/avbd_native/test_passivity_energy_vectorized.py.
     """
+    mass = np.asarray(mass, dtype=np.float64)
+    if mass.shape[0] == 0:
+        return 0.0
+    dyn = mass > 0.0
+    if not np.any(dyn):
+        return 0.0
+    V = np.asarray(V, dtype=np.float64)[dyn]
+    W = np.asarray(W, dtype=np.float64)[dyn]
+    Q = np.asarray(Q, dtype=np.float64)[dyn]
+    m = mass[dyn]
+
+    # linear KE  Σ ½ m‖v‖²
+    E = 0.5 * float(np.einsum("i,ij,ij->", m, V, V))
+
+    # angular KE  Σ ½ ω_localᵀ I_local ω_local,  ω_local = Rᵀω
+    if Il is None:
+        Il = local_inertia_from_invIl(invIl)
+    Il = np.asarray(Il, dtype=np.float64)[dyn]
+    R = _quat_to_R_batch(Q)
+    wl = np.einsum("mji,mj->mi", R, W)                 # Rᵀω
+    E += 0.5 * float(np.einsum("mi,mij,mj->", wl, Il, wl))
+
+    # gravitational PE  Σ −m(g·x)
+    if X is not None and gravity is not None:
+        X = np.asarray(X, dtype=np.float64)[dyn]
+        gravity = np.asarray(gravity, dtype=np.float64)
+        E += -float(np.einsum("i,ij,j->", m, X, gravity))
+    return E
+
+
+def _rigid_mechanical_energy_loop(V, W, Q, mass, invIl, X=None,
+                                  gravity=None) -> float:
+    """Scalar reference for `rigid_mechanical_energy` (CLAUDE.md rule 6: keep the
+    obvious-correct version). Retained as the parity oracle for the vectorized
+    path; not used on the hot path."""
     V = np.asarray(V, dtype=np.float64)
     W = np.asarray(W, dtype=np.float64)
     Q = np.asarray(Q, dtype=np.float64)

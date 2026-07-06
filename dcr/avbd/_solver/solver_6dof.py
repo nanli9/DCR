@@ -614,6 +614,7 @@ class Solver6DOF:
         self._modal_eta = 1.0
         self._psv_monitor_only = True   # AVBD is passive; monitor, don't clamp
         self._psv_ledger = None
+        self._psv_Il = None      # cached body-local inertia = inv(invIl) (§15 clamp)
         self._E_rig_pre = 0.0
         self._E_modal_pre = 0.0
         self._psv_x_pre = None
@@ -2206,6 +2207,18 @@ class Solver6DOF:
                     wp.synchronize_device(dev)
                 self.iteration_hook(self, it)
 
+    def _psv_local_inertia(self) -> np.ndarray:
+        """Cached body-local inertia stack (n,3,3) for the §15 clamp's rigid-energy
+        accounting. invIl is constant, so invert once and reuse across substeps —
+        bit-identical to the old per-substep inv(invIl), just hoisted out of the
+        hot loop. Rebuilt only if the body count changes."""
+        n = len(self._inv_I_local)
+        if self._psv_Il is None or self._psv_Il.shape[0] != n:
+            from .passivity import local_inertia_from_invIl
+            self._psv_Il = (local_inertia_from_invIl(np.stack(self._inv_I_local))
+                            if n else np.zeros((0, 3, 3), dtype=np.float64))
+        return self._psv_Il
+
     # ---- Native modal support DOF (q, q̇) ----------------------------------
     def _modal_predict(self) -> None:
         """Inertial predictor q̃ = qⁿ + h q̇ⁿ + h² M_q⁻¹ f_q^grav and qⁿ snapshot
@@ -2225,7 +2238,8 @@ class Solver6DOF:
             V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self.q.numpy()
             self._psv_x_pre = self.x.numpy().copy()
             self._E_rig_pre = rigid_mechanical_energy(
-                V, Wo, Qq, self._mass, self._inv_I_local)
+                V, Wo, Qq, self._mass, self._inv_I_local,
+                Il=self._psv_local_inertia())
             _ke0, _pe0 = modal_mech_energy(self._qdot_modal_host,
                                            self._q_modal_host, self._Mq, self._Kq)
             self._E_modal_pre = _ke0 + _pe0
@@ -2374,7 +2388,8 @@ class Solver6DOF:
             V = self.v.numpy(); Wo = self.omega.numpy()
             Qq = self.q.numpy(); Xx = self.x.numpy()
             E_rig_post = rigid_mechanical_energy(
-                V, Wo, Qq, self._mass, self._inv_I_local)
+                V, Wo, Qq, self._mass, self._inv_I_local,
+                Il=self._psv_local_inertia())
             grav = np.asarray(self.gravity, dtype=np.float64)
             grav_work = 0.0
             for _i in range(len(self._mass)):
@@ -2766,7 +2781,8 @@ class Solver6DOF:
             V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self.q.numpy()
             self._psv_x_pre = self.x.numpy().copy()
             self._E_rig_pre = rigid_mechanical_energy(
-                V, Wo, Qq, self._mass, self._inv_I_local)
+                V, Wo, Qq, self._mass, self._inv_I_local,
+                Il=self._psv_local_inertia())
             _ke0, _pe0 = modal_mech_energy(self._qdot_aug, self._q_aug,
                                            self._Mq_aug, self._Kq_aug)
             self._E_modal_pre = _ke0 + _pe0
@@ -2990,7 +3006,8 @@ class Solver6DOF:
             V = self.v.numpy(); Wo = self.omega.numpy()
             Qq = self.q.numpy(); Xx = self.x.numpy()
             E_rig_post = rigid_mechanical_energy(
-                V, Wo, Qq, self._mass, self._inv_I_local)
+                V, Wo, Qq, self._mass, self._inv_I_local,
+                Il=self._psv_local_inertia())
             grav = np.asarray(self.gravity, dtype=np.float64)
             grav_work = 0.0
             for _i in range(len(self._mass)):

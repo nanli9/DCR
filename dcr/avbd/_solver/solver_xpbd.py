@@ -331,6 +331,7 @@ class SolverXPBD:
         self._enforce_modal_passivity = False
         self._modal_eta = 1.0
         self._psv_ledger = None
+        self._psv_Il = None      # cached body-local inertia = inv(invIl) (§15 clamp)
         self._E_rig_pre = 0.0
         # Cargo (Stage 4): augmented modal vector Q = [q_support; a_cargo…].
         self._cargo: dict = {}        # body_idx -> cargo body model
@@ -1049,11 +1050,16 @@ class SolverXPBD:
         _psv = (self._modal and self._enforce_modal_passivity
                 and not self._freeze_qdot)
         if _psv:
-            from .passivity import rigid_mechanical_energy, modal_mech_energy
+            from .passivity import (rigid_mechanical_energy, modal_mech_energy,
+                                    local_inertia_from_invIl)
+            # invIl is constant → invert once, reuse every substep (skips the
+            # per-call 3×3 inversion that dominated the clamp's accounting cost).
+            if self._psv_Il is None or self._psv_Il.shape[0] != self._invIl.shape[0]:
+                self._psv_Il = local_inertia_from_invIl(self._invIl)
             # Pure rigid KE at substep start (gravity handled reversibly via its
             # work below, so free ballistic motion registers zero contact loss).
             self._E_rig_pre = rigid_mechanical_energy(
-                V, W, Q, self._mass, self._invIl)
+                V, W, Q, self._mass, self._invIl, Il=self._psv_Il)
             _ke0, _pe0 = modal_mech_energy(self._qdot, self._q,
                                            self._mq, self._kq)
             self._E_modal_pre = _ke0 + _pe0
@@ -1202,7 +1208,8 @@ class SolverXPBD:
         if _psv:
             from .passivity import (rigid_kinetic_energy, modal_mech_energy,
                                     passivity_gamma)
-            E_rig_post = rigid_kinetic_energy(V, W, Q, self._mass, self._invIl)
+            E_rig_post = rigid_kinetic_energy(V, W, Q, self._mass, self._invIl,
+                                              Il=self._psv_Il)
             # Contact-dissipated rigid energy = gravity work − ΔKE (foundation §15).
             # Zero for free ballistic motion (KE change == gravity work); positive
             # only when the contact/velocity solve inelastically removes KE. This is
