@@ -492,7 +492,11 @@ class Solver6DOF:
         # co-solve (S = H_q − Σ Mᵀ H_x⁻¹ M with box-box in H_x and the Δz
         # back-substitution), which keeps box-box native — see
         # native-modal-qblock-design memory. 1.0 = un-relaxed.
-        self._modal_relax = 0.1
+        # 0.7 = the production/PAPER_CONFIG value (was 0.1). CAVEAT (kept from
+        # the 0.1 rationale above): ω≤0.15 was measured to hold the truck
+        # 4-high lumber stack to <0.5° tilt on stiff impacts — if a stacked
+        # pile shakes apart at 0.7, lower this first.
+        self._modal_relax = 0.7
         # ---- Energy-faithful modal path: DCR forced-IIR (paper Eq. 10) -------
         # # DEVIATION (CLAUDE.md follow-up; paper Eq. 10): backward Euler — the
         # `_solve_q_block` modal stepper above — is energy-dissipative for

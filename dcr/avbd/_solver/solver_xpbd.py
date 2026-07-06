@@ -272,6 +272,10 @@ class SolverXPBD:
         # cross-coupling term) damps the GS to convergence — the XPBD analogue
         # of the AVBD native path's conservative block-GS relaxation (memory
         # truck-stack-collapse-is-host-boxbox). 1.0 = no relaxation.
+        # MEASURED CEILING (2026-07-06, truck impact, 12 it × 3 sub): 0.25
+        # stable (peak|x| 0.82 m), 0.4 marginal (1.45 m), 0.5–0.6 flings
+        # bodies ~90 m, ≥0.65 NaN. AVBD's implicit q-block takes 0.7; XPBD's
+        # GS formulation cannot — do NOT raise this default to match AVBD.
         self.modal_relax = 0.25
 
         # Host accumulation (add_box); finalized into numpy state on first step.

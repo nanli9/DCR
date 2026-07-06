@@ -30,6 +30,10 @@ def _stack(network: bool, *, freeze_lower: bool = False, xoff: float = 0.0,
                    gravity=(0.0, -9.81, 0.0))
     s.enable_self_collision(True, default_friction=0.0)
     s._modal_contact_network = bool(network)
+    # Pin the conservative q-chase these §N2 counterfactuals were established
+    # at (the class default moved 0.1 → 0.7 on 2026-07-06; the freeze-lower
+    # inequality is a property of the conservative regime).
+    s._modal_relax = 0.1
     size = 0.1
     half = 0.5 * size
     L = build_fem_rigid_cube(size=size, n_elastic=3, drop_y=0.0,

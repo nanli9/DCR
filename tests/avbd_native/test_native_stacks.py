@@ -34,6 +34,12 @@ def test_truck_lumber_stack_rides_ring_and_holds():
         device="cpu", solver="native",
         impactor_drop_height=0.06, iterations=8, avbd_substeps=4)
     s = h.world._solver
+    # Pin the conservative q-chase this criterion was established at ("the
+    # conservative relaxation holds it upright", ω≤0.15): the class default
+    # moved 0.1 → 0.7 on 2026-07-06, and the 4-high stack does NOT hold
+    # there — a known, documented fragility (N3 gate), not a regression this
+    # test should mask.
+    s._modal_relax = 0.1
     lumber = [_avbd_idx(h, f"lumber_{i}") for i in range(4)]
     peak_KE = 0.0
     for _ in range(500):

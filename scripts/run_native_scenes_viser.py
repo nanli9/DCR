@@ -264,10 +264,11 @@ class UnifiedViser:
         self.knob_iters, self.knob_subs = _xpbd_iter_floor(self.solver, sp)
         self.knob_impedance = 1.0
         self.knob_damping = 1.0
-        # modal under-relax: None ⇒ adopt the solver's own default (AVBD 0.10,
-        # XPBD 0.25); a CLI/GUI value overrides it on both solvers.
+        # modal under-relax: None ⇒ adopt the solver's own default (AVBD
+        # 0.7; XPBD 0.25 — its GS diverges ≥~0.5 on stiff scenes); a CLI/GUI
+        # value overrides it on both solvers.
         self.knob_modal_relax = args.modal_relax
-        self._eff_modal_relax = 0.25
+        self._eff_modal_relax = 0.7
         # Energy-conserving (implicit-midpoint) modal step vs backward Euler.
         # NOTE: only delivers a clean ring when the q-block is solved enough
         # (modal under-relax ≳ 0.5); at low relax the under-solve re-dissipates
@@ -588,16 +589,16 @@ class UnifiedViser:
                 "modal under-relax", 0.02, 1.0, 0.01,
                 float(min(max(self._eff_modal_relax, 0.02), 1.0)),
                 hint="modal q chase per iteration (live). Higher = more visible "
-                     "modal flex/ring; lower = damped. AVBD default 0.10, "
-                     "XPBD 0.25 — this is the dominant knob behind AVBD looking "
-                     "stiffer than XPBD in the same scene.")
+                     "modal flex/ring; lower = damped. AVBD defaults to "
+                     "0.7; XPBD to 0.25 (its GS formulation diverges ≥~0.5 "
+                     "on stiff scenes — measured NaN on the truck impact).")
             self.gui_modal_relax.on_update(self._modal_relax_changed)   # live
             self.gui_symplectic = g.add_checkbox(
                 "symplectic modal step", initial_value=self.symplectic,
                 hint="energy-conserving implicit-midpoint modal integrator vs "
                      "backward Euler (live, AVBD + XPBD). Forces non-cargo + "
-                     "host q-block. AVBD needs modal under-relax ≳ 0.5 to ring; "
-                     "XPBD rings at its 0.25 default.")
+                     "host q-block. Needs modal under-relax ≳ 0.5 to ring "
+                     "(the 0.7 default is enough on both solvers).")
             self.gui_symplectic.on_update(self._symplectic_changed)      # live
             if self.scene == "cargo" or bool(getattr(self.handle,
                                                      "cargo_map", None)):
@@ -704,7 +705,7 @@ class UnifiedViser:
         stores it in `_modal_relax`, XPBD in `modal_relax`)."""
         if hasattr(sol, "_modal_relax"):
             return float(sol._modal_relax)
-        return float(getattr(sol, "modal_relax", 0.25))
+        return float(getattr(sol, "modal_relax", 0.7))
 
     def _set_solver_modal_relax(self, val: float) -> None:
         """Apply the modal under-relaxation to whichever native solver is live.
@@ -977,10 +978,9 @@ def main():
     ap.add_argument("--modal-relax", type=float, default=0.7,
                     help="modal under-relaxation (q chase per iteration), "
                          "applied to BOTH solvers. Higher = more visible modal "
-                         "flex/ring. Default 0.7 (the symplectic ring needs the "
-                         "q-block solved enough; AVBD's 0.10 / XPBD's 0.25 "
-                         "class defaults under-solve it). Tunable live in the "
-                         "GUI.")
+                         "flex/ring. Default 0.7 (= AVBD's class default; "
+                         "CAUTION on XPBD: its GS diverges ≥~0.5 on stiff "
+                         "scenes). Tunable live in the GUI.")
     ap.add_argument("--symplectic", action="store_true",
                     help="(default ON) energy-conserving implicit-midpoint "
                          "modal step. Kept for explicitness; use --be to opt "
