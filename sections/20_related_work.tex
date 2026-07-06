@@ -7,10 +7,15 @@
 \paragraph*{Modal sound and contact.} \citet{zheng2011} carry modal amplitudes as
 generalized coordinates driven two-way by a shared contact multiplier, resolving
 vibration in both the collision and friction stages; the coupling is
-momentum-consistent by construction but solved offline as a global staggered LCP/QP
-at large cost. \citet{james2002dyrt} render one-way real-time modal response
-(display-only, no back-reaction). DCR~\citep{coevoet2020distant} is the real-time,
-one-way distant response this project builds on and generalizes.
+momentum-consistent by construction but solved offline as a global staggered LCP/QP.
+Crucially, their large cost buys \emph{audio}: they target high-quality contact
+\emph{sound}, resolving vibration at a far finer temporal grid than a visual-rate
+simulation needs. We therefore do not claim to make their method real-time --- we
+target a different, coarser regime (visual-rate two-way coupling, no synthesis), so
+the comparison is one of regime, not a speedup of the same computation.
+\citet{james2002dyrt} render one-way real-time modal response (display-only, no
+back-reaction). DCR~\citep{coevoet2020distant} is the real-time, one-way distant
+response this project builds on and generalizes.
 
 \paragraph*{Reduced bodies as contact DOFs.} Affine Body
 Dynamics~\citep{lan2022abd} makes a $9$-DOF affine subspace a native contact DOF
@@ -32,21 +37,47 @@ XPBD~\citep{macklin2016xpbd} and VBD/AVBD~\citep{chen2024vbd,giles2025avbd} host
 rigid and soft contact at a fixed low iteration budget on the GPU, but carry no modal
 DOFs --- the slot this paper fills.
 
-\paragraph*{Positioning.} Table~\ref{tab:positioning} places the method: two-way
-\emph{and} real-time \emph{and} passivity-bounded is the cell neither Zheng and James
-(offline) nor DCR (one-way) occupy.
+\paragraph*{Positioning.} Table~\ref{tab:positioning} maps the neighborhood on six
+axes. The two-way \emph{mechanism} (columns \textbf{DOF}, \textbf{2-way},
+\textbf{Modal}) is shared by several prior methods --- it is \emph{not} our novelty.
+The only pair of columns no prior row occupies together is (\textbf{Passive},
+\textbf{RT-AL}): an enforced energy-transfer inequality inside a real-time
+augmented-Lagrangian host. That empty cell is the contribution.
 
-\begin{table}[t]\centering
-\caption{Where the method sits. \note{Do not claim the first two columns as novel ---
-they are the mechanism Zheng and James already had.}}
+\begin{table}[t]\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Positioning against the prior-art neighborhood.
+\textbf{DOF}: modal amplitude is a native solver DOF.
+\textbf{2-way}: one shared contact multiplier excites modes \emph{and} reacts on
+bodies.
+\textbf{Modal}: vibration eigenmodes (vs.\ affine / full-space).
+\textbf{Passive}: enforced energy-transfer \emph{inequality} (not conservation or
+plain damping).
+\textbf{RT-AL}: real-time position-based / augmented-Lagrangian host.
+\textbf{Net}: body--body vibration through contact.
+\pmark${}={}$partial/genre-only. Qualifier key:
+\textsuperscript{d}\,damping not a cap,
+\textsuperscript{o}\,offline (audio-rate),
+\textsuperscript{i}\,separate IIR, not a solver DOF,
+\textsuperscript{m}\,conserves momentum, not energy,
+\textsuperscript{a}\,affine basis, no bending/plate modes,
+\textsuperscript{c}\,conserves ($\Delta E{=}0$), not directional cap,
+\textsuperscript{g}\,passivity \emph{genre} only.
+Only the (\textbf{Passive}, \textbf{RT-AL}) pair is unoccupied by any prior row.}
 \label{tab:positioning}
-\begin{tabular}{lccc}
+\begin{tabular}{lcccccc}
 \toprule
- & two-way & real-time & passivity bound \\
+ & DOF & 2-way & Modal & Passive & RT-AL & Net \\
 \midrule
-Zheng \& James 2011 & \yes & \no & \no \\
-DCR (Coevoet 2020)  & \no  & \yes & \no \\
-\textbf{This paper} & \yes & \yes & \yes \\
+\textbf{This paper}                    & \yes & \yes & \yes & \yes                 & \yes                 & \yes \\
+Zheng \& James 2011                    & \yes & \yes & \yes & \no\textsuperscript{d} & \no\textsuperscript{o} & \yes \\
+DCR (Coevoet 2020)                     & \no\textsuperscript{i} & \no & \yes & \no & \yes & \no \\
+Sheth et al.\ 2015                     & \yes & \yes & \yes & \no\textsuperscript{m} & \no & \pmark \\
+ABD (Lan et al.\ 2022)                 & \yes & \yes & \no\textsuperscript{a} & \no & \no & \yes \\
+FFRF / energy--mom.\ (Betsch 2007)     & \yes & \yes & \yes & \no\textsuperscript{c} & \no & \yes \\
+Port-Hamiltonian FMB (Brugnoli 2021)   & \yes & \yes & \yes & \pmark\textsuperscript{g} & \no & \no \\
+XPBD / AVBD / VBD                       & \no  & \yes & \no  & \no & \yes & \yes \\
+DyRT (James \& Pai 2002)               & \yes & \no  & \yes & \no & \yes & \no \\
 \bottomrule
 \end{tabular}
 \end{table}

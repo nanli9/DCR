@@ -1,7 +1,76 @@
 \section{Results}
 \label{sec:results}
 
-\todo{Add the X-suite (paper-claims audit) tables and the FEM-convergence plot.}
+We evaluate on the scenes of Table~\ref{tab:scenes}: DCR's own road, dinner, and
+ledge figure layouts --- re-simulated with the two-way modal-constraint coupling in
+place of DCR's one-way injection --- plus two modal-network stress scenes
+(a box--box cube stack and a two-body full-FEM reference). Reusing DCR's layouts is
+deliberate: it lets us show, on the same scenes, the back-reaction DCR cannot
+produce (a distant body moved \emph{by} another body's ring through their shared
+contact).
+
+Table~\ref{tab:matrix} is the validation matrix. Each row is a metric scored against
+a named reference baseline; each column is a scene. \yes\ marks a measured result
+(number in the cell, subsection cited); \pend\ marks a measurement planned against
+the full-FEM ground truth currently being wired; \na\ marks not-applicable. The
+matrix doubles as the experiment tracker --- the honest current state is that the
+contact-force ledger, the two-way network discriminator, and the passivity ablation
+are measured, while the cross-scene FEM-accuracy and runtime rows are pending.
+
+\paragraph*{Baselines (the reference axis).} Metrics are scored against:
+\textbf{F} --- a full-FEM (unreduced) solve of the same mesh, the accuracy ground
+truth \note{(consider IPC~\citep{lan2022abd}-grade contact for the reference; a
+penalty/linear-implicit FEM under-resolves stiff contact)};
+\textbf{D} --- DCR one-way (rigid $+$ separate IIR, no back-reaction), the base
+method;
+\textbf{R} --- rigid-only (modes off), the cost floor and the two-way null;
+\textbf{A} --- the analytic static ledger ($\sum\lambda = mg$);
+and the two internal toggles \textbf{off/on} (passivity clamp; modal network) that
+isolate the two claims that are ours alone.
+
+\begin{table}[t]\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\caption{Evaluation scenes. Rows 1--3 are DCR's own figure layouts re-simulated with
+two-way coupling; rows 4--5 are modal-network stress scenes. $n_g/n_\ell$ =
+global/local reduced modes per body; body counts for dinner/ledge are the measured
+X5 scene sizes. \todo{fill the road body count from the built truck scene.}}
+\label{tab:scenes}
+\begin{tabular}{llccl}
+\toprule
+scene & source & bodies & $n_g/n_\ell$ & what it tests \\
+\midrule
+Road (crate/cones)    & DCR road  & \todo{N}        & 12/16 & distant response, large slab \\
+Dinner table          & DCR Fig.1 & 17              & 10/14 & distant place-settings \\
+Ledge (boulder)       & DCR ledge & 5               & 12/16 & strong-coupling topple \\
+Cargo network (stack) & ours      & 6              & 8/1   & two-way, box--box network \\
+FEM cargo             & ours      & 2              & 8/1   & full-FEM accuracy reference \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]\centering\footnotesize
+\setlength{\tabcolsep}{3.5pt}
+\caption{Validation matrix: metric $\times$ scene, each scored against a reference
+baseline (col.\ \textbf{ref}, key above). \yes\ measured (number cited); \pend\
+planned vs.\ full-FEM; \na\ not applicable. The two rows no prior method can pass ---
+the passivity bound and the two-way discriminator --- are already measured on the
+stack; the cross-scene FEM-accuracy rows are the pending work.}
+\label{tab:matrix}
+\begin{tabular}{llccccc}
+\toprule
+metric & ref & Road & Dinner & Ledge & Stack & FEM \\
+\midrule
+Modal displ.\ $L_2$ error          & F      & \pend & \pend & \pend & \pend & \pend\q{.56$\to$1.02} \\
+Distant-response fidelity          & F,D    & \pend & \pend & \pend & \na   & \na \\
+Contact-force ledger               & A      & \pend & \na   & \pend & \yes\q{.06--1.9\%} & \na \\
+Passivity $\dEmod\!\le\!\eta\dErig$ & bound  & \pend & \pend & \pend & \yes  & \pend \\
+Momentum drift (lin/ang)           & $0$    & \pend & \pend & \pend & \pend & \pend \\
+Two-way ring $|\amp|$              & off/on & \pend & \pend & \pend & \yes\q{1.1e{-}5/0} & \na \\
+Runtime (ms/step, RT$\times$)      & R,D    & \pend & \pend & \pend & \pend & \pend \\
+Passivity ablation (blow-up)       & off/on & \na   & \na   & \na   & \yes\q{X1} & \na \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \subsection{Contact forces balance a cube stack}
 \label{sec:results:ledger}
