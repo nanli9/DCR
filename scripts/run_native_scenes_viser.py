@@ -267,6 +267,20 @@ class UnifiedViser:
         # Symplectic implies --no-cargo (the symplectic modal path is host
         # non-cargo only; the augmented cargo q-block stays BE).
         self.no_cargo = bool(getattr(args, "no_cargo", False)) or self.symplectic
+        # §N2/X1 network passivity clamp. OFF ⇒ the ledger runs in MONITOR mode
+        # (records the injection, bit-identical physics); ON ⇒ the active clamp
+        # scales the augmented modal state [q_support; a_cargo…] back onto the
+        # passive manifold (ΔE_modal ≤ η·ΔE_rigid_loss). Cargo scene only.
+        self.passivity = bool(getattr(args, "passivity", False))
+        # --inject: the deliberately over-injecting preset (see the arg help).
+        # Must run on the BE cargo path (the network lives in the augmented
+        # q-block); a starved budget + over-relaxed q-block make it inject.
+        if bool(getattr(args, "inject", False)):
+            self.symplectic = False
+            self.no_cargo = False
+            self.network = True
+            self.knob_iters, self.knob_subs = 4, 1
+            self.knob_modal_relax = 1.9
         self.render_thick = sp["thickness"]
         self._slab_faces = _slab_faces(N_GRID_X, N_GRID_Z)
         self._q_static = None        # EMA of rs.q for the "static" modal view
@@ -354,6 +368,7 @@ class UnifiedViser:
             self._set_solver_modal_relax(self.knob_modal_relax)
         self._eff_modal_relax = self._solver_modal_relax(self.world._solver)
         self._set_solver_symplectic(self.symplectic)
+        self._apply_passivity()
         self._collect_render()
         self._make_meshes()
 
@@ -535,6 +550,17 @@ class UnifiedViser:
                          "sub-visible live; verify it via the ON−OFF difference "
                          "in docs/network/network_ride.png.")
                 self.gui_ride.on_update(self._ride_changed)               # live
+                self.gui_passivity = g.add_checkbox(
+                    "enforce passivity bound (clamp modal E)",
+                    initial_value=self.passivity,
+                    hint="§N2/X1 (live, cargo scene, AVBD): cap the network's "
+                         "modal energy at η·(rigid energy lost) — foundation §15, "
+                         "generalized across the body-body network. OFF = monitor "
+                         "(watch |a| / support modal KE inject at low iters + high "
+                         "modal-relax — try --inject); ON = the clamp scales the "
+                         "augmented modal state back onto the passive manifold. "
+                         "Read the 'modal E vs loss budget' HUD line.")
+                self.gui_passivity.on_update(self._passivity_changed)     # live
         with g.add_folder("Visualization"):
             self.gui_cube_exag = g.add_slider(
                 "cube flex ×", 1.0, _EXAG_MAX, 1.0, self.cube_exag,
@@ -565,6 +591,9 @@ class UnifiedViser:
             self.hud_cube = g.add_text("cube deform E [J]", initial_value="—")
             self.hud_supp = g.add_text("support modal KE [J]", initial_value="—")
             self.hud_pen = g.add_text("max penetration [mm]", initial_value="—")
+            self.hud_psv = g.add_text("modal E vs loss budget",
+                                      initial_value="—")
+            self.hud_clamp = g.add_text("passivity clamp", initial_value="—")
 
         # handlers
         for w in (self.gui_scene, self.gui_solver, self.gui_kind,
@@ -676,6 +705,34 @@ class UnifiedViser:
         sol = self.world._solver
         if hasattr(sol, "_modal_contact_ride"):
             sol._modal_contact_ride = self.ride
+            sol._graph = None                       # force CUDA-graph recapture
+
+    def _apply_passivity(self) -> None:
+        """Wire the §N2/X1 network passivity bound onto the live solver. Cargo
+        scene only: enable the ledger (so the HUD reads the live modal-vs-loss
+        ledger) and route the checkbox to monitor (measure the injection,
+        physics-neutral) vs active (clamp the augmented modal state). Non-cargo
+        or symplectic ⇒ disabled (the network bound lives in the BE cargo
+        q-block, `_modal_commit_cargo`)."""
+        sol = self.world._solver
+        if not hasattr(sol, "_enforce_modal_passivity"):
+            return
+        on = (self.scene == "cargo") and bool(getattr(sol, "_cargo_enabled", False))
+        sol._enforce_modal_passivity = bool(on)
+        if on:
+            sol._psv_monitor_only = not self.passivity
+            sol._psv_ledger = None                  # fresh ledger for this build
+        sol._graph = None
+
+    def _passivity_changed(self, _evt):
+        """Toggle the §N2/X1 network passivity clamp live: monitor (measure the
+        injection) ↔ active (clamp the augmented modal state). Read each substep
+        in `_modal_commit_cargo`, so no rebuild — the ledger keeps accumulating;
+        the clamp starts biting on the next step."""
+        self.passivity = bool(self.gui_passivity.value)
+        sol = self.world._solver
+        if hasattr(sol, "_psv_monitor_only"):
+            sol._psv_monitor_only = not self.passivity
             sol._graph = None                       # force CUDA-graph recapture
 
     def _render_thick_changed(self, _evt):
@@ -796,6 +853,21 @@ class UnifiedViser:
                 self.hud_supp.value = f"{getattr(sv, 'last_modal_KE', 0.0):.3e}"
                 pen = getattr(sv, "max_penetration", None)
                 self.hud_pen.value = f"{pen * 1e3:.4f}" if pen is not None else "—"
+                # §N2/X1 network passivity ledger: is the modal contact network
+                # injecting energy, and is the bound holding it? (foundation §15)
+                L = getattr(sv, "_psv_ledger", None)
+                if L is not None and getattr(sv, "_enforce_modal_passivity", False):
+                    inj = not L.passive()
+                    self.hud_psv.value = (
+                        f"{'INJECTING ✗' if inj else 'PASSIVE ✓'}  "
+                        f"excess {L.max_net_excess:+.2e} / budget "
+                        f"{L.max_deposit:.2e} J")
+                    mode = ("monitor" if getattr(sv, "_psv_monitor_only", True)
+                            else "ACTIVE")
+                    self.hud_clamp.value = f"{mode}   clamps={L.n_clamped}/{L.n_steps}"
+                else:
+                    self.hud_psv.value = "— (cargo + --be only)"
+                    self.hud_clamp.value = "—"
             time.sleep(max(0.0, (1.0 / 120.0) / max(self.speed, 1e-3)))
 
 
@@ -838,6 +910,19 @@ def main():
                          "(the lower cube's flex also lifts the stacked cube's "
                          "RIGID body). Default OFF; needs the network + friction. "
                          "Toggle live in the GUI.")
+    ap.add_argument("--passivity", action="store_true",
+                    help="cargo scene only: start with the §N2/X1 network "
+                         "passivity clamp ACTIVE (bound modal E ≤ η·rigid loss, "
+                         "foundation §15). Default OFF = monitor (measure the "
+                         "injection, physics-neutral). Toggle live in the GUI.")
+    ap.add_argument("--inject", action="store_true",
+                    help="cargo scene: a preset that makes the modal contact "
+                         "network VISIBLY over-inject — the Zheng-James 'energy "
+                         "blows up' failure the bound exists to stop. Forces the "
+                         "BE cargo path, network on, a starved budget (iters 4×1) "
+                         "and an over-relaxed q-block (modal-relax 1.9). Watch "
+                         "|a| / support modal KE explode with the clamp OFF, then "
+                         "tick 'enforce passivity bound' to see it bounded.")
     ap.add_argument("--cube-exag", type=float, default=1.0,
                     help="initial cube-flex render exaggeration (1 = true scale)")
     ap.add_argument("--support-exag", type=float, default=1.0,

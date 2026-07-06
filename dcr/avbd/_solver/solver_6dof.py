@@ -600,10 +600,16 @@ class Solver6DOF:
         self.last_modal_KE = 0.0
         self.last_modal_PE = 0.0
         self.last_q_norm = 0.0
-        # Stage X1 — passive-energy clamp (foundation §15; passivity.py). Default
-        # OFF (behaviour-neutral); host non-cargo symplectic path only. AVBD does
-        # not inject in documented configs, so this is inert there — wired for the
-        # "both solvers" ledger guarantee and uniformity with XPBD.
+        # Stage X1 / §N2 — passive-energy clamp (foundation §15; passivity.py).
+        # Default OFF (behaviour-neutral). Enforced on the support q-block (host
+        # non-cargo symplectic, _modal_commit) AND the augmented cargo/network
+        # q-block (backward-Euler, _modal_commit_cargo), so the bound
+        # ΔE_modal ≤ η·ΔE_rigid_loss generalizes across the body-body modal
+        # contact network — the Q=[q_support; a_cargo…] state is capped as one
+        # global reservoir (Contribution 3). AVBD is empirically passive in the
+        # documented configs, so this is inert (monitor-only) there; it bites
+        # when _psv_monitor_only=False (the low-budget robustness matrix) or when
+        # the solver under-converges and injects.
         self._enforce_modal_passivity = False
         self._modal_eta = 1.0
         self._psv_monitor_only = True   # AVBD is passive; monitor, don't clamp
@@ -2746,6 +2752,24 @@ class Solver6DOF:
         Builds the per-slot W and seeds the float32 mirror q_modal with Qⁿ (the
         primal reads q_modal[0:r])."""
         h = float(self.dt)
+        # §N2/X1: snapshot pre-substep rigid KE + positions + AUGMENTED modal
+        # energy for the network passivity clamp in _modal_commit_cargo
+        # (foundation §15). The augmented Q=[q_support; a_cargo…] carries the
+        # entire modal contact network, so the single bound below generalizes
+        # the support-path clamp across the body-body network (Contribution 3).
+        # No _modal_symplectic guard — the cargo q-block is backward-Euler.
+        if self._enforce_modal_passivity and not self._modal_freeze_qdot:
+            from .passivity import (rigid_mechanical_energy, modal_mech_energy,
+                                    PassivityLedger)
+            if self._psv_ledger is None:
+                self._psv_ledger = PassivityLedger(eta=float(self._modal_eta))
+            V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self.q.numpy()
+            self._psv_x_pre = self.x.numpy().copy()
+            self._E_rig_pre = rigid_mechanical_energy(
+                V, Wo, Qq, self._mass, self._inv_I_local)
+            _ke0, _pe0 = modal_mech_energy(self._qdot_aug, self._q_aug,
+                                           self._Mq_aug, self._Kq_aug)
+            self._E_modal_pre = _ke0 + _pe0
         self._q_n_aug = self._q_aug.copy()
         h_pred = 0.0 if self._modal_freeze_qdot else h
         self._q_hat_aug = (self._q_n_aug + h_pred * self._qdot_aug
@@ -2944,6 +2968,52 @@ class Solver6DOF:
                 continue
             k = int(self._cargo_bodies[bi].Mq_block.shape[0])
             self._qdot_aug[o:o + k] = 0.0
+        # ---- §N2/X1: network passive-energy clamp (foundation §15) -----------
+        # Generalizes the support-path clamp of _modal_commit to the whole
+        # network: the augmented Q=[q_support; a_cargo…] is scaled by one γ so
+        # the network's modal-energy gain never exceeds η·(rigid energy lost this
+        # substep). Scaling both Q and Q̇ by γ scales E_m=½Q̇ᵀMQ̇+½QᵀKQ by γ²
+        # (both quadratic), a projection of the over-shot augmented modal state
+        # onto the passive manifold. Monitor-only by default (AVBD is empirically
+        # passive — record the ledger to CONFIRM the invariant, don't perturb the
+        # ring); active when _psv_monitor_only=False (the low-budget matrix).
+        # # DEVIATION (foundation §15): velocity-and-position scaling by γ (not
+        # the velocity-only α of _modal_commit's earlier draft) — bounds KE AND
+        # the linear elastic PE. For NONLINEAR (abd) cargo the quartic internal
+        # V⊥ energy is NOT in ½QᵀKq_augQ (Kq_block=0), so the bound covers only
+        # the linear modal energy there — abd's own governor is future work
+        # (docs/sheldon_report §3). The fem_rigid/fem network is exact.
+        if (self._enforce_modal_passivity and not self._modal_freeze_qdot
+                and self._psv_ledger is not None and self._psv_x_pre is not None):
+            from .passivity import (rigid_mechanical_energy, modal_mech_energy,
+                                    passivity_gamma)
+            V = self.v.numpy(); Wo = self.omega.numpy()
+            Qq = self.q.numpy(); Xx = self.x.numpy()
+            E_rig_post = rigid_mechanical_energy(
+                V, Wo, Qq, self._mass, self._inv_I_local)
+            grav = np.asarray(self.gravity, dtype=np.float64)
+            grav_work = 0.0
+            for _i in range(len(self._mass)):
+                if float(self._mass[_i]) <= 0.0:
+                    continue
+                grav_work += float(self._mass[_i]) * float(
+                    grav @ (Xx[_i] - self._psv_x_pre[_i]))
+            rigid_loss = (self._E_rig_pre - E_rig_post) + grav_work
+            ke_new, pe_new = modal_mech_energy(self._qdot_aug, self._q_aug,
+                                               self._Mq_aug, self._Kq_aug)
+            e_modal_new = ke_new + pe_new
+            budget = self._psv_ledger.deposit(rigid_loss)
+            gamma = passivity_gamma(e_modal_new, self._E_modal_pre, budget,
+                                    tol=self._psv_ledger.tol)
+            if self._psv_monitor_only:
+                gamma = 1.0
+            if gamma < 1.0:
+                self._q_aug = self._q_aug * gamma
+                self._qdot_aug = self._qdot_aug * gamma
+                self.q_modal.assign(self._q_aug.astype(np.float32))
+                e_modal_new = gamma * gamma * e_modal_new
+            self._psv_ledger.commit(e_modal_new - self._E_modal_pre, budget,
+                                    gamma, e_modal_now=e_modal_new)
         self._q_modal_host = self._q_aug[:r].copy()
         self._qdot_modal_host = self._qdot_aug[:r].copy()
         for bi in self._cargo_bodies:
