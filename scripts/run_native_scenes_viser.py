@@ -272,15 +272,19 @@ class UnifiedViser:
         # scales the augmented modal state [q_support; a_cargo…] back onto the
         # passive manifold (ΔE_modal ≤ η·ΔE_rigid_loss). Cargo scene only.
         self.passivity = bool(getattr(args, "passivity", False))
-        # --inject: the deliberately over-injecting preset (see the arg help).
-        # Must run on the BE cargo path (the network lives in the augmented
-        # q-block); a starved budget + over-relaxed q-block make it inject.
+        # --inject: the over-injecting preset (see the arg help). Runs on the BE
+        # cargo path (the network lives in the augmented q-block) at the STARVED
+        # real-time budget — 2 iterations × 1 substep — where the fixed-low-
+        # iteration local solver under-converges and injects (~20× over the
+        # rigid-loss budget). This is the honest failure mode (relax stays ≤ 1,
+        # the valid under-relaxation range): the real-time regime creates the
+        # energy injection the convergent offline solver never had.
         if bool(getattr(args, "inject", False)):
             self.symplectic = False
             self.no_cargo = False
             self.network = True
-            self.knob_iters, self.knob_subs = 4, 1
-            self.knob_modal_relax = 1.9
+            self.knob_iters, self.knob_subs = 2, 1
+            self.knob_modal_relax = 1.0
         self.render_thick = sp["thickness"]
         self._slab_faces = _slab_faces(N_GRID_X, N_GRID_Z)
         self._q_static = None        # EMA of rs.q for the "static" modal view
@@ -515,14 +519,12 @@ class UnifiedViser:
             self.gui_damping = g.add_slider("modal damping scale", 0.1, 8.0, 0.1,
                                             float(self.knob_damping))
             self.gui_modal_relax = g.add_slider(
-                "modal under-relax", 0.02, 2.0, 0.01,
-                float(min(max(self._eff_modal_relax, 0.02), 2.0)),
+                "modal under-relax", 0.02, 1.0, 0.01,
+                float(min(max(self._eff_modal_relax, 0.02), 1.0)),
                 hint="modal q chase per iteration (live). Higher = more visible "
                      "modal flex/ring; lower = damped. AVBD default 0.10, "
                      "XPBD 0.25 — this is the dominant knob behind AVBD looking "
-                     "stiffer than XPBD in the same scene. >1 OVER-relaxes the "
-                     "q-block (the --inject stress knob: over-shoots and injects "
-                     "energy — watch the passivity HUD).")
+                     "stiffer than XPBD in the same scene.")
             self.gui_modal_relax.on_update(self._modal_relax_changed)   # live
             self.gui_symplectic = g.add_checkbox(
                 "symplectic modal step", initial_value=self.symplectic,
@@ -919,12 +921,15 @@ def main():
                          "injection, physics-neutral). Toggle live in the GUI.")
     ap.add_argument("--inject", action="store_true",
                     help="cargo scene: a preset that makes the modal contact "
-                         "network VISIBLY over-inject — the Zheng-James 'energy "
-                         "blows up' failure the bound exists to stop. Forces the "
-                         "BE cargo path, network on, a starved budget (iters 4×1) "
-                         "and an over-relaxed q-block (modal-relax 1.9). Watch "
-                         "|a| / support modal KE explode with the clamp OFF, then "
-                         "tick 'enforce passivity bound' to see it bounded.")
+                         "network over-inject — the 'energy blows up' failure the "
+                         "bound exists to stop. Forces the BE cargo path, network "
+                         "on, and the STARVED real-time budget (iters 2×1, "
+                         "modal-relax 1.0): the fixed-low-iteration local solver "
+                         "under-converges and injects ~20× the rigid-loss budget "
+                         "(no over-relaxation — the honest real-time failure). "
+                         "Watch |a| / support modal KE inject + the passivity HUD "
+                         "read INJECTING ✗ with the clamp OFF, then tick 'enforce "
+                         "passivity bound' to see it bounded (PASSIVE ✓).")
     ap.add_argument("--cube-exag", type=float, default=1.0,
                     help="initial cube-flex render exaggeration (1 = true scale)")
     ap.add_argument("--support-exag", type=float, default=1.0,
