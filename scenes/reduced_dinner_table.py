@@ -26,7 +26,7 @@ from dcr.avbd.reduced_support import (
 )
 
 from scenes.reduced_support_shelf import N_GRID_X, N_GRID_Z
-from scenes.reduced_scene_common import make_cargo_cube
+from scenes.reduced_scene_common import make_cargo_cube, register_all_cargo
 
 
 @dataclass
@@ -57,6 +57,9 @@ class DinnerSceneHandle:
     cargo_cube: object = None
     cargo_avbd_idx: int | None = None
     cargo_material: str | None = None
+    # All-cargo wiring (§N2 generalization): {dcr_idx: (cargo_body, avbd_idx)}
+    # for EVERY body when built with cargo_all=True; empty otherwise.
+    cargo_map: dict = field(default_factory=dict)
 
 
 def build_reduced_dinner_table(
@@ -88,6 +91,8 @@ def build_reduced_dinner_table(
     modal_static_lp_tau: float = 0.05,
     solver: str = "avbd",
     cargo_material: str | None = None,
+    cargo_all: bool = False,
+    cargo_n_elastic: int = 6,
 ) -> DinnerSceneHandle:
     """Construct the dinner-table scene + attach the reduced-coupled AVBD
     support (the table). Returns a handle carrying per-body render
@@ -206,7 +211,17 @@ def build_reduced_dinner_table(
 
     cargo_cube = None
     cargo_avbd_idx = None
-    if cargo_material is not None:
+    cargo_map: dict = {}
+    if cargo_material is not None and cargo_all:
+        # §N2 all-cargo: every place setting, candle, and the pot carry their
+        # own box-shaped modal blocks on the box-box network (plates are thin
+        # slabs, forks/knives thin bars — real shapes, not min-extent cubes).
+        cargo_map = register_all_cargo(world, bodies, cargo_material,
+                                       impactor_dcr=pot_idx,
+                                       n_elastic=cargo_n_elastic)
+        if pot_idx in cargo_map:
+            cargo_cube, cargo_avbd_idx = cargo_map[pot_idx]
+    elif cargo_material is not None:
         cargo_avbd_idx = int(world._descs[pot_idx].avbd_body.index)
         size = 2.0 * float(min(pot_h))
         cargo_cube = make_cargo_cube(cargo_material, size=size,
@@ -218,6 +233,6 @@ def build_reduced_dinner_table(
         impactor_idx=pot_idx, probe_indices=plate_indices,
         bodies=bodies,
         cargo_cube=cargo_cube, cargo_avbd_idx=cargo_avbd_idx,
-        cargo_material=cargo_material,
+        cargo_material=cargo_material, cargo_map=cargo_map,
         name="Reduced-Coordinate AVBD Dinner Table",
     )

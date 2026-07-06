@@ -41,9 +41,9 @@ from numpy.typing import NDArray
 
 from dcr.fem.fem_model import FEMModel
 from dcr.fem.material import Material
-from dcr.geom.tet_mesh import make_block_tet_mesh
+from dcr.geom.tet_mesh import make_beam_tet_mesh
 
-from .fem_rigid import cube_corner_ids, quat_to_matrix
+from .fem_rigid import _box_resolution, box_corner_ids, quat_to_matrix
 
 _GRAVITY = 9.81  # m/s^2, acting in -Y
 
@@ -68,7 +68,9 @@ class ABDAffineBody:
     p0: NDArray[np.float64]                  # (3,) initial COM world position
     surf_body: NDArray[np.float64]           # (Ns,3) body-frame rest surface coords
     surf_faces: NDArray[np.int32]            # (F,3) surface triangles
-    half_extent: float = 0.05
+    half_extent: float = 0.05                # collision-box half-size (min axis)
+    # Full per-axis half-extents (hx, hy, hz). None ⇒ a cube of `half_extent`.
+    half_extents: tuple[float, float, float] | None = None
 
     is_manifold: bool = field(init=False, default=True)
     has_nonlinear_internal: bool = field(init=False, default=True)
@@ -82,6 +84,8 @@ class ABDAffineBody:
         self.k = 9
         self.ndof = 7 + 9
         self.tdim = 6 + 9
+        if self.half_extents is None:
+            self.half_extents = (self.half_extent,) * 3
         # Per-corner affine Jacobian B_c (3×9): u_body = (F−I)·x̄_c ⇒
         # B_c[m, 3m:3m+3] = x̄_c (row m couples d-block m). This is the affine
         # analogue of the modal Φ_c — the coupler treats it identically.
@@ -233,9 +237,9 @@ class ABDAffineBody:
         return (u @ R.T) + p
 
 
-def build_abd_cube(
-    size: float = 0.1,
-    nx: int = 3,
+def build_abd_box(
+    half_extents,
+    resolution: int | tuple[int, int, int] = 3,
     material: Material | None = None,
     kappa_v: float = 5.0e3,
     alpha0: float = 1.0,
@@ -243,10 +247,18 @@ def build_abd_cube(
     cx: float = 0.0,
     cz: float = 0.0,
 ) -> ABDAffineBody:
-    """Co-rotated ABD affine cube, centroid at (cx, drop_y, cz)."""
+    """Co-rotated ABD affine (hx,hy,hz) box, centroid at (cx, drop_y, cz).
+    The affine basis is geometry-driven (Q = Σ m x̄x̄ᵀ from the mesh), so
+    anisotropic boxes need no formulation change — only the mesh + corners."""
     material = material or Material(E=1.0e9, nu=0.3, rho=600.0)
-    mesh = make_block_tet_mesh(size=size, nx=nx, ny=nx, nz=nx)
-    half = 0.5 * size
+    half = np.asarray(half_extents, dtype=np.float64).reshape(3)
+    if isinstance(resolution, (int, np.integer)):
+        nxyz = _box_resolution(half, base=int(resolution))
+    else:
+        nxyz = tuple(int(n) for n in resolution)
+    mesh = make_beam_tet_mesh(
+        length=2.0 * half[0], width=2.0 * half[1], height=2.0 * half[2],
+        nx=nxyz[0], ny=nxyz[1], nz=nxyz[2])
     fem = FEMModel(mesh=mesh, material=material)
     m_node = fem.M_full.diagonal()[0::3]       # lumped nodal mass
     centroid = mesh.vertices.mean(axis=0)
@@ -263,7 +275,7 @@ def build_abd_cube(
         rn = r[n]
         inertia0 += m_node[n] * (float(rn @ rn) * np.eye(3) - np.outer(rn, rn))
 
-    corner_ids, corners = cube_corner_ids(mesh, half)
+    corner_ids, corners = box_corner_ids(mesh, half)
     corner_body = corners - centroid
 
     surface = mesh.extract_surface()
@@ -283,5 +295,25 @@ def build_abd_cube(
         p0=np.array([cx, drop_y, cz]),
         surf_body=surf_body,
         surf_faces=surf_faces,
-        half_extent=half,
+        half_extent=float(half.min()),
+        half_extents=(float(half[0]), float(half[1]), float(half[2])),
     )
+
+
+def build_abd_cube(
+    size: float = 0.1,
+    nx: int = 3,
+    material: Material | None = None,
+    kappa_v: float = 5.0e3,
+    alpha0: float = 1.0,
+    drop_y: float = 0.12,
+    cx: float = 0.0,
+    cz: float = 0.0,
+) -> ABDAffineBody:
+    """Co-rotated ABD affine cube — exact-equivalence wrapper over
+    `build_abd_box` with a (size/2)³ box and an (nx,nx,nx) grid (mesh and all
+    derived quantities bit-identical to the pre-box cube builder)."""
+    return build_abd_box(
+        half_extents=(0.5 * size,) * 3, resolution=(nx, nx, nx),
+        material=material, kappa_v=kappa_v, alpha0=alpha0,
+        drop_y=drop_y, cx=cx, cz=cz)

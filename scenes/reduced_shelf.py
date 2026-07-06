@@ -51,6 +51,8 @@ def build_reduced_shelf(
     modal_static_lp_tau: float = 0.05,
     solver: str = "avbd",
     cargo_material: str | None = None,
+    cargo_all: bool = False,
+    cargo_n_elastic: int = 6,
 ) -> ReducedSceneHandle:
     """Construct the bookshelf scene + attach the reduced-coupled AVBD
     support (the shelf). Returns a handle with per-body render metadata."""
@@ -103,9 +105,14 @@ def build_reduced_shelf(
         to_eigenbasis=to_eigenbasis, modal_static_lp_tau=modal_static_lp_tau,
         solver=solver, cargo_material=cargo_material,
         cargo_impactor_dcr=impactor_idx,
+        cargo_all=cargo_all, cargo_n_elastic=cargo_n_elastic,
     )
 
     coupler = world.reduced_coupled_coupler
+    # native path stashes the impactor cargo on rs; the coupler attrs are the
+    # legacy (pre-native) source and are absent on this branch
+    native_cube = getattr(rs, "_native_cargo_cube", None)
+    native_idx = getattr(rs, "_native_cargo_avbd_idx", None)
     return ReducedSceneHandle(
         world=world, rs=rs,
         impactor_idx=impactor_idx,
@@ -113,7 +120,10 @@ def build_reduced_shelf(
         bodies=bodies,
         name="Reduced-Coordinate AVBD Bookshelf Drop",
         impactor_label="book",
-        cargo_cube=getattr(coupler, "_scene_cargo_cube", None),
-        cargo_avbd_idx=getattr(coupler, "_scene_cargo_avbd_idx", None),
+        cargo_cube=(native_cube if native_cube is not None
+                    else getattr(coupler, "_scene_cargo_cube", None)),
+        cargo_avbd_idx=(native_idx if native_idx is not None
+                        else getattr(coupler, "_scene_cargo_avbd_idx", None)),
         cargo_material=cargo_material,
+        cargo_map=getattr(rs, "_native_cargo_map", None) or {},
     )

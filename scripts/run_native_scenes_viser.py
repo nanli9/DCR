@@ -6,8 +6,12 @@ One viewer over the full matrix (native dual-solver build):
                support — a resting cube, a dropped impactor, and an offset
                3-high stack where the ring climbs the tower cube-to-cube through
                the box-box modal network; live ON/OFF toggle) | the four
-               production scenes truck / ledge / shelf / dinner (a deformable
-               impactor + rigid bystanders on the reduced-modal support).
+               production scenes truck / ledge / shelf / dinner, which now get
+               the SAME treatment (all-cargo, §N2 generalization): EVERY body —
+               plates, forks, cones, lumber, boulders — is a box-shaped modal
+               cargo on the box-box network, with its real (hx,hy,hz) modal
+               shapes (not a min-extent cube). `--no-all-cargo` restores the
+               old single-deformable-impactor mode.
   * solver   — avbd (SolverAVBD, Augmented-Lagrangian) | xpbd (SolverXPBD,
                compliant Gauss–Seidel). BOTH are genuinely independent NATIVE
                solvers: each solves rigid + box-box/floor + the reduced-modal
@@ -239,6 +243,10 @@ class UnifiedViser:
         # the ring of the cube under it through the box-box modal network. ON by
         # default; toggle live to see the upper cube's flex appear/vanish.
         self.network = not bool(getattr(args, "no_network", False))
+        # All-cargo (§N2 generalization): production scenes get the cargo-scene
+        # treatment — EVERY body a box-shaped modal cargo on the network. ON by
+        # default; --no-all-cargo restores the single-deformable-impactor mode.
+        self.all_cargo = not bool(getattr(args, "no_all_cargo", False))
         # §N2 rigid ride: the lower cube's flex also lifts the upper cube's RIGID
         # body (not just its modes). Default OFF (requires the network + friction;
         # frictionless-offset drops can tunnel — the N3 gate).
@@ -296,6 +304,7 @@ class UnifiedViser:
         if bool(getattr(args, "inject_xpbd", False)):
             self.symplectic = True
             self.no_cargo = True
+            self.all_cargo = False           # support-path demo: no cargo blocks
             self.material = "steel"          # stiff board ⇒ dramatic injection
             # PRODUCTION XPBD budget (1 iter × 16 substeps) — not a 1×1 toy; XPBD
             # injects here too (~5.5e4 J, scene ~1 J). See docs x1_blowup.
@@ -308,6 +317,15 @@ class UnifiedViser:
         self._build()
         self._init_gui()
 
+    def _all_cargo_on(self) -> bool:
+        """All-cargo (§N2 generalization) active for a production-scene build:
+        every body a box-shaped modal cargo on the box-box network. Follows the
+        cargo scene's own rules — the BE cargo path (the network lives in the
+        augmented q-block), so the symplectic toggle declines while cargo is
+        live, exactly as on the cargo scene."""
+        return (self.all_cargo and self.scene != "cargo"
+                and not bool(getattr(self.args, "no_cargo", False)))
+
     # ---- scene + render setup ---------------------------------------
     def _build(self):
         # Both "avbd" and "xpbd" are NATIVE solvers (no coupler); each carries
@@ -315,8 +333,9 @@ class UnifiedViser:
         # is the documented abd → AVBD fallback (abd's stiff nonlinear V⊥ is the
         # XPBD caveat; _effective_solver handles it).
         eff = _effective_solver(self.solver, self.kind)
-        if self.scene == "cargo":
-            eff = "avbd"     # the box-box modal network is AVBD-native (XPBD = N5)
+        if self.scene == "cargo" or self._all_cargo_on():
+            # the box-box modal network is AVBD-native (XPBD = N5)
+            eff = "avbd"
         self._eff_solver = eff
         rd = self.device.startswith("cuda")
         mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
@@ -329,9 +348,16 @@ class UnifiedViser:
         # which is host non-cargo only (the augmented cargo q-block is BE), so
         # symplectic forces non-cargo on every (re)build → it persists across
         # scene/solver switches.
-        cargo_kind = None if (self.no_cargo or self.symplectic) else self.kind
+        if self._all_cargo_on():
+            # All-cargo rides the BE cargo path like the cargo scene; the raw
+            # --no-cargo arg (checked in _all_cargo_on) is the full opt-out.
+            cargo_kind = self.kind
+        else:
+            cargo_kind = None if (self.no_cargo or self.symplectic) else self.kind
         cand = dict(
             device=self.device, solver=eff, cargo_material=cargo_kind,
+            cargo_all=self._all_cargo_on(),
+            cargo_n_elastic=3,               # per-body k (the cargo-scene value)
             iterations=int(self.knob_iters), avbd_substeps=int(self.knob_subs),
             support_thickness=float(self.knob_thickness),
             youngs=float(mat.youngs), density=float(mat.density),
@@ -389,14 +415,22 @@ class UnifiedViser:
             self._set_solver_modal_relax(self.knob_modal_relax)
         self._eff_modal_relax = self._solver_modal_relax(self.world._solver)
         self._set_solver_symplectic(self.symplectic)
+        # All-cargo scenes: sync the live network/ride toggles onto the fresh
+        # solver (the cargo builder takes them as kwargs; register_all_cargo
+        # just turns the network on — the GUI state is authoritative here).
+        sol = self.world._solver
+        if self._all_cargo_on() and hasattr(sol, "_modal_contact_network"):
+            sol._modal_contact_network = self.network
+            sol._modal_contact_ride = self.ride
         self._apply_passivity()
         self._collect_render()
         self._make_meshes()
 
     def _collect_render(self):
-        """Build the rigid-box list + the LIST of deformable cargo cubes. The
-        cargo scene has FOUR deformables (the modal-network stack); the
-        production scenes have one (the impactor) + rigid bystanders."""
+        """Build the rigid-box list + the LIST of deformable cargo bodies. The
+        cargo scene has FIVE deformables (the modal-network stack); an
+        all-cargo production scene has one PER BODY (§N2 generalization); the
+        legacy mode has one (the impactor) + rigid bystanders."""
         self._boxes = []      # (avbd_idx, half, color_u8)
         self._deforms = []    # list of {name, cube, idx, col, half}
         if self.scene == "cargo":
@@ -410,6 +444,21 @@ class UnifiedViser:
                     col=hl.get(name, _CUBE_COLOR[self.kind]), half=(h, h, h)))
             return
         imp_dcr = self.handle.impactor_idx
+        cargo_map = getattr(self.handle, "cargo_map", None) or {}
+        if cargo_map:
+            # All-cargo: every body is a deformable with its REAL box shape;
+            # keep each body's scene colour (the impactor gets the material
+            # colour so the eye finds it), no rigid boxes left to draw.
+            for b in self.handle.bodies:
+                if b.dcr_idx not in cargo_map:
+                    continue
+                body, avbd_idx = cargo_map[b.dcr_idx]
+                col = (_CUBE_COLOR[self.kind] if b.dcr_idx == imp_dcr
+                       else tuple(int(255 * c) for c in b.color))
+                self._deforms.append(dict(
+                    name=b.name, cube=body, idx=avbd_idx, col=col,
+                    half=b.half_extents))
+            return
         cargo_idx = self.handle.cargo_avbd_idx
         for b in self.handle.bodies:
             if b.dcr_idx == imp_dcr:
@@ -550,15 +599,17 @@ class UnifiedViser:
                      "host q-block. AVBD needs modal under-relax ≳ 0.5 to ring; "
                      "XPBD rings at its 0.25 default.")
             self.gui_symplectic.on_update(self._symplectic_changed)      # live
-            if self.scene == "cargo":
+            if self.scene == "cargo" or bool(getattr(self.handle,
+                                                     "cargo_map", None)):
                 self.gui_network = g.add_checkbox(
                     "modal contact network (stacked coupling)",
                     initial_value=self.network,
-                    hint="§N2 (live, cargo scene, AVBD): box-box contacts between "
-                         "cargo cubes carry modal columns, so the STACKED cube "
-                         "(orange, right) rings from the cube under it. OFF ⇒ its "
-                         "only contact (box-box) carries no modal column ⇒ inert. "
-                         "Raise 'cube flex ×' to ~250 to see it.")
+                    hint="§N2 (live, AVBD): box-box contacts between cargo "
+                         "bodies carry modal columns, so stacked/touching "
+                         "bodies ring from each other (cargo scene: the orange "
+                         "tower; all-cargo scenes: every body). OFF ⇒ box-box "
+                         "contacts carry no modal column ⇒ stacked bodies "
+                         "inert. Raise 'cube flex ×' to ~250 to see it.")
                 self.gui_network.on_update(self._network_changed)         # live
                 self.gui_ride = g.add_checkbox(
                     "rigid ride (flex lifts the stacked body)",
@@ -744,7 +795,9 @@ class UnifiedViser:
         sol = self.world._solver
         if not hasattr(sol, "_enforce_modal_passivity"):
             return
-        cargo = (self.scene == "cargo") and bool(getattr(sol, "_cargo_enabled", False))
+        # any scene with live cargo blocks (the cargo scene, or a production
+        # scene in all-cargo mode) uses the cargo-path wiring
+        cargo = bool(getattr(sol, "_cargo_enabled", False))
         support = (bool(getattr(sol, "_modal_enabled", False))
                    and bool(getattr(sol, "_modal_symplectic", False))
                    and not cargo)
@@ -943,9 +996,17 @@ def main():
                          "symplectic modal path (host non-cargo only).")
     ap.add_argument("--spin", type=float, default=4.0)
     ap.add_argument("--no-network", action="store_true",
-                    help="cargo scene only: start with the §N2 box-box modal "
-                         "network OFF (the stacked cube inert). Default ON. "
+                    help="start with the §N2 box-box modal network OFF "
+                         "(stacked/touching cargo bodies inert). Default ON. "
                          "Toggle live in the GUI.")
+    ap.add_argument("--no-all-cargo", action="store_true",
+                    help="production scenes: restore the legacy mode (ONE "
+                         "deformable impactor + rigid bystanders). Default is "
+                         "the §N2 generalization — every body a box-shaped "
+                         "modal cargo on the box-box network, same treatment "
+                         "as the cargo scene. Forces AVBD (the network is "
+                         "AVBD-native; XPBD = N5) and the BE cargo path (the "
+                         "symplectic toggle declines while cargo is live).")
     ap.add_argument("--ride", action="store_true",
                     help="cargo scene only: start with the §N2 rigid ride ON "
                          "(the lower cube's flex also lifts the stacked cube's "

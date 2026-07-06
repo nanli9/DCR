@@ -30,44 +30,94 @@ from dcr.avbd.reduced_support import (
     make_debug_reduced_shelf_support,
 )
 from dcr.avbd.cargo.fem_rigid import (
-    build_fem_rigid_cube,
-    build_fem_cube,
-    build_rigid_cube,
+    build_fem_rigid_box,
+    build_fem_box,
+    build_rigid_box,
 )
-from dcr.avbd.cargo.abd import build_abd_cube
+from dcr.avbd.cargo.abd import build_abd_box
 from dcr.fem.material import Material
 
 from scenes.reduced_support_shelf import N_GRID_X, N_GRID_Z
 
 
+def make_cargo_body(kind: str, *, half_extents, mass: float,
+                    resolution: int | tuple[int, int, int] = 3,
+                    n_elastic: int = 6, youngs: float = 1.0e6,
+                    density: float = 600.0):
+    """Build a deformable cargo body of the requested material shaped as the
+    (hx,hy,hz) BOX of the rigid body it overlays — the modal body the native
+    path couples at its contact corners (`add_native_cargo`). The FEM density
+    is rescaled so the cargo's total mass matches the rigid body's."""
+    hx, hy, hz = (float(v) for v in half_extents)
+    vol = 8.0 * hx * hy * hz
+    rho = max(1.0, float(mass) / max(vol, 1e-12))
+    mat = Material(E=youngs, nu=0.3, rho=rho)
+    if kind == "rigid":
+        # Pure 6-DOF rigid body (k=0): the no-deformation baseline. It still
+        # rings the support's modal field through its contact corners (M1).
+        return build_rigid_box(half_extents=(hx, hy, hz),
+                               resolution=resolution, material=mat, drop_y=0.0)
+    if kind == "fem_rigid":
+        return build_fem_rigid_box((hx, hy, hz), resolution=resolution,
+                                   n_elastic=n_elastic, material=mat,
+                                   drop_y=0.0)
+    if kind == "fem":
+        return build_fem_box(half_extents=(hx, hy, hz), resolution=resolution,
+                             n_elastic=n_elastic, material=mat, drop_y=0.0)
+    if kind == "abd":
+        return build_abd_box((hx, hy, hz), resolution=resolution,
+                             kappa_v=2.0e3, alpha0=2.0, drop_y=0.0)
+    raise ValueError(
+        f"unknown cargo material {kind!r} (rigid | fem_rigid | abd | fem)")
+
+
 def make_cargo_cube(kind: str, *, size: float, mass: float, nx: int = 3,
                     n_elastic: int = 6, youngs: float = 1.0e6,
                     density: float = 600.0):
-    """Build a deformable cargo cube body of the requested material, scaled to
-    `size` (edge length) — the modal-overlay body the coupler couples at its
-    contact corners (`reduced_coupled_avbd` / `reduced_coupled_xpbd`). The cube's
-    own FEM density is rescaled so its total mass matches the scene impactor."""
-    # density ∝ mass / size³ so build_*_cube's total_mass() ≈ the impactor mass.
-    rho = max(1.0, float(mass) / max(size ** 3, 1e-9))
-    if kind == "rigid":
-        # Pure 6-DOF rigid cube (k=0): the no-deformation baseline. It still rings
-        # the support's modal field through its contact corners (M1 behavior).
-        return build_rigid_cube(size=size, nx=nx,
-                                material=Material(E=youngs, nu=0.3, rho=rho),
-                                drop_y=0.0)
-    if kind == "fem_rigid":
-        return build_fem_rigid_cube(size=size, nx=nx, n_elastic=n_elastic,
-                                    material=Material(E=youngs, nu=0.3, rho=rho),
-                                    drop_y=0.0)
-    if kind == "fem":
-        return build_fem_cube(size=size, nx=nx, n_elastic=n_elastic,
-                              material=Material(E=youngs, nu=0.3, rho=rho),
-                              drop_y=0.0)
-    if kind == "abd":
-        return build_abd_cube(size=size, nx=nx, kappa_v=2.0e3, alpha0=2.0,
-                              drop_y=0.0)
-    raise ValueError(
-        f"unknown cargo material {kind!r} (rigid | fem_rigid | abd | fem)")
+    """Cube-shaped cargo body (edge `size`) — exact-equivalence wrapper over
+    `make_cargo_body` (kept for the legacy single-impactor call sites)."""
+    return make_cargo_body(kind, half_extents=(0.5 * size,) * 3, mass=mass,
+                           resolution=(nx, nx, nx), n_elastic=n_elastic,
+                           youngs=youngs, density=density)
+
+
+def register_all_cargo(
+    world: AVBDDCRWorld,
+    bodies,
+    cargo_material: str,
+    *,
+    impactor_dcr: int | None = None,
+    n_elastic: int = 3,
+    youngs: float = 1.0e6,
+) -> dict[int, tuple[object, int]]:
+    """§N2 generalization (all-cargo scenes): register EVERY body as a
+    box-shaped deformable cargo on the native augmented-modal path and enable
+    the box-box modal contact network — the `reduced_cargo_network` recipe
+    applied to the production scenes, with each body's REAL (hx,hy,hz) modal
+    shapes instead of a min-extent cube collapse.
+
+    Call AFTER `enable_reduced_modal_support`. `allow_stacked=True` for every
+    body: grounded bodies still bind their support rows (the flag only waives
+    the no-support-rows error), while stacked bodies (lumber piles) couple
+    purely through the box-box network. Returns {dcr_idx: (cargo_body,
+    avbd_idx)}. On XPBD the per-body support coupling works but the box-box
+    network does not exist yet (N5) — stacked bodies' modes stay inert there.
+    """
+    cargo_map: dict[int, tuple[object, int]] = {}
+    for b in bodies:
+        desc = world._descs[b.dcr_idx]
+        if desc.avbd_body is None:
+            continue
+        avbd_idx = int(desc.avbd_body.index)
+        body = make_cargo_body(
+            cargo_material, half_extents=b.half_extents,
+            mass=float(desc.dcr_body.mass), n_elastic=n_elastic,
+            youngs=youngs)
+        world.add_native_cargo(avbd_idx, body, allow_stacked=True)
+        cargo_map[b.dcr_idx] = (body, avbd_idx)
+    if hasattr(world._solver, "_modal_contact_network"):
+        world._solver._modal_contact_network = True
+    return cargo_map
 
 
 @dataclass
@@ -104,6 +154,10 @@ class ReducedSceneHandle:
     cargo_cube: object = None              # FEMRigidModalBody | ABDAffineBody
     cargo_avbd_idx: int | None = None
     cargo_material: str | None = None
+    # All-cargo wiring (§N2 generalization): {dcr_idx: (cargo_body, avbd_idx)}
+    # for EVERY body when the scene was built with cargo_all=True; empty dict
+    # otherwise. The impactor's entry is duplicated in cargo_cube/_avbd_idx.
+    cargo_map: dict = field(default_factory=dict)
 
 
 class BodyAdder:
@@ -153,6 +207,7 @@ def build_support_and_attach(
     cargo_material: str | None = None,
     cargo_impactor_dcr: int | None = None,
     cargo_n_elastic: int = 6,
+    cargo_all: bool = False,
 ) -> ReducedSupport:
     """Build the synthetic reduced-modal support, track every dynamic body,
     and attach the coupled coupler (`solver` = "avbd" Schur–Newton | "xpbd"
@@ -228,7 +283,18 @@ def build_support_and_attach(
             n_grid_x=N_GRID_X,
             n_grid_z=N_GRID_Z,
         )
-        if cargo_material is not None and cargo_impactor_dcr is not None:
+        if cargo_material is not None and cargo_all:
+            # §N2 all-cargo: every body a box-shaped modal cargo on the
+            # box-box network (the cargo-network recipe, production scenes).
+            cargo_map = register_all_cargo(
+                world, bodies, cargo_material,
+                impactor_dcr=cargo_impactor_dcr, n_elastic=cargo_n_elastic)
+            rs._native_cargo_map = cargo_map       # read back by the scene
+            if cargo_impactor_dcr in cargo_map:
+                cube, avbd_idx = cargo_map[cargo_impactor_dcr]
+                rs._native_cargo_cube = cube
+                rs._native_cargo_avbd_idx = avbd_idx
+        elif cargo_material is not None and cargo_impactor_dcr is not None:
             desc = world._descs[cargo_impactor_dcr]
             avbd_idx = int(desc.avbd_body.index)
             imp = next(b for b in bodies if b.dcr_idx == cargo_impactor_dcr)

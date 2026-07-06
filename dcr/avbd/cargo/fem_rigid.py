@@ -28,6 +28,14 @@ internal grad/hess) are the per-cube parity oracle for the GPU coupling.
 # (Coriolis/centrifugal) coupling is O(‖a‖) for the small modal amplitudes used
 # and is likewise dropped. Standard linearized / mean-axis FFR simplifications;
 # cite Shabana, *Dynamics of Multibody Systems*, §5 (floating frame of reference).
+#
+# DEVIATION (rectangular boxes, all-cargo scenes): `build_fem_rigid_box` extends
+# the builder to anisotropic (hx,hy,hz) boxes (plates, planks, cutlery). The
+# anisotropic I₀ is kept exactly in `mass_tan` (R I₀ Rᵀ), but the gyroscopic
+# torque ω×I₀ω — no longer zero for a non-cube — stays dropped in `predict`:
+# the production scenes are drop/settle contacts at low spin rates where the
+# term is subdominant to the contact impulses. Same linearized-FFR class as
+# above; revisit if a scene ever spins cargo fast (Dzhanibekov would be wrong).
 """
 from __future__ import annotations
 
@@ -39,7 +47,7 @@ from scipy.linalg import eigh
 
 from dcr.fem.fem_model import FEMModel
 from dcr.fem.material import Material
-from dcr.geom.tet_mesh import make_block_tet_mesh
+from dcr.geom.tet_mesh import make_beam_tet_mesh
 
 _GRAVITY = 9.81  # m/s^2, acting in -Y
 
@@ -105,20 +113,29 @@ def _skew(u: NDArray[np.float64]) -> NDArray[np.float64]:
                      [-u[1], u[0], 0.0]])
 
 
-def cube_corner_ids(mesh, half: float):
-    """The 8 cube-corner vertex ids (nearest mesh vertex to each (±half)³),
-    and their world rest coords. Ported from twobody `_cube_corner_ids`."""
+def box_corner_ids(mesh, half_extents):
+    """The 8 box-corner vertex ids (nearest mesh vertex to each
+    (±hx, ±hy, ±hz)), and their rest coords. Per-axis generalization of the
+    cube version; corner ORDER matches `_BOX_CORNERS` sign order everywhere
+    (x-major, then y, then z)."""
+    half = np.asarray(half_extents, dtype=np.float64).reshape(3)
     signs = np.array([[sx, sy, sz]
                       for sx in (-1.0, 1.0)
                       for sy in (-1.0, 1.0)
                       for sz in (-1.0, 1.0)])
     centroid = mesh.vertices.mean(axis=0)
-    targets = centroid + half * signs
+    targets = centroid + signs * half
     ids = []
     for t in targets:
         d = np.linalg.norm(mesh.vertices - t, axis=1)
         ids.append(int(np.argmin(d)))
     return np.array(ids, dtype=np.int64), mesh.vertices[ids]
+
+
+def cube_corner_ids(mesh, half: float):
+    """The 8 cube-corner vertex ids (nearest mesh vertex to each (±half)³),
+    and their world rest coords. Ported from twobody `_cube_corner_ids`."""
+    return box_corner_ids(mesh, (half, half, half))
 
 
 # ======================================================================
@@ -142,7 +159,10 @@ class FEMRigidModalBody:
     surf_body: NDArray[np.float64]           # (Ns,3) body-frame rest surface coords
     surf_modal: NDArray[np.float64]          # (Ns,3,k) modal blocks at surface verts
     surf_faces: NDArray[np.int32]            # (F,3) surface triangles
-    half_extent: float = 0.05                # collision-box half-size
+    half_extent: float = 0.05                # collision-box half-size (min axis)
+    # Full per-axis collision-box half-extents (hx, hy, hz). None ⇒ a cube of
+    # `half_extent` (back-compat: every pre-box cargo body was a cube).
+    half_extents: tuple[float, float, float] | None = None
     # Co-rotation of the modal contact gradient. True (fem_rigid): the modes
     # ride the tumbling body, G_a = n̂ᵀ·R·Φ_c. False (fem material, Stage 5):
     # world-fixed modes (a restriction of fem_rigid), G_a = n̂ᵀ·Φ_c — the
@@ -158,6 +178,8 @@ class FEMRigidModalBody:
         self.k = int(self.omega2.shape[0])
         self.ndof = 7 + self.k
         self.tdim = 6 + self.k
+        if self.half_extents is None:
+            self.half_extents = (self.half_extent,) * 3
 
     # -- coordinates ---------------------------------------------------
     def rest_state(self) -> NDArray[np.float64]:
@@ -317,9 +339,18 @@ class FEMRigidModalBody:
 # ======================================================================
 # Builder
 # ======================================================================
-def build_fem_rigid_cube(
-    size: float = 0.1,
-    nx: int = 3,
+def _box_resolution(half_extents, base: int = 3) -> tuple[int, int, int]:
+    """Per-axis hex-cell counts for a (hx,hy,hz) box: `base` cells on the
+    longest axis, the others scaled to keep elements near-isotropic, with a
+    floor of 2 cells so every axis has a midside node (bending modes need it)."""
+    ext = np.asarray(half_extents, dtype=np.float64).reshape(3)
+    longest = float(ext.max())
+    return tuple(max(2, int(round(base * float(e) / longest))) for e in ext)
+
+
+def build_fem_rigid_box(
+    half_extents,
+    resolution: int | tuple[int, int, int] = 3,
     material: Material | None = None,
     n_elastic: int = 6,
     drop_y: float = 0.12,
@@ -329,15 +360,29 @@ def build_fem_rigid_cube(
     cz: float = 0.0,
     corotate: bool = True,
 ) -> FEMRigidModalBody:
-    """6-DOF rigid frame + `n_elastic` FEM elastic eigenmodes (the FFR cube).
+    """6-DOF rigid frame + `n_elastic` FEM elastic eigenmodes of an
+    axis-aligned (hx,hy,hz) BOX (the FFR body, see module docstring FFR Eq.).
 
-    The free-body generalized eigenproblem's 6 rigid modes are discarded and the
-    next `n_elastic` ELASTIC modes kept; the rigid motion is restored as a true
-    6-DOF rigid body (p + quaternion) so the cube can tumble.
+    Generalizes the cube builder to anisotropic boxes (plates, planks,
+    cutlery) so every production-scene body can carry real modal shapes
+    instead of being collapsed to a `min(half_extents)` cube. The free-body
+    generalized eigenproblem's 6 rigid modes are discarded and the next
+    `n_elastic` ELASTIC modes kept; rigid motion is restored as a true 6-DOF
+    body (p + quaternion). `resolution`: int ⇒ cells on the longest axis with
+    the others aspect-scaled (`_box_resolution`); tuple ⇒ explicit (nx,ny,nz).
+    See the module-header DEVIATION note on the dropped gyroscopic torque for
+    anisotropic I₀.
     """
     material = material or Material(E=1.0e9, nu=0.3, rho=600.0)
-    mesh = make_block_tet_mesh(size=size, nx=nx, ny=nx, nz=nx)
-    half = 0.5 * size
+    half = np.asarray(half_extents, dtype=np.float64).reshape(3)
+    if isinstance(resolution, (int, np.integer)):
+        nxyz = _box_resolution(half, base=int(resolution))
+    else:
+        nxyz = tuple(int(n) for n in resolution)
+    # make_beam_tet_mesh maps (length,width,height) → (lx,ly,lz) verbatim.
+    mesh = make_beam_tet_mesh(
+        length=2.0 * half[0], width=2.0 * half[1], height=2.0 * half[2],
+        nx=nxyz[0], ny=nxyz[1], nz=nxyz[2])
     fem = FEMModel(mesh=mesh, material=material, alpha0=alpha0, alpha1=alpha1)
 
     # Free-body generalized eigenproblem (no fixed nodes ⇒ K/M are the full
@@ -362,7 +407,7 @@ def build_fem_rigid_cube(
         inertia0 += m_node[n] * (float(rn @ rn) * np.eye(3) - np.outer(rn, rn))
 
     # tracked corners (body frame, COM-relative)
-    corner_ids, corners = cube_corner_ids(mesh, half)
+    corner_ids, corners = box_corner_ids(mesh, half)
     corner_body = corners - centroid
     corner_modal = np.stack([Phi[3 * cid: 3 * cid + 3, :] for cid in corner_ids])
 
@@ -397,9 +442,49 @@ def build_fem_rigid_cube(
         surf_body=surf_body,
         surf_modal=surf_modal,
         surf_faces=surf_faces,
-        half_extent=half,
+        half_extent=float(half.min()),
+        half_extents=(float(half[0]), float(half[1]), float(half[2])),
         corotate=corotate,
     )
+
+
+def build_fem_rigid_cube(
+    size: float = 0.1,
+    nx: int = 3,
+    material: Material | None = None,
+    n_elastic: int = 6,
+    drop_y: float = 0.12,
+    alpha0: float = 1.0,
+    alpha1: float = 5.0e-4,
+    cx: float = 0.0,
+    cz: float = 0.0,
+    corotate: bool = True,
+) -> FEMRigidModalBody:
+    """6-DOF rigid frame + `n_elastic` FEM elastic eigenmodes (the FFR cube).
+
+    Exact-equivalence wrapper over `build_fem_rigid_box` with a (size/2)³ box
+    and an (nx,nx,nx) grid — the mesh, eigensolve, and every derived quantity
+    are bit-identical to the pre-box cube builder (parity tests untouched).
+    """
+    return build_fem_rigid_box(
+        half_extents=(0.5 * size,) * 3, resolution=(nx, nx, nx),
+        material=material, n_elastic=n_elastic, drop_y=drop_y,
+        alpha0=alpha0, alpha1=alpha1, cx=cx, cz=cz, corotate=corotate)
+
+
+def build_fem_box(**kwargs) -> FEMRigidModalBody:
+    """The "fem" material as a rectangular box: translation+modal, NO
+    co-rotation (see `build_fem_cube`)."""
+    kwargs.pop("corotate", None)
+    return build_fem_rigid_box(corotate=False, **kwargs)
+
+
+def build_rigid_box(**kwargs) -> FEMRigidModalBody:
+    """The "rigid" cargo material as a rectangular box: k=0, no deformation
+    (see `build_rigid_cube`)."""
+    kwargs.pop("corotate", None)
+    kwargs.pop("n_elastic", None)
+    return build_fem_rigid_box(n_elastic=0, **kwargs)
 
 
 def build_fem_cube(**kwargs) -> FEMRigidModalBody:
