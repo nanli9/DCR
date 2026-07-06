@@ -515,12 +515,14 @@ class UnifiedViser:
             self.gui_damping = g.add_slider("modal damping scale", 0.1, 8.0, 0.1,
                                             float(self.knob_damping))
             self.gui_modal_relax = g.add_slider(
-                "modal under-relax", 0.02, 1.0, 0.01,
-                float(self._eff_modal_relax),
+                "modal under-relax", 0.02, 2.0, 0.01,
+                float(min(max(self._eff_modal_relax, 0.02), 2.0)),
                 hint="modal q chase per iteration (live). Higher = more visible "
                      "modal flex/ring; lower = damped. AVBD default 0.10, "
                      "XPBD 0.25 — this is the dominant knob behind AVBD looking "
-                     "stiffer than XPBD in the same scene.")
+                     "stiffer than XPBD in the same scene. >1 OVER-relaxes the "
+                     "q-block (the --inject stress knob: over-shoots and injects "
+                     "energy — watch the passivity HUD).")
             self.gui_modal_relax.on_update(self._modal_relax_changed)   # live
             self.gui_symplectic = g.add_checkbox(
                 "symplectic modal step", initial_value=self.symplectic,
