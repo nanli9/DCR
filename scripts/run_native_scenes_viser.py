@@ -921,15 +921,17 @@ def main():
                          "injection, physics-neutral). Toggle live in the GUI.")
     ap.add_argument("--inject", action="store_true",
                     help="cargo scene: a preset that makes the modal contact "
-                         "network over-inject — the 'energy blows up' failure the "
-                         "bound exists to stop. Forces the BE cargo path, network "
-                         "on, and the STARVED real-time budget (iters 2×1, "
-                         "modal-relax 1.0): the fixed-low-iteration local solver "
-                         "under-converges and injects ~20× the rigid-loss budget "
-                         "(no over-relaxation — the honest real-time failure). "
-                         "Watch |a| / support modal KE inject + the passivity HUD "
-                         "read INJECTING ✗ with the clamp OFF, then tick 'enforce "
-                         "passivity bound' to see it bounded (PASSIVE ✓).")
+                         "network violate the passivity bound. Forces the BE cargo "
+                         "path, network on, and the STARVED real-time budget (iters "
+                         "2×1, modal-relax 1.0): the fixed-low-iteration local "
+                         "solver under-converges and injects ~20× the rigid-loss "
+                         "budget (no over-relaxation — the honest real-time "
+                         "failure). The 'modal E vs loss budget' HUD reads "
+                         "INJECTING ✗ with the clamp OFF; tick 'enforce passivity "
+                         "bound' to flip it PASSIVE ✓. NOTE: on AVBD the injection "
+                         "is a BOUNDED ledger violation (a transient that damps), "
+                         "not a visual blowup — the sim stays stable either way; "
+                         "the HUD, not the cubes, is where you see it.")
     ap.add_argument("--cube-exag", type=float, default=1.0,
                     help="initial cube-flex render exaggeration (1 = true scale)")
     ap.add_argument("--support-exag", type=float, default=1.0,
