@@ -1,0 +1,99 @@
+{
+  "scene": "dinner",
+  "h_fine": 5e-05,
+  "t_settle": 0.4,
+  "t_run": 1.2,
+  "body_youngs": 1000000.0,
+  "k_penalty": 50000000.0,
+  "penalty_fc": 1500.0,
+  "contact_zeta": 0.2,
+  "support": {
+    "length": 1.2,
+    "width": 1.0,
+    "thickness": 0.03,
+    "top": 0.03,
+    "youngs": 10000000000.0,
+    "density": 500.0,
+    "resolution": [
+      12,
+      10,
+      2
+    ]
+  },
+  "bodies": {
+    "support": {
+      "mass": 17.999999999999993,
+      "n_nodes": 429
+    },
+    "plate_0": {
+      "mass": 0.4,
+      "n_nodes": 48
+    },
+    "fork_0": {
+      "mass": 0.060000000000000005,
+      "n_nodes": 36
+    },
+    "knife_0": {
+      "mass": 0.05999999999999992,
+      "n_nodes": 36
+    },
+    "plate_1": {
+      "mass": 0.4,
+      "n_nodes": 48
+    },
+    "fork_1": {
+      "mass": 0.060000000000000005,
+      "n_nodes": 36
+    },
+    "knife_1": {
+      "mass": 0.05999999999999992,
+      "n_nodes": 36
+    },
+    "plate_2": {
+      "mass": 0.4,
+      "n_nodes": 48
+    },
+    "fork_2": {
+      "mass": 0.060000000000000005,
+      "n_nodes": 36
+    },
+    "knife_2": {
+      "mass": 0.05999999999999992,
+      "n_nodes": 36
+    },
+    "plate_3": {
+      "mass": 0.4,
+      "n_nodes": 48
+    },
+    "fork_3": {
+      "mass": 0.060000000000000005,
+      "n_nodes": 36
+    },
+    "knife_3": {
+      "mass": 0.05999999999999992,
+      "n_nodes": 36
+    },
+    "candle_0": {
+      "mass": 0.18,
+      "n_nodes": 36
+    },
+    "candle_1": {
+      "mass": 0.18,
+      "n_nodes": 36
+    },
+    "candle_2": {
+      "mass": 0.18,
+      "n_nodes": 36
+    },
+    "candle_3": {
+      "mass": 0.18,
+      "n_nodes": 36
+    },
+    "pot": {
+      "mass": 8.000000000000002,
+      "n_nodes": 36
+    }
+  },
+  "impactor": "pot",
+  "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
+}

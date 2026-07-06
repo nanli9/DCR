@@ -1,0 +1,51 @@
+{
+  "scene": "ledge",
+  "h_fine": 5e-05,
+  "t_settle": 0.4,
+  "t_run": 1.2,
+  "body_youngs": 1000000.0,
+  "k_penalty": 50000000.0,
+  "penalty_fc": 1500.0,
+  "contact_zeta": 0.2,
+  "support": {
+    "length": 1.2,
+    "width": 0.8,
+    "thickness": 0.08,
+    "top": 0.04,
+    "youngs": 10000000000.0,
+    "density": 500.0,
+    "resolution": [
+      12,
+      8,
+      2
+    ]
+  },
+  "bodies": {
+    "support": {
+      "mass": 38.400000000000006,
+      "n_nodes": 351
+    },
+    "pedestal": {
+      "mass": 5.0,
+      "n_nodes": 48
+    },
+    "pillar_0": {
+      "mass": 0.49999999999999967,
+      "n_nodes": 36
+    },
+    "pillar_1": {
+      "mass": 0.49999999999999967,
+      "n_nodes": 36
+    },
+    "pillar_2": {
+      "mass": 0.49999999999999967,
+      "n_nodes": 36
+    },
+    "boulder": {
+      "mass": 49.99999999999997,
+      "n_nodes": 64
+    }
+  },
+  "impactor": "boulder",
+  "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
+}

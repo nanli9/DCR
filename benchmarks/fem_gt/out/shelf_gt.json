@@ -1,0 +1,55 @@
+{
+  "scene": "shelf",
+  "h_fine": 5e-05,
+  "t_settle": 0.4,
+  "t_run": 1.2,
+  "body_youngs": 1000000.0,
+  "k_penalty": 50000000.0,
+  "penalty_fc": 1500.0,
+  "contact_zeta": 0.2,
+  "support": {
+    "length": 0.8,
+    "width": 0.3,
+    "thickness": 0.03,
+    "top": 0.015,
+    "youngs": 500000000.0,
+    "density": 600.0,
+    "resolution": [
+      8,
+      4,
+      2
+    ]
+  },
+  "bodies": {
+    "support": {
+      "mass": 4.3199999999999985,
+      "n_nodes": 135
+    },
+    "book_0": {
+      "mass": 0.9999999999999993,
+      "n_nodes": 36
+    },
+    "book_1": {
+      "mass": 0.9999999999999993,
+      "n_nodes": 36
+    },
+    "book_2": {
+      "mass": 0.9999999999999993,
+      "n_nodes": 36
+    },
+    "book_3": {
+      "mass": 0.9999999999999993,
+      "n_nodes": 36
+    },
+    "book_4": {
+      "mass": 0.9999999999999993,
+      "n_nodes": 36
+    },
+    "drop_book": {
+      "mass": 5.999999999999998,
+      "n_nodes": 36
+    }
+  },
+  "impactor": "drop_book",
+  "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
+}

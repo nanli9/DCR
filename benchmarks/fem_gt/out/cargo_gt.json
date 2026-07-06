@@ -1,0 +1,51 @@
+{
+  "scene": "cargo",
+  "h_fine": 5e-05,
+  "t_settle": 0.4,
+  "t_run": 1.2,
+  "body_youngs": 1000000.0,
+  "k_penalty": 50000000.0,
+  "penalty_fc": 1500.0,
+  "contact_zeta": 0.2,
+  "support": {
+    "length": 0.8,
+    "width": 0.4,
+    "thickness": 0.02,
+    "top": 0.0,
+    "youngs": 10000000000.0,
+    "density": 500.0,
+    "resolution": [
+      8,
+      4,
+      2
+    ]
+  },
+  "bodies": {
+    "support": {
+      "mass": 3.2,
+      "n_nodes": 135
+    },
+    "resting": {
+      "mass": 0.6000000000000003,
+      "n_nodes": 64
+    },
+    "impactor": {
+      "mass": 0.6000000000000003,
+      "n_nodes": 64
+    },
+    "base": {
+      "mass": 0.6000000000000003,
+      "n_nodes": 64
+    },
+    "mid": {
+      "mass": 0.6000000000000003,
+      "n_nodes": 64
+    },
+    "upper": {
+      "mass": 0.6000000000000003,
+      "n_nodes": 64
+    }
+  },
+  "impactor": "impactor",
+  "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
+}
