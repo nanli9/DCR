@@ -225,6 +225,11 @@ class UnifiedViser:
         self.kind = args.kind
         self.solver = args.solver
         self.device = args.device
+        # --inject-xpbd: the XPBD support-path blow-up preset. Set scene/solver
+        # here so the rest of __init__ builds the right thing (knobs below).
+        if bool(getattr(args, "inject_xpbd", False)):
+            self.scene = "shelf"
+            self.solver = "xpbd"
         self.paused = False
         self.speed = 0.5
         self.cube_exag = float(args.cube_exag)
@@ -285,6 +290,16 @@ class UnifiedViser:
             self.network = True
             self.knob_iters, self.knob_subs = 2, 1
             self.knob_modal_relax = 1.0
+        # --inject-xpbd: the genuine blow-up — XPBD support path, stiff board,
+        # starved budget, symplectic (the support clamp's path). XPBD is not
+        # naturally passive, so the modal energy blows up (~1e8 J) unclamped.
+        if bool(getattr(args, "inject_xpbd", False)):
+            self.symplectic = True
+            self.no_cargo = True
+            self.material = "steel"          # stiff board ⇒ dramatic injection
+            self.knob_iters, self.knob_subs = 1, 1
+            self.knob_modal_relax = 1.0
+            self.passivity = False           # show the blow-up first
         self.render_thick = sp["thickness"]
         self._slab_faces = _slab_faces(N_GRID_X, N_GRID_Z)
         self._q_static = None        # EMA of rs.q for the "static" modal view
@@ -509,7 +524,7 @@ class UnifiedViser:
                 float(self.knob_v0),
                 hint="extra downward velocity on top of the drop (0 = rest)")
         with g.add_folder("Reduced-modal solver (press reset / rebuild)"):
-            self.gui_iters = g.add_slider("iterations", 2, 32, 1,
+            self.gui_iters = g.add_slider("iterations", 1, 32, 1,
                                           int(self.knob_iters))
             self.gui_iters.on_update(self._iters_changed)   # live
             self.gui_subs = g.add_slider("substeps (rebuild)", 1, 16, 1,
@@ -554,17 +569,20 @@ class UnifiedViser:
                          "sub-visible live; verify it via the ON−OFF difference "
                          "in docs/network/network_ride.png.")
                 self.gui_ride.on_update(self._ride_changed)               # live
-                self.gui_passivity = g.add_checkbox(
-                    "enforce passivity bound (clamp modal E)",
-                    initial_value=self.passivity,
-                    hint="§N2/X1 (live, cargo scene, AVBD): cap the network's "
-                         "modal energy at η·(rigid energy lost) — foundation §15, "
-                         "generalized across the body-body network. OFF = monitor "
-                         "(watch |a| / support modal KE inject at low iters + high "
-                         "modal-relax — try --inject); ON = the clamp scales the "
-                         "augmented modal state back onto the passive manifold. "
-                         "Read the 'modal E vs loss budget' HUD line.")
-                self.gui_passivity.on_update(self._passivity_changed)     # live
+            # Passivity clamp — available on BOTH the cargo network path (AVBD,
+            # BE) and the support path (AVBD/XPBD, symplectic). foundation §15.
+            self.gui_passivity = g.add_checkbox(
+                "enforce passivity bound (clamp modal E)",
+                initial_value=self.passivity,
+                hint="cap the modal energy at η·(rigid energy lost) — foundation "
+                     "§15. CARGO scene (AVBD network, --inject): OFF = monitor "
+                     "(bounded ledger violation); ON = clamp the augmented state. "
+                     "SUPPORT scene (shelf/ledge, symplectic, --inject-xpbd): XPBD "
+                     "is NOT naturally passive — OFF the modal energy BLOWS UP "
+                     "(~1e8 J, watch 'support modal KE'); ON brings it physical. "
+                     "AVBD support is naturally passive (OFF ≡ ON). Read the "
+                     "'modal E vs loss budget' HUD line when the clamp is on.")
+            self.gui_passivity.on_update(self._passivity_changed)         # live
         with g.add_folder("Visualization"):
             self.gui_cube_exag = g.add_slider(
                 "cube flex ×", 1.0, _EXAG_MAX, 1.0, self.cube_exag,
@@ -712,32 +730,40 @@ class UnifiedViser:
             sol._graph = None                       # force CUDA-graph recapture
 
     def _apply_passivity(self) -> None:
-        """Wire the §N2/X1 network passivity bound onto the live solver. Cargo
-        scene only: enable the ledger (so the HUD reads the live modal-vs-loss
-        ledger) and route the checkbox to monitor (measure the injection,
-        physics-neutral) vs active (clamp the augmented modal state). Non-cargo
-        or symplectic ⇒ disabled (the network bound lives in the BE cargo
-        q-block, `_modal_commit_cargo`)."""
+        """Wire the foundation-§15 passivity bound onto the live solver. Two paths:
+
+        - CARGO network (AVBD, BE cargo q-block, `_modal_commit_cargo`): keep the
+          ledger always on and route the checkbox to monitor (measure the bounded
+          injection, physics-neutral) vs active (clamp the augmented modal state).
+        - SUPPORT path (shelf/ledge, symplectic, `_modal_commit`; XPBD active /
+          AVBD monitor-capable): the clamp is symplectic-path only, so enforcement
+          FOLLOWS the checkbox — OFF shows the raw (blown-up on XPBD) ring, ON
+          clamps it. This is the genuine blow-up→normal demo (--inject-xpbd)."""
         sol = self.world._solver
         if not hasattr(sol, "_enforce_modal_passivity"):
             return
-        on = (self.scene == "cargo") and bool(getattr(sol, "_cargo_enabled", False))
-        sol._enforce_modal_passivity = bool(on)
-        if on:
-            sol._psv_monitor_only = not self.passivity
-            sol._psv_ledger = None                  # fresh ledger for this build
+        cargo = (self.scene == "cargo") and bool(getattr(sol, "_cargo_enabled", False))
+        support = (bool(getattr(sol, "_modal_enabled", False))
+                   and bool(getattr(sol, "_modal_symplectic", False))
+                   and not cargo)
+        if cargo:
+            sol._enforce_modal_passivity = True
+            sol._psv_monitor_only = not self.passivity   # ledger always records
+        elif support:
+            sol._enforce_modal_passivity = bool(self.passivity)  # OFF ⇒ blow-up
+            if hasattr(sol, "_psv_monitor_only"):
+                sol._psv_monitor_only = False            # active when on
+        else:
+            sol._enforce_modal_passivity = False
+        sol._psv_ledger = None                           # fresh ledger
         sol._graph = None
 
     def _passivity_changed(self, _evt):
-        """Toggle the §N2/X1 network passivity clamp live: monitor (measure the
-        injection) ↔ active (clamp the augmented modal state). Read each substep
-        in `_modal_commit_cargo`, so no rebuild — the ledger keeps accumulating;
-        the clamp starts biting on the next step."""
+        """Toggle the passivity clamp live. Re-applies the wiring so the cargo
+        (monitor↔active) and support (enforce on↔off) paths both do the right
+        thing; read each substep, so no rebuild."""
         self.passivity = bool(self.gui_passivity.value)
-        sol = self.world._solver
-        if hasattr(sol, "_psv_monitor_only"):
-            sol._psv_monitor_only = not self.passivity
-            sol._graph = None                       # force CUDA-graph recapture
+        self._apply_passivity()
 
     def _render_thick_changed(self, _evt):
         self.render_thick = max(0.0, float(self.gui_render_thick.value) / 1e3)
@@ -857,9 +883,12 @@ class UnifiedViser:
                 self.hud_supp.value = f"{getattr(sv, 'last_modal_KE', 0.0):.3e}"
                 pen = getattr(sv, "max_penetration", None)
                 self.hud_pen.value = f"{pen * 1e3:.4f}" if pen is not None else "—"
-                # §N2/X1 network passivity ledger: is the modal contact network
-                # injecting energy, and is the bound holding it? (foundation §15)
+                # Passivity ledger (foundation §15): is the modal path injecting,
+                # and is the bound holding it? When the clamp is OFF on the support
+                # path, there is no ledger — the blow-up shows on 'support modal KE'.
                 L = getattr(sv, "_psv_ledger", None)
+                emod = float(getattr(sv, "last_modal_KE", 0.0)
+                             + getattr(sv, "last_modal_PE", 0.0))
                 if L is not None and getattr(sv, "_enforce_modal_passivity", False):
                     inj = not L.passive()
                     self.hud_psv.value = (
@@ -869,8 +898,14 @@ class UnifiedViser:
                     mode = ("monitor" if getattr(sv, "_psv_monitor_only", True)
                             else "ACTIVE")
                     self.hud_clamp.value = f"{mode}   clamps={L.n_clamped}/{L.n_steps}"
+                elif getattr(sv, "_modal_enabled", False):
+                    # clamp off — flag a blow-up if the modal energy is unphysical
+                    blow = emod > 1e3
+                    self.hud_psv.value = (f"clamp OFF — E_modal={emod:.2e} J"
+                                          + ("  ✗ BLOWING UP" if blow else ""))
+                    self.hud_clamp.value = "off (tick to enforce)"
                 else:
-                    self.hud_psv.value = "— (cargo + --be only)"
+                    self.hud_psv.value = "—"
                     self.hud_clamp.value = "—"
             time.sleep(max(0.0, (1.0 / 120.0) / max(self.speed, 1e-3)))
 
@@ -932,6 +967,16 @@ def main():
                          "is a BOUNDED ledger violation (a transient that damps), "
                          "not a visual blowup — the sim stays stable either way; "
                          "the HUD, not the cubes, is where you see it.")
+    ap.add_argument("--inject-xpbd", action="store_true",
+                    help="the GENUINE blow-up preset: XPBD support path (shelf, "
+                         "steel board) at the starved budget (iters 1×1, "
+                         "symplectic). XPBD is NOT naturally passive — the modal "
+                         "energy blows up to ~1e8 J (scene has ~1 J) with the "
+                         "clamp OFF; the 'support modal KE' HUD reads the runaway "
+                         "and the board rings violently. Tick 'enforce passivity "
+                         "bound' to bring it to a physical ring. (AVBD, by "
+                         "contrast, is naturally passive — try --scene shelf "
+                         "--solver avbd and the clamp does nothing.)")
     ap.add_argument("--cube-exag", type=float, default=1.0,
                     help="initial cube-flex render exaggeration (1 = true scale)")
     ap.add_argument("--support-exag", type=float, default=1.0,
