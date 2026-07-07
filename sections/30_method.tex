@@ -13,27 +13,86 @@ point of both participants, so the unilateral gap becomes
   \qquad \Ghat_X = \nvec^{\!\top} R_X\, \Phimat_X ,
   \label{eq:gap}
 \end{equation}
-where $R_X$ is body $X$'s rotation. A single contact multiplier $f\ge 0$ then (i)
+where $R_X$ is body $X$'s rotation. Writing $z=(v,\omega)$ for a body's rigid
+velocity DOFs, the full gradient of one contact row (lever arms $r_A,r_B$ from each
+COM) is the ordinary rigid Jacobian extended by one modal column block per
+participant:
+\begin{equation}
+  \frac{\partial C}{\partial z_A} = \begin{bmatrix}\nvec\\ r_A\!\times\!\nvec\end{bmatrix}\!,
+  \;\;
+  \frac{\partial C}{\partial z_B} = -\begin{bmatrix}\nvec\\ r_B\!\times\!\nvec\end{bmatrix}\!,
+  \;\;
+  \frac{\partial C}{\partial \amp_A} = +\Ghat_A,
+  \;\;
+  \frac{\partial C}{\partial \amp_B} = -\Ghat_B.
+  \label{eq:grad}
+\end{equation}
+A single contact multiplier $f\ge 0$ then (i)
 pushes the rigid bodies apart and (ii) drives each participant's modes by
 $+\Ghat_A f$ on $A$ and $-\Ghat_B f$ on $B$. Newton's third law is built in, so the
 coupling is two-way and momentum-consistent by construction --- not a post-solve
-kick. The support contact (body$\leftrightarrow$ground) and the box--box contact
-(body$\leftrightarrow$body) are the \emph{same} row type; that is the whole
-generalization --- every body with modes participates, including stacked bodies that
-only ever touch another body.
+kick. The support contact (body$\leftrightarrow$ground) is the \emph{same} row type
+with the ground as degenerate participant: the surface is
+$y_{\mathrm{rest}}+U_y^{\!\top}q_s$, so $\partial C/\partial q_s=-U_y$ with $U_y$
+the support mode shapes' vertical components at the contact's footprint. That is
+the whole generalization --- every body with modes participates, including stacked
+bodies that only ever touch another body. Mass-normalized modes give
+$M_q=I$, $K_q=\operatorname{diag}(\omega_j^2)$, $D_q=\alpha_0 I+\alpha_1 K_q$
+(Rayleigh; DCR Eq.~7), so no reduced inverse is ever formed.
 \note{This unified $(z,Q)$ row is documented in \texttt{two\_band\_coupling.html} and
 \texttt{docs/sheldon\_report/README.md}.}
 
 \subsection{Solving the stiff modal block in a local iteration}
 \label{sec:method:solve}
-\todo{Describe the engaged-gated block Gauss--Seidel over the modal $q$-block, the
-rejected cross-term Schur, the under-relaxation ($\texttt{modal\_relax}$), and the
-XPBD Woodbury/Schur condensation. Cite the design note native-modal-qblock-design.}
 A global QP absorbs a stiff modal DOF ($K_q\!\sim\!10^{11}$) implicitly for free; a
 fixed low-iteration \emph{local} solver makes that stiff, dense modal block diverge
 under naive Gauss--Seidel. Making it stable \emph{and} two-way there is the
 algorithmic content of this section, and the reason the passivity bound of
-\S\ref{sec:method:passivity} is needed.
+\S\ref{sec:method:passivity} is needed. We embed the row of Eq.~\ref{eq:grad} in
+both solver families.
+
+\paragraph*{AVBD (augmented Lagrangian).} Each contact carries a penalty-plus-
+multiplier force $f=\max(0,\rho\,C+\lambda)$; body blocks solve their usual
+$6\times6$ systems with Hessian $M/h^2+\sum\rho\,J^{\!\top}J$. The modal amplitudes
+are chased in a separate \emph{engaged-gated block Gauss--Seidel} pass after each
+body sweep: only rows with an active multiplier contribute, and the modal block is
+solved implicitly (backward Euler) as
+\begin{equation}
+  \Big(\tfrac{1}{h^2}M_q+\tfrac{1}{h}D_q+K_q\Big)\,\Delta\amp
+  \;=\; \textstyle\sum_{\mathrm{engaged}}\Ghat^{\!\top} f
+        \;-\; K_q\,\amp \;-\; \tfrac{1}{h}D_q\,(\amp-\amp^{\mathrm{prev}}),
+  \qquad
+  \amp \leftarrow \amp + \omega_r\,\Delta\amp,
+  \label{eq:qblock}
+\end{equation}
+with under-relaxation $\omega_r$ (\texttt{modal\_relax}, $0.7$ in production; the
+diagonal $M_q,K_q,D_q$ make the solve $r$ independent scalar updates). The
+alternative --- condensing the modal columns into the contact solve by a cross-term
+Schur complement --- was measured to inject energy because the eliminated
+$\Delta z$ is never back-substituted at a truncated iteration count; the gated
+block-GS with explicit $\Delta\amp$ is what remains stable at $8\!-\!16$
+iterations.
+
+\paragraph*{XPBD (compliant position-level).} The same row becomes a compliant
+constraint with $\tilde\alpha=\alpha/h^2$ and damping $\gamma$; the generalized
+inverse mass simply gains the modal terms of Eq.~\ref{eq:grad},
+\begin{equation}
+  w \;=\; J M^{-1} J^{\!\top}
+        \;+\; \Ghat_A M_{q,A}^{-1}\Ghat_A^{\!\top}
+        \;+\; \Ghat_B M_{q,B}^{-1}\Ghat_B^{\!\top},
+  \qquad
+  \Delta\lambda \;=\; \frac{-C-\tilde\alpha\lambda-\gamma\,\dot C}
+                            {(1+\gamma)\,w+\tilde\alpha},
+  \label{eq:xpbd}
+\end{equation}
+after which positions and amplitudes update along the gradient,
+$\Delta\amp_A=+M_{q,A}^{-1}\Ghat_A^{\!\top}\Delta\lambda$ (mass-normalized:
+$M_q^{-1}=I$), scaled by the same under-relaxation. The modal internal dynamics
+enter as per-mode compliant rows with $\alpha_j=1/\omega_j^2$. The formulation
+difference matters: the AVBD chase tolerates $\omega_r=0.7$, while the XPBD
+Gauss--Seidel has a measured ceiling of $\omega_r=0.25$ on the stiff scenes
+($0.5$--$0.6$ ejects bodies, ${\ge}0.65$ NaN) --- one direct motivation for the
+formulation-level passivity analysis below.
 
 \subsection{The passivity bound}
 \label{sec:method:passivity}
