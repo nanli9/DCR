@@ -146,11 +146,48 @@ modes. We cap the per-step contact$\to$modal transfer by
   \dEmod \;\le\; \eta\,\dErig , \qquad \eta\in[0,1],
   \label{eq:passivity}
 \end{equation}
-enforced globally across all contacts each rigid step (foundation \S15). A passive
-scaling coefficient $\alpha\in[0,1]$ solves the per-step quadratic
-$\dEmod(\alpha)=\alpha b + \tfrac12\alpha^2 a \le E_{\max}$ (foundation \S6),
-so the injected energy never exceeds the fraction $\eta$ of the rigid kinetic energy
-lost during contact resolution.
+enforced globally across all contacts each rigid step (foundation \S15), with
+$\dErig$ the rigid kinetic energy lost during contact resolution that step ---
+the physical reservoir any vibration must be paid from.
+
+\paragraph*{Derivation of the passive scale $\alpha$ (foundation \S6).}
+The step's aggregate contact$\to$modal transfer is a velocity-level kick: the
+modes' velocities change by $\dot\amp \leftarrow \dot\amp + \alpha\,s$, where
+$s = M_q^{-1}\sum\Ghat^{\!\top}\!j$ collects the projected contact impulses and
+$\alpha\in[0,1]$ is the scale to be chosen. The kick leaves $\amp$ (hence the
+elastic potential $\tfrac12\amp^{\!\top}K_q\amp$) untouched, so the modal energy
+change is purely kinetic and \emph{exactly quadratic} in $\alpha$:
+\begin{equation}
+  \dEmod(\alpha)
+  = \tfrac12(\dot\amp+\alpha s)^{\!\top} M_q(\dot\amp+\alpha s)
+    - \tfrac12\dot\amp^{\!\top} M_q\dot\amp
+  = \alpha\, b + \tfrac12\alpha^2 a,
+  \qquad
+  a = s^{\!\top}\! M_q s \ge 0,\;\;
+  b = \dot\amp^{\!\top}\! M_q s .
+  \label{eq:alphaquad}
+\end{equation}
+No linearization is involved --- Eq.~\ref{eq:alphaquad} is exact, so the bound it
+implies is exact. Imposing $\dEmod(\alpha)\le E_{\max}=\eta\,\dErig$ and taking
+the largest admissible scale gives the closed form
+\begin{equation}
+  \alpha^\star \;=\;
+  \min\!\Big(1,\; \frac{-b+\sqrt{b^2+2\,a\,E_{\max}}}{a}\Big) \;\in\; [0,1],
+  \label{eq:alphastar}
+\end{equation}
+(the positive root of $\tfrac12 a\alpha^2+b\alpha-E_{\max}=0$; for $a\to0$ the
+kick is impotent and $\alpha^\star=1$). The sign of the cross term $b$ carries
+the physics: $b<0$ means the impulse \emph{opposes} the current modal velocity,
+so a partial kick first removes energy and a larger $\alpha$ is admissible;
+$b>0$ means it pumps an already-moving mode, and the square root caps it. Because
+$a,b$ are aggregated over all contacts before scaling, a single $\alpha^\star$
+(the code's $\gamma$ ledger scale) bounds the \emph{global} step, closing the
+loophole where each contact is individually passive but their sum is not. In
+practice the two formulations sit on opposite sides of this bound: the AVBD chase
+of Eq.~\ref{eq:qblock} is measured passive at the production budget (the clamp is
+a monitor, $0$ activations at $\omega_r=0.7$), while the XPBD projections of
+Eq.~\ref{eq:xpbd} inject without it and the clamp is load-bearing
+(\S\ref{sec:results:passivity}).
 \note{DEVIATION from DCR Eq.~10 (forced IIR): the injection is a velocity-level kick
 to $\dot q$ funded by rigid kinetic-energy loss, not a forced response --- see
 CLAUDE.md and the foundation \S15.}
