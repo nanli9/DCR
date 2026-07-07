@@ -1,6 +1,6 @@
 {
   "scene": "truck",
-  "refine": 0,
+  "refine": 2,
   "h_fine": 5e-05,
   "t_settle": 0.4,
   "t_run": 1.2,
@@ -17,68 +17,68 @@
     "youngs": 10000000000.0,
     "density": 500.0,
     "resolution": [
-      25,
-      15,
-      2
+      75,
+      45,
+      4
     ]
   },
   "bodies": {
     "support": {
       "mass": 112.49999999999997,
-      "n_nodes": 1248
+      "n_nodes": 17480
     },
     "crate_rest_0": {
-      "mass": 2.499999999999998,
-      "n_nodes": 36
+      "mass": 2.500000000000001,
+      "n_nodes": 210
     },
     "crate_rest_1": {
-      "mass": 2.499999999999998,
-      "n_nodes": 36
+      "mass": 2.500000000000001,
+      "n_nodes": 210
     },
     "cone_0": {
-      "mass": 0.30000000000000004,
-      "n_nodes": 36
+      "mass": 0.3000000000000001,
+      "n_nodes": 175
     },
     "cone_1": {
-      "mass": 0.30000000000000004,
-      "n_nodes": 36
+      "mass": 0.3000000000000001,
+      "n_nodes": 175
     },
     "cone_2": {
-      "mass": 0.30000000000000004,
-      "n_nodes": 36
+      "mass": 0.3000000000000001,
+      "n_nodes": 175
     },
     "cone_3": {
-      "mass": 0.30000000000000004,
-      "n_nodes": 36
+      "mass": 0.3000000000000001,
+      "n_nodes": 175
     },
     "cone_4": {
-      "mass": 0.30000000000000004,
-      "n_nodes": 36
+      "mass": 0.3000000000000001,
+      "n_nodes": 175
     },
     "lumber_0": {
-      "mass": 1.999999999999999,
-      "n_nodes": 36
+      "mass": 2.0,
+      "n_nodes": 112
     },
     "lumber_1": {
-      "mass": 1.999999999999999,
-      "n_nodes": 36
+      "mass": 2.0,
+      "n_nodes": 112
     },
     "lumber_2": {
-      "mass": 1.999999999999999,
-      "n_nodes": 36
+      "mass": 2.0,
+      "n_nodes": 112
     },
     "lumber_3": {
-      "mass": 1.999999999999999,
-      "n_nodes": 36
+      "mass": 2.0,
+      "n_nodes": 112
     },
     "drop_heavy": {
       "mass": 39.999999999999986,
-      "n_nodes": 48
+      "n_nodes": 252
     }
   },
   "impactor": "drop_heavy",
-  "wall_s": 113.8,
-  "peak_mid_uy": 0.003759908333695416,
-  "ring_hz": 49.520202819610326,
+  "wall_s": 1432.1,
+  "peak_mid_uy": 0.011734440264132092,
+  "ring_hz": 28.126987650366402,
   "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
 }

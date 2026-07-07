@@ -1,7 +1,7 @@
 {
   "scene": "shelf",
-  "refine": 0,
-  "h_fine": 5e-05,
+  "refine": 1,
+  "h_fine": 2.5e-05,
   "t_settle": 0.4,
   "t_run": 1.2,
   "record_every": 50,
@@ -17,44 +17,44 @@
     "youngs": 500000000.0,
     "density": 600.0,
     "resolution": [
-      8,
-      4,
-      2
+      16,
+      6,
+      3
     ]
   },
   "bodies": {
     "support": {
-      "mass": 4.3199999999999985,
-      "n_nodes": 135
+      "mass": 4.32,
+      "n_nodes": 476
     },
     "book_0": {
       "mass": 0.9999999999999993,
-      "n_nodes": 36
+      "n_nodes": 80
     },
     "book_1": {
       "mass": 0.9999999999999993,
-      "n_nodes": 36
+      "n_nodes": 80
     },
     "book_2": {
       "mass": 0.9999999999999993,
-      "n_nodes": 36
+      "n_nodes": 80
     },
     "book_3": {
       "mass": 0.9999999999999993,
-      "n_nodes": 36
+      "n_nodes": 80
     },
     "book_4": {
       "mass": 0.9999999999999993,
-      "n_nodes": 36
+      "n_nodes": 80
     },
     "drop_book": {
       "mass": 5.999999999999998,
-      "n_nodes": 36
+      "n_nodes": 80
     }
   },
   "impactor": "drop_book",
-  "wall_s": 28.9,
-  "peak_mid_uy": 0.004296249174395161,
-  "ring_hz": 101.364006367586,
+  "wall_s": 122.3,
+  "peak_mid_uy": 0.01340006314114784,
+  "ring_hz": 57.98784552405741,
   "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
 }

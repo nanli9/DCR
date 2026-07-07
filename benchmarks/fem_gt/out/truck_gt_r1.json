@@ -1,0 +1,84 @@
+{
+  "scene": "truck",
+  "refine": 1,
+  "h_fine": 5e-05,
+  "t_settle": 0.4,
+  "t_run": 1.2,
+  "record_every": 50,
+  "body_youngs": 1000000.0,
+  "k_penalty": 50000000.0,
+  "penalty_fc": 1500.0,
+  "contact_zeta": 0.2,
+  "support": {
+    "length": 2.5,
+    "width": 1.5,
+    "thickness": 0.06,
+    "top": 0.03,
+    "youngs": 10000000000.0,
+    "density": 500.0,
+    "resolution": [
+      50,
+      30,
+      3
+    ]
+  },
+  "bodies": {
+    "support": {
+      "mass": 112.50000000000001,
+      "n_nodes": 6324
+    },
+    "crate_rest_0": {
+      "mass": 2.5,
+      "n_nodes": 80
+    },
+    "crate_rest_1": {
+      "mass": 2.5,
+      "n_nodes": 80
+    },
+    "cone_0": {
+      "mass": 0.3,
+      "n_nodes": 80
+    },
+    "cone_1": {
+      "mass": 0.3,
+      "n_nodes": 80
+    },
+    "cone_2": {
+      "mass": 0.3,
+      "n_nodes": 80
+    },
+    "cone_3": {
+      "mass": 0.3,
+      "n_nodes": 80
+    },
+    "cone_4": {
+      "mass": 0.3,
+      "n_nodes": 80
+    },
+    "lumber_0": {
+      "mass": 2.0000000000000013,
+      "n_nodes": 80
+    },
+    "lumber_1": {
+      "mass": 2.0000000000000013,
+      "n_nodes": 80
+    },
+    "lumber_2": {
+      "mass": 2.0000000000000013,
+      "n_nodes": 80
+    },
+    "lumber_3": {
+      "mass": 2.0000000000000013,
+      "n_nodes": 80
+    },
+    "drop_heavy": {
+      "mass": 40.000000000000014,
+      "n_nodes": 80
+    }
+  },
+  "impactor": "drop_heavy",
+  "wall_s": 477.1,
+  "peak_mid_uy": 0.008764248221295958,
+  "ring_hz": 32.51515277021412,
+  "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
+}

@@ -1,0 +1,104 @@
+{
+  "scene": "dinner",
+  "refine": 1,
+  "h_fine": 5e-05,
+  "t_settle": 0.4,
+  "t_run": 1.2,
+  "record_every": 50,
+  "body_youngs": 1000000.0,
+  "k_penalty": 50000000.0,
+  "penalty_fc": 1500.0,
+  "contact_zeta": 0.2,
+  "support": {
+    "length": 1.2,
+    "width": 1.0,
+    "thickness": 0.03,
+    "top": 0.03,
+    "youngs": 10000000000.0,
+    "density": 500.0,
+    "resolution": [
+      24,
+      20,
+      3
+    ]
+  },
+  "bodies": {
+    "support": {
+      "mass": 18.000000000000004,
+      "n_nodes": 2100
+    },
+    "plate_0": {
+      "mass": 0.4000000000000003,
+      "n_nodes": 100
+    },
+    "fork_0": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_0": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "plate_1": {
+      "mass": 0.4000000000000003,
+      "n_nodes": 100
+    },
+    "fork_1": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_1": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "plate_2": {
+      "mass": 0.4000000000000003,
+      "n_nodes": 100
+    },
+    "fork_2": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_2": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "plate_3": {
+      "mass": 0.4000000000000003,
+      "n_nodes": 100
+    },
+    "fork_3": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_3": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "candle_0": {
+      "mass": 0.1800000000000001,
+      "n_nodes": 80
+    },
+    "candle_1": {
+      "mass": 0.1800000000000001,
+      "n_nodes": 80
+    },
+    "candle_2": {
+      "mass": 0.1800000000000001,
+      "n_nodes": 80
+    },
+    "candle_3": {
+      "mass": 0.1800000000000001,
+      "n_nodes": 80
+    },
+    "pot": {
+      "mass": 8.000000000000004,
+      "n_nodes": 80
+    }
+  },
+  "impactor": "pot",
+  "wall_s": 271.1,
+  "peak_mid_uy": 0.003184497983333418,
+  "ring_hz": 90.89648622889057,
+  "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
+}

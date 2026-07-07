@@ -1,9 +1,9 @@
 {
   "scene": "ledge",
-  "refine": 0,
-  "h_fine": 0.0001,
-  "t_settle": 0.15,
-  "t_run": 0.3,
+  "refine": 1,
+  "h_fine": 5e-05,
+  "t_settle": 0.4,
+  "t_run": 1.2,
   "record_every": 50,
   "body_youngs": 1000000.0,
   "k_penalty": 50000000.0,
@@ -17,40 +17,40 @@
     "youngs": 10000000000.0,
     "density": 500.0,
     "resolution": [
-      12,
-      8,
-      2
+      24,
+      16,
+      3
     ]
   },
   "bodies": {
     "support": {
       "mass": 38.400000000000006,
-      "n_nodes": 351
+      "n_nodes": 1700
     },
     "pedestal": {
-      "mass": 5.0,
-      "n_nodes": 48
+      "mass": 4.999999999999999,
+      "n_nodes": 100
     },
     "pillar_0": {
       "mass": 0.49999999999999967,
-      "n_nodes": 36
+      "n_nodes": 80
     },
     "pillar_1": {
       "mass": 0.49999999999999967,
-      "n_nodes": 36
+      "n_nodes": 80
     },
     "pillar_2": {
       "mass": 0.49999999999999967,
-      "n_nodes": 36
+      "n_nodes": 80
     },
     "boulder": {
-      "mass": 49.99999999999997,
-      "n_nodes": 64
+      "mass": 49.99999999999998,
+      "n_nodes": 125
     }
   },
   "impactor": "boulder",
-  "wall_s": 4.5,
-  "peak_mid_uy": 1.2661669216400748e-05,
-  "ring_hz": 50.01633152116374,
+  "wall_s": 102.2,
+  "peak_mid_uy": 0.0013894651052964704,
+  "ring_hz": 168.33919129003777,
   "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
 }
