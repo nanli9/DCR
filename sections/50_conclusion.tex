@@ -25,9 +25,14 @@ enforced passivity bound $\dEmod\le\eta\,\dErig$.
         full-FEM reference on the dinner sweep
         (\S\ref{sec:results:fem}), where DCR's sub-stepped IIR kick
         re-amplifies that transient at the cost of passivity (X7).
-  \item \todo{restitution decision; breadth of scenes; the affine (ABD) basis showed
-        a slow secular buildup and would need the same governor before any stability
-        claim.}
+  \item Native contact restitution is $e{=}0$: the sweep of
+        \S\ref{sec:results:restitution} shows the energy ratio stays bounded at
+        every $\varepsilon_r$ by construction, but a matched-restitution
+        comparison against DCR needs a Newton restitution term in the native
+        contact --- future work.
+  \item Scene breadth: all road-scene accuracy rows are pending (qualitative
+        only), and the affine (ABD) basis showed a slow secular buildup and
+        would need the same governor before any stability claim.
 \end{itemize}
 
 \paragraph*{Future work.} A swappable affine (ABD) cargo basis for cheap, robust
