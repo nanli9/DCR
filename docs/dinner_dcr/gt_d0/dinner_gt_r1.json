@@ -1,0 +1,136 @@
+{
+  "scene": "dinner",
+  "refine": 1,
+  "h_fine": 5e-05,
+  "t_settle": 2.5,
+  "t_run": 1.2,
+  "record_every": 50,
+  "body_youngs": 1000000.0,
+  "k_penalty": 50000000.0,
+  "penalty_fc": 1500.0,
+  "contact_zeta": 0.2,
+  "support": {
+    "length": 2.2,
+    "width": 1.1,
+    "thickness": 0.04,
+    "top": 0.03,
+    "youngs": 1100000000.0,
+    "density": 770.0,
+    "resolution": [
+      44,
+      22,
+      3
+    ]
+  },
+  "bodies": {
+    "support": {
+      "mass": 74.53600000000003,
+      "n_nodes": 4140
+    },
+    "plate_0": {
+      "mass": 0.5000000000000003,
+      "n_nodes": 100
+    },
+    "fork_0": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_0": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "plate_1": {
+      "mass": 0.5000000000000003,
+      "n_nodes": 100
+    },
+    "fork_1": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_1": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "plate_2": {
+      "mass": 0.5000000000000003,
+      "n_nodes": 100
+    },
+    "fork_2": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_2": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "plate_3": {
+      "mass": 0.5000000000000003,
+      "n_nodes": 100
+    },
+    "fork_3": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_3": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "plate_4": {
+      "mass": 0.5000000000000003,
+      "n_nodes": 100
+    },
+    "fork_4": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_4": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "plate_5": {
+      "mass": 0.5000000000000003,
+      "n_nodes": 100
+    },
+    "fork_5": {
+      "mass": 0.059999999999999984,
+      "n_nodes": 80
+    },
+    "knife_5": {
+      "mass": 0.06000000000000002,
+      "n_nodes": 80
+    },
+    "cup_0": {
+      "mass": 0.4000000000000004,
+      "n_nodes": 100
+    },
+    "cup_1": {
+      "mass": 0.4000000000000004,
+      "n_nodes": 100
+    },
+    "cup_2": {
+      "mass": 0.4000000000000004,
+      "n_nodes": 100
+    },
+    "cup_3": {
+      "mass": 0.4000000000000004,
+      "n_nodes": 100
+    },
+    "candle_0": {
+      "mass": 0.8000000000000006,
+      "n_nodes": 80
+    },
+    "candle_1": {
+      "mass": 0.8000000000000006,
+      "n_nodes": 80
+    },
+    "pot": {
+      "mass": 5.000000000000002,
+      "n_nodes": 80
+    }
+  },
+  "impactor": "pot",
+  "wall_s": 1086.7,
+  "peak_mid_uy": 0.009178909740186286,
+  "ring_hz": 9.489414274464192,
+  "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"
+}

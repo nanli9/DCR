@@ -106,6 +106,10 @@ _MATERIAL: dict[str, SupportMaterial] = {
     "aluminum": SupportMaterial(6.90e10, 2700.0, (0.84, 0.86, 0.89), flat=False),
     "concrete": SupportMaterial(3.00e10, 2400.0, (0.64, 0.62, 0.58), flat=True),
     "wood":     SupportMaterial(1.00e10,  600.0, (0.55, 0.36, 0.20), flat=True),
+    # DCR paper Table 2 "table": deliberately low E ("to account for the fact
+    # that our finite element model is solid while a typical table will be
+    # constructed from thinner pieces of wood") — the dinner-scene default.
+    "dcr_table": SupportMaterial(1.10e9,  770.0, (0.62, 0.44, 0.26), flat=True),
     "plastic":  SupportMaterial(1.00e9,  1200.0, (0.20, 0.38, 0.72), flat=True),
     "soft":     SupportMaterial(1.00e8,  1000.0, (0.86, 0.46, 0.55), flat=True),
     "rubber":   SupportMaterial(5.00e7,  1100.0, (0.13, 0.13, 0.15), flat=True),
@@ -132,9 +136,9 @@ SCENE_SPEC = {
     "shelf":  dict(label="box",     thickness=0.030, mass=6.0,  mass_rng=(0.5, 40.0),
                    drop=0.50, drop_rng=(0.0, 1.5), v0=0.0,  iters=8, subs=4,
                    material="plastic"),
-    "dinner": dict(label="pot",     thickness=0.020, mass=8.0,  mass_rng=(1.0, 40.0),
+    "dinner": dict(label="pot",     thickness=0.040, mass=5.0,  mass_rng=(1.0, 40.0),
                    drop=0.50, drop_rng=(0.0, 1.5), v0=0.0,  iters=6, subs=2,
-                   material="wood"),
+                   material="dcr_table"),   # DCR §5.1: 5 kg pot, Table 2 wood
 }
 
 # unit-box corner table (x,y,z bits) + 12-triangle faces for that ordering.
@@ -261,6 +265,7 @@ class UnifiedViser:
         self.knob_mass = sp["mass"]
         self.knob_drop = sp["drop"]
         self.knob_v0 = sp["v0"]
+        self.knob_pot_xz = (0.0, 0.0)
         self.knob_iters, self.knob_subs = _xpbd_iter_floor(self.solver, sp)
         self.knob_impedance = 1.0
         self.knob_damping = 1.0
@@ -365,6 +370,11 @@ class UnifiedViser:
             support_youngs=float(mat.youngs), support_density=float(mat.density),
             impactor_drop_height=float(self.knob_drop),
             pot_drop_height=float(self.knob_drop),
+            pot_drop_xz=tuple(self.knob_pot_xz),
+            # dinner only (signature-filtered elsewhere): the table's modal
+            # basis = FEM eigenbasis of the GT operator (G1 shared-operator
+            # arm) — the physical table, not the synthetic debug basis.
+            support_basis="fem",
             drop_height=float(self.knob_drop),
             impactor_v0=float(self.knob_v0),
             modal_impedance_scale=float(self.knob_impedance),
@@ -575,6 +585,15 @@ class UnifiedViser:
                 f"{imp} launch velocity vy [m/s]", -5.0, 0.0, 0.1,
                 float(self.knob_v0),
                 hint="extra downward velocity on top of the drop (0 = rest)")
+            self.gui_pot_x = g.add_slider(
+                "pot drop x [m] (dinner)", -0.95, 0.95, 0.01,
+                float(self.knob_pot_xz[0]),
+                hint="dinner scene only: where the pot lands along the "
+                     "table (DCR-style distance-attenuation demo — near "
+                     "settings jump, far ones barely move)")
+            self.gui_pot_z = g.add_slider(
+                "pot drop z [m] (dinner)", -0.45, 0.45, 0.01,
+                float(self.knob_pot_xz[1]))
         with g.add_folder("Reduced-modal solver (press reset / rebuild)"):
             self.gui_iters = g.add_slider("iterations", 1, 32, 1,
                                           int(self.knob_iters))
@@ -846,6 +865,8 @@ class UnifiedViser:
                           else float(self.gui_mass.value))
         self.knob_drop = float(self.gui_drop.value)
         self.knob_v0 = float(self.gui_v0.value)
+        self.knob_pot_xz = (float(self.gui_pot_x.value),
+                            float(self.gui_pot_z.value))
         self.knob_iters = int(self.gui_iters.value)
         self.knob_subs = int(self.gui_subs.value)
         self.knob_impedance = float(self.gui_impedance.value)
@@ -860,6 +881,7 @@ class UnifiedViser:
         self.knob_mass = sp["mass"]
         self.knob_drop = sp["drop"]
         self.knob_v0 = sp["v0"]
+        self.knob_pot_xz = (0.0, 0.0)
         self.knob_iters, self.knob_subs = _xpbd_iter_floor(self.solver, sp)
         self.knob_impedance = 1.0
         self.knob_damping = 1.0

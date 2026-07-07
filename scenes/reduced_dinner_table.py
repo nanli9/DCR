@@ -1,16 +1,19 @@
 """Dinner-table scene driven by the Reduced-Coordinate AVBD coupler.
 
-This is the DCR Fig. 1 "dinner is served" layout — four place settings
-(plate + fork + knife), four candles, and a heavy pot dropped on the
-center — but with the **table itself as the reduced-modal deformable
-support** (`ReducedCoupledAVBDCoupler`, the q_s + q_d coupled path), NOT
-the patch `PassiveDCRCoupler`. The pot's impact rings the table's modal
-field; the coupling rocks the nearby place settings through the deformed
-support geometry inside the AVBD iteration (cross-block ρ·J_x·J_q^T).
+This duplicates the DCR paper's §5.1 "Dinner is served" setting (Fig. 1):
+a banquet-size table (2.2 × 1.1 m) with six place settings (plate + fork +
+knife), four teacups, two candlesticks, and a 5 kg pot dropped from above —
+masses per §5.1 (plates 0.5 kg, teacups 0.4 kg, candlesticks 0.8 kg) and
+table material per Table 2 (E = 1.1 GPa, nu = 0.3, rho = 770 kg/m³). Unlike
+the paper, the drop point `pot_drop_xz` is a parameter, so the
+distance-attenuation of the response can be shown on the table itself
+(the paper demonstrates position sweeps only on the ground/scaffold
+spatial-attenuation path, §5.3).
 
-Layout / masses / proportions are copied verbatim from the AVBD-branch
-`build_dinner_table_scene` so the visual is identical; only the support
-physics differ (reduced-modal coupled solve instead of patch DCR).
+The table is the reduced-modal deformable support; the pot's impact rings
+the table's modal field and the coupling rocks the place settings through
+the deformed support geometry (native q-in-solver path, or the coupled
+AVBD/XPBD paths).
 
 Each body carries `render_kind` so the viewer can skin it with the
 decorated asset in `model/{kind}/` and toggle the collision proxy.
@@ -68,18 +71,24 @@ def build_reduced_dinner_table(
     device: str = "cpu",
     iterations: int = 6,
     avbd_substeps: int = 2,
-    # Table = the reduced-modal support. 1.2 m × 1.0 m, hardwood-ish.
-    table_length: float = 1.2,
-    table_width: float = 1.0,
-    table_thickness: float = 0.03,
+    # Table = the reduced-modal support. DCR §5.1 "Dinner is served"
+    # duplication: banquet-size table, paper Table 2 material (E = 1.1 GPa,
+    # nu = 0.3, rho = 770 — the §5.1 prose says 700 kg/m³; Table 2 says 770,
+    # we follow Table 2). The low E is the paper's own trick: "low to account
+    # for the fact that our finite element model is solid while a typical
+    # table will be constructed from thinner pieces of wood".
+    table_length: float = 2.2,
+    table_width: float = 1.1,
+    table_thickness: float = 0.04,
     table_top: float = 0.03,
-    youngs: float = 1.0e10,
-    density: float = 500.0,
+    youngs: float = 1.1e9,
+    density: float = 770.0,
     poisson: float = 0.30,
     n_modes_global: int = 10,
     n_modes_local: int = 14,
     pot_drop_height: float = 0.5,
-    pot_mass: float = 8.0,
+    pot_mass: float = 5.0,                     # DCR §5.1: pot is 5 kg
+    pot_drop_xz: tuple[float, float] = (0.0, 0.0),
     pot_v0_y: float = 0.0,
     util_mass: float = 0.06,
     util_half_y: float = 0.005,
@@ -93,6 +102,7 @@ def build_reduced_dinner_table(
     cargo_material: str | None = None,
     cargo_all: bool = False,
     cargo_n_elastic: int = 6,
+    support_basis: str = "debug",
 ) -> DinnerSceneHandle:
     """Construct the dinner-table scene + attach the reduced-coupled AVBD
     support (the table). Returns a handle carrying per-body render
@@ -119,13 +129,15 @@ def build_reduced_dinner_table(
             color=color, render_kind=kind, orientation_wxyz=quat))
         return idx
 
-    # ---- Four place settings (plate flanked by fork / knife) ----
+    # ---- Six place settings (plate flanked by fork / knife), DCR §5.1
+    # masses: plates 0.5 kg. Three settings per long side of the table. ----
     plate_h = (0.085, 0.010, 0.085)
     plate_palette = [
         (0.95, 0.92, 0.85), (0.85, 0.65, 0.55),
         (0.55, 0.70, 0.85), (0.80, 0.80, 0.70),
     ]
-    plate_spots = [(-0.32, -0.28), (-0.32, 0.28), (0.32, -0.28), (0.32, 0.28)]
+    px_spots = (-0.72, 0.0, 0.72)
+    plate_spots = [(px, sz * 0.34) for sz in (-1.0, 1.0) for px in px_spots]
     fork_h = (0.10, util_half_y, 0.012)
     knife_h = (0.10, util_half_y, 0.013)
     util_color = (0.78, 0.80, 0.85)
@@ -135,7 +147,7 @@ def build_reduced_dinner_table(
     plate_indices: list[int] = []
     resting_xz: list[tuple[float, float]] = []
     for pi, (px, pz) in enumerate(plate_spots):
-        pidx = _add(f"plate_{pi}", 0.4, plate_h,
+        pidx = _add(f"plate_{pi}", 0.5, plate_h,
                     (px, table_top + plate_h[1] + 0.001, pz),
                     plate_palette[pi % 4], "plate")
         plate_indices.append(pidx)
@@ -152,43 +164,82 @@ def build_reduced_dinner_table(
         resting_xz.append((fork_x, pz))
         resting_xz.append((knife_x, pz))
 
-    # ---- Four candles near the table edges ----
-    candle_h = (0.015, 0.045, 0.015)
-    candle_palette = [
-        (0.94, 0.88, 0.74), (0.78, 0.20, 0.18),
-        (0.92, 0.86, 0.50), (0.30, 0.45, 0.55),
-    ]
-    candle_spots = [(-0.50, -0.45), (-0.50, 0.45), (0.50, -0.45), (0.50, 0.45)]
-    for ci, (cx, cz) in enumerate(candle_spots):
-        _add(f"candle_{ci}", 0.18, candle_h,
-             (cx, table_top + candle_h[1] + 0.001, cz),
-             candle_palette[ci % 4], "candle", friction=0.45)
+    # ---- Four teacups (DCR §5.1: 0.4 kg), on the inner side of the outer
+    # place settings. No cup asset in model/ — a small pot renders as a cup.
+    cup_h = (0.035, 0.030, 0.035)
+    cup_color = (0.93, 0.90, 0.88)
+    cup_spots = [(px + 0.16, pz - (0.16 if pz > 0 else -0.16))
+                 for (px, pz) in plate_spots if px != 0.0]
+    for ci, (cx, cz) in enumerate(cup_spots):
+        _add(f"cup_{ci}", 0.4, cup_h,
+             (cx, table_top + cup_h[1] + 0.001, cz),
+             cup_color, "pot", friction=0.45)
         resting_xz.append((cx, cz))
 
-    # ---- The pot: heavy, drops on center ----
+    # ---- Two candlesticks on the centre line (DCR §5.1: 0.8 kg) ----
+    candle_h = (0.025, 0.090, 0.025)
+    candle_palette = [(0.94, 0.88, 0.74), (0.78, 0.20, 0.18)]
+    candle_spots = [(-0.45, 0.0), (0.45, 0.0)]
+    for ci, (cx, cz) in enumerate(candle_spots):
+        _add(f"candle_{ci}", 0.8, candle_h,
+             (cx, table_top + candle_h[1] + 0.001, cz),
+             candle_palette[ci % 2], "candle", friction=0.45)
+        resting_xz.append((cx, cz))
+
+    # ---- The pot (DCR §5.1: 5 kg): drops on `pot_drop_xz` — the paper drops
+    # it once at the centre; parameterizing the drop point is what lets the
+    # distance-attenuation story be shown on the table itself. ----
     pot_h = (0.13, 0.065, 0.082)
+    pot_x, pot_z = (float(v) for v in pot_drop_xz)
     pot_idx = _add("pot", pot_mass, pot_h,
-                   (0.0, table_top + pot_h[1] + pot_drop_height, 0.0),
+                   (pot_x, table_top + pot_h[1] + pot_drop_height, pot_z),
                    (0.20, 0.18, 0.16), "pot", friction=0.5,
                    vel=(0.0, float(pot_v0_y), 0.0))
 
     # ---- Reduced-modal support (synthetic basis). Bump modes are placed
-    # at the pot impact (center) + every resting object so the q-block has
+    # at the pot impact point + every resting object so the q-block has
     # local compliance where the contact happens. ----
-    contact_zones = [(0.0, 0.0)] + resting_xz
-    rs = make_debug_reduced_shelf_support(
-        length=table_length, width=table_width, thickness=table_thickness,
-        youngs=youngs, density=density, poisson=poisson,
-        n_modes_global=n_modes_global, n_modes_local=n_modes_local,
-        contact_zone_centers=contact_zones,
-        probe_xz=resting_xz,
-        y_rest=table_top,
-        overlay_enabled=False, restart_overlay_each_step=False,
-        rayleigh_alpha0=rayleigh_alpha0, rayleigh_alpha1=rayleigh_alpha1,
-        modal_impedance_scale=modal_impedance_scale,
-        modal_damping_scale=modal_damping_scale,
-        to_eigenbasis=to_eigenbasis,
-    )
+    contact_zones = [(pot_x, pot_z)] + resting_xz
+    if support_basis == "fem":
+        # G1 shared-operator arm (docs/benchmark_plan.md §4): the table's
+        # modal basis IS the eigenbasis of the same discrete FEM operator the
+        # all-FEM GT integrates — same mesh rule (§3 rung R1: 20 cells/m,
+        # 3 through thickness), same corner-column Dirichlet set, same
+        # Rayleigh damping. Impedance/damping gain knobs are deliberately NOT
+        # applied here: scaling the physical operator would break sharing.
+        from dcr.avbd.fem_modal_support import make_fem_modal_support
+        from dcr.fem.fem_model import FEMModel
+        from dcr.fem.material import Material
+        from dcr.fem.multibody_gt import corner_column_nodes
+        from dcr.geom.tet_mesh import make_slab_tet_mesh
+        mesh = make_slab_tet_mesh(
+            length=table_length, width=table_width, height=table_thickness,
+            nx=max(6, int(round(20.0 * table_length))),
+            ny=max(4, int(round(20.0 * table_width))), nz=3)
+        fem = FEMModel(mesh=mesh,
+                       material=Material(E=youngs, nu=poisson, rho=density),
+                       fixed_nodes=corner_column_nodes(mesh),
+                       alpha0=rayleigh_alpha0, alpha1=rayleigh_alpha1)
+        rs, _ = make_fem_modal_support(
+            fem, num_modes=n_modes_global + n_modes_local, y_rest=table_top,
+            n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z, probe_xz=resting_xz)
+    elif support_basis == "debug":
+        rs = make_debug_reduced_shelf_support(
+            length=table_length, width=table_width, thickness=table_thickness,
+            youngs=youngs, density=density, poisson=poisson,
+            n_modes_global=n_modes_global, n_modes_local=n_modes_local,
+            contact_zone_centers=contact_zones,
+            probe_xz=resting_xz,
+            y_rest=table_top,
+            overlay_enabled=False, restart_overlay_each_step=False,
+            rayleigh_alpha0=rayleigh_alpha0, rayleigh_alpha1=rayleigh_alpha1,
+            modal_impedance_scale=modal_impedance_scale,
+            modal_damping_scale=modal_damping_scale,
+            to_eigenbasis=to_eigenbasis,
+        )
+    else:
+        raise ValueError(f"unknown support_basis {support_basis!r} "
+                         "(debug | fem)")
 
     # DCR idx → AVBD idx (the coupler tracks AVBD-side indices).
     tracked: list[int] = []

@@ -64,7 +64,8 @@ class GTViser:
 
     # ---- sim + render setup -----------------------------------------
     def _build(self):
-        handle, self.imp_name = _build_handle(self.scene)
+        handle, self.imp_name = _build_handle(
+            self.scene, pot_xz=getattr(self.args, "pot_xz", None))
         if self.scene == "cargo":
             handle = _CargoHandleAdapter(handle)
         h_fine = 1e-4 if self.args.quick else 5e-5
@@ -232,6 +233,9 @@ def main():
                     help="h_fine=1e-4 (2x faster, softer contact pin)")
     ap.add_argument("--t-settle", type=float, default=0.4)
     ap.add_argument("--body-youngs", type=float, default=1.0e6)
+    ap.add_argument("--pot-xz", type=float, nargs=2, default=None,
+                    metavar=("X", "Z"),
+                    help="dinner only: pot drop point on the table")
     ap.add_argument("--exag", type=float, default=200.0,
                     help="initial deformation exaggeration (render-only)")
     ap.add_argument("--wireframe", action="store_true",
