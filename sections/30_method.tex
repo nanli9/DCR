@@ -17,9 +17,11 @@ with $\Phimat_{\bar p}$ the $3\times k$ restriction of the basis to that point.
 Alongside the Newton--Euler equations, the reduced elastic dynamics are (DCR
 Eqs.~5,~7)
 \begin{equation}
-  M_q\ddot\amp + D_q\dot\amp + K_q\amp = \Phimat^{\!\top} f_{\mathrm{ext}},
-  \qquad
-  M_q=I,\;\; K_q=\operatorname{diag}(\omega_j^2),\;\; D_q=\alpha_0 I+\alpha_1 K_q,
+\begin{gathered}
+  M_q\ddot\amp + D_q\dot\amp + K_q\amp = \Phimat^{\!\top} f_{\mathrm{ext}},\\
+  M_q=I,\qquad K_q=\operatorname{diag}(\omega_j^2),\qquad
+  D_q=\alpha_0 I+\alpha_1 K_q,
+\end{gathered}
   \label{eq:reduced}
 \end{equation}
 diagonal because the modes are mass-normalized --- no reduced inverse is ever
@@ -86,11 +88,12 @@ $\ddot\amp \to \Delta\amp/h^2$) and gathering the engaged contact forces
 ($f>0$; separated rows exert nothing and must not pull) gives the implicit
 block solve
 \begin{equation}
+\begin{gathered}
   \Big(\tfrac{1}{h^2}M_q+\tfrac{1}{h}D_q+K_q\Big)\,\Delta\amp
   \;=\; \textstyle\sum_{\mathrm{engaged}}\Ghat^{\!\top} f
-        \;-\; K_q\,\amp \;-\; \tfrac{1}{h}D_q\,(\amp-\amp^{\mathrm{prev}}),
-  \qquad
+        \;-\; K_q\,\amp \;-\; \tfrac{1}{h}D_q\,(\amp-\amp^{\mathrm{prev}}),\\
   \amp \leftarrow \amp + \omega_r\,\Delta\amp,
+\end{gathered}
   \label{eq:qblock}
 \end{equation}
 with under-relaxation $\omega_r$ (\texttt{modal\_relax}, $0.7$ in production; the
@@ -113,12 +116,13 @@ practice (\S\ref{sec:results:passivity}).
 constraint with $\tilde\alpha=\alpha/h^2$ and damping $\gamma$; the generalized
 inverse mass simply gains the modal terms of Eq.~\ref{eq:grad},
 \begin{equation}
+\begin{gathered}
   w \;=\; J M^{-1} J^{\!\top}
         \;+\; \Ghat_A M_{q,A}^{-1}\Ghat_A^{\!\top}
-        \;+\; \Ghat_B M_{q,B}^{-1}\Ghat_B^{\!\top},
-  \qquad
+        \;+\; \Ghat_B M_{q,B}^{-1}\Ghat_B^{\!\top},\\
   \Delta\lambda \;=\; \frac{-C-\tilde\alpha\lambda-\gamma\,\dot C}
                             {(1+\gamma)\,w+\tilde\alpha},
+\end{gathered}
   \label{eq:xpbd}
 \end{equation}
 after which positions and amplitudes update along the gradient,
@@ -158,13 +162,14 @@ $\alpha\in[0,1]$ is the scale to be chosen. The kick leaves $\amp$ (hence the
 elastic potential $\tfrac12\amp^{\!\top}K_q\amp$) untouched, so the modal energy
 change is purely kinetic and \emph{exactly quadratic} in $\alpha$:
 \begin{equation}
+\begin{gathered}
   \dEmod(\alpha)
   = \tfrac12(\dot\amp+\alpha s)^{\!\top} M_q(\dot\amp+\alpha s)
     - \tfrac12\dot\amp^{\!\top} M_q\dot\amp
-  = \alpha\, b + \tfrac12\alpha^2 a,
-  \qquad
-  a = s^{\!\top}\! M_q s \ge 0,\;\;
+  = \alpha\, b + \tfrac12\alpha^2 a,\\
+  a = s^{\!\top}\! M_q s \ge 0,\qquad
   b = \dot\amp^{\!\top}\! M_q s .
+\end{gathered}
   \label{eq:alphaquad}
 \end{equation}
 No linearization is involved --- Eq.~\ref{eq:alphaquad} is exact, so the bound it
