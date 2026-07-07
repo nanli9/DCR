@@ -15,6 +15,16 @@ enforced passivity bound $\dEmod\le\eta\,\dErig$.
         passivity bound.
   \item The bound applies to the modal-path injection only; the
         spatial-attenuation path is empirical and not energy-budgeted.
+  \item Small-displacement regime only: support contact rows sample the modal
+        basis at each contact's rest footprint with a fixed vertical normal
+        (DCR instead re-maps contacts barycentrically every step), and the
+        linearized modes carry no geometric stiffening --- valid at the
+        mm-scale responses shown, not for span-scale deflections.
+  \item Implicit solver-rate modal integration band-limits the impact
+        transient: absolute launch amplitudes run ${\sim}7\times$ under the
+        full-FEM reference on the dinner sweep
+        (\S\ref{sec:results:fem}), where DCR's sub-stepped IIR kick
+        re-amplifies that transient at the cost of passivity (X7).
   \item \todo{restitution decision; breadth of scenes; the affine (ABD) basis showed
         a slow secular buildup and would need the same governor before any stability
         claim.}

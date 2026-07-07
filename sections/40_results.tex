@@ -33,14 +33,18 @@ isolate the two claims that are ours alone.
 \caption{Evaluation scenes. Rows 1--3 are DCR's own figure layouts re-simulated with
 two-way coupling; rows 4--5 are modal-network stress scenes. $n_g/n_\ell$ =
 global/local reduced modes per body; body counts for dinner/ledge are the measured
-X5 scene sizes. \todo{fill the road body count from the built truck scene.}}
+X5 scene sizes. $^{\dagger}$The dinner table's basis is the eigenbasis of the same
+discrete FEM operator its ground truth integrates (shared operator,
+\S\ref{sec:results:fem}); the scene duplicates DCR \S5.1 (2.2$\times$1.1~m table,
+their Table~2 material, 5~kg pot with a parameterized drop point).
+\todo{fill the road body count from the built truck scene.}}
 \label{tab:scenes}
 \begin{tabular}{llccl}
 \toprule
 scene & source & bodies & $n_g/n_\ell$ & what it tests \\
 \midrule
 Road (crate/cones)    & DCR road  & \todo{N}        & 12/16 & distant response, large slab \\
-Dinner table          & DCR Fig.1 & 17              & 10/14 & distant place-settings \\
+Dinner table          & DCR Fig.1/\S5.1 & 25        & 24$^{\dagger}$ & distant place-settings, drop sweep \\
 Ledge (boulder)       & DCR ledge & 5               & 12/16 & strong-coupling topple \\
 Cargo network (stack) & ours      & 6              & 8/1   & two-way, box--box network \\
 FEM cargo             & ours      & 2              & 8/1   & full-FEM accuracy reference \\
@@ -61,7 +65,7 @@ stack; the cross-scene FEM-accuracy rows are the pending work.}
 metric & ref & Road & Dinner & Ledge & Stack & FEM \\
 \midrule
 Modal displ.\ $L_2$ error          & F      & \pend & \pend & \pend & \pend & \pend\q{.56$\to$1.02} \\
-Distant-response fidelity          & F,D    & \pend & \pend & \pend & \na   & \na \\
+Distant-response fidelity          & F,D    & \pend & \yes\q{\S\ref{sec:results:fem}} & \pend & \na   & \na \\
 Contact-force ledger               & A      & \pend & \na   & \pend & \yes\q{.06--1.9\%} & \na \\
 Passivity $\dEmod\!\le\!\eta\dErig$ & bound  & \pend & \pend & \pend & \yes  & \pend \\
 Momentum drift (lin/ang)           & $0$    & \pend & \pend & \pend & \pend & \pend \\
@@ -116,8 +120,46 @@ $\to \pm1.48$~N on, mean unchanged at $mg$).
 
 \subsection{Full-FEM ground truth}
 \label{sec:results:fem}
-\todo{Report the C3 convergence: reduced-vs-full-FEM ratio $0.56 \to 1.02$ as
-$h\to0$ (X-suite).}
+On the two-body FEM reference, the reduced-vs-full-FEM mid-deflection ratio
+converges $0.56 \to 0.75 \to 0.90 \to 1.03$ as the rigid step refines
+$h = 1/120 \to 1/960$, with the support ring frequency matching to $0.4\%$
+(X-suite). A tet-refinement ladder on the ground-truth meshes (R0--R4, up to
+67k nodes per support) shows the linear-tet operators themselves are still
+$3$--$10\%$/rung from the continuum (CST bending lock releases slowly), so all
+ground-truth frequencies and sags are reported as properties of the
+\emph{shared discrete operator}, never as physical plate values --- both arms
+use the same operator, so discretization bias cancels from every ratio.
+
+On the dinner scene (DCR \S5.1 duplicate: their Table~2 material, 5~kg pot,
+dishes rigid exactly as in their \S4.5), the pot is dropped at three points
+along the 2.2~m table against an all-FEM ground truth in which \emph{every}
+body is elastic (implicit Newmark at $h=5\times10^{-5}$~s, ${\sim}18$~min per
+1.2~s drop vs.\ 37~ms/step for ours). The two arms agree on the operator ---
+the ground truth's measured ring ($9.2$--$9.9$~Hz) matches the native basis
+$f_1 = 9.8$~Hz --- and the native response falls off with distance from the
+drop point with \emph{no fitted attenuation model} (DCR fits its Eq.~14
+$C,\beta$ by hand or to data; Fig.~\ref{fig:dinner}). The native arm
+under-predicts absolute dish-launch amplitude by ${\sim}7\times$: measured to
+be insensitive to mode count ($24\to48$) and under-relaxation
+($0.7\to1.0$), the deficit is structural --- implicit solver-rate modal
+integration band-limits the impact transient whose surface velocity launches
+dishes (ballistic height $\propto v^2$). DCR's IIR-plus-kick architecture
+(their Eqs.~10--12) sub-steps the filter and re-injects the \emph{maximum}
+displacement as a velocity change, deliberately re-amplifying that transient
+--- and thereby exceeding the passive bound as $\varepsilon_r\!\to\!1$ (X7);
+our formulation makes the opposite trade.
+
+\begin{figure}[t]\centering
+  \includegraphics[width=\linewidth]{response_vs_distance.png}
+  \caption{Dinner drop-position sweep: per-body peak upward jump vs.\ distance
+  from the pot's drop point (log scale), three drop points. The native
+  rigid-dish arm (DCR's own \S4.5 configuration) reproduces the ground truth's
+  distance falloff at ${\sim}7\times$ lower amplitude (band-limiting, see
+  text); the all-cargo variant (every dish deformable, our generalization)
+  responds less again because soft bodies absorb impact compliantly. Toppled
+  bodies ($>0.3$~m) are excluded per the ground-truth contact limitations.}
+  \label{fig:dinner}
+\end{figure}
 
 \subsection{The passivity bound bites when it must}
 \label{sec:results:passivity}
