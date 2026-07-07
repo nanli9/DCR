@@ -5,9 +5,28 @@
 
 \subsection{Modes as native contact constraints}
 \label{sec:method:constraint}
-Each body carries mass-normalized linear modes $\Phimat$ with amplitudes $\amp$ (the
-code's $q$). A contact with unit normal $\nvec$ acts on the \emph{deformed} contact
-point of both participants, so the unilateral gap becomes
+Each body is a floating frame of reference: state
+$(x,R,\amp)$ with COM position $x$, rotation $R$, and modal amplitudes
+$\amp\in\mathbb{R}^k$ over mass-normalized free-body modes $\Phimat$ (DCR Eq.~6,
+rigid modes discarded). A material point $\bar p$ deforms as
+\begin{equation}
+  p(x,R,\amp) \;=\; x + R\big(\bar p + \Phimat_{\bar p}\,\amp\big),
+  \label{eq:ffr}
+\end{equation}
+with $\Phimat_{\bar p}$ the $3\times k$ restriction of the basis to that point.
+Alongside the Newton--Euler equations, the reduced elastic dynamics are (DCR
+Eqs.~5,~7)
+\begin{equation}
+  M_q\ddot\amp + D_q\dot\amp + K_q\amp = \Phimat^{\!\top} f_{\mathrm{ext}},
+  \qquad
+  M_q=I,\;\; K_q=\operatorname{diag}(\omega_j^2),\;\; D_q=\alpha_0 I+\alpha_1 K_q,
+  \label{eq:reduced}
+\end{equation}
+diagonal because the modes are mass-normalized --- no reduced inverse is ever
+formed, and the whole modal block costs $O(k)$ per update. Differentiating the
+normal projection of the two deformed contact points (Eq.~\ref{eq:ffr}) with unit
+normal $\nvec$ (from $A$ into $B$, $\lambda_N\ge0$) makes the unilateral gap
+\emph{linear in the amplitudes}:
 \begin{equation}
   C \;=\; C_{\mathrm{rigid}} \;+\; \big(\Ghat_A\!\cdot\amp_A - \Ghat_B\!\cdot\amp_B\big),
   \qquad \Ghat_X = \nvec^{\!\top} R_X\, \Phimat_X ,
@@ -51,12 +70,21 @@ algorithmic content of this section, and the reason the passivity bound of
 \S\ref{sec:method:passivity} is needed. We embed the row of Eq.~\ref{eq:grad} in
 both solver families.
 
-\paragraph*{AVBD (augmented Lagrangian).} Each contact carries a penalty-plus-
-multiplier force $f=\max(0,\rho\,C+\lambda)$; body blocks solve their usual
-$6\times6$ systems with Hessian $M/h^2+\sum\rho\,J^{\!\top}J$. The modal amplitudes
-are chased in a separate \emph{engaged-gated block Gauss--Seidel} pass after each
-body sweep: only rows with an active multiplier contribute, and the modal block is
-solved implicitly (backward Euler) as
+\paragraph*{AVBD (augmented Lagrangian).} AVBD steps by minimizing the incremental
+potential over substeps; each contact carries a penalty-plus-multiplier force
+$f=\max(0,\rho\,C+\lambda)$ whose multiplier $\lambda$ is updated between sweeps,
+and each body block solves its local $6\times6$ system with Hessian
+$M/h^2+\sum\rho\,J^{\!\top}J$ over its incident rows. Naively adding the $k$ modal
+DOFs to the same Gauss--Seidel sweep diverges at production budgets: the modal
+block couples \emph{every} contact of a body through the shared $\amp$, and its
+stiffness spans $\omega_j^2\sim10^2\!-\!10^{11}$, so sequential scalar updates
+amplify error. Instead the amplitudes are chased in a separate
+\emph{engaged-gated block} pass after each body sweep. Discretizing
+Eq.~\ref{eq:reduced} by backward Euler in the increment
+($\dot\amp \to (\amp+\Delta\amp-\amp^{\mathrm{prev}})/h$,
+$\ddot\amp \to \Delta\amp/h^2$) and gathering the engaged contact forces
+($f>0$; separated rows exert nothing and must not pull) gives the implicit
+block solve
 \begin{equation}
   \Big(\tfrac{1}{h^2}M_q+\tfrac{1}{h}D_q+K_q\Big)\,\Delta\amp
   \;=\; \textstyle\sum_{\mathrm{engaged}}\Ghat^{\!\top} f
@@ -66,12 +94,20 @@ solved implicitly (backward Euler) as
   \label{eq:qblock}
 \end{equation}
 with under-relaxation $\omega_r$ (\texttt{modal\_relax}, $0.7$ in production; the
-diagonal $M_q,K_q,D_q$ make the solve $r$ independent scalar updates). The
-alternative --- condensing the modal columns into the contact solve by a cross-term
-Schur complement --- was measured to inject energy because the eliminated
-$\Delta z$ is never back-substituted at a truncated iteration count; the gated
-block-GS with explicit $\Delta\amp$ is what remains stable at $8\!-\!16$
-iterations.
+diagonal $M_q,K_q,D_q$ make the solve $k$ independent scalar updates --- the
+implicit denominator $1/h^2+(\alpha_0+\alpha_1\omega_j^2)/h+\omega_j^2$ is what
+lets $\omega_j^2\sim10^{11}$ coexist with an $8$--$16$-iteration budget). The
+under-relaxation is not cosmetic: each pass re-linearizes the contact set against
+amplitudes the bodies have not yet reacted to, and $\omega_r$ damps that
+chase--react lag. We also evaluated the textbook alternative --- eliminating
+$\Delta\amp$ into the contact row by a cross-term Schur complement, which adds the
+modal compliance $\Ghat\,\tilde K^{-1}\Ghat^{\!\top}$ to the row's effective mass.
+In a converged solve the two are identical; at a truncated iteration count the
+Schur row does work against an implied $\Delta\amp$ that is never
+back-substituted into the body velocities, and the unmatched half of that work
+appears as free modal energy --- measured as a net-injecting coupling. The gated
+block-GS with an explicit, under-relaxed $\Delta\amp$ is what remains passive in
+practice (\S\ref{sec:results:passivity}).
 
 \paragraph*{XPBD (compliant position-level).} The same row becomes a compliant
 constraint with $\tilde\alpha=\alpha/h^2$ and damping $\gamma$; the generalized
@@ -86,13 +122,21 @@ inverse mass simply gains the modal terms of Eq.~\ref{eq:grad},
   \label{eq:xpbd}
 \end{equation}
 after which positions and amplitudes update along the gradient,
+$\Delta z = M^{-1}J^{\!\top}\Delta\lambda$ and
 $\Delta\amp_A=+M_{q,A}^{-1}\Ghat_A^{\!\top}\Delta\lambda$ (mass-normalized:
-$M_q^{-1}=I$), scaled by the same under-relaxation. The modal internal dynamics
-enter as per-mode compliant rows with $\alpha_j=1/\omega_j^2$. The formulation
-difference matters: the AVBD chase tolerates $\omega_r=0.7$, while the XPBD
-Gauss--Seidel has a measured ceiling of $\omega_r=0.25$ on the stiff scenes
-($0.5$--$0.6$ ejects bodies, ${\ge}0.65$ NaN) --- one direct motivation for the
-formulation-level passivity analysis below.
+$M_q^{-1}=I$), the modal part scaled by the same under-relaxation. Unlike AVBD,
+the modal \emph{internal} dynamics cannot ride an implicit block solve here; each
+mode becomes its own compliant row $C_j=\amp_j$ with compliance
+$\alpha_j = 1/\omega_j^2$ (so the row's constraint force $-\amp_j/\alpha_j$
+reproduces the elastic force $-\omega_j^2\amp_j$) and Rayleigh damping through the
+$\gamma$ term of Eq.~\ref{eq:xpbd}. This is exactly XPBD's small-step compliant
+form, which is why the energy argument of \S\ref{sec:method:passivity} applies to
+it wholesale. The formulation difference matters operationally: AVBD's implicit
+chase tolerates $\omega_r=0.7$, while XPBD's sequential projections have a
+measured ceiling of $\omega_r=0.25$ on the stiff scenes ($0.4$ marginal,
+$0.5$--$0.6$ ejects bodies ${\sim}90$~m, ${\ge}0.65$ NaN on the road impact) ---
+the same truncation-order sensitivity that motivates the formulation-level
+passivity analysis below.
 
 \subsection{The passivity bound}
 \label{sec:method:passivity}
