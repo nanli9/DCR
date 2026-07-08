@@ -1,0 +1,25 @@
+{
+  "generated_utc": "2026-07-08T12:05:50+00:00",
+  "scene": "ledge (slab support + boulder impactor + pedestal responder)",
+  "spec": {
+    "length": 1.2,
+    "width": 0.8,
+    "thickness": 0.08,
+    "E": 1100000000.0,
+    "rho": 500.0,
+    "boulder_mass": 16.0,
+    "boulder_drop": 0.35
+  },
+  "shared_operator_gate": 5.960464477539063e-08,
+  "gt_hfine": 5e-05,
+  "gt_selftrust_pct": 0.18175790516803497,
+  "f_ring_gt_hz": 78.3410138248848,
+  "spearman_falloff": 0.8857142857142857,
+  "h_ladder": [
+    120,
+    240,
+    480,
+    960
+  ],
+  "note": "E2 pre-topple deflection-field convergence (linear regime, softened E); E3 falloff along probe line"
+}
