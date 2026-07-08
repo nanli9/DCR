@@ -294,6 +294,18 @@ the injected state is $\dot\amp$-heavy and the $\gamma$ projection shrinks
 $\amp$ with it. The cap makes the livelier host \emph{stable}, not
 \emph{accurate}; AVBD is the accurate default on which the guarantee is free.
 
+\paragraph*{Friction.} The bound is stated on \emph{energy}, not impulses, so
+it is agnostic to \emph{how} contact removes rigid energy: the ledger credits
+$\eta$ times the rigid mechanical-energy loss ($\Delta\mathrm{KE}$ plus gravity
+work), which already subsumes tangential (Coulomb) dissipation --- there is no
+separate normal-vs-tangential accounting to get wrong. Sweeping the box--box
+stack at $\mu\in\{0,0.2,0.5,1.0\}$ confirms it: the net invariant holds in
+$4/4$ cases, the injection ratio is flat at $0.26$--$0.28$ of the budget, and
+there are \emph{zero} clamp activations at every $\mu$ (AVBD monitor-only).
+Friction enlarges the loss budget rather than opening an unbounded tangential
+modal channel, so the guarantee needs no tangential term.
+\note{E6; \texttt{benchmarks/paper\_eval/x1\_passivity/friction\_bound.csv}.}
+
 \begin{figure*}[t]\centering
   \includegraphics[width=\linewidth]{robustness_clamp.png}
   \Description{Grid of passivity ratios across scenes, budgets, and
