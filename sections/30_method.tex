@@ -108,12 +108,16 @@ amplitudes the bodies have not yet reacted to, and $\omega_r$ damps that
 chase--react lag. We also evaluated the textbook alternative --- eliminating
 $\Delta\amp$ into the contact row by a cross-term Schur complement, which adds the
 modal compliance $\Ghat\,\tilde K^{-1}\Ghat^{\!\top}$ to the row's effective mass.
-In a converged solve the two are identical; at a truncated iteration count the
-Schur row does work against an implied $\Delta\amp$ that is never
+In a converged solve the two are identical --- we measure the two q-blocks
+agreeing to $1\%$ at a $32{\times}4$ budget; but at a truncated iteration count
+the Schur row does work against an implied $\Delta\amp$ that is never
 back-substituted into the body velocities, and the unmatched half of that work
-appears as free modal energy --- measured as a net-injecting coupling. The gated
-block-GS with an explicit, under-relaxed $\Delta\amp$ is what remains passive in
-practice (\S\ref{sec:results:passivity}).
+appears as free modal energy. At a $4{\times}1$ budget this is a net-injecting
+coupling --- the Schur row's net modal excess reaches $9.4\times10^{3}$~J past
+the reservoir while the gated, under-relaxed block-GS stays passive under the
+\emph{identical} budget; remove the under-relaxation and both inject, which is
+why the explicit, under-relaxed $\Delta\amp$ is what remains passive in practice
+(\S\ref{sec:results:passivity}).
 
 \paragraph*{XPBD (compliant position-level).} The same row becomes a compliant
 constraint with $\tilde\alpha=\alpha/h^2$ and damping $\gamma$; the generalized

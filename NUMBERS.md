@@ -81,6 +81,7 @@ regime). GT = CoupledFEMRigidSim implicit Newmark h_fine=5e-5.
 | over-damping: cap-ON \|a\|≈1.2e-5 vs 6e-4 converged-XPBD vs 8e-5 AVBD | q_on 1.10–1.18e-5; q_off (2×4) 4.06e-3?; doc cites converged-XPBD 6e-4, AVBD 8e-5 | `blowup_prod.csv : q_on`; references `docs/paper_eval/x1_blowup.md` §3b — pin the 6e-4/8e-5 to a CSV in E1 |
 | γ projection / reservoir / grav_work−ΔKE budget | mechanism | `dcr/avbd/_solver/passivity.py` + `docs/paper_eval/x1.md` Mechanism §1–3 |
 | friction (E6): 4/4 μ passive; ratio 0.26–0.28; 0 clamps ∀μ | μ={0,.2,.5,1}: holds=passive=True; ratio 0.277/0.255/0.269/0.267; n_clamped=0 | `x1_passivity/out/friction_bound.csv` (cargo stack, AVBD monitor, 360 steps) |
+| Schur vs block-GS (E9, §3.2): parity to 1% @32×4; Schur injects @4×1 (block-GS passive) | 32×4 peak_ratio 1.008; 4×1 Schur excess 9432 J (passive=False) vs block-GS -0.002 (passive=True) | `x1_passivity/out/schur_vs_blockgs.csv` (shelf, clamp OFF, monitor ledger); relax=1.0 both inject (probe) |
 
 ## §4.6 restitution (X7)
 
