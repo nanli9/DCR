@@ -42,7 +42,8 @@ analysis) and the paper (`paper` branch, worktree `DCR/paper`). This is the
 | E6 | friction × bound | **DONE 2026-07-08** — μ={0,.2,.5,1}: 4/4 passive, injection ratio flat 0.26–0.28, 0 clamp activations; energy ledger subsumes tangential channel. Paper §4.5. `x1_passivity/run_friction_bound.py` + `friction_bound.csv` |
 | E2 | ledge FEM GT (G1) | **DONE 2026-07-08** — shared-op gate 6e-8, GT self-trust 0.18%, peak-deflection ratio 0.38→0.88 (h=1/120→1/960), plateaus ~0.9 at finer h (**k=24 mode truncation on the thick slab**, not 1.0 — honest scoped result per the fallback), ring 78.0 vs 78.3 Hz (0.4%). Paper §4.3 + matrix. `x3_ground_truth/{ledge_scene_gt,run_ledge_ladder}.py` + `ledge_convergence.csv` |
 | E3 | ledge falloff (G2) | **DONE 2026-07-08** — standing-wave profile peaks at the pedestal antinode (not the impact), Spearman ρ(native,GT)=0.886. Paper §4.3 + matrix cell. `ledge_falloff.csv` |
-| E9, W2, W3, W5, W6, W7 | below | open (E9 slippable to camera-ready per §4 — needs resurrecting the rejected cross-term Schur coupler behind a flag) |
+| E9 | Schur vs block-GS | **DONE 2026-07-08** — resurrected the rejected cross-term Schur behind `_modal_schur_crossterm` (default OFF; 16/16 passivity tests pass). Shelf, clamp OFF, monitor ledger: 32×4 parity (peak ratio 1.008); **4×1 the Schur injects (net excess 9432 J) while under-relaxed block-GS stays passive**; relax 1.0 → both inject. Paper §3.2 upgraded from assertion to cited measurement. `x1_passivity/run_schur_vs_blockgs.py` + `schur_vs_blockgs.csv` |
+| W2, W3, W5, W6, W7 | below | open (writing / figures / video / audit — no compute; W5 figures regenerate from committed CSVs) |
 
 ## 0.2 Evidence already committed (`benchmark` branch) — transcribe, don't re-run
 
