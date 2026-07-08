@@ -166,7 +166,8 @@ use the same operator, so discretization bias cancels from every ratio.
 (a $16$~kg boulder dropped off-centre onto a stiff $1.2{\times}0.8{\times}0.08$~m
 stone slab that also carries a pedestal) gives the cross-scene accuracy check.
 Built on the same shared operator (native modes $=\mathrm{eigsh}(K,M)$ to
-$6\times10^{-8}$; GT self-trust $0.18\%$ under an $h_{\mathrm{GT}}$ halving), the
+$6\times10^{-8}$; GT self-trust $0.18\%$ under an $h_{\mathrm{GT}}$ halving;
+Fig.~\ref{fig:ledge}), the
 reduced-vs-full-FEM peak-deflection ratio rises monotonically $0.38\to0.54\to
 0.79\to0.88$ across $h=1/120\to1/960$ and plateaus near $0.9$ at finer steps
 ($0.94$/$0.87$ at $1/1920$/$1/3840$): the residual ${\sim}10\%$ is $k{=}24$ mode
@@ -177,6 +178,24 @@ The distant response is again the modal \emph{standing wave}: the peak deflectio
 sits at the pedestal (the antinode), \emph{not} under the impact, and the native
 falloff along the slab tracks the GT with Spearman $\rho=0.89$ --- no fitted
 attenuation term, on a second scene.
+
+\begin{figure*}[t]\centering
+  \includegraphics[width=\linewidth]{fig_ledge_gt.pdf}
+  \Description{Two panels for the ledge ground-truth comparison. Left: the
+  native-over-ground-truth peak deflection ratio rising from 0.38 to 0.88 as the
+  rigid step refines from 1/120 to 1/960, toward a dashed line at 1.0. Right:
+  peak vertical deflection versus distance from the boulder impact for the native
+  arm and the full-FEM ground truth, both peaking at the pedestal rather than the
+  impact.}
+  \caption{Ledge, second ground-truth scene. (a) The native/GT peak-deflection
+  ratio converges toward the GT as the rigid step refines (ring frequency already
+  matched to $0.4\%$); the residual is $k{=}24$ mode truncation on the thick slab.
+  (b) Peak $|u_y|$ along the slab: native (blue) tracks the full-FEM GT (black
+  dashed), and both peak at the \emph{pedestal antinode}, not under the impact ---
+  the modal standing wave, reproduced with no fitted attenuation
+  ($\rho=0.89$).}
+  \label{fig:ledge}
+\end{figure*}
 
 On the dinner scene (DCR \S5.1 duplicate: their Table~2 material, 5~kg pot,
 dishes rigid exactly as in their \S4.5), the pot is dropped at three points
@@ -397,7 +416,7 @@ the title. The fastest validated \emph{CPU-host} configuration (ledge/AVBD,
 $15.8$~ms, ${\sim}63$~steps/s) is interactive but not $120$~Hz real-time. The
 same solver also runs device-resident: its co-solved (non-symplectic) modal
 step, with a warp-cooperative modal solve and full-substep CUDA-graph capture,
-measured here on an RTX~4090 (Table~\ref{tab:perfdev}). At the paper budget it
+measured here on an RTX~4090 (Table~\ref{tab:perfdev}, Fig.~\ref{fig:device}). At the paper budget it
 runs at $5.6$/$6.8$/$8.9$/$9.2$~ms/step (shelf/ledge/truck/dinner): shelf and
 ledge already clear $120$~Hz ($1.5\times$/$1.2\times$) and dinner and truck sit
 at $109$--$113$~steps/s, within $10\%$ of it. The co-solved cost is linear in
@@ -464,3 +483,20 @@ dinner & 24 & 9.2 & \textbf{4.7} & \textbf{1.3} & 109 \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\begin{figure*}[t]\centering
+  \includegraphics[width=\linewidth]{fig_device_runtime.pdf}
+  \Description{Two panels for the device path. Left: milliseconds per step versus
+  iteration budget for dinner and ledge, with a 120 Hz real-time line and a
+  shaded real-time region below it; both scenes enter the region below a
+  16-by-4 budget. Right: realized modal energy gain versus the eta-times-rigid-
+  loss budget for all twenty scene-budget cells, every point below the passive
+  diagonal.}
+  \caption{Device-resident co-solved path (RTX~4090). (a) ms/step is linear in
+  the iteration budget; both swept scenes cross into the $120$~Hz real-time
+  region (shaded) at $16{\times}2$ and below. (b) The $\S15$ ledger over all
+  $20$ scene$\times$budget cells: realized modal gain stays under the
+  $\eta\,\Delta E_{\rm rigid}$ budget (the passive diagonal) at every budget with
+  \emph{no active clamp} --- the real-time path is passive by construction.}
+  \label{fig:device}
+\end{figure*}
