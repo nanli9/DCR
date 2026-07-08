@@ -29,6 +29,22 @@ to the CSVs (noted below). Format: `value ← file : column/row`.
 | per-step cost flat ~35 ms across the ladder | 34.8–38.1 | h-ladder run log (same CSV run) |
 | ~34 s/sim-s at 1/960; ~22× under GT | 0.035·960=33.6; (18·60/1.2)/33.6=22.3 | derived: ladder ms/step × steps; GT wall from harness protocol |
 
+## §4.3 ledge ground truth (E2 + E3; shared-operator slab GT)
+
+Measured 2026-07-08 on the compshare server. Ledge = boulder impactor + pedestal
+responder on a 1.2×0.8×0.08 m slab (E softened to 1.1 GPa, pre-topple linear
+regime). GT = CoupledFEMRigidSim implicit Newmark h_fine=5e-5.
+
+| printed | value | source |
+|---|---|---|
+| shared-operator gate \|Δλ\|=6e-8 (native modes == eigsh(K,M)) | 5.960e-08 | `x3_ground_truth/out/ledge_gt.config.json : shared_operator_gate` |
+| GT self-trust 0.18% (halve h_fine to 2.5e-5) | 0.18 | same `: gt_selftrust_pct` |
+| convergence ratio 0.38→0.54→0.79→0.88 @ h=1/120→1/960 | .379845/.539993/.792395/.881803 | `x3_ground_truth/out/ledge_convergence.csv : ratio_peak` |
+| finer h plateaus ~0.9 (0.94/0.87 @ 1/1920/1/3840) — k=24 mode truncation | 0.936 / 0.865 | reproducible via `_ledge_fine.py` (peak/PEAK_GT=4.2595e-3); trend, not headline |
+| ring native 78.0 vs GT 78.3 Hz (0.4%); aliases at 1/120 (47 Hz) | 78.0 / 78.341; 0.435% | `ledge_convergence.csv : f_ring_native, f_ring_gt @ 1/960` |
+| falloff peaks at pedestal (antinode) not impact; standing wave | native .00203→.00229(ped)→.00163; GT .00324→.00426(ped)→.00341 | `x3_ground_truth/out/ledge_falloff.csv : resp_native, resp_gt` |
+| Spearman ρ(native,GT) falloff = 0.89 (≥0.8) | 0.886 | `ledge_gt.config.json : spearman_falloff` |
+
 ## §4.4 vs-DCR falloff (X2)
 
 | printed | value | source |

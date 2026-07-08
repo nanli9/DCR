@@ -71,8 +71,8 @@ work. Runtime cells are AVBD mean ms/step (\S\ref{sec:results:perf}).}
 \toprule
 metric & ref & Road & Dinner & Ledge & Stack & Shelf & Slab \\
 \midrule
-Modal displ.\ $L_2$ error          & F      & \pend & \pend & \pend & \pend & \pend & \yes\q{.56$\to$1.03} \\
-Distant-response fidelity          & F,D    & \pend & \yes\q{\S\ref{sec:results:fem}} & \pend & \na   & \na & \yes\q{2.3$\times$D} \\
+Modal displ.\ $L_2$ error          & F      & \pend & \pend & \yes\q{.38$\to$.88} & \pend & \pend & \yes\q{.56$\to$1.03} \\
+Distant-response fidelity          & F,D    & \pend & \yes\q{\S\ref{sec:results:fem}} & \yes\q{$\rho$=.89} & \na   & \na & \yes\q{2.3$\times$D} \\
 Contact-force ledger               & A      & \pend & \na   & \pend & \yes\q{.06--1.9\%} & \pend & \na \\
 Passivity $\dEmod\!\le\!\eta\dErig$ & bound  & \pend & \yes & \yes & \yes & \yes & \pend \\
 Momentum drift (lin/ang)           & $0$    & \pend & \pend & \pend & \yes\q{\S\ref{sec:results:momentum}} & \yes\q{\S\ref{sec:results:momentum}} & \pend \\
@@ -161,6 +161,22 @@ $3$--$10\%$/rung from the continuum (CST bending lock releases slowly), so all
 ground-truth frequencies and sags are reported as properties of the
 \emph{shared discrete operator}, never as physical plate values --- both arms
 use the same operator, so discretization bias cancels from every ratio.
+
+\paragraph*{Ledge --- a second ground-truth scene.} The strong-coupling ledge
+(a $16$~kg boulder dropped off-centre onto a stiff $1.2{\times}0.8{\times}0.08$~m
+stone slab that also carries a pedestal) gives the cross-scene accuracy check.
+Built on the same shared operator (native modes $=\mathrm{eigsh}(K,M)$ to
+$6\times10^{-8}$; GT self-trust $0.18\%$ under an $h_{\mathrm{GT}}$ halving), the
+reduced-vs-full-FEM peak-deflection ratio rises monotonically $0.38\to0.54\to
+0.79\to0.88$ across $h=1/120\to1/960$ and plateaus near $0.9$ at finer steps
+($0.94$/$0.87$ at $1/1920$/$1/3840$): the residual ${\sim}10\%$ is $k{=}24$ mode
+truncation on the thick, higher-frequency slab --- the ring frequency already
+matches at $78.0$ (native) vs $78.3$~Hz (GT), $0.4\%$ --- not a coupling error,
+and it is the same pre-topple, small-displacement regime the Limitations state.
+The distant response is again the modal \emph{standing wave}: the peak deflection
+sits at the pedestal (the antinode), \emph{not} under the impact, and the native
+falloff along the slab tracks the GT with Spearman $\rho=0.89$ --- no fitted
+attenuation term, on a second scene.
 
 On the dinner scene (DCR \S5.1 duplicate: their Table~2 material, 5~kg pot,
 dishes rigid exactly as in their \S4.5), the pot is dropped at three points
