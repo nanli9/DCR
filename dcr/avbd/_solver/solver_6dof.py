@@ -2223,6 +2223,17 @@ class Solver6DOF:
                             if n else np.zeros((0, 3, 3), dtype=np.float64))
         return self._psv_Il
 
+    def _psv_quats_wxyz(self) -> np.ndarray:
+        """Body quaternions reordered for the §15 energy accounting.
+
+        `self.q` stores warp quats — memory layout (x,y,z,w) — while
+        `passivity.rigid_mechanical_energy` expects the project convention
+        (w,x,y,z) (CLAUDE.md). Feeding the raw layout builds a wrong rotation
+        and mis-weights the angular-KE term of any body with ANISOTROPIC
+        local inertia once it rotates (isotropic cubes are unaffected, which
+        is why the cube-only shelf X1 numbers stood)."""
+        return self.q.numpy()[:, [3, 0, 1, 2]]
+
     # ---- Native modal support DOF (q, q̇) ----------------------------------
     def _modal_predict(self) -> None:
         """Inertial predictor q̃ = qⁿ + h q̇ⁿ + h² M_q⁻¹ f_q^grav and qⁿ snapshot
@@ -2239,7 +2250,7 @@ class Solver6DOF:
                                     PassivityLedger)
             if self._psv_ledger is None:
                 self._psv_ledger = PassivityLedger(eta=float(self._modal_eta))
-            V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self.q.numpy()
+            V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self._psv_quats_wxyz()
             self._psv_x_pre = self.x.numpy().copy()
             self._E_rig_pre = rigid_mechanical_energy(
                 V, Wo, Qq, self._mass, self._inv_I_local,
@@ -2390,7 +2401,7 @@ class Solver6DOF:
             from .passivity import (rigid_mechanical_energy, modal_mech_energy,
                                     passivity_gamma)
             V = self.v.numpy(); Wo = self.omega.numpy()
-            Qq = self.q.numpy(); Xx = self.x.numpy()
+            Qq = self._psv_quats_wxyz(); Xx = self.x.numpy()
             E_rig_post = rigid_mechanical_energy(
                 V, Wo, Qq, self._mass, self._inv_I_local,
                 Il=self._psv_local_inertia())
@@ -2782,7 +2793,7 @@ class Solver6DOF:
                                     PassivityLedger)
             if self._psv_ledger is None:
                 self._psv_ledger = PassivityLedger(eta=float(self._modal_eta))
-            V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self.q.numpy()
+            V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self._psv_quats_wxyz()
             self._psv_x_pre = self.x.numpy().copy()
             self._E_rig_pre = rigid_mechanical_energy(
                 V, Wo, Qq, self._mass, self._inv_I_local,
@@ -3008,7 +3019,7 @@ class Solver6DOF:
             from .passivity import (rigid_mechanical_energy, modal_mech_energy,
                                     passivity_gamma)
             V = self.v.numpy(); Wo = self.omega.numpy()
-            Qq = self.q.numpy(); Xx = self.x.numpy()
+            Qq = self._psv_quats_wxyz(); Xx = self.x.numpy()
             E_rig_post = rigid_mechanical_energy(
                 V, Wo, Qq, self._mass, self._inv_I_local,
                 Il=self._psv_local_inertia())

@@ -64,6 +64,75 @@ def test_ledger_reservoir_and_invariants():
 
 
 # --------------------------------------------------------------------------- #
+# 1b. E8 — energy-GAINING rigid solve (ΔE_rigid < 0) edge cases               #
+#     (paper §3.3/§4.5: the budget is max(loss, 0); a gaining substep funds   #
+#     nothing and the cap formulas degrade to full rejection, never to a      #
+#     negative square root.)                                                  #
+# --------------------------------------------------------------------------- #
+def test_deposit_negative_loss_credits_nothing():
+    # A position-based solve can GAIN rigid energy in a substep (ΔE_rigid < 0).
+    # The ledger credits zero — never a negative budget (foundation §15: only
+    # irreversible loss funds the ring).
+    L = PassivityLedger(eta=1.0)
+    L.deposit(-5.0)
+    assert L.reservoir == 0.0
+    assert L.cum_rigid_loss == 0.0
+
+
+def test_gain_step_starves_modal_funding():
+    # Gaining solve (deposit clamps to 0) + attempted injection from rest:
+    # ceiling = E_m_old + budget = 0 ⇒ γ = 0 — the kick is fully rejected and
+    # the ledger invariants still hold.
+    L = PassivityLedger(eta=1.0)
+    budget = L.deposit(-3.0)
+    assert budget == 0.0
+    g = passivity_gamma(e_modal_new=2.0, e_modal_old=0.0, budget=budget)
+    assert g == 0.0
+    L.commit(realized_gain=0.0, budget=budget, alpha=g, e_modal_now=0.0)
+    assert L.passive() and L.holds()
+    assert L.n_clamped == 1
+
+
+def test_alpha_zero_when_pe_alone_overshoots():
+    # allowed_ke = budget + E_m_old − PE_new ≤ 0 ⇒ α = 0: the negative-
+    # discriminant branch of the α* closed form (paper Eq. alphastar) resolves
+    # to full rejection, not an imaginary root.
+    assert passivity_alpha(ke_new=1.0, pe_new=5.0, e_modal_old=1.0,
+                           budget=2.0) == 0.0
+
+
+def test_reservoir_floor_never_negative():
+    # Debiting more than the reservoir holds clamps at zero (no borrowing
+    # against future losses) and the leak is recorded in max_violation.
+    L = PassivityLedger(eta=1.0)
+    L.deposit(1.0)
+    L.commit(realized_gain=2.5, budget=1.0, alpha=1.0, e_modal_now=2.5)
+    assert L.reservoir == 0.0
+    assert L.max_violation == pytest.approx(1.5)
+
+
+def test_rigid_energy_angular_ke_anisotropic_analytic():
+    # Anisotropic inertia + 90° rotation about z: angular KE must equal
+    # ½ ω_localᵀ I_l ω_local with ω_local = Rᵀω. Guards the (w,x,y,z) quat
+    # convention at the solver boundary: warp / the XPBD reference store
+    # XYZW, and feeding that layout unconverted builds a wrong rotation
+    # (the pre-fix behaviour, asserted different below).
+    Il = np.diag([1.0, 2.0, 3.0])
+    invIl = np.linalg.inv(Il)[None, :, :]
+    c, s = np.cos(np.pi / 4.0), np.sin(np.pi / 4.0)
+    q_wxyz = np.array([[c, 0.0, 0.0, s]])        # 90° about z, project order
+    w_world = np.array([[1.0, 0.0, 0.0]])
+    E = rigid_mechanical_energy(np.zeros((1, 3)), w_world, q_wxyz,
+                                [1.0], invIl)
+    # R = Rz(90°) ⇒ ω_local = Rᵀω = (0,−1,0) ⇒ KE = ½·I_yy = 1.0
+    assert E == pytest.approx(1.0, rel=1e-9)
+    # the misread (XYZW fed where WXYZ is expected) gives a different energy
+    E_bad = rigid_mechanical_energy(np.zeros((1, 3)), w_world,
+                                    q_wxyz[:, [1, 2, 3, 0]], [1.0], invIl)
+    assert abs(E_bad - 1.0) > 0.1
+
+
+# --------------------------------------------------------------------------- #
 # in-scene helpers                                                            #
 # --------------------------------------------------------------------------- #
 def _run(solver, iters, subs, enforce, nframes=90, relax=0.7):

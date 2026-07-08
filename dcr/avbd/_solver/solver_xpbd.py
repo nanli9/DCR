@@ -1062,8 +1062,12 @@ class SolverXPBD:
                 self._psv_Il = local_inertia_from_invIl(self._invIl)
             # Pure rigid KE at substep start (gravity handled reversibly via its
             # work below, so free ballistic motion registers zero contact loss).
+            # Q is XYZW (this file's convention); the passivity accounting
+            # expects (w,x,y,z) — reorder, else the angular-KE term of any
+            # anisotropic body is built from a wrong rotation.
             self._E_rig_pre = rigid_mechanical_energy(
-                V, W, Q, self._mass, self._invIl, Il=self._psv_Il)
+                V, W, Q[:, [3, 0, 1, 2]], self._mass, self._invIl,
+                Il=self._psv_Il)
             _ke0, _pe0 = modal_mech_energy(self._qdot, self._q,
                                            self._mq, self._kq)
             self._E_modal_pre = _ke0 + _pe0
@@ -1212,7 +1216,8 @@ class SolverXPBD:
         if _psv:
             from .passivity import (rigid_kinetic_energy, modal_mech_energy,
                                     passivity_gamma)
-            E_rig_post = rigid_kinetic_energy(V, W, Q, self._mass, self._invIl,
+            E_rig_post = rigid_kinetic_energy(V, W, Q[:, [3, 0, 1, 2]],
+                                              self._mass, self._invIl,
                                               Il=self._psv_Il)
             # Contact-dissipated rigid energy = gravity work − ΔKE (foundation §15).
             # Zero for free ballistic motion (KE change == gravity work); positive
