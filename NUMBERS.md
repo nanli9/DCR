@@ -40,12 +40,16 @@ to the CSVs (noted below). Format: `value ← file : column/row`.
 
 ## §4.5 passivity (X1)
 
-> **Re-confirm flag (2026-07-08):** every X1 number below was produced BEFORE
-> the quat-order fix in the §15 energy accounting (angular-KE term used a
-> wrong rotation for rotated anisotropic bodies). Shelf cells are immune
-> (cubes, isotropic); the **dinner and ledge cells must be re-confirmed by
-> the E1 re-run** — expected direction: small budget shifts, no qualitative
-> change (blow-up factors are 10³–10⁵×).
+> **Re-confirm flag (2026-07-08, CLOSED by measurement):** every X1 number
+> below predates the quat-order fix in the §15 energy accounting. Measured
+> old-meter error, live scenes: **ledge 1.2e-13 J** over 2 s (the boulder is
+> a literal cube — isotropic, immune; only the light pillars are
+> anisotropic), **dinner 1.2e-8 J** over the 1.2 s drop (vs ~15 J impact
+> energy — the anisotropic pot/plates barely rotate, and the error enters
+> only through ω). Eleven orders below the smallest relevant contrast ⇒ no
+> printed number is affected; E1's re-run is a formality. The fix matters
+> prospectively (road-scene lumber will tumble; analytic worst case is
+> −50% of a body's angular KE).
 
 | printed | value | source |
 |---|---|---|
