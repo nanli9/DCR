@@ -20,11 +20,14 @@ enforced passivity bound $\dEmod\le\eta\,\dErig$.
         (DCR instead re-maps contacts barycentrically every step), and the
         linearized modes carry no geometric stiffening --- valid at the
         mm-scale responses shown, not for span-scale deflections.
-  \item Implicit solver-rate modal integration band-limits the impact
-        transient: absolute launch amplitudes run ${\sim}7\times$ under the
-        full-FEM reference on the dinner sweep
-        (\S\ref{sec:results:fem}), where DCR's sub-stepped IIR kick
-        re-amplifies that transient at the cost of passivity (X7).
+  \item The rigid step band-limits the impact transient: dish-launch
+        amplitudes run well under the full-FEM reference at $h=1/120$ and
+        recover monotonically with the step ($16\times$ over an $8\times$
+        ladder, \S\ref{sec:results:fem}) without reaching it --- though the
+        reference launch observable is itself contact-model-limited, so the
+        residual is an upper bound on the true deficit. DCR's sub-stepped
+        IIR kick re-amplifies that transient at the cost of passivity
+        (\S\ref{sec:results:restitution}).
   \item Native contact restitution is $e{=}0$: the sweep of
         \S\ref{sec:results:restitution} shows the energy ratio stays bounded at
         every $\varepsilon_r$ by construction, but a matched-restitution

@@ -23,7 +23,11 @@ to the CSVs (noted below). Format: `value ← file : column/row`.
 
 | printed | value | source |
 |---|---|---|
-| GT ring 9.2–9.9 Hz vs f1=9.8 Hz; ~7× deficit; 18 min/1.2 s; insensitivity 24→48 modes, 0.7→1.0 relax | — | dinner GT harness, native-dynamic-constraint branch (commit 865029b work; docs/dinner_dcr*) — **provenance to be pinned to CSVs in E3/E5**; treat as provisional |
+| GT ring 9.2–9.9 Hz vs f1=9.8 Hz; 18 min/1.2 s; insensitivity 24→48 modes, 0.7→1.0 relax | — | dinner GT harness (`benchmarks/dinner_dcr/run_dinner_dcr.py`, `docs/dinner_dcr/results.json` + `gt_d{0,1,2}/`) — insensitivity claims still to be pinned to a CSV in E3 |
+| ~7× near-field deficit (as plotted) | Fig. panels: native ~7 mm vs GT ~50 mm near-field | `docs/dinner_dcr/response_vs_distance.png` + results.json |
+| E5 h-ladder: median launch ratio 0.016→0.052→0.136→0.257 @ h=1/120→1/960, n=72/rung | medians; IQR in CSV | `benchmark/runs/substep/dinner_h_ladder.csv` (native branch) |
+| per-step cost flat ~35 ms across the ladder | 34.8–38.1 | h-ladder run log (same CSV run) |
+| ~34 s/sim-s at 1/960; ~22× under GT | 0.035·960=33.6; (18·60/1.2)/33.6=22.3 | derived: ladder ms/step × steps; GT wall from harness protocol |
 
 ## §4.4 vs-DCR falloff (X2)
 

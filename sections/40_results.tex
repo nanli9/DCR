@@ -171,15 +171,27 @@ the ground truth's measured ring ($9.2$--$9.9$~Hz) matches the native basis
 $f_1 = 9.8$~Hz --- and the native response falls off with distance from the
 drop point with \emph{no fitted attenuation model} (DCR fits its Eq.~14
 $C,\beta$ by hand or to data; Fig.~\ref{fig:dinner}). The native arm
-under-predicts absolute dish-launch amplitude by ${\sim}7\times$: measured to
-be insensitive to mode count ($24\to48$) and under-relaxation
-($0.7\to1.0$), the deficit is structural --- implicit solver-rate modal
-integration band-limits the impact transient whose surface velocity launches
-dishes (ballistic height $\propto v^2$). DCR's IIR-plus-kick architecture
-(their Eqs.~10--12) sub-steps the filter and re-injects the \emph{maximum}
-displacement as a velocity change, deliberately re-amplifying that transient
---- and thereby exceeding the passive bound as $\varepsilon_r\!\to\!1$ (X7);
-our formulation makes the opposite trade.
+under-predicts absolute dish-launch amplitude --- ${\sim}7\times$ at the
+loudest near-field dishes (Fig.~\ref{fig:dinner}), median launch ratio
+$0.016$ over all 72 scored bodies at the paper step --- and an $h$-ladder
+pins the mechanism: the ratio recovers \emph{monotonically},
+$0.016 \to 0.052 \to 0.136 \to 0.257$ as $h = 1/120 \to 1/960$
+(${\sim}2$--$3\times$ per halving; insensitive to mode count $24\to48$ and
+under-relaxation $0.7\to1.0$; per-step cost unchanged at ${\sim}35$~ms).
+Launch is the harshest observable of the impact transient (ballistic height
+$\propto v^2$ of a sub-millisecond surface-velocity peak that the rigid step
+low-passes), and it is also the observable the GT itself resolves poorly
+(above), so the residual gap at $1/960$ \emph{bounds the true deficit from
+above} rather than measuring it --- the GT-convergent deflection field is
+the accuracy metric, and it reaches $1.03$. DCR's IIR-plus-kick architecture
+(their Eqs.~10--12) makes the opposite trade: it sub-steps the filter and
+re-injects the \emph{maximum} displacement as a velocity change,
+deliberately re-amplifying that transient --- and thereby exceeding the
+passive bound as $\varepsilon_r\!\to\!1$
+(\S\ref{sec:results:restitution}). Recovering the transient passively costs
+timestep ($8\times$ the steps $\Rightarrow$ ${\sim}34$~s per simulated
+second at $1/960$, still ${\sim}22\times$ under the all-FEM GT); recovering
+it for free costs the guarantee.
 
 \begin{figure*}[t]\centering
   \includegraphics[width=\linewidth]{response_vs_distance.png}
