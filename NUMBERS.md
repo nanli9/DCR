@@ -85,6 +85,15 @@ Single run; E7 re-measures with repetitions + R/D baselines.
 | Restitution dinner .05 vs 2.6 | x7_restitution.csv |
 | Runtime dinner 33.7 / ledge 15.8 / shelf 17.1 (AVBD) | perf.csv |
 
+## §4.6 momentum (E4 probe, native branch)
+
+| printed | value | source |
+|---|---|---|
+| free-flight pair drift 0.0 | max ‖ΔP‖ = 0.0 over pre-contact window | `benchmark/runs/momentum/probeA_budget_sweep.csv : free_flight_drift` (native branch) |
+| impact creation +47/+12/+1.8/+0.2 % | 46.6 / 11.8 / 1.8 / 0.2 | same : creation_pct @ 12×4 / 32×4 / 64×4 / 12×16 (rigid cubes) |
+| identical with network on/off | 46.6 == 46.6 == 46.6 | same : rows (12×4, network True/False, fem_rigid/rigid) |
+| clamp momentum-silent: identical before first activation | first clamp frame 1, first divergence frame 2, 183 activations | `benchmark/runs/momentum/probeB_clamp.csv` + `summary.json` |
+
 ## §4.1–4.2 (pre-existing, unchanged)
 
 Ledger 0.06–1.9%, ripple ±2.72→±1.48 N, ring 1.1e-5/0 ←

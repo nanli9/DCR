@@ -75,7 +75,7 @@ Modal displ.\ $L_2$ error          & F      & \pend & \pend & \pend & \pend & \p
 Distant-response fidelity          & F,D    & \pend & \yes\q{\S\ref{sec:results:fem}} & \pend & \na   & \na & \yes\q{2.3$\times$D} \\
 Contact-force ledger               & A      & \pend & \na   & \pend & \yes\q{.06--1.9\%} & \pend & \na \\
 Passivity $\dEmod\!\le\!\eta\dErig$ & bound  & \pend & \yes & \yes & \yes & \yes & \pend \\
-Momentum drift (lin/ang)           & $0$    & \pend & \pend & \pend & \pend & \pend & \pend \\
+Momentum drift (lin/ang)           & $0$    & \pend & \pend & \pend & \yes\q{\S\ref{sec:results:momentum}} & \yes\q{\S\ref{sec:results:momentum}} & \pend \\
 Two-way ring $|\amp|$              & off/on & \pend & \pend & \pend & \yes\q{1.1e{-}5/0} & \pend & \na \\
 Restitution ratio $\le1\ \forall\varepsilon_r$ & D & \na & \yes\q{.05 vs 2.6} & \na & \na & \na & \na \\
 Runtime (ms/step)                  & R,D    & \pend & \yes\q{33.7} & \yes\q{15.8} & \pend & \yes\q{17.1} & \na \\
@@ -293,6 +293,28 @@ $\amp$ with it. The cap makes the livelier host \emph{stable}, not
   restyled in the figure pass.}}
   \label{fig:x1robust}
 \end{figure*}
+
+\subsection{Momentum: exact rows, truncated sweeps}
+\label{sec:results:momentum}
+A read-only probe isolates the momentum story on the registered box--box pair
+in free flight (gravity zeroed, pair teleported clear of every other body).
+Free flight conserves the pair's $P$ and $L$ \emph{exactly} (drift $0.0$ over
+the window). Through a $1.5$~m/s impact, however, the \emph{host} solver's
+truncated block sweep applies the row asymmetrically and pair momentum is
+created: $+47\%$ at the shipped $12{\times}4$ budget, $+12\%$ at
+$32{\times}4$, $+1.8\%$ at $64{\times}4$, $+0.2\%$ at $12{\times}16$ ---
+vanishing with budget, fastest with substeps. The error is \emph{identical}
+with the modal network on or off and with fully rigid cubes: the modal
+coupling adds \textbf{no momentum error beyond the host's own truncation
+error}, which scopes the third-law claim of \S\ref{sec:method:constraint} ---
+exact per row, budget-limited per sweep, the momentum-side twin of the energy
+story that motivates the bound. The clamp itself is momentum-silent: clamped
+and unclamped runs (XPBD $8{\times}2$ shelf, 183 activations) are
+bit-identical on every frame before the first activation, and diverge
+afterwards only through the support geometry subsequent contacts see --- the
+$\gamma$ projection touches modal state only, never rigid momenta.
+\note{E4 probe; CSVs in \texttt{benchmark/runs/momentum/}; per-scene drift
+cells and a figure land with the performance pass.}
 
 \subsection{Restitution: bounded where the forced IIR double-counts}
 \label{sec:results:restitution}

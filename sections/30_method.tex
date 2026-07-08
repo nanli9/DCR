@@ -50,9 +50,12 @@ participant:
 \end{equation}
 A single contact multiplier $f\ge 0$ then (i)
 pushes the rigid bodies apart and (ii) drives each participant's modes by
-$+\Ghat_A f$ on $A$ and $-\Ghat_B f$ on $B$. Newton's third law is built in, so the
-coupling is two-way and momentum-consistent by construction --- not a post-solve
-kick. The support contact (body$\leftrightarrow$ground) is the \emph{same} row type
+$+\Ghat_A f$ on $A$ and $-\Ghat_B f$ on $B$. Newton's third law is built into
+the row --- equal-opposite Jacobian halves under one multiplier, not a
+post-solve kick --- so the coupling is two-way and momentum-consistent
+\emph{per row}; what a truncated host sweep does to that row on fast impacts
+is a solver property independent of the modal coupling, quantified in
+\S\ref{sec:results:momentum}. The support contact (body$\leftrightarrow$ground) is the \emph{same} row type
 with the ground as degenerate participant: the surface is
 $y_{\mathrm{rest}}+U_y^{\!\top}q_s$, so $\partial C/\partial q_s=-U_y$ with $U_y$
 the support mode shapes' vertical components at the contact's footprint. That is
