@@ -1043,6 +1043,13 @@ class SolverXPBD:
             self.last_modal_PE = float(self._diag_host[2])
         self._on_device = True
 
+    def _psv_quats_wxyz(self) -> np.ndarray:
+        """Body quats reordered for the §15 energy accounting: this file's
+        convention is XYZW; `passivity.rigid_mechanical_energy` expects the
+        project order (w,x,y,z). Mirrors the 6dof solver's helper — always
+        route the energy calls through this, never pass `self._Q` raw."""
+        return self._Q[:, [3, 0, 1, 2]]
+
     def _substep_cpu(self, h: float) -> None:
         X, Q, V, W, invm = self._X, self._Q, self._V, self._W, self._invm
         n = X.shape[0]
@@ -1062,11 +1069,8 @@ class SolverXPBD:
                 self._psv_Il = local_inertia_from_invIl(self._invIl)
             # Pure rigid KE at substep start (gravity handled reversibly via its
             # work below, so free ballistic motion registers zero contact loss).
-            # Q is XYZW (this file's convention); the passivity accounting
-            # expects (w,x,y,z) — reorder, else the angular-KE term of any
-            # anisotropic body is built from a wrong rotation.
             self._E_rig_pre = rigid_mechanical_energy(
-                V, W, Q[:, [3, 0, 1, 2]], self._mass, self._invIl,
+                V, W, self._psv_quats_wxyz(), self._mass, self._invIl,
                 Il=self._psv_Il)
             _ke0, _pe0 = modal_mech_energy(self._qdot, self._q,
                                            self._mq, self._kq)
@@ -1216,7 +1220,7 @@ class SolverXPBD:
         if _psv:
             from .passivity import (rigid_kinetic_energy, modal_mech_energy,
                                     passivity_gamma)
-            E_rig_post = rigid_kinetic_energy(V, W, Q[:, [3, 0, 1, 2]],
+            E_rig_post = rigid_kinetic_energy(V, W, self._psv_quats_wxyz(),
                                               self._mass, self._invIl,
                                               Il=self._psv_Il)
             # Contact-dissipated rigid energy = gravity work − ΔKE (foundation §15).

@@ -88,13 +88,18 @@ def local_inertia_from_invIl(invIl) -> np.ndarray:
     return Il
 
 
-def rigid_mechanical_energy(V, W, Q, mass, invIl, X=None, gravity=None,
+def rigid_mechanical_energy(V, W, Q_wxyz, mass, invIl, X=None, gravity=None,
                             Il=None) -> float:
     """Total rigid MECHANICAL energy Σ_b [½m‖v‖² + ½ωᵀI_worldω − m·(g·x)].
 
-    V,W: (n,3) world linear/angular velocity. Q: (n,4) wxyz quats. mass: (n,) or
-    list. invIl: (n,3,3) body-LOCAL inverse inertia (I_local = inv(invIl)); static
-    bodies (m≤0) are skipped. Angular part uses ω_local = Rᵀω.
+    V,W: (n,3) world linear/angular velocity. Q_wxyz: (n,4) quats in the
+    PROJECT order (w,x,y,z) — warp arrays and the XPBD reference store
+    (x,y,z,w) and MUST be reordered `[:, [3,0,1,2]]` at the call site
+    (solver helpers `_psv_quats_wxyz`); a raw pass silently builds a wrong
+    rotation and mis-weights the angular KE of rotated anisotropic bodies.
+    mass: (n,) or list. invIl: (n,3,3) body-LOCAL inverse inertia
+    (I_local = inv(invIl)); static bodies (m≤0) are skipped. Angular part
+    uses ω_local = Rᵀω.
 
     Il: optional precomputed (n,3,3) LOCAL inertia = inv(invIl). Since invIl is
     constant, a caller stepping many substeps should precompute it once (via
@@ -118,7 +123,7 @@ def rigid_mechanical_energy(V, W, Q, mass, invIl, X=None, gravity=None,
         return 0.0
     V = np.asarray(V, dtype=np.float64)[dyn]
     W = np.asarray(W, dtype=np.float64)[dyn]
-    Q = np.asarray(Q, dtype=np.float64)[dyn]
+    Q = np.asarray(Q_wxyz, dtype=np.float64)[dyn]
     m = mass[dyn]
 
     # linear KE  Σ ½ m‖v‖²
@@ -140,14 +145,14 @@ def rigid_mechanical_energy(V, W, Q, mass, invIl, X=None, gravity=None,
     return E
 
 
-def _rigid_mechanical_energy_loop(V, W, Q, mass, invIl, X=None,
+def _rigid_mechanical_energy_loop(V, W, Q_wxyz, mass, invIl, X=None,
                                   gravity=None) -> float:
     """Scalar reference for `rigid_mechanical_energy` (CLAUDE.md rule 6: keep the
     obvious-correct version). Retained as the parity oracle for the vectorized
-    path; not used on the hot path."""
+    path; not used on the hot path. Q_wxyz: project order (w,x,y,z)."""
     V = np.asarray(V, dtype=np.float64)
     W = np.asarray(W, dtype=np.float64)
-    Q = np.asarray(Q, dtype=np.float64)
+    Q = np.asarray(Q_wxyz, dtype=np.float64)
     use_grav = X is not None and gravity is not None
     if use_grav:
         X = np.asarray(X, dtype=np.float64)
