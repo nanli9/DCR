@@ -28,6 +28,17 @@ enforced passivity bound $\dEmod\le\eta\,\dErig$.
         residual is an upper bound on the true deficit. DCR's sub-stepped
         IIR kick re-amplifies that transient at the cost of passivity
         (\S\ref{sec:results:restitution}).
+  \item Two paths, one guarantee: the passivity- and accuracy-validated
+        correctness path is the symplectic modal step (CPU, interactive at
+        $16$--$34$~ms/step), while the real-time path is the same solver's
+        device-resident co-solved step ($5.6$--$9.2$~ms at the paper budget,
+        real-time at a lighter budget; \S\ref{sec:results:perf}). A read-only
+        $\dEmod\le\eta\,\dErig$ ledger confirms the co-solved path stays passive
+        across all four scenes and five budgets with no active clamp, so the
+        \emph{guarantee} carries over; what does not yet carry over is the
+        deflection-field \emph{accuracy} validation, measured on the symplectic
+        step --- reproducing it on the co-solved step is the one open device
+        item, and the reason we claim interactive rather than real-time rates.
   \item Native contact restitution is $e{=}0$: the sweep of
         \S\ref{sec:results:restitution} shows the energy ratio stays bounded at
         every $\varepsilon_r$ by construction, but a matched-restitution
