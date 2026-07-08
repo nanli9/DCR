@@ -109,15 +109,17 @@ mid $\leftrightarrow$ upper (box--box) & 5.82~N  & $mg$  & 1.1\%  \\
 \end{table}
 
 \begin{figure*}[t]\centering
-  \includegraphics[width=\linewidth]{contact_forces.png}
-  \Description{Four time-series panels of normal contact forces for a cube
-  stack on a modal slab, plus the top cube's modal amplitude with the
-  network on versus off.}
-  \caption{Per-corner / per-joint normal contact force vs.\ time. The plain resting
-  cube shares $mg$ evenly across its 4 corners; the stack foot carries $3mg$ split
-  \emph{unevenly} where the tower leans; the top cube --- two box--box hops from the
-  slab --- rings only when the network is on ($|\amp|\!\equiv\!0$ off), the two-way
-  discriminator.}
+  \includegraphics[width=\linewidth]{fig_contact_forces.pdf}
+  \Description{Two panels. Left: the top cube's steady modal ring amplitude on a
+  log scale for native fem-rigid and abd cargo versus rigid cargo and network-off,
+  the latter two identically zero. Right: each joint's measured normal load beside
+  the analytic stack-above times mg, matching within 1.9 percent.}
+  \caption{(a) The two-way discriminator: the top cube --- two box--box hops from
+  the slab --- carries a steady ring only when the modal network is on (native
+  fem-rigid / abd), and $|\amp|\!\equiv\!0$ for rigid cargo or network-off. (b) The
+  static contact-force ledger: each joint's measured normal load matches the
+  analytic $(\Sigma\,\text{above})\,mg$ to $<1.9\%$ --- the shared multiplier
+  balances the tower with no per-joint tuning.}
   \label{fig:forces}
 \end{figure*}
 
@@ -229,7 +231,7 @@ second at $1/960$, still ${\sim}22\times$ under the all-FEM GT); recovering
 it for free costs the guarantee.
 
 \begin{figure*}[t]\centering
-  \includegraphics[width=\linewidth]{response_vs_distance.png}
+  \includegraphics[width=\linewidth]{fig_dinner_response.pdf}
   \Description{Three log-scale panels of peak upward jump versus distance
   from the drop point, comparing the native modal solver, the all-cargo
   variant, and the all-FEM ground truth.}
@@ -263,7 +265,7 @@ timestep --- the comparand is the falloff \emph{shape}, which is
 $h$-independent (\S\ref{sec:results:fem}), not absolute magnitude.
 
 \begin{figure}[t]\centering
-  \includegraphics[width=\linewidth]{x2_response_vs_distance.png}
+  \includegraphics[width=\linewidth]{fig_x2_falloff.pdf}
   \Description{Peak bystander kinetic energy versus distance from impact for
   rigid-only, paper-DCR, and native arms on the shared slab operator.}
   \caption{Response vs.\ distance, three arms on one slab operator. Paper-DCR
@@ -342,7 +344,7 @@ modal channel, so the guarantee needs no tangential term.
 \note{E6; \texttt{benchmarks/paper\_eval/x1\_passivity/friction\_bound.csv}.}
 
 \begin{figure*}[t]\centering
-  \includegraphics[width=\linewidth]{robustness_clamp.png}
+  \includegraphics[width=\linewidth]{fig_x1_robust.pdf}
   \Description{Grid of passivity ratios across scenes, budgets, and
   relaxation values, clamp off versus on.}
   \caption{Adversarial robustness: XPBD across scene $\times$ budget $\times$
@@ -394,7 +396,7 @@ the native solver yet), so its curve is the bounded reference, not a
 matched-restitution comparison.
 
 \begin{figure}[t]\centering
-  \includegraphics[width=\linewidth]{x7_restitution.png}
+  \includegraphics[width=\linewidth]{fig_x7_restitution.pdf}
   \Description{Injected-over-lost energy ratio versus coefficient of
   restitution for paper-DCR and the native bounded arm.}
   \caption{Restitution sweep: injected/lost energy per impact. Paper-DCR
