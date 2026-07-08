@@ -40,6 +40,13 @@ to the CSVs (noted below). Format: `value ← file : column/row`.
 
 ## §4.5 passivity (X1)
 
+> **Re-confirm flag (2026-07-08):** every X1 number below was produced BEFORE
+> the quat-order fix in the §15 energy accounting (angular-KE term used a
+> wrong rotation for rotated anisotropic bodies). Shelf cells are immune
+> (cubes, isotropic); the **dinner and ledge cells must be re-confirmed by
+> the E1 re-run** — expected direction: small budget shifts, no qualitative
+> change (blow-up factors are 10³–10⁵×).
+
 | printed | value | source |
 |---|---|---|
 | 12/24 cells inject OFF; 24/24 passive ON | verified by direct CSV scan 2026-07-07 | `x1_passivity/out/robustness_clamp.csv : passivity_off>1 count; passive_on all True` |
