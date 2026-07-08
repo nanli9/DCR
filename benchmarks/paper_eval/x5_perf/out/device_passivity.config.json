@@ -1,0 +1,23 @@
+{
+  "generated_utc": "2026-07-08T11:32:37+00:00",
+  "device": "cuda:0",
+  "warp": "1.15.0",
+  "numpy": "2.2.6",
+  "python": "3.10.12",
+  "relax": 0.7,
+  "steps": 400,
+  "scenes": [
+    "dinner",
+    "ledge",
+    "shelf",
+    "truck"
+  ],
+  "budgets": [
+    "8x1",
+    "8x2",
+    "16x2",
+    "16x4",
+    "32x4"
+  ],
+  "note": "read-only external \u00a715 ledger on the co-solved device path; no active clamp; tests passivity-by-construction of AVBD"
+}
