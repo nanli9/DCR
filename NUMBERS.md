@@ -86,7 +86,24 @@ Single run; E7 re-measures with repetitions + R/D baselines.
 | AVBD 1.6–3.1× XPBD | 26.9/17.1=1.57; 42.0/15.8=2.66; 102.9/33.7=3.05 | derived from same |
 | ledge/AVBD 15.8 ms ≈ 63 steps/s (fastest validated) | 15.78 / 63.37 | same |
 | dinner/AVBD ~34 ms (cited in §4.3) | 33.73 | same |
-| device path 0.9–2.4 ms, non-symplectic, not passivity-validated | — | `docs/avbd_native/native_dual_solver.md` (native branch) |
+## §4.7 runtime — device-resident co-solved path (E7 device arm / G3a; RTX 4090)
+
+Measured 2026-07-08 on the compshare RTX 4090 (warp 1.15, numpy 2.2.6), native
+branch commit `f94c850` (warp modal solve + full-substep CUDA-graph capture).
+GPU timing: `wp.synchronize_device` brackets every step; 10 warm-up steps; 200
+timed frames. Supersedes the stale `0.9–2.4 ms` estimate from
+`docs/avbd_native/native_dual_solver.md`.
+
+| printed | value | source |
+|---|---|---|
+| Table `perfdev` 16×4 ms/step: shelf 5.6 / ledge 6.8 / truck 8.9 / dinner 9.2 | 5.6374 / 6.8235 / 8.8712 / 9.2002 | `x5_perf/out/perf_device.csv : coupling_ms` |
+| steps/s @16×4: shelf 177 / ledge 147 / truck 113 / dinner 109 | 177.39 / 146.55 / 112.72 / 108.69 | same `: steps_per_s` |
+| shelf/ledge real-time @16×4 (1.5×/1.2× 120 Hz); dinner/truck 0.91×/0.94× | 1.4782 / 1.2213 / 0.90577 / 0.93937 | same `: rt_factor_120hz` |
+| 16×2: ledge 3.3 / dinner 4.7 ms (real-time) | 3.28 / 4.65 | `x5_perf/out/perf_device_budget.csv : mean_ms @ 16x2` |
+| 8×1: ledge 0.9 / dinner 1.3 ms (795–1092 steps/s) | 0.92 / 1.26; 1091.8 / 794.6 | same `: mean_ms, steps_per_s @ 8x1` |
+| cost linear in budget (dinner 1.26→2.43→4.65→9.23→18.05 @ 8×1→32×4) | same | same `: mean_ms` sweep |
+| device path passive in 20/20 cells, no active clamp; net excess < 0 ∀ | holds=passive=True ∀; max_net_excess < 0 ∀ | `x5_perf/out/device_passivity.csv` (read-only §15 ledger, 400 steps) |
+| e.g. dinner 8×1 Σgain 12.7 ≤ η·Σloss 26.1; ledge 8×1 10.7 ≤ 393.6 | 12.69 / 26.09; 10.66 / 393.6 | same `: cum_modal_gain, eta_cum_loss` |
 
 ## Table 2 matrix cells (new/changed this pass)
 

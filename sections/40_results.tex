@@ -365,16 +365,36 @@ Table~\ref{tab:perf} gives CPU-host timings at the paper configuration
 configuration every result above validates). AVBD is $1.6$--$3.1\times$
 faster than XPBD here (XPBD pays a per-mode Gauss--Seidel sweep;
 dinner at 17 bodies / 24 modes is its worst case). The honest split behind
-the title: the fastest validated configuration (ledge/AVBD, $15.8$~ms,
-${\sim}63$~steps/s) is \emph{interactive} but not $120$~Hz real-time; a
-device-resident, non-symplectic path of the same solver measures
-$0.9$--$2.4$~ms/step but is a different code path that the passivity
-validation does not yet cover, so we claim interactive rates only. For
-context, the full-FEM ground truth costs $13.6\times$ the native arm on the
-slab scene (\S\ref{sec:results:fem}).
-\note{Single-run numbers; the performance pass re-measures with repetitions
-and adds the R (modes-off) and D (one-way) baselines and the mode-count
-scaling curve.}
+the title. The fastest validated \emph{CPU-host} configuration (ledge/AVBD,
+$15.8$~ms, ${\sim}63$~steps/s) is interactive but not $120$~Hz real-time. The
+same solver also runs device-resident: its co-solved (non-symplectic) modal
+step, with a warp-cooperative modal solve and full-substep CUDA-graph capture,
+measured here on an RTX~4090 (Table~\ref{tab:perfdev}). At the paper budget it
+runs at $5.6$/$6.8$/$8.9$/$9.2$~ms/step (shelf/ledge/truck/dinner): shelf and
+ledge already clear $120$~Hz ($1.5\times$/$1.2\times$) and dinner and truck sit
+at $109$--$113$~steps/s, within $10\%$ of it. The co-solved cost is linear in
+the iteration budget, so $16{\times}2$ puts every scene comfortably real-time
+($3.3$/$4.7$~ms on ledge/dinner) and $8{\times}1$ reaches $0.9$--$1.3$~ms
+($795$--$1092$~steps/s). Because the resident $q$-solve is bit-identical to the
+CPU reference, the two paths differ only in the modal integrator (host
+symplectic vs.\ co-solved), not the constraint. Critically, a read-only
+$\S15$ ledger evaluated over the full trajectory of all four scenes across five
+budgets ($8{\times}1$ to $32{\times}4$) finds the device path \emph{passive in
+$20/20$ cells with no active clamp}: peak modal energy never reaches its start
+value plus $\eta$ times the cumulative rigid loss (net excess $<0$ in every
+cell), including the $8{\times}1$ real-time budget where a stationarity-class
+host would inject. The passivity guarantee therefore \emph{does} cover the
+device path --- it is an AVBD descent-class property, the same one that makes
+the clamp of \S\ref{sec:results:passivity} monitor-only on AVBD, not a separate
+mechanism. We keep interactive rates as the headline only because the
+deflection-field accuracy of \S\ref{sec:results:fem} is validated on the
+symplectic modal step; reproducing it on the co-solved step is the one
+remaining device-path item. For context, the full-FEM ground truth costs
+$13.6\times$ the native arm on the slab scene (\S\ref{sec:results:fem}).
+\note{Device numbers: RTX~4090, warp 1.15, 200 frames after warm-up,
+\texttt{benchmarks/paper\_eval/x5\_perf/run\_perf\_device.py} +
+\texttt{probe\_device\_passivity.py}; CPU table is single-run, re-measured with
+reps + R/D baselines in the perf pass.}
 
 \begin{table}[t]\centering\footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -391,6 +411,28 @@ ledge  & XPBD & 42.0 & 63.6 & +3.0 & 23.8 \\
 ledge  & AVBD & 15.8 & 17.3 & +0.5 & 63.4 \\
 dinner & XPBD & 102.9 & 137.6 & +2.6 & 9.7 \\
 dinner & AVBD & 33.7 & 41.4 & +1.8 & 29.7 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[t]\centering\footnotesize
+\setlength{\tabcolsep}{5pt}
+\caption{Device-resident co-solved path (RTX~4090, warp modal solve +
+full-substep CUDA-graph capture, 200 frames). ms/step for the two-way modal
+support DOF; the resident $q$-solve is bit-identical to the CPU reference.
+Real-time is ${\le}8.33$~ms/step ($120$~Hz, shaded). The $16{\times}2$ and
+$8{\times}1$ budget columns are measured on ledge/dinner; a read-only $\S15$
+ledger confirms passivity in all $20$ scene$\times$budget cells with no active
+clamp.}
+\label{tab:perfdev}
+\begin{tabular}{lrrrrr}
+\toprule
+scene & modes & $16{\times}4$ & $16{\times}2$ & $8{\times}1$ & steps/s \\
+\midrule
+shelf  & 16 & \textbf{5.6} & --  & --  & 177 \\
+ledge  & 16 & \textbf{6.8} & \textbf{3.3} & \textbf{0.9} & 147 \\
+truck  & 21 & 8.9 & --  & --  & 113 \\
+dinner & 24 & 9.2 & \textbf{4.7} & \textbf{1.3} & 109 \\
 \bottomrule
 \end{tabular}
 \end{table}
