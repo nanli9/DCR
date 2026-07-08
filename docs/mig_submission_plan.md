@@ -37,7 +37,12 @@ analysis) and the paper (`paper` branch, worktree `DCR/paper`). This is the
 | R1 | real-time framing decision | **DECIDED** — title now "Interactive-Rate…"; revert only if E-G3a (device-path validation) lands before Aug 1 |
 | R2 | accuracy-metric decision | **DECIDED** (this doc §1.2) — deflection field primary, launch amplitude secondary; E5 characterizes the transient deficit |
 | X1/X2/X3/X5/X7 | reference-scene evidence | **DONE** on `benchmark` branch (see §0.2) — needs transcription (W1) + generalization (E1–E3) |
-| E1–E9, W1–W3, W5–W7 | below | open |
+| E7-dev/G3a | device real-time + passivity | **DONE 2026-07-08** (RTX 4090) — co-solved device path 5.6/6.8/8.9/9.2 ms @16×4 (shelf/ledge clear 120 Hz; dinner/truck 108–113 st/s), real-time at ≤16×2 (3.3/4.7 ms), 8×1 = 0.9–1.3 ms. Read-only §15 ledger: **passive 20/20 scene×budget cells with NO active clamp** (net excess <0 ∀, incl. 8×1). Paper §4.7 + Table `perfdev` + NUMBERS.md. Title stays "Interactive-Rate" (co-solved-step deflection accuracy still symplectic-validated — the one open device item). `benchmarks/paper_eval/x5_perf/{run_perf_device,probe_device_passivity}.py` |
+| E1 | passivity ablation | **DONE** — `x1_passivity/out/robustness_clamp.csv` covers shelf/ledge/dinner (ON 24/24 passive, OFF up to 119,534×, AVBD 0 activations ≥16×4); already transcribed §4.4/§4.5. Plan's "open" was stale |
+| E6 | friction × bound | **DONE 2026-07-08** — μ={0,.2,.5,1}: 4/4 passive, injection ratio flat 0.26–0.28, 0 clamp activations; energy ledger subsumes tangential channel. Paper §4.5. `x1_passivity/run_friction_bound.py` + `friction_bound.csv` |
+| E2 | ledge FEM GT (G1) | **DONE 2026-07-08** — shared-op gate 6e-8, GT self-trust 0.18%, peak-deflection ratio 0.38→0.88 (h=1/120→1/960), plateaus ~0.9 at finer h (**k=24 mode truncation on the thick slab**, not 1.0 — honest scoped result per the fallback), ring 78.0 vs 78.3 Hz (0.4%). Paper §4.3 + matrix. `x3_ground_truth/{ledge_scene_gt,run_ledge_ladder}.py` + `ledge_convergence.csv` |
+| E3 | ledge falloff (G2) | **DONE 2026-07-08** — standing-wave profile peaks at the pedestal antinode (not the impact), Spearman ρ(native,GT)=0.886. Paper §4.3 + matrix cell. `ledge_falloff.csv` |
+| E9, W2, W3, W5, W6, W7 | below | open (E9 slippable to camera-ready per §4 — needs resurrecting the rejected cross-term Schur coupler behind a flag) |
 
 ## 0.2 Evidence already committed (`benchmark` branch) — transcribe, don't re-run
 
