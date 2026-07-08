@@ -7,6 +7,10 @@ output only (savefig .pdf). No in-image titles (the caption carries it).
 from __future__ import annotations
 
 import os
+import tempfile
+
+# use a writable cache dir (sandboxes may block the default ~/.matplotlib)
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "mplcache"))
 
 import matplotlib
 matplotlib.use("Agg")
