@@ -768,14 +768,50 @@ class AVBDDCRWorld:
         import time as _t
         t0 = _t.perf_counter()
 
+        # ---- NATIVE-THIN PATH ------------------------------------------------
+        # The modal constraint is embedded directly in the AVBD q-block, so when
+        # NO DCR coupler is attached there is no post-solve DCR layer to run: no
+        # dcr_body sync, no contact extract, no coupler dispatch, no rigid-energy
+        # bookkeeping. world.step() is then just the solver step + time advance.
+        # Rendering reads world._solver.positions()/.orientations()/.modal_q
+        # directly (see run_native_scenes_viser.py), so the dcr_body mirror is
+        # never read. This drops ~2 ms/step of legacy plumbing and lets the step
+        # run async (no per-step forced GPU sync via positions().numpy()). The
+        # full legacy path below runs only when a coupler is actually attached.
+        if (not self.passive_couplers
+                and self.reduced_support_coupler is None
+                and self.reduced_coupled_coupler is None
+                and self.reduced_dcr_postkick_coupler is None):
+            t_solve_0 = _t.perf_counter()
+            self._solver.step()
+            self.last_solve_ms = (_t.perf_counter() - t_solve_0) * 1000.0
+            self.last_contacts = []
+            self.time += self.h
+            self.last_step_ms = (_t.perf_counter() - t0) * 1000.0
+            return []
+        # ---- Legacy DCR post-solve path (a coupler is attached) --------------
+
+        # The rigid-KE snapshots (pre/post) and per-body Δp feed ONLY the passive
+        # patch couplers and the reduced-support overlay. In native reduced-coupled
+        # mode both are absent, so it is dead host work — gate it like the
+        # extract_contacts pull below (already gated on passive_couplers). Pure
+        # optimization, no math: scalars are left at 0 when nothing consumes them,
+        # and the velocity/omega readbacks in _sync_avbd_to_dcr (their only feed)
+        # are skipped too.
+        _need_energy = (bool(self.passive_couplers)
+                        or self.reduced_support_coupler is not None)
+
         # (1) snapshot rigid KE + pre-solve linear velocities. The latter
         #     feeds the measured-Δp impulse source:
         #         dp = m·(v_post − v_pre) − h·m·g   (realtime-coupling-fix §2.3).
-        E_rigid_pre = rigid_kinetic_energy([d.dcr_body for d in self._descs])
-        v_pre_lin = [
-            np.asarray(d.dcr_body.velocity[0:3], dtype=np.float64).copy()
-            for d in self._descs
-        ]
+        E_rigid_pre = 0.0
+        v_pre_lin = None
+        if _need_energy:
+            E_rigid_pre = rigid_kinetic_energy([d.dcr_body for d in self._descs])
+            v_pre_lin = [
+                np.asarray(d.dcr_body.velocity[0:3], dtype=np.float64).copy()
+                for d in self._descs
+            ]
 
         # Stage pre-step y-velocities for the reduced-support coupler's
         # physical F_n cap BEFORE the solver runs — the iteration_hook
@@ -794,7 +830,10 @@ class AVBDDCRWorld:
         self._solver.step()
         self.last_solve_ms = (_t.perf_counter() - t_solve_0) * 1000.0
 
-        # (3) sync state AVBD → DCR (single batched readback per array).
+        # (3) sync state AVBD → DCR (single batched readback per array). Velocities
+        #     must sync unconditionally: external consumers (e.g. passivity tests'
+        #     rigid_kinetic_energy on the impactor body) read dcr_body.velocity even
+        #     when the world's own energy bookkeeping is gated off.
         self._sync_avbd_to_dcr()
 
         # (4) extract contacts — only when a consumer is attached. The DCR
@@ -826,26 +865,34 @@ class AVBDDCRWorld:
         self.last_lam = lam
         self.last_k_normal = k_normal
 
-        # (5) energy bookkeeping.
-        E_rigid_post = rigid_kinetic_energy([d.dcr_body for d in self._descs])
-        self.last_E_loss = max(0.0, E_rigid_pre - E_rigid_post)
-        self.last_E_max = self.eta * self.last_E_loss
-        self.last_dcr_ke_injected = 0.0
+        # (5) energy bookkeeping — only when a consumer (patch coupler / reduced-
+        # support overlay) is attached; otherwise dead work (see _need_energy).
+        if _need_energy:
+            E_rigid_post = rigid_kinetic_energy([d.dcr_body for d in self._descs])
+            self.last_E_loss = max(0.0, E_rigid_pre - E_rigid_post)
+            self.last_E_max = self.eta * self.last_E_loss
+            self.last_dcr_ke_injected = 0.0
 
-        # Measured per-body contact impulse Δp = m·(v_post−v_pre) − h·m·g
-        # (realtime-coupling-fix §2.3). The gravity impulse over the full
-        # rigid step is m·g·h regardless of substeps. This is the
-        # iteration-insensitive impulse source; static / infinite-mass bodies
-        # get no entry (the coupler falls back to λ for those).
-        g = np.asarray(self.gravity, dtype=np.float64)
-        body_dp: dict[int, NDArray[np.float64]] = {}
-        for i, d in enumerate(self._descs):
-            b = d.dcr_body
-            if b.is_static or b.mass <= 0.0 or not np.isfinite(b.mass):
-                continue
-            v_post = np.asarray(b.velocity[0:3], dtype=np.float64)
-            body_dp[i] = b.mass * (v_post - v_pre_lin[i]) - self.h * b.mass * g
-        self.last_body_dp = body_dp
+            # Measured per-body contact impulse Δp = m·(v_post−v_pre) − h·m·g
+            # (realtime-coupling-fix §2.3). The gravity impulse over the full
+            # rigid step is m·g·h regardless of substeps. This is the
+            # iteration-insensitive impulse source; static / infinite-mass bodies
+            # get no entry (the coupler falls back to λ for those).
+            g = np.asarray(self.gravity, dtype=np.float64)
+            body_dp: dict[int, NDArray[np.float64]] = {}
+            for i, d in enumerate(self._descs):
+                b = d.dcr_body
+                if b.is_static or b.mass <= 0.0 or not np.isfinite(b.mass):
+                    continue
+                v_post = np.asarray(b.velocity[0:3], dtype=np.float64)
+                body_dp[i] = b.mass * (v_post - v_pre_lin[i]) - self.h * b.mass * g
+            self.last_body_dp = body_dp
+        else:
+            self.last_E_loss = 0.0
+            self.last_E_max = 0.0
+            self.last_dcr_ke_injected = 0.0
+            body_dp = {}
+            self.last_body_dp = body_dp
 
         # (6/7) coupler dispatch + apply patch impulses.
         t_coupler_0 = _t.perf_counter()

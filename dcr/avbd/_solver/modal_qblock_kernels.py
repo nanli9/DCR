@@ -294,6 +294,125 @@ def k_modal_solve(
 
 
 # ---------------------------------------------------------------------------
+# Warp-cooperative modal solve (CUDA). OPTIMIZATION — structure/vectorization
+# only, NO math change: the IDENTICAL partial-pivot Gaussian elimination as the
+# dim=1 k_modal_solve above, but with one warp (32 lanes) sharing the work —
+# lane i owns row i (requires r ≤ 32). Within each column's elimination the rows
+# are independent (each rr2 modifies only its own row, reads only the fixed pivot
+# row), so fanning them across lanes performs the same FP operations in the same
+# per-element order → bit-faithful to the serial kernel (parity-tested). Replaces
+# a single-thread O(r³) fp64 solve (~73% of GPU time, the launch-bound-hiding
+# nsys profile at --cuda-graph-trace=node) with an r-way-parallel one.
+# CPU: gated off in the solver (dim=1 kernel is the reference); the native
+# snippets no-op so the module still compiles for the CPU backend.
+# ---------------------------------------------------------------------------
+_WARP_SYNC_SNIPPET = """
+#ifdef __CUDA_ARCH__
+    __threadfence_block();
+    __syncwarp();
+    return 0;
+#else
+    return 0;
+#endif
+"""
+
+
+@wp.func_native(_WARP_SYNC_SNIPPET)
+def _warp_sync() -> int:
+    """Order this lane's global writes then barrier the warp — makes a lane's
+    row writes visible to the readers of the next column step. dim tied to 32."""
+    ...
+
+
+_WARP_ARGMAX_SNIPPET = """
+#ifdef __CUDA_ARCH__
+    double v = val;
+    int idx = lane;
+    for (int off = 16; off > 0; off >>= 1) {
+        double ov = __shfl_xor_sync(0xffffffffu, v, off, 32);
+        int oi = __shfl_xor_sync(0xffffffffu, idx, off, 32);
+        if (ov > v || (ov == v && oi < idx)) { v = ov; idx = oi; }
+    }
+    return idx;
+#else
+    return lane;
+#endif
+"""
+
+
+@wp.func_native(_WARP_ARGMAX_SNIPPET)
+def _warp_argmax_lane(val: wp.float64, lane: int) -> int:
+    """Warp argmax: index of the lane with the largest `val`, lowest index on a
+    tie — matches the serial `v > big` first-max pivot pick. Full-mask shuffle:
+    every one of the 32 lanes must reach this call (no divergent early-return)."""
+    ...
+
+
+@wp.kernel
+def k_modal_solve_warp(
+    r: int,
+    eps: wp.float64,
+    relax: wp.float64,
+    Hq: wp.array2d(dtype=wp.float64),   # (r,r) scratch — mutated in place as S
+    gq: wp.array(dtype=wp.float64),     # (r,) gradient
+    dq: wp.array(dtype=wp.float64),     # (r,) scratch
+    q: wp.array(dtype=wp.float64),      # (r,) amplitude, updated
+    q32: wp.array(dtype=float),         # (r,) float32 mirror for primal/dual
+):
+    """Warp-cooperative (dim = 32, one warp) counterpart of k_modal_solve for
+    r ≤ 32. Bit-faithful: same (H_q+ε·I)·Δq = −g_q partial-pivot GE, lane i owns
+    row i. Every lane runs to completion (no early-return) so the full-mask
+    shuffles / __syncwarp stay well-defined even when r < 32. dim = 32."""
+    lane = wp.tid()
+    # setup: (H_q + ε·I) and dq = −g_q, one lane per row
+    if lane < r:
+        Hq[lane, lane] = Hq[lane, lane] + eps
+        dq[lane] = -gq[lane]
+    dummy = _warp_sync()
+
+    # forward elimination with partial pivoting
+    for col in range(r):
+        myval = wp.float64(-1.0)
+        if lane >= col and lane < r:
+            myval = wp.abs(Hq[lane, col])
+        piv = _warp_argmax_lane(myval, lane)      # ALL 32 lanes participate
+        if piv != col:
+            # full row swap col ↔ piv: lane cc swaps column cc; dq by lane 0
+            if lane < r:
+                tmp = Hq[col, lane]
+                Hq[col, lane] = Hq[piv, lane]
+                Hq[piv, lane] = tmp
+            if lane == 0:
+                tmpb = dq[col]
+                dq[col] = dq[piv]
+                dq[piv] = tmpb
+        dummy = _warp_sync()
+
+        pivot = Hq[col, col]
+        if lane > col and lane < r:
+            factor = Hq[lane, col] / pivot
+            if factor != _ZERO:
+                for cc in range(col, r):
+                    Hq[lane, cc] = Hq[lane, cc] - factor * Hq[col, cc]
+                dq[lane] = dq[lane] - factor * dq[col]
+        dummy = _warp_sync()
+
+    # back substitution (sequential over rows; lane a owns dq[a])
+    for ii in range(r):
+        a = r - 1 - ii
+        if lane == a:
+            acc = dq[a]
+            for cc in range(a + 1, r):
+                acc = acc - Hq[a, cc] * dq[cc]
+            dq[a] = acc / Hq[a, a]
+        dummy = _warp_sync()
+
+    if lane < r:
+        q[lane] = q[lane] + relax * dq[lane]
+        q32[lane] = wp.float32(q[lane])
+
+
+# ---------------------------------------------------------------------------
 # Predictor / commit / diagnostics (per-substep, outside the captured loop)
 # ---------------------------------------------------------------------------
 @wp.kernel

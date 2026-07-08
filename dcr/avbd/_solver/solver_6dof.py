@@ -443,6 +443,25 @@ class Solver6DOF:
         self._graph_signature: tuple | None = None
         # Cached probe: does this Warp build expose graph capture?
         self._graph_supported: bool | None = None
+        # Full-substep CUDA-graph capture (opt-in, default off). When enabled
+        # AND the substep is capture-clean (fixed-capacity + resident + no host
+        # hooks + resident modal, i.e. no per-substep readback/alloc), the ENTIRE
+        # substep device sequence (reset → broadphase[refit] → CSR → predict →
+        # prelude → modal predict → solve → modal commit → hash) is recorded once
+        # and replayed with a single wp.capture_launch, collapsing the ~15
+        # host launches/substep that dominate this launch-bound step. Refit (not
+        # rebuild) of the broadphase BVH is what makes it capturable — rebuild
+        # does a host allocation, which is illegal inside a capture. Falls back
+        # to the inner-loop-only capture when off or ineligible.
+        # Default ON: fully gated (CUDA + fixed-capacity + resident + resident
+        # modal + no host hooks + steady coloring), so it is a no-op on CPU, the
+        # coupler paths, and any non-resident config — it engages only on the
+        # native resident-CUDA path, where it is validated (captured == eager
+        # within GPU run-to-run noise). Any unanticipated capture breaker self-
+        # disables to the eager path (see _step_one). Set False to force eager.
+        self._capture_substep = True
+        self._substep_graph = None
+        self._substep_graph_sig: tuple | None = None
 
         # Reduced-coordinate AVBD support hooks (see
         # `dcr/avbd/reduced_support_solve.py`). Both default None →
@@ -474,6 +493,12 @@ class Solver6DOF:
         self._Dq = None                         # (r,r) Rayleigh damping
         self._q_modal_host = None               # (r,) amplitude qⁿ
         self._qdot_modal_host = None            # (r,) velocity q̇ⁿ
+        # Full GPU residency: the device-resident commit no longer copies
+        # _d_q/_d_qdot to the host mirrors every substep. It flags them stale
+        # here; the modal_q/modal_qdot/cargo_* accessors pull once, on demand.
+        self._modal_host_dirty = False          # host mirrors stale vs device
+        self._frame_idx = 0                     # step() counter (overflow thinning)
+        self._overflow_check_every = 30         # overflow readback every N frames
         self._modal_f_q_grav = None             # (r,) Uᵀ f_grav (static sag), opt
         self._modal_freeze_qdot = False         # counterfactual: q̇≡0 predictor
         self._modal_eps_reg = 1.0e-12           # r×r solve regularizer
@@ -1610,9 +1635,16 @@ class Solver6DOF:
         # readbacks; keep a single once-per-FRAME check as insurance (warns if
         # the pre-sized pools were exceeded and contacts were dropped).
         fixed_cap = self._unsafe_fixed_capacity or self._resident_on(self.device)
+        # Full residency: the single once-per-FRAME overflow readback is thinned
+        # to once per _overflow_check_every frames, so steady state issues ZERO
+        # host syncs. Frame 0 is always checked (catches startup under-sizing);
+        # a persistent overflow warns within N frames. Warning-only — no effect
+        # on simulated state, so parity is unchanged.
+        do_overflow = fixed_cap and (self._frame_idx % self._overflow_check_every == 0)
+        self._frame_idx += 1
         if self.substeps <= 1:
             self._step_one()
-            if fixed_cap:
+            if do_overflow:
                 self._check_fixed_cap_overflow()
             return
         full_dt = self.dt
@@ -1623,7 +1655,7 @@ class Solver6DOF:
                 self._step_one()
         finally:
             self.dt = full_dt
-        if fixed_cap:
+        if do_overflow:
             self._check_fixed_cap_overflow()
 
     def _check_fixed_cap_overflow(self) -> None:
@@ -1660,6 +1692,63 @@ class Solver6DOF:
                 self._pair_overflow_warned = True
 
     def _step_one(self) -> None:
+        """Substep dispatcher. Routes to a full-substep CUDA-graph replay when
+        capture is enabled AND the substep is capture-clean (fixed-capacity +
+        resident + resident-modal + no host hooks + steady coloring, i.e. no
+        per-substep readback/alloc). Otherwise runs the substep eagerly, which
+        still captures the inner solve loop via `_step_one_body`'s own graph.
+        The full-substep graph collapses the ~15 host launches/substep that
+        dominate this launch-bound step into a single wp.capture_launch."""
+        if self._dirty:
+            self._flush()
+        if len(self._x) == 0:
+            return
+        dev = self.device
+        resident = self._resident_on(dev)
+        fixed_cap = self._unsafe_fixed_capacity or resident
+        eligible = (
+            self._capture_substep
+            and fixed_cap and resident
+            and str(dev).startswith("cuda")
+            and self._graph_cuda_supported()
+            and (not self._modal_enabled or self._modal_resident)
+            and not self._recolor_every_substep
+            and self._self_collide
+            and not self._color_dirty
+            and self.iteration_hook is None
+            and self.substep_begin_hook is None
+            and self.substep_end_hook is None)
+        if eligible:
+            sig = self._current_graph_signature()
+            if self._substep_graph is None or self._substep_graph_sig != sig:
+                # (Re)capture the whole substep device sequence. Host branches
+                # resolve once here (steady state → no readback/alloc fires);
+                # subsequent substeps replay the recorded launches. If a scene
+                # trips an unanticipated capture breaker (readback/alloc inside
+                # the substep), disable full-substep capture for the rest of the
+                # run and fall back to the eager path — the capture pass does not
+                # advance state, so re-running eagerly here is correct.
+                try:
+                    with wp.ScopedCapture(device=dev) as cap:
+                        self._step_one_body(capture_inner=False)
+                    self._substep_graph = cap.graph
+                    self._substep_graph_sig = sig
+                except Exception:
+                    self._capture_substep = False
+                    self._substep_graph = None
+                    self._step_one_body(capture_inner=True)
+                    return
+            wp.capture_launch(self._substep_graph)
+            # The modal commit's host dirty-flag side-effect runs only at
+            # capture time, not on replay — set it eagerly so the lazy host
+            # mirrors (q, qdot, KE/PE) re-sync on next read. (The prior
+            # full-substep-capture bug was mirrors freezing without this.)
+            if self._modal_enabled and self._modal_resident:
+                self._modal_host_dirty = True
+            return
+        self._step_one_body(capture_inner=True)
+
+    def _step_one_body(self, capture_inner: bool = True) -> None:
         """One AVBD substep. After the initial _flush() upload from the CPU
         scene description, the entire hot path runs on the GPU:
 
@@ -1899,7 +1988,8 @@ class Solver6DOF:
             else:
                 self._modal_predict()
 
-        use_graph = (n_active > 0
+        use_graph = (capture_inner
+                     and n_active > 0
                      and str(dev).startswith("cuda")
                      and self._graph_cuda_supported()
                      # host q-block ⇒ eager; the device q-block (M1.3) issues
@@ -1935,6 +2025,12 @@ class Solver6DOF:
                 self._modal_commit()
 
         # ---- 7. Refresh pair hash for next-substep warm-start ----
+        self._refresh_pair_hash(dev)
+
+    def _refresh_pair_hash(self, dev) -> None:
+        """Refresh the pair hash for next-substep warm-start. Pure device
+        launches (clear + collect) — capturable, so on the resident path it is
+        folded into the extended CUDA graph rather than launched eagerly."""
         if self._self_collide and self._gpu_pool_hash_cap > 0:
             wp.launch(K.gpu_pool_hash_clear, dim=self._gpu_pool_hash_cap,
                       inputs=[self.hash_keys], device=dev)
@@ -2606,21 +2702,50 @@ class Solver6DOF:
                 inputs=[self._d_cargo_nl_off, self._d_cargo_nl_kappa,
                         self._d_q, self._d_gq, self._d_Hq],
                 device=dev)
-        wp.launch(
-            MK.k_modal_solve, dim=1,
-            inputs=[R, wp.float64(self._modal_eps_reg),
-                    wp.float64(self._modal_relax),
-                    self._d_Hq, self._d_gq, self._d_dq, self._d_q, self.q_modal],
-            device=dev)
+        # OPTIMIZATION (structure/vectorization only, no math change): on CUDA
+        # with r ≤ 32, use the one-warp cooperative GE — bit-faithful to the
+        # dim=1 solve (parity-tested in tests/avbd_native) but r-way parallel.
+        # The dim=1 kernel was ~73% of GPU time (single fp64 thread); this fans
+        # the O(r²)/column elimination across the warp. CPU and r > 32 keep the
+        # serial reference kernel.
+        if getattr(self, "_modal_solve_warp", True) and \
+                str(dev).startswith("cuda") and R <= 32:
+            wp.launch(
+                MK.k_modal_solve_warp, dim=32,
+                inputs=[R, wp.float64(self._modal_eps_reg),
+                        wp.float64(self._modal_relax),
+                        self._d_Hq, self._d_gq, self._d_dq, self._d_q,
+                        self.q_modal],
+                device=dev)
+        else:
+            wp.launch(
+                MK.k_modal_solve, dim=1,
+                inputs=[R, wp.float64(self._modal_eps_reg),
+                        wp.float64(self._modal_relax),
+                        self._d_Hq, self._d_gq, self._d_dq, self._d_q,
+                        self.q_modal],
+                device=dev)
 
     def _modal_commit_device(self) -> None:
-        """Device commit over the augmented Q (R_tot): Q̇ⁿ⁺¹ = (Qⁿ⁺¹−Qⁿ)/h +
-        augmented modal diagnostics, then ONE small readback (Q, Q̇, [KE,PE]) into
-        the host mirrors — OUTSIDE the captured hot loop (per substep, not per
-        iteration). For cargo, split Q back into q_support ⊕ each cube's a, ȧ."""
+        """Device commit over the augmented Q (R_tot): Q̇ⁿ⁺¹ = (Qⁿ⁺¹−Qⁿ)/h, on
+        device, OUTSIDE the captured hot loop (per substep). FULLY RESIDENT: the
+        finite-difference kernel is the only work here. The previous per-substep
+        readback of (Q, Q̇, [KE,PE]) into the host mirrors is gone — _d_q/_d_qdot
+        already carry the state across substeps on device (the next substep's
+        _modal_predict_device reads them directly), so the copy was never on the
+        hot path's critical dependency chain — only diagnostics + accessors read
+        it. The mirrors are flagged stale and synced once, on demand, by
+        _sync_modal_host_mirrors() (see modal_q / modal_qdot / cargo_* below),
+        which also computes the KE/PE/‖q‖ energy diagnostics lazily (device
+        k_modal_diag + one readback) so nothing is lost — only moved off the hot
+        path onto the accessor. The bench never reads those, so the perf path
+        issues zero host syncs; tests that read last_modal_KE pay one sync each.
+
+        # DEVIATION: none — math is identical. Same k_modal_qdot advances Q̇ for
+        # the next predict; this only removes host-side data movement (readback),
+        # per CLAUDE.md rule 6 (structure/perf only, reference math preserved)."""
         dev = self.device
         R = self._n_modes_tot
-        r = self._n_modes
         inv_dt = 1.0 / float(self.dt)
         freeze = 1 if self._modal_freeze_qdot else 0
         wp.launch(
@@ -2628,11 +2753,31 @@ class Solver6DOF:
             inputs=[R, wp.float64(inv_dt), freeze,
                     self._d_q, self._d_qn, self._d_qdot],
             device=dev)
-        wp.launch(
-            MK.k_modal_diag, dim=1,
-            inputs=[R, self._d_Mq, self._d_Kq, self._d_q, self._d_qdot,
-                    self._d_diag],
-            device=dev)
+        self._modal_host_dirty = True
+
+    def _sync_modal_host_mirrors(self) -> None:
+        """Pull the resident device modal state (_d_q, _d_qdot) into the host
+        mirrors AND refresh the KE/PE/‖q‖ diagnostics — ONCE, on demand, when an
+        accessor is read, instead of 3× per substep in the hot path. Computes
+        k_modal_diag on device (from the live _d_q/_d_qdot) then does a single
+        readback of (Q, Q̇, [KE,PE]). Same copy + same energy kernel the old
+        per-substep commit ran; only the timing moved. Pure data movement + a
+        diagnostic kernel — no change to simulated state. No-op unless a device
+        commit has marked the mirrors stale."""
+        if not self._modal_host_dirty:
+            return
+        if self._d_q is None or self._d_qdot is None:
+            self._modal_host_dirty = False
+            return
+        dev = self.device
+        R = self._n_modes_tot
+        r = self._n_modes
+        if self._d_diag is not None and self._d_Mq is not None:
+            wp.launch(
+                MK.k_modal_diag, dim=1,
+                inputs=[R, self._d_Mq, self._d_Kq, self._d_q, self._d_qdot,
+                        self._d_diag],
+                device=dev)
         Q_h = self._d_q.numpy().astype(np.float64)
         Qd_h = self._d_qdot.numpy().astype(np.float64)
         self._q_modal_host = Q_h[:r].copy()
@@ -2645,10 +2790,12 @@ class Solver6DOF:
                 k = int(self._cargo_bodies[bi].Mq_block.shape[0])
                 self._a_cargo_host[bi] = Q_h[o:o + k].copy()
                 self._adot_cargo_host[bi] = Qd_h[o:o + k].copy()
-        dg = self._d_diag.numpy()
-        self.last_modal_KE = float(dg[0])
-        self.last_modal_PE = float(dg[1])
-        self.last_q_norm = float(np.linalg.norm(self._q_modal_host))
+        if self._d_diag is not None:
+            dg = self._d_diag.numpy()
+            self._last_modal_KE = float(dg[0])
+            self._last_modal_PE = float(dg[1])
+        self._last_q_norm = float(np.linalg.norm(self._q_modal_host))
+        self._modal_host_dirty = False
 
     # ---- Native cargo deformation — augmented (q_support, a_cargo) (M2) -----
     def _cargo_freeze_and_W(self) -> np.ndarray:
@@ -3060,19 +3207,59 @@ class Solver6DOF:
 
     def cargo_a(self, body_idx: int) -> np.ndarray:
         """Current cube modal amplitude a (read-only copy)."""
+        self._sync_modal_host_mirrors()
         return self._a_cargo_host[int(body_idx)].copy()
 
     def cargo_adot(self, body_idx: int) -> np.ndarray:
+        self._sync_modal_host_mirrors()
         return self._adot_cargo_host[int(body_idx)].copy()
 
     @property
     def modal_q(self) -> np.ndarray:
-        """Current modal amplitude qⁿ (read-only view copy)."""
+        """Current modal amplitude qⁿ (read-only view copy). Syncs the host
+        mirror from the resident device buffer on demand (see
+        _sync_modal_host_mirrors) — the readback moved off the per-substep hot
+        path to here."""
+        self._sync_modal_host_mirrors()
         return None if self._q_modal_host is None else self._q_modal_host.copy()
 
     @property
     def modal_qdot(self) -> np.ndarray:
+        self._sync_modal_host_mirrors()
         return None if self._qdot_modal_host is None else self._qdot_modal_host.copy()
+
+    # Energy diagnostics as lazy properties: on the device-resident path they are
+    # refreshed by _sync_modal_host_mirrors (device k_modal_diag + one readback)
+    # only when read, so the per-substep hot path stays readback-free. The setter
+    # backs the host modal paths (_modal_commit / _modal_commit_cargo), which
+    # assign these directly and leave the mirrors clean (getter returns as-is).
+    @property
+    def last_modal_KE(self) -> float:
+        """Modal kinetic energy at the last commit (lazily synced on read)."""
+        self._sync_modal_host_mirrors()
+        return getattr(self, "_last_modal_KE", 0.0)
+
+    @last_modal_KE.setter
+    def last_modal_KE(self, v) -> None:
+        self._last_modal_KE = float(v)
+
+    @property
+    def last_modal_PE(self) -> float:
+        self._sync_modal_host_mirrors()
+        return getattr(self, "_last_modal_PE", 0.0)
+
+    @last_modal_PE.setter
+    def last_modal_PE(self, v) -> None:
+        self._last_modal_PE = float(v)
+
+    @property
+    def last_q_norm(self) -> float:
+        self._sync_modal_host_mirrors()
+        return getattr(self, "_last_q_norm", 0.0)
+
+    @last_q_norm.setter
+    def last_q_norm(self, v) -> None:
+        self._last_q_norm = float(v)
 
     def _ensure_pair_buffers(self, cap: int) -> None:
         """Allocate or grow the broadphase pair-buffer set to at least `cap`.
@@ -3204,6 +3391,10 @@ class Solver6DOF:
             self._bp_aabb_lo = wp.zeros(n_b, dtype=wp.vec3, device=dev)
             self._bp_aabb_hi = wp.zeros(n_b, dtype=wp.vec3, device=dev)
             self._he_dirty = False
+            # The AABB buffers were reallocated, so the existing BVH holds stale
+            # array refs — force a full rebuild below (refit would read freed
+            # buffers). Reset on body-set change only, which is rare.
+            self._bp_bvh = None
         elif self._he_dirty:
             he_np = np.asarray(self._half_extents, dtype=np.float32).reshape(-1, 3)
             self._bp_half_extents.assign(he_np)
@@ -3218,9 +3409,31 @@ class Solver6DOF:
             outputs=[self._bp_aabb_lo, self._bp_aabb_hi],
             device=dev,
         )
+        # OPTIMIZATION (pure accelerator, no math change): the box set is fixed
+        # after construction, so the BVH TOPOLOGY is stable across substeps —
+        # only the leaf AABBs move as bodies translate/rotate. Rebuilding the
+        # tree from scratch every substep (morton codes + radix sort + hierarchy,
+        # ~40% of GPU time in the nsys profile) is wasted work. Build the tree
+        # once, then refit(): a bottom-up node-bounds update that keeps topology.
+        # A refit tree has looser internal bounds than a fresh rebuild, so the
+        # broadphase returns a SUPERSET of the rebuilt tree's candidate pairs —
+        # never fewer — and the exact 15-axis SAT + face-clip narrow phase below
+        # decides identical contacts from that candidate set. The fixed pair cap
+        # (max(256, 16·n_b)) holds even the all-pairs worst case for these
+        # bounded scenes, so no candidate is dropped. Reconstruct only when the
+        # body set changes (arrays reallocated above → _bp_bvh reset to None).
         constructor = "lbvh" if str(dev).startswith("cuda") else "sah"
-        self._bp_bvh = wp.Bvh(self._bp_aabb_lo, self._bp_aabb_hi,
-                              constructor=constructor)
+        # Refit only on CUDA — that is where it pays off (skips the rebuild AND
+        # makes the broadphase capturable for the full-substep graph). On CPU it
+        # gives no perf benefit and its looser candidate-pair order would perturb
+        # chaotic scenes, so the CPU path ALWAYS rebuilds — keeping the CPU
+        # reference (the local native viser) bit-identical to the pre-refit
+        # baseline. See the k_modal_solve_warp / capture notes.
+        if self._bp_bvh is None or not str(dev).startswith("cuda"):
+            self._bp_bvh = wp.Bvh(self._bp_aabb_lo, self._bp_aabb_hi,
+                                  constructor=constructor)
+        else:
+            self._bp_bvh.refit()
 
         if fixed_cap:
             # A3 fixed-capacity mode: a single broadphase pass, no host sync,

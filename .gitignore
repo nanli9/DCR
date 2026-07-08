@@ -22,3 +22,6 @@ imgui.ini
 # Benchmark CSV outputs
 benchmarks/output/
 docs/twobody/contact_force_sweep/
+
+# secrets
+.env

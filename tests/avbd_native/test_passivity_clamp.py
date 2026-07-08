@@ -156,6 +156,13 @@ def _run(solver, iters, subs, enforce, nframes=90, relax=0.7):
     Eimp = Eslab = objke = 0.0
     for _ in range(nframes):
         w.step()
+        # The native thin-path step() no longer maintains the (now-dead)
+        # dcr_body mirror — production readers use the solver directly
+        # (run_native_scenes_viser.py). Refresh the mirror here so the
+        # impactor / book rigid-KE reads below reflect the LIVE solver
+        # velocities. This touches only the test's measurement source; the
+        # passivity bound asserted downstream is unchanged.
+        w._sync_avbd_to_dcr()
         Eimp = max(Eimp, rigid_kinetic_energy([ib]))
         Eslab = max(Eslab, sol.last_modal_KE + sol.last_modal_PE)
         objke = max(objke, max(rigid_kinetic_energy([b]) for b in bbs))
