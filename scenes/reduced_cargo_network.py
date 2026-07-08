@@ -91,6 +91,7 @@ def build_cargo_network_scene(
     stack_offset: float = 0.035,    # upper cube x-offset (not corner-aligned)
     device_resident: bool | None = None,
     solver: str = "avbd",
+    friction: float = 0.4,          # μ on floor + cubes (E6 friction sweep knob)
 ) -> CargoNetworkHandle:
     half = 0.5 * cube_size
     world = AVBDDCRWorld(
@@ -99,7 +100,7 @@ def build_cargo_network_scene(
         solver_kind="xpbd" if solver == "xpbd" else "avbd")
     if device_resident is not None and solver != "xpbd":
         world._solver._modal_device_resident = bool(device_resident)
-    world.add_floor(floor_y=support_top, friction=0.4, name="support")
+    world.add_floor(floor_y=support_top, friction=float(friction), name="support")
 
     # x positions of the four cubes.
     x_rest, x_imp, x_base = -0.28, 0.0, 0.26
@@ -111,7 +112,7 @@ def build_cargo_network_scene(
         cube = _cube(kind, cube_size, cube_youngs, cube_density, n_elastic)
         di = world.add_box(
             mass=float(cube.mass), half_extents=(half, half, half),
-            position=(cx, y0 + drop, 0.0), friction=0.4, name=name)
+            position=(cx, y0 + drop, 0.0), friction=float(friction), name=name)
         cubes[name] = cube
         idx[name] = int(world._descs[di].avbd_body.index)
 
@@ -127,7 +128,7 @@ def build_cargo_network_scene(
         cube = _cube(kind, cube_size, cube_youngs, cube_density, n_elastic)
         di = world.add_box(
             mass=float(cube.mass), half_extents=(half, half, half),
-            position=(cx, y0 + layer * cube_size, 0.0), friction=0.4, name=name)
+            position=(cx, y0 + layer * cube_size, 0.0), friction=float(friction), name=name)
         cubes[name] = cube
         idx[name] = int(world._descs[di].avbd_body.index)
 
