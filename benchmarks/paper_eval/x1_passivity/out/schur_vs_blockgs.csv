@@ -1,0 +1,5 @@
+budget,iters,substeps,blockgs_peak,schur_peak,peak_ratio,blockgs_passive,schur_passive,blockgs_excess,schur_excess,schur_nan
+4x1,4,1,12.941,9459.98,731.01,True,False,-0.00205348,9432.72,False
+8x2,8,2,7.72848,0.768345,0.0994174,True,True,0.0110736,0.0734831,False
+16x4,16,4,17.7651,18.9815,1.06848,True,True,0.0263692,0.00357817,False
+32x4,32,4,19.773,19.9275,1.00782,True,True,0.0418647,-0.00140286,False

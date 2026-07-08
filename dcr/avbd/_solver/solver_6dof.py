@@ -643,6 +643,9 @@ class Solver6DOF:
         self._modal_eta = 1.0
         self._psv_monitor_only = True   # AVBD is passive; monitor, don't clamp
         self._psv_ledger = None
+        # E9: the REJECTED cross-term Schur q-block, resurrected behind a flag
+        # (default OFF ⇒ shipped block-GS). See _solve_q_block. Measurement-only.
+        self._modal_schur_crossterm = False
         self._psv_Il = None      # cached body-local inertia = inv(invIl) (§15 clamp)
         self._E_rig_pre = 0.0
         self._E_modal_pre = 0.0
@@ -2466,7 +2469,21 @@ class Solver6DOF:
             if f >= 0.0:                        # engaged contacts only
                 continue
             g_q = g_q - U * f
-            H_q = H_q + rho * UU
+            if self._modal_schur_crossterm:
+                # E9 DEVIATION (foundation "Newton/Schur block"): the REJECTED
+                # cross-term Schur. Eliminating the body's z-DOF from this row
+                # (A_zz = inv_dt²·M_eff + ρ, A_qz = −ρU) Schur-reduces the modal
+                # contact stiffness ρUUᵀ → ρUUᵀ·(inv_dt²·M_eff)/(inv_dt²·M_eff+ρ),
+                # a SOFTER H_q ⇒ larger Δq. Applied here WITHOUT the Δz
+                # back-substitution (the rejected "cross-only" variant), it
+                # injects energy at truncated budgets — the point E9 measures.
+                # M_eff ≈ translational body mass along the normal (dominant term;
+                # rotational corner compliance omitted — a documented simplification).
+                minv = 1.0 / max(float(self._mass[bi]), 1e-12)
+                schur = (inv_dt2 / minv) / (inv_dt2 / minv + rho)  # ∈(0,1]
+                H_q = H_q + rho * UU * schur
+            else:
+                H_q = H_q + rho * UU     # shipped engaged-gated block-GS
 
         dq = np.linalg.solve(H_q + self._modal_eps_reg * np.eye(r), -g_q)
         self._q_modal_host = q + self._modal_relax * dq

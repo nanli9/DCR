@@ -1,0 +1,15 @@
+{
+  "generated_utc": "2026-07-08T13:16:30+00:00",
+  "scene": "shelf (support + stacked cubes)",
+  "solver": "avbd",
+  "device": "cpu",
+  "relax": 0.7,
+  "budgets": [
+    "4x1",
+    "8x2",
+    "16x4",
+    "32x4"
+  ],
+  "steps": 300,
+  "note": "cross-term Schur (translational M_eff, no \u0394z back-sub) vs engaged-gated block-GS; clamp OFF to isolate the formulation"
+}
