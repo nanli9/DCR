@@ -74,7 +74,15 @@ from scenes.reduced_shelf import build_reduced_shelf
 from scenes.reduced_dinner_table import build_reduced_dinner_table
 # Decorated production models (model/<kind>/*.glb|gltf) — the shared loader also
 # backs the reduced-scene decorated viewer. Falls back to a unit cube per kind.
-from scripts.render_assets import _resolve_kind_template
+from scripts.render_assets import _resolve_kind_template, _KIND_TEMPLATE_SOURCE
+
+
+def _kind_has_model(kind: str) -> bool:
+    """True if render_kind resolves to a real model/<kind>/ asset (not the
+    builtin cube/cylinder fallback). Used to decide model vs. deform mesh."""
+    _resolve_kind_template(kind)                  # populates the source cache
+    src = str(_KIND_TEMPLATE_SOURCE.get(kind, ""))
+    return bool(src) and not src.startswith("builtin")
 
 N_GRID_X, N_GRID_Z = 21, 11
 KINDS = ("rigid", "fem_rigid", "abd", "fem")
@@ -456,7 +464,8 @@ class UnifiedViser:
                 h = cube.half_extent
                 self._deforms.append(dict(
                     name=name, cube=cube, idx=self.handle.avbd_idx[name],
-                    col=hl.get(name, _CUBE_COLOR[self.kind]), half=(h, h, h)))
+                    col=hl.get(name, _CUBE_COLOR[self.kind]), half=(h, h, h),
+                    kind="box"))
             return
         imp_dcr = self.handle.impactor_idx
         cargo_map = getattr(self.handle, "cargo_map", None) or {}
@@ -472,7 +481,7 @@ class UnifiedViser:
                        else tuple(int(255 * c) for c in b.color))
                 self._deforms.append(dict(
                     name=b.name, cube=body, idx=avbd_idx, col=col,
-                    half=b.half_extents))
+                    half=b.half_extents, kind=b.render_kind))
             return
         cargo_idx = self.handle.cargo_avbd_idx
         for b in self.handle.bodies:
@@ -488,7 +497,8 @@ class UnifiedViser:
             imp = next(b for b in self.handle.bodies if b.dcr_idx == imp_dcr)
             self._deforms.append(dict(
                 name="impactor", cube=self.handle.cargo_cube, idx=cargo_idx,
-                col=_CUBE_COLOR[self.kind], half=imp.half_extents))
+                col=_CUBE_COLOR[self.kind], half=imp.half_extents,
+                kind=imp.render_kind))
         else:
             # rigid impactor (cargo_material=None): render it as a box too.
             for b in self.handle.bodies:
@@ -515,9 +525,21 @@ class UnifiedViser:
         # instanced per render_kind via add_batched_meshes_simple. A kind with
         # no asset falls back to a unit cube inside the loader, so the abstract
         # box scenes (cargo stack, shelf) look exactly as before.
+        # Any body whose render_kind has a real model/<kind>/ asset — a rigid
+        # body OR a deformable cargo body — is skinned with that model at its
+        # rigid pose (batched per kind). The mm-scale FEM deflection is not shown
+        # on these (invisible at model scale); model-less kinds (the abstract
+        # cargo-stack "box") keep the deform/box mesh so their ring stays visible.
+        decorated = list(self._boxes)             # (avbd_idx, half, col, kind)
+        self._tet_deforms = []
+        for d in self._deforms:
+            if _kind_has_model(d["kind"]):
+                decorated.append((d["idx"], d["half"], d["col"], d["kind"]))
+            else:
+                self._tet_deforms.append(d)
         self._box_groups = []
         by_kind: dict[str, list] = {}
-        for idx, half, col, kind in self._boxes:
+        for idx, half, col, kind in decorated:
             by_kind.setdefault(kind, []).append((idx, half, col))
         for kind, blist in by_kind.items():
             V, F = _resolve_kind_template(kind)
@@ -533,8 +555,13 @@ class UnifiedViser:
                 batched_scales=scales, batched_colors=colors,
                 flat_shading=True, side="double")
             self._box_groups.append(dict(kind=kind, idxs=idxs, handle=handle))
+        srcs = ", ".join(f"{g['kind']}×{len(g['idxs'])}:"
+                         f"{_KIND_TEMPLATE_SOURCE.get(g['kind'])}"
+                         for g in self._box_groups)
+        print(f"[viewer] decorated models → {srcs or '(none; deform/box meshes)'}"
+              f"  |  {len(self._tet_deforms)} deform-mesh bodies")
         self._deform_meshes = []
-        for k, d in enumerate(self._deforms):
+        for k, d in enumerate(self._tet_deforms):
             self._deform_meshes.append(self.server.scene.add_mesh_simple(
                 f"/deform_{k}", vertices=self._deform_verts(d),
                 faces=self._deform_faces(d), color=d["col"],
@@ -875,7 +902,7 @@ class UnifiedViser:
             except Exception:
                 pass
         self._deform_meshes = []
-        for k, d in enumerate(self._deforms):
+        for k, d in enumerate(self._tet_deforms):
             self._deform_meshes.append(self.server.scene.add_mesh_simple(
                 f"/deform_{k}", vertices=self._deform_verts(d),
                 faces=self._deform_faces(d), color=d["col"],
@@ -954,7 +981,7 @@ class UnifiedViser:
                 for g in self._box_groups:
                     g["handle"].batched_positions = P[g["idxs"]]
                     g["handle"].batched_wxyzs = Q[g["idxs"]][:, [3, 0, 1, 2]]
-                for m, d in zip(self._deform_meshes, self._deforms):
+                for m, d in zip(self._deform_meshes, self._tet_deforms):
                     m.vertices = self._deform_verts(d)
                 self.support.vertices = _slab_verts(
                     self.rs, self._render_q(), self.support_exag,
