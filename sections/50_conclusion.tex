@@ -1,8 +1,6 @@
 \section{Conclusion and Limitations}
 \label{sec:conclusion}
 
-\todo{Write once results are frozen.}
-
 We embedded vibration modes as first-class compliant-constraint DOFs in a real-time
 augmented-Lagrangian rigid solver, driven two-way by a shared unilateral contact
 multiplier, and made the coupling stable at a fixed low iteration budget with an
@@ -50,4 +48,11 @@ enforced passivity bound $\dEmod\le\eta\,\dErig$.
 \end{itemize}
 
 \paragraph*{Future work.} A swappable affine (ABD) cargo basis for cheap, robust
-contact, energy-governed the same way; \todo{$\ldots$}
+contact, energy-governed the same way; a Newton restitution term in the native
+contact so the restitution comparison against DCR
+(\S\ref{sec:results:restitution}) can be run at matched $\varepsilon_r$ rather
+than against the $e{=}0$ reference; a ground-truth accuracy pass on the road
+scene, currently qualitative only; and reproducing the deflection-field
+accuracy validation of \S\ref{sec:results:fem} on the device-resident
+co-solved step, which is the one item standing between the measured
+interactive rates and a real-time claim.

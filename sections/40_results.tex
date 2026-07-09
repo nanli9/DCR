@@ -40,13 +40,14 @@ the measured X5 scene sizes. $^{\dagger}$The dinner table's basis is the eigenba
 of the same discrete FEM operator its ground truth integrates (shared operator,
 \S\ref{sec:results:fem}); the scene duplicates DCR \S5.1 (2.2$\times$1.1~m table,
 their Table~2 material, 5~kg pot with a parameterized drop point).
-\todo{fill the road body count from the built truck scene.}}
+The road count is its 12 movable bodies (3 crates, 5 cones, 4 lumber) resting on
+the reduced-modal road slab, counted the same movable-only way as dinner/ledge.}
 \label{tab:scenes}
 \begin{tabular}{llccl}
 \toprule
 scene & source & bodies & $n_g/n_\ell$ & what it tests \\
 \midrule
-Road (crate/cones)    & DCR road  & \todo{N}        & 12/16 & distant response, large slab \\
+Road (crate/cones)    & DCR road  & 12              & 12/16 & distant response, large slab \\
 Dinner table          & DCR Fig.1/\S5.1 & 25        & 24$^{\dagger}$ & distant place-settings, drop sweep \\
 Ledge (boulder)       & DCR ledge & 5               & 12/16 & strong-coupling topple \\
 Cargo network (stack) & ours      & 6              & 8/1   & two-way, box--box network \\

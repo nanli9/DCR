@@ -1,5 +1,4 @@
 \begin{abstract}
-\todo{Write the abstract last, once results are frozen.}
 We bring \emph{two-way} rigid--modal contact coupling into a real-time,
 augmented-Lagrangian rigid-body solver. Each body's linear vibration modes are
 carried as first-class compliant-constraint degrees of freedom: a single shared
@@ -9,9 +8,9 @@ construction and vibration propagates through a body--body contact network.
 Because the host solver runs at a fixed, low iteration budget, this coupling can
 inject spurious energy into the modes; we bound the contact$\to$modal transfer with
 an enforced per-step passivity inequality $\dEmod \le \eta\,\dErig$ that keeps the
-coupling stable at real-time cost. \note{Positioning (see
+coupling stable at interactive rates. \note{Positioning (see
 \texttt{docs/novelty\_positioning.md}): Zheng and James [2011] realized two-way modal
 contact \emph{offline}; DCR [Coevoet et al.\ 2020] approximated it \emph{one-way} for
-real time. We keep two-way at real-time cost and add a passivity guarantee neither
+real time. We keep two-way at interactive rates and add a passivity guarantee neither
 had.}
 \end{abstract}
