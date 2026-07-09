@@ -4,70 +4,24 @@ A from-scratch Python reproduction of:
 
 > Coevoet, Andrews, Relles, Kry. *Distant Collision Response in Rigid Body Simulations.* Computer Graphics Forum 39(8), 2020.
 
-The goal is to reproduce the core DCR method: modal-path response for small objects, spatial-attenuation path for large objects, with qualitative ground-truth comparison.
+The goal is to reproduce the core DCR method: a **modal-path** response for small objects (rigid contact impulses force a reduced modal resonator, whose peak displacement becomes a distant velocity bias) and a **spatial-attenuation path** for large objects, validated against a qualitative ground-truth comparison.
+
+The pipeline is built in stages: rigid body → linear FEM → modal eigenproblem → IIR resonator → modal DCR → spatial DCR → end-to-end scenes. The paper PDF is in `reference/`.
 
 ## Setup
 
 Requires Python 3.10+ and [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv sync
+uv sync                  # install
+uv run pytest tests/ -v  # run the test suite
 ```
 
-## Run
+## Running
 
-Run all tests:
-
-```bash
-uv run pytest tests/ -v
-```
-
-### Stage 1 — Rigid body demos
-
-```bash
-uv run python scripts/run_stage1.py bounce    # Single box bouncing
-uv run python scripts/run_stage1.py stack     # 10 stacked boxes
-uv run python scripts/run_stage1.py incline   # Box on inclined plane
-uv run python scripts/run_stage1.py pair      # Sphere drops onto box
-uv run python scripts/run_stage1.py collide   # Two spheres colliding
-uv run python scripts/run_stage1.py linked    # Two spheres linked by rod
-uv run python scripts/run_stage1.py chain     # Three boxes linked by rods
-```
-
-### Stage 2 — FEM demo
-
-```bash
-uv run python scripts/run_stage2.py              # Default: 1 kg box on table
-uv run python scripts/run_stage2.py --mass 5.0   # Heavier box
-uv run python scripts/run_stage2.py --scale 500  # Amplify deformation display
-```
-
-### Stage 6 — Spatial attenuation DCR
-
-```bash
-uv run python scripts/run_stage6.py            # Default: β=0.5 (shell-like)
-uv run python scripts/run_stage6.py --beta 1   # Volume-like attenuation
-uv run python scripts/run_stage6.py --beta 2   # Strong decay
-```
-
-### Stage 7 — End-to-end scenes and ground-truth comparison
-
-```bash
-uv run python scripts/run_stage7.py            # Dinner scene (pre-recorded playback)
-uv run python scripts/run_stage7.py spatial    # Spatial attenuation (pre-recorded)
-uv run python scripts/run_stage7.py compare    # DCR vs ground-truth (matplotlib)
-uv run python scripts/run_stage7.py --realtime          # Dinner scene, physics stepping live
-uv run python scripts/run_stage7.py spatial --realtime   # Spatial scene, physics live
-uv run python scripts/run_stage7.py --save     # Save all GIFs to docs/stage7/
-```
-
-### Viewer
-
-Launch a scene in polyscope:
-
-```bash
-uv run python scripts/run_viewer.py scenes/test_box.py
-```
+Entry points live in `scripts/` (one `run_stage*.py` per stage, plus
+`run_viewer.py` for polyscope). Run any of them with `uv run python scripts/<name>.py`;
+pass `--help` where a script takes arguments.
 
 ## Tech stack
 
@@ -84,9 +38,9 @@ dcr/
   rigid/     Rigid body simulator (Stage 1)
   fem/       Linear FEM (Stage 2)
   modal/     Eigenproblem + IIR filters (Stages 3-4)
-  dcr/       DCR coupling layer (Stages 5-6)
+  dcr/       DCR coupling layer — modal path + spatial path (Stages 5-6)
   viewer/    Polyscope wrapper
 scenes/      Scene definitions
-scripts/     Entry points
-tests/       pytest tests
+scripts/     Entry points (run_stage1.py … run_stage7.py)
+tests/       pytest tests (stage1-7)
 ```
