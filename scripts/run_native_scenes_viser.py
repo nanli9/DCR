@@ -43,9 +43,10 @@ Notes:
   * abd + xpbd auto-routes to AVBD: abd's stiff nonlinear V⊥ is not Gauss–Seidel-
     stable in the substep sweep budget (the XPBDDynamicSystem oracle note); the
     HUD shows the effective solver.
-  * This renders simple boxes, not the decorated `model/<kind>/` assets — those
-    stay in scripts/run_reduced_scene_viser.py (rigid cargo, no solver/material
-    switching).
+  * Rigid bodies are skinned with the decorated `model/<kind>/` production
+    assets (shared loader with scripts/run_reduced_scene_viser.py); kinds with
+    no asset fall back to a plain cube, so abstract box scenes are unchanged.
+    Rendering only — physics, poses, and solver paths are untouched.
 
 Run:
     .venv/bin/python scripts/run_native_scenes_viser.py --scene ledge --device cuda:0
@@ -71,6 +72,9 @@ from scenes.reduced_truck import build_reduced_truck
 from scenes.reduced_ledge import build_reduced_ledge
 from scenes.reduced_shelf import build_reduced_shelf
 from scenes.reduced_dinner_table import build_reduced_dinner_table
+# Decorated production models (model/<kind>/*.glb|gltf) — the shared loader also
+# backs the reduced-scene decorated viewer. Falls back to a unit cube per kind.
+from scripts.render_assets import _resolve_kind_template
 
 N_GRID_X, N_GRID_Z = 21, 11
 KINDS = ("rigid", "fem_rigid", "abd", "fem")
@@ -442,7 +446,7 @@ class UnifiedViser:
         cargo scene has FIVE deformables (the modal-network stack); an
         all-cargo production scene has one PER BODY (§N2 generalization); the
         legacy mode has one (the impactor) + rigid bystanders."""
-        self._boxes = []      # (avbd_idx, half, color_u8)
+        self._boxes = []      # (avbd_idx, half, color_u8, render_kind)
         self._deforms = []    # list of {name, cube, idx, col, half}
         if self.scene == "cargo":
             # colour the two STACKED (box-box-only) cubes warm (the eye tracks
@@ -478,7 +482,8 @@ class UnifiedViser:
             if desc.avbd_body is None:
                 continue
             col = tuple(int(255 * c) for c in b.color)
-            self._boxes.append((int(desc.avbd_body.index), b.half_extents, col))
+            self._boxes.append((int(desc.avbd_body.index), b.half_extents, col,
+                                b.render_kind))
         if self.handle.cargo_cube is not None and cargo_idx is not None:
             imp = next(b for b in self.handle.bodies if b.dcr_idx == imp_dcr)
             self._deforms.append(dict(
@@ -491,7 +496,8 @@ class UnifiedViser:
                     desc = self.world._descs[b.dcr_idx]
                     col = tuple(int(255 * c) for c in b.color)
                     self._boxes.append(
-                        (int(desc.avbd_body.index), b.half_extents, col))
+                        (int(desc.avbd_body.index), b.half_extents, col,
+                         b.render_kind))
 
     def _make_meshes(self):
         # Skin the slab to the selected support material (color + flat/smooth
@@ -504,12 +510,29 @@ class UnifiedViser:
             faces=self._slab_faces, color=_mat_color_u8(self.material),
             flat_shading=mat.flat, side="double")
         P, Q = self.world._solver.positions(), self.world._solver.orientations()
-        self._box_meshes = []
-        for i, (idx, half, col) in enumerate(self._boxes):
-            m = self.server.scene.add_mesh_simple(
-                f"/box_{i}", vertices=_box_verts(half, P[idx], Q[idx]),
-                faces=_BOX_FACES, color=col, flat_shading=True, side="double")
-            self._box_meshes.append(m)
+        # Rigid bodies are skinned with the decorated production models under
+        # model/<kind>/ (crate, cone, lumber, boulder, pillar, plate, pot, ...),
+        # instanced per render_kind via add_batched_meshes_simple. A kind with
+        # no asset falls back to a unit cube inside the loader, so the abstract
+        # box scenes (cargo stack, shelf) look exactly as before.
+        self._box_groups = []
+        by_kind: dict[str, list] = {}
+        for idx, half, col, kind in self._boxes:
+            by_kind.setdefault(kind, []).append((idx, half, col))
+        for kind, blist in by_kind.items():
+            V, F = _resolve_kind_template(kind)
+            idxs = np.array([b[0] for b in blist], dtype=np.int64)
+            scales = np.array([[2 * h for h in b[1]] for b in blist],
+                              dtype=np.float32)
+            colors = np.array([b[2] for b in blist], dtype=np.uint8)
+            # solver.orientations() is xyzw; viser batched_wxyzs wants wxyz.
+            handle = self.server.scene.add_batched_meshes_simple(
+                f"/body_{kind}", V, F,
+                batched_wxyzs=Q[idxs][:, [3, 0, 1, 2]],
+                batched_positions=P[idxs],
+                batched_scales=scales, batched_colors=colors,
+                flat_shading=True, side="double")
+            self._box_groups.append(dict(kind=kind, idxs=idxs, handle=handle))
         self._deform_meshes = []
         for k, d in enumerate(self._deforms):
             self._deform_meshes.append(self.server.scene.add_mesh_simple(
@@ -540,7 +563,7 @@ class UnifiedViser:
     def _rebuild(self):
         names = (["/support"]
                  + [f"/deform_{k}" for k in range(len(self._deforms))]
-                 + [f"/box_{i}" for i in range(len(self._boxes))])
+                 + [f"/body_{g['kind']}" for g in getattr(self, "_box_groups", [])])
         for n in names:
             try:
                 self.server.scene.remove_by_name(n)
@@ -928,8 +951,9 @@ class UnifiedViser:
                 self._q_static += 0.05 * (self.rs.q - self._q_static)
                 P, Q = (self.world._solver.positions(),
                         self.world._solver.orientations())
-                for m, (idx, half, _) in zip(self._box_meshes, self._boxes):
-                    m.vertices = _box_verts(half, P[idx], Q[idx])
+                for g in self._box_groups:
+                    g["handle"].batched_positions = P[g["idxs"]]
+                    g["handle"].batched_wxyzs = Q[g["idxs"]][:, [3, 0, 1, 2]]
                 for m, d in zip(self._deform_meshes, self._deforms):
                     m.vertices = self._deform_verts(d)
                 self.support.vertices = _slab_verts(
