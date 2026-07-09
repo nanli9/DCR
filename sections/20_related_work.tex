@@ -23,6 +23,8 @@ two-way and conserving \emph{momentum}, but not bounding \emph{energy}. Classica
 floating-frame / component-mode multibody (\citealp{shabana_multibody};
 energy--momentum integrators, \citealp{betsch2007}) couple modal reduction with
 contact but \emph{conserve} energy rather than \emph{cap} the directional transfer.
+The broader contact-and-friction toolbox these methods draw on is surveyed by
+\citet{andrews2022contact}.
 
 \paragraph*{Passivity.} Port-Hamiltonian flexible multibody
 dynamics~\citep{brugnoli2021} and time-domain passivity control in
@@ -30,8 +32,14 @@ haptics~\citep{hannaford2002} give the passivity-inequality \emph{genre}, but no
 contact$\to$modal transfer budget of the form $\dEmod\le\eta\,\dErig$.
 
 \paragraph*{Real-time augmented-Lagrangian solvers.}
-XPBD~\citep{macklin2016xpbd} and VBD/AVBD~\citep{chen2024vbd,giles2025avbd} host
-rigid and soft contact at a fixed low iteration budget on the GPU, but carry no modal
+XPBD~\citep{macklin2016xpbd} casts contact as a compliant constraint --- the
+regularized-compliance formulation introduced by \citet{tournier2015stable} ---
+and its rigid-body form~\citep{mueller2020xpbd}, together with the VBD/AVBD
+descent variants~\citep{chen2024vbd,giles2025avbd}, hosts rigid and soft contact
+at a fixed low iteration budget. \citet{macklin2019small} showed that shrinking
+the substep, rather than raising the iteration count, is what recovers
+stiff-contact accuracy --- the band-limiting trade our $h$-ladder quantifies for
+the modal transient (\S\ref{sec:results:fem}). None of these hosts carry modal
 DOFs --- the slot this paper fills.
 
 \paragraph*{Positioning.} Table~\ref{tab:positioning} maps the neighborhood on six

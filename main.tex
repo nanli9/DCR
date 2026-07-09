@@ -34,6 +34,10 @@
 \usepackage{pifont}
 \graphicspath{{figures/}}
 
+% absorb the last few sub-line-width overfulls (only stretches lines that would
+% otherwise overflow; leaves well-set lines untouched)
+\setlength{\emergencystretch}{8pt}
+
 % ---- draft helpers (delete for camera-ready) ----
 \newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
 \newcommand{\note}[1]{\textcolor{Plum}{\textit{(#1)}}}
@@ -83,7 +87,7 @@
 \ccsdesc[500]{Computing methodologies~Physical simulation}
 
 \keywords{rigid-body dynamics, modal reduction, contact, passivity,
-  augmented Lagrangian, XPBD, vibration}
+  augmented Lagrangian, XPBD}
 
 % TODO(teaser): \begin{teaserfigure} with a render strip once W5 lands:
 %   clamp-off blow-up | stack ring | dinner vs ground truth.

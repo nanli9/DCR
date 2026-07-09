@@ -6,16 +6,16 @@ augmented-Lagrangian rigid solver, driven two-way by a shared unilateral contact
 multiplier, and made the coupling stable at a fixed low iteration budget with an
 enforced passivity bound $\dEmod\le\eta\,\dErig$.
 
-\paragraph*{Limitations \note{(binding: foundation \S14 ``claims to avoid'').}}
+\paragraph*{Limitations.}
 \begin{itemize}
   \item The two-way coupling \emph{mechanism} is not new
         (\citealp{zheng2011}); the contribution is its real-time-AL embedding and the
         passivity bound.
   \item The bound applies to the modal-path injection only; the
-        spatial-attenuation path is empirical and not energy-budgeted.
+        spatial-attenuation path is empirical and carries no energy budget.
   \item Small-displacement regime only: support contact rows sample the modal
         basis at each contact's rest footprint with a fixed vertical normal
-        (DCR instead re-maps contacts barycentrically every step), and the
+        (DCR instead re-maps contacts barycentrically per step), and the
         linearized modes carry no geometric stiffening --- valid at the
         mm-scale responses shown, not for span-scale deflections.
   \item The rigid step band-limits the impact transient: dish-launch

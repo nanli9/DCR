@@ -61,8 +61,6 @@ the whole generalization --- every body with modes participates, including stack
 bodies that only ever touch another body. Mass-normalized modes give
 $M_q=I$, $K_q=\operatorname{diag}(\omega_j^2)$, $D_q=\alpha_0 I+\alpha_1 K_q$
 (Rayleigh; DCR Eq.~7), so no reduced inverse is ever formed.
-\note{This unified $(z,Q)$ row is documented in \texttt{two\_band\_coupling.html} and
-\texttt{docs/sheldon\_report/README.md}.}
 
 \subsection{Solving the stiff modal block in a local iteration}
 \label{sec:method:solve}
@@ -92,8 +90,8 @@ block solve
 \begin{equation}
 \begin{gathered}
   \Big(\tfrac{1}{h^2}M_q+\tfrac{1}{h}D_q+K_q\Big)\,\Delta\amp
-  \;=\; \textstyle\sum_{\mathrm{engaged}}\Ghat^{\!\top} f
-        \;-\; K_q\,\amp \;-\; \tfrac{1}{h}D_q\,(\amp-\amp^{\mathrm{prev}}),\\
+  = \textstyle\sum_{\mathrm{engaged}}\Ghat^{\!\top} f
+        - K_q\,\amp - \tfrac{1}{h}D_q\,(\amp-\amp^{\mathrm{prev}}),\\
   \amp \leftarrow \amp + \omega_r\,\Delta\amp,
 \end{gathered}
   \label{eq:qblock}
@@ -199,7 +197,6 @@ practice the two formulations sit on opposite sides of this bound: the AVBD bloc
 solve of Eq.~\ref{eq:qblock} is measured passive at the production budget (the clamp is
 a monitor, $0$ activations at $\omega_r=0.7$), while the XPBD projections of
 Eq.~\ref{eq:xpbd} inject without it and the clamp is load-bearing
-(\S\ref{sec:results:passivity}).
-\note{DEVIATION from DCR Eq.~10 (forced IIR): the injection is a velocity-level increment
-to $\dot q$ funded by rigid kinetic-energy loss, not a forced response --- see
-CLAUDE.md and the foundation \S15.}
+(\S\ref{sec:results:passivity}). This is a deliberate departure from DCR's
+forced IIR (their Eq.~10): the injection is a velocity-level increment to
+$\dot q$ funded by rigid kinetic-energy loss, not a forced response.

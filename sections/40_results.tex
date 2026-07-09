@@ -21,8 +21,8 @@ momentum probe, and everything on the road scene are pending.
 
 \paragraph*{Baselines (the reference axis).} Metrics are scored against:
 \textbf{F} --- a full-FEM (unreduced) solve of the same mesh, the accuracy ground
-truth \note{(consider IPC~\citep{lan2022abd}-grade contact for the reference; a
-penalty/linear-implicit FEM under-resolves stiff contact)};
+truth (a penalty/linear-implicit FEM under-resolves stiff contact, so
+IPC-grade contact~\citep{lan2022abd} would be a stronger reference);
 \textbf{D} --- DCR one-way (rigid $+$ separate IIR, no back-reaction), the base
 method;
 \textbf{R} --- rigid-only (modes off), the cost floor and the two-way null;
@@ -87,14 +87,14 @@ Passivity ablation (blow-up)       & off/on & \na   & \yes\q{5.1e3$\times$} & \y
 
 \subsection{Contact forces balance a cube stack}
 \label{sec:results:ledger}
-\note{Numbers below are read straight off the solver's contact multipliers; see
-\texttt{docs/sheldon\_report/} and its reproduce script --- analysis only, no solver
-code changed.} A modal slab carries a plain resting control cube and a 3-high zig-zag
+The numbers below are read directly from the solver's contact multipliers ---
+an analysis-only measurement that changes no solver code. A modal slab carries
+a plain resting control cube and a 3-high zig-zag
 stack (base/mid/upper); each cube carries its own reduced modes. Reading the
 multipliers (Table~\ref{tab:ledger}), each joint carries exactly the weight above it,
 with no per-joint tuning --- the shared multiplier alone balances the stack.
 
-\begin{table}[t]\centering
+\begin{table}[t]\centering\footnotesize
 \caption{Static contact ledger (settled), $m g = 5.886$~N.}
 \label{tab:ledger}
 \begin{tabular}{lccc}
@@ -272,7 +272,7 @@ $h$-independent (\S\ref{sec:results:fem}), not absolute magnitude.
   \caption{Response vs.\ distance, three arms on one slab operator. Paper-DCR
   is strong near-field and collapses with distance; the native standing-wave
   response reaches the far bystander at $2.3\times$ the DCR level; rigid-only
-  is zero. \note{draft figure (X2 output) --- restyled in the figure pass.}}
+  is zero.}
   \label{fig:x2falloff}
 \end{figure}
 
@@ -314,11 +314,10 @@ $\sum \dEmod \le \eta \sum \dErig$, and stays inert while slack remains; a
 substep that would overshoot is projected back by scaling the modal state
 $(\amp,\dot\amp)$ by a factor $\gamma$ with
 $\gamma^2 = (E_{\mathrm{old}}+\mathrm{budget})/E_{\mathrm{new}}$, landing
-exactly on the ceiling. \note{Method pass: state
-in \S\ref{sec:method:passivity} that the shipped clamp is this cumulative,
-full-state generalization of the per-step velocity-increment bound of
-Eq.~\ref{eq:alphastar} --- same budget, projection of $(\amp,\dot\amp)$ rather
-than a scale on the increment alone.}
+exactly on the ceiling. This shipped clamp is the cumulative, full-state
+generalization of the per-step velocity-increment bound of
+Eq.~\ref{eq:alphastar}: the same budget, applied as a projection of
+$(\amp,\dot\amp)$ rather than a scale on the increment alone.
 
 \paragraph*{The cost of the ledger.} The ledger costs $+0.5$--$4.8$~ms/step at
 the paper configuration (single-run; re-measured with repetitions in the
@@ -342,7 +341,6 @@ $4/4$ cases, the injection ratio is flat at $0.26$--$0.28$ of the budget, and
 there are \emph{zero} clamp activations at every $\mu$ (AVBD monitor-only).
 Friction enlarges the loss budget rather than opening an unbounded tangential
 modal channel, so the guarantee needs no tangential term.
-\note{E6; \texttt{benchmarks/paper\_eval/x1\_passivity/friction\_bound.csv}.}
 
 \begin{figure*}[t]\centering
   \includegraphics[width=\linewidth]{fig_x1_robust.pdf}
@@ -351,8 +349,7 @@ modal channel, so the guarantee needs no tangential term.
   \caption{Adversarial robustness: XPBD across scene $\times$ budget $\times$
   relaxation, clamp OFF (left) vs ON (right). OFF injects in 12/24 cells (up
   to $1.2\times10^{5}\times$); ON passes the ledger invariant in 24/24 and is
-  bit-inert in the already-safe region. \note{draft figure (X1 output) ---
-  restyled in the figure pass.}}
+  bit-inert in the already-safe region.}
   \label{fig:x1robust}
 \end{figure*}
 
@@ -375,8 +372,6 @@ and unclamped runs (XPBD $8{\times}2$ shelf, 183 activations) are
 bit-identical on every frame before the first activation, and diverge
 afterwards only through the support geometry subsequent contacts see --- the
 $\gamma$ projection touches modal state only, never rigid momenta.
-\note{E4 probe; CSVs in \texttt{benchmark/runs/momentum/}; per-scene drift
-cells and a figure land with the performance pass.}
 
 \subsection{Restitution: bounded where the forced IIR double-counts}
 \label{sec:results:restitution}
@@ -403,8 +398,7 @@ matched-restitution comparison.
   \caption{Restitution sweep: injected/lost energy per impact. Paper-DCR
   crosses $1$ near $\varepsilon_r\approx0.8$ and reaches $2.6\times$
   (double-counting); the native arm stays at $0.05\le1$ for all
-  $\varepsilon_r$. \note{draft figure (X7 output) --- restyled in the figure
-  pass.}}
+  $\varepsilon_r$.}
   \label{fig:x7}
 \end{figure}
 
@@ -414,7 +408,7 @@ Table~\ref{tab:perf} gives CPU-host timings at the paper configuration
 (single machine, 100 frames after warm-up, symplectic modal path --- the
 configuration every result above validates). AVBD is $1.6$--$3.1\times$
 faster than XPBD here (XPBD pays a per-mode Gauss--Seidel sweep;
-dinner at 17 bodies / 24 modes is its worst case). The split behind the title
+dinner at 25 bodies / 24 modes is its worst case). The split behind the title
 is the following. The fastest validated \emph{CPU-host} configuration (ledge/AVBD,
 $15.8$~ms, ${\sim}63$~steps/s) is interactive but not $120$~Hz real-time. The
 same solver also runs device-resident: its co-solved (non-symplectic) modal
@@ -440,11 +434,9 @@ mechanism. We keep interactive rates as the headline only because the
 deflection-field accuracy of \S\ref{sec:results:fem} is validated on the
 symplectic modal step; reproducing it on the co-solved step is the one
 remaining device-path item. For context, the full-FEM ground truth costs
-$13.6\times$ the native arm on the slab scene (\S\ref{sec:results:fem}).
-\note{Device numbers: RTX~4090, warp 1.15, 200 frames after warm-up,
-\texttt{benchmarks/paper\_eval/x5\_perf/run\_perf\_device.py} +
-\texttt{probe\_device\_passivity.py}; CPU table is single-run, re-measured with
-reps + R/D baselines in the perf pass.}
+$13.6\times$ the native arm on the slab scene (\S\ref{sec:results:fem}). The
+device measurements use an RTX~4090 (warp 1.15, 200 timed frames after
+warm-up); the CPU timings of Table~\ref{tab:perf} are single-run.
 
 \begin{table}[t]\centering\footnotesize
 \setlength{\tabcolsep}{4pt}
