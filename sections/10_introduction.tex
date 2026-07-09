@@ -23,7 +23,7 @@ inside a real-time augmented-Lagrangian / position-based rigid solver
 unilateral contact multiplier excites the modes and reacts on the bodies within the
 same solver iteration (\S\ref{sec:method}). This real-time regime \emph{creates} a
 failure mode the convergent offline solver never had: an under-converged local solve
-can pump energy into the stiff modal block. Our fix is an enforced per-step passivity
+can inject spurious energy into the stiff modal block. Our remedy is an enforced per-step passivity
 bound $\dEmod \le \eta\,\dErig$ on the contact$\to$modal transfer, which makes the
 coupling usable at a fixed low iteration budget. We generalize the guarantee across a
 body--body modal contact network and validate against a full-FEM ground truth

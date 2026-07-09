@@ -13,7 +13,7 @@ Table~\ref{tab:matrix} is the validation matrix. Each row is a metric scored aga
 a named reference baseline; each column is a scene. \yes\ marks a measured result
 (number in the cell, subsection cited); \pend\ marks a measurement planned against
 the full-FEM ground truth currently being wired; \na\ marks not-applicable. The
-matrix doubles as the experiment tracker --- the honest current state is that the
+matrix doubles as the experiment tracker --- the current state is that the
 contact-force ledger, the two-way network discriminator, the passivity
 bound/ablation (three scenes), the restitution sweep, the slab full-FEM anchor,
 and runtime on three scenes are measured; the cross-scene FEM-accuracy rows, the
@@ -92,7 +92,7 @@ Passivity ablation (blow-up)       & off/on & \na   & \yes\q{5.1e3$\times$} & \y
 code changed.} A modal slab carries a plain resting control cube and a 3-high zig-zag
 stack (base/mid/upper); each cube carries its own reduced modes. Reading the
 multipliers (Table~\ref{tab:ledger}), each joint carries exactly the weight above it,
-with no per-joint tuning --- the shared multiplier balances the tower on its own.
+with no per-joint tuning --- the shared multiplier alone balances the stack.
 
 \begin{table}[t]\centering
 \caption{Static contact ledger (settled), $m g = 5.886$~N.}
@@ -147,7 +147,7 @@ since at the paper step the $81$~Hz ring aliases against the $120$~Hz sampling
 the bottleneck: the distant deflection field is captured by the first
 ${\sim}2$ bending modes (field error $35.8\%$ at $k{=}1$, ${\approx}27$--$30\%$
 for $k\ge2$ --- the plateau is the timestep floor above, not mode count). Two
-honesty notes calibrate everything else we report. First, the trustworthy GT
+caveats calibrate everything else we report. First, the trustworthy GT
 observable is the \emph{surface deflection field}: the bystander's launch KE
 does \emph{not} converge under GT refinement ($158\to39\to69$~mJ as
 $h_{\mathrm{GT}}$ halves --- a ${\sim}2$~kHz penalty-contact oscillator the GT
@@ -208,7 +208,7 @@ body is elastic (implicit Newmark at $h=5\times10^{-5}$~s, ${\sim}18$~min per
 the ground truth's measured ring ($9.2$--$9.9$~Hz) matches the native basis
 $f_1 = 9.8$~Hz --- and the native response falls off with distance from the
 drop point with \emph{no fitted attenuation model} (DCR fits its Eq.~14
-$C,\beta$ by hand or to data; Fig.~\ref{fig:dinner}). The native arm
+$C,\beta$ manually or to data; Fig.~\ref{fig:dinner}). The native arm
 under-predicts absolute dish-launch amplitude --- ${\sim}7\times$ at the
 loudest near-field dishes (Fig.~\ref{fig:dinner}), median launch ratio
 $0.016$ over all 72 scored bodies at the paper step --- and an $h$-ladder
@@ -221,7 +221,7 @@ $\propto v^2$ of a sub-millisecond surface-velocity peak that the rigid step
 low-passes), and it is also the observable the GT itself resolves poorly
 (above), so the residual gap at $1/960$ \emph{bounds the true deficit from
 above} rather than measuring it --- the GT-convergent deflection field is
-the accuracy metric, and it reaches $1.03$. DCR's IIR-plus-kick architecture
+the accuracy metric, and it reaches $1.03$. DCR's forced-IIR architecture
 (their Eqs.~10--12) makes the opposite trade: it sub-steps the filter and
 re-injects the \emph{maximum} displacement as a velocity change,
 deliberately re-amplifying that transient --- and thereby exceeding the
@@ -229,7 +229,7 @@ passive bound as $\varepsilon_r\!\to\!1$
 (\S\ref{sec:results:restitution}). Recovering the transient passively costs
 timestep ($8\times$ the steps $\Rightarrow$ ${\sim}34$~s per simulated
 second at $1/960$, still ${\sim}22\times$ under the all-FEM GT); recovering
-it for free costs the guarantee.
+it at no timestep cost sacrifices the guarantee.
 
 \begin{figure*}[t]\centering
   \includegraphics[width=\linewidth]{fig_dinner_response.pdf}
@@ -250,7 +250,7 @@ it for free costs the guarantee.
 \label{sec:results:dcr}
 Figure~\ref{fig:x2falloff} runs the slab reference under three arms --- rigid-only
 (\textbf{R}), paper-DCR (\textbf{D}: the Eq.~10 forced IIR plus the post-solve
-$\Delta v = d_{\max}/h$ kick), and the native constraint --- and measures each
+$\Delta v = d_{\max}/h$ velocity increment), and the native constraint --- and measures each
 bystander's peak KE against its distance from an off-centre impact. Rigid-only
 produces no distant response (identically zero beyond the nearest object: the
 machinery is genuinely off). Paper-DCR is strongest near the impact
@@ -259,8 +259,8 @@ starts softer ($9.8$~mJ) and falls off gently, delivering $2.0$~mJ at
 $0.56$~m --- $2.3\times$ the paper-DCR response at the farthest object; the two
 curves \emph{cross}. The native falloff is the slab's standing-wave modal
 profile (\S\ref{sec:results:fem}) with no $C\,r^{-\beta}$ term and no per-scene
-response parameters (paper-DCR hand-sets $C,\beta,r_0$ and its Rayleigh pair);
-its steeper decay is the impulse-localized forced response. Honesty: this is a
+response parameters (paper-DCR manually sets $C,\beta,r_0$ and its Rayleigh pair);
+its steeper decay is the impulse-localized forced response. We note that this is a
 method-level comparison on one shared operator, each arm at its natural
 timestep --- the comparand is the falloff \emph{shape}, which is
 $h$-independent (\S\ref{sec:results:fem}), not absolute magnitude.
@@ -276,7 +276,7 @@ $h$-independent (\S\ref{sec:results:fem}), not absolute magnitude.
   \label{fig:x2falloff}
 \end{figure}
 
-\subsection{The passivity bound bites when it must}
+\subsection{The passivity bound activates only when required}
 \label{sec:results:passivity}
 Two experiments separate ``naturally passive'' from ``needs the governor'':
 an adversarial budget$\times$relaxation sweep, and the budgets solvers
@@ -302,8 +302,8 @@ net ledger excess is ${\sim}3\times10^{-17}$~J.
 injects $5.5\times10^{4}$ to $9.2\times10^{6}$~J into a scene holding
 ${\sim}1$~J; the clamp bounds every case to $36$--$42$~J. AVBD at
 $4{\times}4$ / $2{\times}4$ is \emph{bit-identical} with the clamp off or on
-($0.91$/$0.79$~J, zero activations): on the descent-class solver passivity is
-free and the ledger is a witness, not an actor --- the dichotomy of
+($0.91$/$0.79$~J, zero activations): on the descent-class solver passivity
+holds at no cost and the ledger is a monitor, not an actor --- the dichotomy of
 \S\ref{sec:method:solve} measured.
 
 \paragraph*{Enforcement as shipped.} The budget each substep is the
@@ -316,11 +316,11 @@ $(\amp,\dot\amp)$ by a factor $\gamma$ with
 $\gamma^2 = (E_{\mathrm{old}}+\mathrm{budget})/E_{\mathrm{new}}$, landing
 exactly on the ceiling. \note{Method pass: state
 in \S\ref{sec:method:passivity} that the shipped clamp is this cumulative,
-full-state generalization of the per-step velocity-kick bound of
+full-state generalization of the per-step velocity-increment bound of
 Eq.~\ref{eq:alphastar} --- same budget, projection of $(\amp,\dot\amp)$ rather
-than a scale on the kick alone.}
+than a scale on the increment alone.}
 
-\paragraph*{The price, honestly.} The ledger costs $+0.5$--$4.8$~ms/step at
+\paragraph*{The cost of the ledger.} The ledger costs $+0.5$--$4.8$~ms/step at
 the paper configuration (single-run; re-measured with repetitions in the
 performance pass) and up to $+37$--$64\%$ on XPBD at extreme substep counts
 --- host read-backs in the energy accounting, an implementation cost, not
@@ -329,14 +329,14 @@ fundamental. The physical price is one-sided: on AVBD the clamp never fires
 --- cap-ON $|\amp|\approx1.2\times10^{-5}$ vs $6\times10^{-4}$ for converged
 XPBD and $8\times10^{-5}$ for the FEM-validated AVBD reference --- because
 the injected state is $\dot\amp$-heavy and the $\gamma$ projection shrinks
-$\amp$ with it. The cap makes the livelier host \emph{stable}, not
-\emph{accurate}; AVBD is the accurate default on which the guarantee is free.
+$\amp$ with it. The cap makes the more responsive host \emph{stable}, not
+\emph{accurate}; AVBD is the accurate default on which the guarantee holds at no cost.
 
 \paragraph*{Friction.} The bound is stated on \emph{energy}, not impulses, so
 it is agnostic to \emph{how} contact removes rigid energy: the ledger credits
 $\eta$ times the rigid mechanical-energy loss ($\Delta\mathrm{KE}$ plus gravity
 work), which already subsumes tangential (Coulomb) dissipation --- there is no
-separate normal-vs-tangential accounting to get wrong. Sweeping the box--box
+separate normal-vs-tangential accounting that could be misspecified. Sweeping the box--box
 stack at $\mu\in\{0,0.2,0.5,1.0\}$ confirms it: the net invariant holds in
 $4/4$ cases, the injection ratio is flat at $0.26$--$0.28$ of the budget, and
 there are \emph{zero} clamp activations at every $\mu$ (AVBD monitor-only).
@@ -389,7 +389,7 @@ collapses $7.30\to0.20$~J while the forced-IIR injection \emph{grows}
 $0.15\to0.52$~J; the ratio crosses $1$ near $\varepsilon_r\approx0.8$ and
 plateaus at $2.63$--$2.64\times$ --- energy created. Native: $0.053$ at every
 $\varepsilon_r$ --- the clamp funds modal gain from measured rigid loss, so
-restitution cannot break the bound \emph{by construction}. Two honesty notes:
+restitution cannot break the bound \emph{by construction}. Two caveats:
 the accounting is windowed per impact, so the exact crossing point is
 scene/window-dependent (the trend --- loss vanishes, injection persists --- is
 the robust signal); and the native contact is $e{=}0$ (no restitution term in
@@ -414,8 +414,8 @@ Table~\ref{tab:perf} gives CPU-host timings at the paper configuration
 (single machine, 100 frames after warm-up, symplectic modal path --- the
 configuration every result above validates). AVBD is $1.6$--$3.1\times$
 faster than XPBD here (XPBD pays a per-mode Gauss--Seidel sweep;
-dinner at 17 bodies / 24 modes is its worst case). The honest split behind
-the title. The fastest validated \emph{CPU-host} configuration (ledge/AVBD,
+dinner at 17 bodies / 24 modes is its worst case). The split behind the title
+is the following. The fastest validated \emph{CPU-host} configuration (ledge/AVBD,
 $15.8$~ms, ${\sim}63$~steps/s) is interactive but not $120$~Hz real-time. The
 same solver also runs device-resident: its co-solved (non-symplectic) modal
 step, with a warp-cooperative modal solve and full-substep CUDA-graph capture,

@@ -50,7 +50,7 @@ A single contact multiplier $f\ge 0$ then (i)
 pushes the rigid bodies apart and (ii) drives each participant's modes by
 $+\Ghat_A f$ on $A$ and $-\Ghat_B f$ on $B$. Newton's third law is built into
 the row --- equal-opposite Jacobian halves under one multiplier, not a
-post-solve kick --- so the coupling is two-way and momentum-consistent
+post-solve velocity increment --- so the coupling is two-way and momentum-consistent
 \emph{per row}; what a truncated host sweep does to that row on fast impacts
 is a solver property independent of the modal coupling, quantified in
 \S\ref{sec:results:momentum}. The support contact (body$\leftrightarrow$ground) is the \emph{same} row type
@@ -66,7 +66,8 @@ $M_q=I$, $K_q=\operatorname{diag}(\omega_j^2)$, $D_q=\alpha_0 I+\alpha_1 K_q$
 
 \subsection{Solving the stiff modal block in a local iteration}
 \label{sec:method:solve}
-A global QP absorbs a stiff modal DOF ($K_q\!\sim\!10^{11}$) implicitly for free; a
+A global QP absorbs a stiff modal DOF ($K_q\!\sim\!10^{11}$) implicitly at no
+additional cost; a
 fixed low-iteration \emph{local} solver makes that stiff, dense modal block diverge
 under naive Gauss--Seidel. Making it stable \emph{and} two-way there is the
 algorithmic content of this section, and the reason the passivity bound of
@@ -81,7 +82,7 @@ $M/h^2+\sum\rho\,J^{\!\top}J$ over its incident rows. Naively adding the $k$ mod
 DOFs to the same Gauss--Seidel sweep diverges at production budgets: the modal
 block couples \emph{every} contact of a body through the shared $\amp$, and its
 stiffness spans $\omega_j^2\sim10^2\!-\!10^{11}$, so sequential scalar updates
-amplify error. Instead the amplitudes are chased in a separate
+amplify error. Instead the amplitudes are solved in a separate
 \emph{engaged-gated block} pass after each body sweep. Discretizing
 Eq.~\ref{eq:reduced} by backward Euler in the increment
 ($\dot\amp \to (\amp+\Delta\amp-\amp^{\mathrm{prev}})/h$,
@@ -102,15 +103,16 @@ diagonal $M_q,K_q,D_q$ make the solve $k$ independent scalar updates --- the
 implicit denominator $1/h^2+(\alpha_0+\alpha_1\omega_j^2)/h+\omega_j^2$ is what
 lets $\omega_j^2\sim10^{11}$ coexist with an $8$--$16$-iteration budget). The
 under-relaxation is not cosmetic: each pass re-linearizes the contact set against
-amplitudes the bodies have not yet reacted to, and $\omega_r$ damps that
-chase--react lag. We also evaluated the textbook alternative --- eliminating
+amplitudes the bodies have not yet reacted to, and $\omega_r$ damps the lag
+between the amplitude update and the bodies' reaction. We also evaluated the
+textbook alternative --- eliminating
 $\Delta\amp$ into the contact row by a cross-term Schur complement, which adds the
 modal compliance $\Ghat\,\tilde K^{-1}\Ghat^{\!\top}$ to the row's effective mass.
 In a converged solve the two are identical --- we measure the two q-blocks
 agreeing to $1\%$ at a $32{\times}4$ budget; but at a truncated iteration count
 the Schur row does work against an implied $\Delta\amp$ that is never
 back-substituted into the body velocities, and the unmatched half of that work
-appears as free modal energy. At a $4{\times}1$ budget this is a net-injecting
+appears as spurious modal energy. At a $4{\times}1$ budget this is a net-injecting
 coupling --- the Schur row's net modal excess reaches $9.4\times10^{3}$~J past
 the reservoir while the gated, under-relaxed block-GS stays passive under the
 \emph{identical} budget; remove the under-relaxation and both inject, which is
@@ -140,8 +142,8 @@ $\alpha_j = 1/\omega_j^2$ (so the row's constraint force $-\amp_j/\alpha_j$
 reproduces the elastic force $-\omega_j^2\amp_j$) and Rayleigh damping through the
 $\gamma$ term of Eq.~\ref{eq:xpbd}. This is exactly XPBD's small-step compliant
 form, which is why the energy argument of \S\ref{sec:method:passivity} applies to
-it wholesale. The formulation difference matters operationally: AVBD's implicit
-chase tolerates $\omega_r=0.7$, while XPBD's sequential projections have a
+it in full. The formulation difference matters operationally: AVBD's implicit
+block solve tolerates $\omega_r=0.7$, while XPBD's sequential projections have a
 measured ceiling of $\omega_r=0.25$ on the stiff scenes ($0.4$ marginal,
 $0.5$--$0.6$ ejects bodies ${\sim}90$~m, ${\ge}0.65$ NaN on the road impact) ---
 the same truncation-order sensitivity that motivates the formulation-level
@@ -160,10 +162,10 @@ $\dErig$ the rigid kinetic energy lost during contact resolution that step ---
 the physical reservoir any vibration must be paid from.
 
 \paragraph*{Derivation of the passive scale $\alpha$ (foundation \S6).}
-The step's aggregate contact$\to$modal transfer is a velocity-level kick: the
+The step's aggregate contact$\to$modal transfer is a velocity-level increment: the
 modes' velocities change by $\dot\amp \leftarrow \dot\amp + \alpha\,s$, where
 $s = M_q^{-1}\sum\Ghat^{\!\top}\!j$ collects the projected contact impulses and
-$\alpha\in[0,1]$ is the scale to be chosen. The kick leaves $\amp$ (hence the
+$\alpha\in[0,1]$ is the scale to be chosen. The increment leaves $\amp$ (hence the
 elastic potential $\tfrac12\amp^{\!\top}K_q\amp$) untouched, so the modal energy
 change is purely kinetic and \emph{exactly quadratic} in $\alpha$:
 \begin{equation}
@@ -186,18 +188,18 @@ the largest admissible scale gives the closed form
   \label{eq:alphastar}
 \end{equation}
 (the positive root of $\tfrac12 a\alpha^2+b\alpha-E_{\max}=0$; for $a\to0$ the
-kick is impotent and $\alpha^\star=1$). The sign of the cross term $b$ carries
+increment is ineffective and $\alpha^\star=1$). The sign of the cross term $b$ carries
 the physics: $b<0$ means the impulse \emph{opposes} the current modal velocity,
-so a partial kick first removes energy and a larger $\alpha$ is admissible;
-$b>0$ means it pumps an already-moving mode, and the square root caps it. Because
+so a partial increment first removes energy and a larger $\alpha$ is admissible;
+$b>0$ means it adds energy to an already-moving mode, and the square root caps it. Because
 $a,b$ are aggregated over all contacts before scaling, a single $\alpha^\star$
 (the code's $\gamma$ ledger scale) bounds the \emph{global} step, closing the
 loophole where each contact is individually passive but their sum is not. In
-practice the two formulations sit on opposite sides of this bound: the AVBD chase
-of Eq.~\ref{eq:qblock} is measured passive at the production budget (the clamp is
+practice the two formulations sit on opposite sides of this bound: the AVBD block
+solve of Eq.~\ref{eq:qblock} is measured passive at the production budget (the clamp is
 a monitor, $0$ activations at $\omega_r=0.7$), while the XPBD projections of
 Eq.~\ref{eq:xpbd} inject without it and the clamp is load-bearing
 (\S\ref{sec:results:passivity}).
-\note{DEVIATION from DCR Eq.~10 (forced IIR): the injection is a velocity-level kick
+\note{DEVIATION from DCR Eq.~10 (forced IIR): the injection is a velocity-level increment
 to $\dot q$ funded by rigid kinetic-energy loss, not a forced response --- see
 CLAUDE.md and the foundation \S15.}
