@@ -71,7 +71,6 @@ def main():
         ax.set_xticklabels(col_lab, fontsize=6)
         ax.set_yticks(range(len(budgets)))
         ax.set_yticklabels(row_lab, fontsize=7)
-        ax.set_ylabel("budget (iters × substeps)")
         for i in range(len(budgets)):
             for j in range(len(cols)):
                 v = raw[i, j]
@@ -85,6 +84,10 @@ def main():
         ax.set_yticks(np.arange(-.5, len(budgets), 1), minor=True)
         ax.grid(which="minor", color="white", linewidth=1.0)
         ax.tick_params(which="minor", length=0)
+
+    # y-axis title on the left panel only — both panels share the same budget
+    # rows, and a title on the right panel collides with the left panel's cells.
+    axes[0].set_ylabel("budget (iters × substeps)")
 
     cb = fig.colorbar(im, ax=axes, fraction=0.03, pad=0.02,
                       ticks=[-1, 0, 1, 3, 5])
