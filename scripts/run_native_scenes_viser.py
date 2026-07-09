@@ -624,7 +624,11 @@ class UnifiedViser:
                      "less deflection. Press reset / rebuild to apply.")
             self.gui_thickness = g.add_slider(
                 "support thickness [mm]", 5.0, 120.0, 1.0,
-                float(self.knob_thickness) * 1e3)
+                float(self.knob_thickness) * 1e3,
+                hint="physical slab thickness (bending stiffness ∝ thickness³, "
+                     "so this is the most sensitive knob). Press reset / rebuild "
+                     "to apply to the PHYSICS; the rendered slab follows this "
+                     "slider live.")
             self.gui_mass = g.add_slider(
                 f"{imp} mass [kg]", sp["mass_rng"][0], sp["mass_rng"][1], 0.1,
                 float(self.knob_mass if self.knob_mass is not None else 1.0))
@@ -681,17 +685,10 @@ class UnifiedViser:
                          "contacts carry no modal column ⇒ stacked bodies "
                          "inert. Raise 'cube flex ×' to ~250 to see it.")
                 self.gui_network.on_update(self._network_changed)         # live
-                self.gui_ride = g.add_checkbox(
-                    "rigid ride (flex lifts the stacked body)",
-                    initial_value=self.ride,
-                    hint="§N2 rigid-ride (live, cargo scene, AVBD): the box-box "
-                         "gap also reads the flex, so the stacked cube's RIGID "
-                         "body responds to the ring beneath it (not just its "
-                         "modes). Stable with friction; needs the network on. "
-                         "NOTE: the effect is ~15µm, BELOW the contact jitter — "
-                         "sub-visible live; verify it via the ON−OFF difference "
-                         "in docs/network/network_ride.png.")
-                self.gui_ride.on_update(self._ride_changed)               # live
+            # (The §N2 "rigid ride" toggle lived here; removed from the GUI — its
+            # live effect is ~15µm, below the contact jitter, so it read as an
+            # inert knob. The feature is intact: --ride on the CLI, and self.ride
+            # is still applied to the solver on rebuild.)
             # Passivity clamp — available on BOTH the cargo network path (AVBD,
             # BE) and the support path (AVBD/XPBD, symplectic). foundation §15.
             self.gui_passivity = g.add_checkbox(
@@ -715,7 +712,11 @@ class UnifiedViser:
                 hint="render-only exaggeration of the modal slab deflection")
             self.gui_render_thick = g.add_slider(
                 "slab render thickness [mm]", 0.0, 150.0, 1.0,
-                float(self.render_thick) * 1e3)
+                float(self.render_thick) * 1e3,
+                hint="render-only slab thickness. Auto-follows 'support "
+                     "thickness [mm]' as you drag it; adjust here only to "
+                     "override (e.g. render a thin physical sheet as a thick "
+                     "slab for visibility).")
             self.gui_view = g.add_dropdown(
                 "modal view", ("full (q)", "static (low-pass)"),
                 initial_value="static (low-pass)" if self.static_view
@@ -756,6 +757,9 @@ class UnifiedViser:
             lambda _: setattr(self, "support_exag",
                               float(self.gui_support_exag.value)))
         self.gui_render_thick.on_update(self._render_thick_changed)
+        # Render slab thickness follows the physical thickness slider live, so
+        # the rendered slab tracks the chosen thickness without a manual nudge.
+        self.gui_thickness.on_update(self._thickness_changed)
         self.gui_view.on_update(
             lambda _: setattr(self, "static_view",
                               self.gui_view.value.startswith("static")))
@@ -842,16 +846,6 @@ class UnifiedViser:
             sol._modal_contact_network = self.network
             sol._graph = None                       # force CUDA-graph recapture
 
-    def _ride_changed(self, _evt):
-        """Toggle the §N2 rigid ride live (the box-box gap reads the flex, so the
-        stacked body responds to the ring). Read each q-block sweep
-        (`_bake_ride_crest`), so no rebuild is needed."""
-        self.ride = bool(self.gui_ride.value)
-        sol = self.world._solver
-        if hasattr(sol, "_modal_contact_ride"):
-            sol._modal_contact_ride = self.ride
-            sol._graph = None                       # force CUDA-graph recapture
-
     def _apply_passivity(self) -> None:
         """Wire the foundation-§15 passivity bound onto the live solver. Two paths:
 
@@ -892,6 +886,14 @@ class UnifiedViser:
 
     def _render_thick_changed(self, _evt):
         self.render_thick = max(0.0, float(self.gui_render_thick.value) / 1e3)
+
+    def _thickness_changed(self, _evt):
+        """Live-sync the slab RENDER thickness to the physical support-thickness
+        slider. The physical thickness still needs reset / rebuild to change the
+        PHYSICS; only the rendered slab follows here, so the user no longer has
+        to nudge the render-thickness slider by hand after changing thickness.
+        Writing the render slider cascades to `_render_thick_changed`."""
+        self.gui_render_thick.value = float(self.gui_thickness.value)
 
     def _proxy_changed(self, _evt):
         self.show_proxy = bool(self.gui_proxy.value)
