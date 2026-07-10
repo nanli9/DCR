@@ -21,13 +21,20 @@ the contact injects into the modes.
 inside an interactive-rate augmented-Lagrangian / position-based rigid solver
 (XPBD~\citep{macklin2016xpbd}, VBD/AVBD~\citep{chen2024vbd,giles2025avbd}). One
 unilateral contact multiplier excites the modes and reacts on the bodies within the
-same solver iteration (\S\ref{sec:method}). This fixed-budget regime \emph{creates} a
-failure mode the convergent offline solver never had: an under-converged local solve
-can inject spurious energy into the stiff modal block. Our remedy is an enforced
-passivity bound $\dEmod \le \eta\,\dErig$ on the contact$\to$modal transfer ---
-maintained cumulatively every substep by an exact energy projection
-(\S\ref{sec:method:passivity}) --- which makes the
-coupling usable at a fixed low iteration budget. We generalize the invariant across a
+same solver iteration (\S\ref{sec:method}). We are explicit about what that step is
+\emph{not}: the constraint is no new contact law --- linearized, the position-level
+row recovers the velocity-level coupling of \citet{zheng2011}
+(Eq.~\ref{eq:velequiv}) --- so the transcription itself is one line, and the
+contribution begins where it fails. The fixed-budget regime \emph{creates} a failure
+mode the convergent offline solver never had: an under-converged local solve injects
+spurious energy into the stiff modal block, or diverges outright. Our remedy is
+twofold: solver couplings that keep the stiff block stable at a fixed budget --- an
+engaged-gated implicit modal block under relaxation in the augmented-Lagrangian host,
+per-mode compliant rows under a tighter measured relaxation ceiling in the
+position-based one (\S\ref{sec:method:solve}) --- and an enforced passivity bound
+$\dEmod \le \eta\,\dErig$ on the contact$\to$modal transfer, maintained cumulatively
+every substep by an exact energy projection (\S\ref{sec:method:passivity}), which
+holds however far the host converged. We generalize the invariant across a
 body--body modal contact network and validate against a full-FEM ground truth
 (\S\ref{sec:results}).
 
@@ -40,12 +47,16 @@ body--body modal contact network and validate against a full-FEM ground truth
         the \emph{system} --- non-increase, whole-system passivity, or
         conservation projection (\S\ref{sec:related}) --- not the one-sided,
         source-referenced transfer.
-  \item Vibration modes as \textbf{first-class compliant-constraint DOFs}
-        sharing one unilateral contact multiplier with the rigid solve of a
-        fixed-budget augmented-Lagrangian host --- prior interactive modal
-        contact used LP constraints or penalties (\S\ref{sec:related}); the
-        shared fixed-budget AL row, and what its truncation does to energy,
-        is the new embedding.
+  \item \textbf{Stable fixed-budget solver couplings} for the stiff modal
+        block. The constraint row itself is a position-level transcription
+        of a classical law (Eq.~\ref{eq:velequiv}); transcribed naively it
+        injects energy or diverges at production iteration budgets. We
+        develop the treatments that survive truncation --- an engaged-gated
+        implicit modal block with under-relaxation in the
+        augmented-Lagrangian host, per-mode compliant rows with a measured
+        relaxation ceiling in the position-based one --- and show the
+        textbook alternative, cross-term Schur condensation, is
+        net-injecting at the same budget (\S\ref{sec:method:solve}).
   \item That bound \textbf{generalized across a body--body modal contact
         network} --- stacked bodies ring through their shared contacts.
   \item Validation against a full-FEM ground truth and a contact-force audit

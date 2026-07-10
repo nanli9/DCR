@@ -62,6 +62,31 @@ bodies that only ever touch another body. Mass-normalized modes give
 $M_q=I$, $K_q=\operatorname{diag}(\omega_j^2)$, $D_q=\alpha_0 I+\alpha_1 K_q$
 (Rayleigh; DCR Eq.~7), so no reduced inverse is ever formed.
 
+\paragraph*{Relation to the velocity-level law.}
+Eq.~\ref{eq:gap} is a transcription, not a new contact law: with $J$ the full
+row gradient of Eq.~\ref{eq:grad} (frozen at the linearization point) and
+$u=(z_A,z_B,\dot\amp_A,\dot\amp_B)$ the row's stacked generalized velocities,
+one linearization step of the gap gives
+\begin{equation}
+  C^{n+1} \;\approx\; C^{n} + h\,J\,u^{n+1},
+  \label{eq:velequiv}
+\end{equation}
+so the position-level complementarity $0\le C^{n+1}\perp f\ge0$, divided by
+$h$, is the velocity-level rigid--modal contact condition of
+\citet{zheng2011} up to the stabilization bias $C^{n}/h$ --- the same shared
+Jacobian, the same multiplier. If anything the transcription \emph{narrows}
+their law: we couple modes through the normal rows only, while
+\citet{zheng2011} resolve vibration in the friction stage as well, and a
+velocity-level system accommodates Newton restitution directly (DCR adds it
+in the right-hand side, their Eq.~4) where the position-level row gives
+$e{=}0$ (\S\ref{sec:conclusion}). We therefore claim nothing for the rewrite
+itself. What it changes is the \emph{solver} the row must survive: a global
+QP converged to tolerance absorbs the stiff modal block silently; the
+fixed-budget local sweeps of the real-time hosts do not --- they inject
+energy or diverge outright
+(\S\ref{sec:method:solve}--\S\ref{sec:method:passivity}), and that failure
+and its repair are the content of this paper.
+
 \subsection{Solving the stiff modal block in a local iteration}
 \label{sec:method:solve}
 A global QP absorbs a stiff modal DOF ($K_q\!\sim\!10^{11}$) implicitly at no
@@ -237,6 +262,12 @@ update; it is also why an injecting host is over-damped rather than merely
 capped (\S\ref{sec:results:passivity}) --- once injected energy mixes into
 elastic PE, the ledger cannot separate it from the valid ring.
 
+The architecture is thus deliberately two-level: contact is resolved at the
+position / incremental-potential level (\S\ref{sec:method:solve}), while the
+controller measures and projects the \emph{realized} modal state at the
+velocity--energy level. Bounding realized energy, rather than reformulating
+the constraint, is what lets the guarantee hold however far the host
+converged --- and why the same controller serves both hosts unchanged.
 In practice the two formulations sit on opposite sides of this bound: the AVBD
 block solve of Eq.~\ref{eq:qblock} is measured passive at the production
 budget (the clamp is a monitor, $0$ activations at $\omega_r=0.7$), while the

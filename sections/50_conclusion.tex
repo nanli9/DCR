@@ -1,19 +1,25 @@
 \section{Conclusion and Limitations}
 \label{sec:conclusion}
 
-We embedded vibration modes as first-class compliant-constraint DOFs in a real-time
-augmented-Lagrangian rigid solver, driven two-way by a shared unilateral contact
-multiplier, and made the coupling stable at a fixed low iteration budget with an
-enforced passivity bound $\dEmod\le\eta\,\dErig$.
+We carried two-way rigid--modal contact coupling, driven by a shared unilateral
+contact multiplier, into real-time augmented-Lagrangian and position-based
+solvers. The constraint transcription itself is classical --- linearized it
+recovers the velocity-level law (Eq.~\ref{eq:velequiv}); the contributions are
+the solver couplings that keep the stiff modal block stable at a fixed low
+iteration budget and the enforced passivity bound $\dEmod\le\eta\,\dErig$ that
+makes the coupling energy-safe there.
 
 \paragraph*{Limitations.}
 \begin{itemize}
   \item The two-way coupling \emph{mechanism} is not new
-        (\citealp{zheng2011,hauser2003,barbic2008haptic,sheth2015}), and
-        neither are energy projection or quadratic energy clamps
-        (\citealp{su2009energy,dinev2018fepr}); the contribution is the shared
-        fixed-budget AL embedding and the directional, source-referenced
-        energy bound.
+        (\citealp{zheng2011,hauser2003,barbic2008haptic,sheth2015}) --- our
+        position-level row linearizes back to the velocity-level law of
+        \citet{zheng2011} (Eq.~\ref{eq:velequiv}), and is narrower: modes
+        couple through the normal rows only, not friction. Nor are energy
+        projection or quadratic energy clamps new
+        (\citealp{su2009energy,dinev2018fepr}); the contributions are the
+        fixed-budget solver couplings of \S\ref{sec:method:solve} and the
+        directional, source-referenced energy bound.
   \item The bound applies to the modal-path injection only; the
         spatial-attenuation path is empirical and carries no energy budget.
   \item Small-displacement regime only: support contact rows sample the modal

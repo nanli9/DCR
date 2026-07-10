@@ -10,6 +10,12 @@ Crucially, their large cost buys \emph{audio}: they target high-quality contact
 simulation needs. We therefore do not claim to make their method real-time --- we
 target a different, coarser regime (visual-rate two-way coupling, no synthesis), so
 the comparison is one of regime, not a speedup of the same computation.
+The relation is in fact closer than a shared goal: linearized, our
+position-level normal row \emph{is} their velocity-level contact condition up
+to a stabilization bias (Eq.~\ref{eq:velequiv}) --- and theirs is the broader
+law, coupling modes through friction where ours uses the normal rows only. We
+therefore claim no novelty in the constraint; the claims live in what a
+fixed-iteration-budget host does to that row, and in the energy bound.
 Interactive two-way modal contact itself predates real-time AL solvers:
 \citet{hauser2003} impose manipulation and collision constraints directly on a
 rigid-frame-plus-modes model at interactive rates, and \citet{barbic2008haptic}
