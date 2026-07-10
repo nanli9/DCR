@@ -123,6 +123,27 @@ timed frames. Supersedes the stale `0.9–2.4 ms` estimate from
 | device path passive in 20/20 cells, no active clamp; net excess < 0 ∀ | holds=passive=True ∀; max_net_excess < 0 ∀ | `x5_perf/out/device_passivity.csv` (read-only §15 ledger, 400 steps) |
 | e.g. dinner 8×1 Σgain 12.7 ≤ η·Σloss 26.1; ledge 8×1 10.7 ≤ 393.6 | 12.69 / 26.09; 10.66 / 393.6 | same `: cum_modal_gain, eta_cum_loss` |
 
+## §4.8 scale stress — N-body sweep on the device path (Fig. `fig:stress`)
+
+Measured 2026-07-10 on the compshare RTX 4090 (warp 1.15), same protocol as
+the device table (sync-bracketed steps, 10 warm-up, 200 timed frames). Scene:
+`scenes/reduced_stress.py` — N crates + 1 impactor (nb = N+1) on one 4×4 m
+road-material slab, basis pinned at 28 modes at every N. Passivity = the
+read-only external §15 ledger (`probe_device_passivity.py` measurement), 240
+steps per cell.
+
+| printed | value | source |
+|---|---|---|
+| 16×4: 9.1→50.7 ms over N 16→512 (5.6×) | 9.0688→50.727 | `x5_perf/out/stress_device.csv : mean_ms @ 16x4` |
+| 8×1: 1.3→6.4 ms (5.1×); every N real-time | 1.2715→6.4243; rt ∀N | same `@ 8x1`, `: realtime_120hz` |
+| 16×2 real-time through N=64 | 6.98 ms @ 64 (1.19×), 9.74 @ 128 (0.86×) | same `@ 16x2` |
+| ≈N^{1/2} growth | 5.05–5.60× cost for 32× bodies | derived from mean_ms ratios |
+| graph capture intact at every N (513 bodies) | captured=True ∀ | same `: captured` |
+| modal overhead ±0.10 ms ∀N (frozen-ring baseline) | −0.082…+0.102 | `x5_perf/out/stress_device_arms.csv : modal_overhead_ms` |
+| ledger passive 18/18 cells, net excess < 0 ∀ | holds=passive=True ∀; excess −3.78…−0.12 | `x5_perf/out/stress_device_psv.csv` |
+| natural transfer ratio 0.11–0.25 | 0.107–0.245 | same `: cum_modal_gain / eta_cum_loss` |
+| no body ejected (grid extent 1.70 m, resting y ≥ 0.06) | max_xy=1.70, min_y 0.060–0.069 ∀ | `stress_device.csv : max_xy, min_y` |
+
 ## Table 2 matrix cells (new/changed this pass)
 
 | cell | source |

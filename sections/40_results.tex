@@ -3,8 +3,9 @@
 
 We evaluate on the scenes of Table~\ref{tab:scenes}: DCR's own road, dinner, and
 ledge figure layouts --- re-simulated with the two-way modal-constraint coupling in
-place of DCR's one-way injection --- plus two modal-network stress scenes
-(a box--box cube stack and a two-body full-FEM reference). Reusing DCR's layouts is
+place of DCR's one-way injection --- plus three of our own: a box--box cube
+stack, a two-body full-FEM reference, and an $N$-body scale grid
+(\S\ref{sec:results:perf}). Reusing DCR's layouts is
 deliberate: it lets us show, on the same scenes, the back-reaction DCR cannot
 produce (a distant body moved \emph{by} another body's ring through their shared
 contact).
@@ -33,8 +34,10 @@ isolate the two claims that are ours alone.
 \begin{table*}[t]\centering\footnotesize
 \setlength{\tabcolsep}{4pt}
 \caption{Evaluation scenes. Rows 1--3 are DCR's own figure layouts re-simulated with
-two-way coupling; rows 4--6 are our network-stress and reference scenes (the shelf
-is the ablation/performance reference; the slab is the full-FEM accuracy anchor).
+two-way coupling; rows 4--7 are our network-stress, reference, and scale scenes
+(the shelf is the ablation/performance reference; the slab is the full-FEM
+accuracy anchor; the stress grid sweeps body count at fixed physics,
+\S\ref{sec:results:perf}).
 $n_g/n_\ell$ = global/local reduced modes per body; body counts for dinner/ledge are
 the measured scene sizes. $^{\dagger}$The dinner table's basis is the eigenbasis
 of the same discrete FEM operator its ground truth integrates (shared operator,
@@ -56,6 +59,7 @@ Ledge (boulder)       & DCR ledge & 5               & 12/16 & strong-coupling to
 Cargo network (stack) & ours      & 6              & 8/1   & two-way, box--box network \\
 Shelf (board+cubes)   & ours      & 6              & 10/14 & ablation / performance reference \\
 Slab + bystanders     & ours      & 1+2--5         & 16    & full-FEM accuracy anchor \\
+Stress grid ($N$-sweep) & ours    & 17--513        & 12/16 & scale: runtime + passivity vs.\ $N$ \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -528,6 +532,38 @@ $13.6\times$ the native arm on the slab scene (\S\ref{sec:results:fem}). The
 device measurements use an RTX~4090 (warp 1.15, 200 timed frames after
 warm-up); the CPU timings of Table~\ref{tab:perf} are mean$\pm$std over 10
 runs on the same machine's host CPU.
+
+\paragraph*{Scale.} The scenes above top out at $25$ bodies, so a dedicated
+stress scene sweeps body count at fixed physics: $N$ crates rest in a grid on
+one $4{\times}4$~m road-material slab whose basis is pinned at $28$ modes
+($12$ global $+$ $16$ local --- deliberately \emph{not} one compliance bump
+per body), a $40$~kg crate drops at the center, and $N$ doubles $16\to512$
+under the Table~\ref{tab:perfdev} protocol (Fig.~\ref{fig:stress}). Cost
+grows sublinearly, ${\approx}N^{1/2}$ over the swept range: $32\times$ more
+bodies costs $5.6\times$ at the paper budget ($9.1\to50.7$~ms/step) and
+$5.1\times$ at $8{\times}1$ ($1.3\to6.4$~ms), with the full-substep graph
+capture intact at every $N$ ($513$ bodies). At $8{\times}1$ every swept $N$
+clears $120$~Hz ($N{=}512$ at $1.3\times$ headroom); $16{\times}2$ clears
+through $N{=}64$. The two-way coupling itself is free at scale: the
+frozen-ring baseline is within $\pm0.10$~ms of the coupled run at every $N$
+--- the modal block stays $O(k)$, so at scale the cost is the host contact
+solve, not the coupling. The read-only ledger of Fig.~\ref{fig:device}
+evaluated per cell finds all $18$ $(N,\text{budget})$ cells passive (net
+excess $<0$ in every cell; natural transfer ratio $0.11$--$0.25$), and no
+body is ejected in any cell.
+
+\begin{figure}[t]\centering
+  \includegraphics[width=\linewidth]{fig_stress_scale_col.pdf}
+  \Description{ms per step versus body count from 16 to 512 for three
+  iteration budgets on a log-log scale, with the 120 Hz real-time region
+  shaded and a square-root-of-N slope guide; the 8-by-1 budget stays inside
+  the real-time region at every N.}
+  \caption{Scale stress: ms/step vs.\ body count on the device path --- $N$
+  crates on one fixed $28$-mode slab. Cost grows ${\approx}N^{1/2}$;
+  $8{\times}1$ stays real-time through $N{=}512$; the read-only ledger is
+  passive in $18/18$ $(N,\text{budget})$ cells.}
+  \label{fig:stress}
+\end{figure}
 
 \begin{table}[t]\centering\footnotesize
 \setlength{\tabcolsep}{3.2pt}

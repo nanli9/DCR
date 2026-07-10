@@ -49,9 +49,11 @@ enforced passivity bound $\dEmod\le\eta\,\dErig$.
         comparison against DCR needs a Newton restitution term in the native
         contact --- future work.
   \item Scene breadth: the road scene is qualitative-only (timed on the
-        device path; excluded from the matrix), and the affine (ABD) basis
-        shows a slow secular buildup and would need the same governor before
-        any stability claim.
+        device path; excluded from the matrix); the $N$-body stress grid
+        (\S\ref{sec:results:perf}) measures runtime and passivity to $513$
+        bodies but carries no accuracy rows (it has no FEM twin); and the
+        affine (ABD) basis shows a slow secular buildup and would need the
+        same governor before any stability claim.
 \end{itemize}
 
 \paragraph*{Future work.} A swappable affine (ABD) cargo basis for cheap, robust
