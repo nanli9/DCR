@@ -103,3 +103,32 @@ damp factor bookkeeping; non-diagonal basis rejected; dinner AVBD ring
 collapse + hop-apex preservation + D logged; dinner XPBD §15 ledger passive;
 shelf kick preserved. Full `tests/avbd_native` suite: 185 passed (4
 device-compile tests need the warp kernel cache writable — sandbox note).
+
+## Where it does NOT help (measured 2026-07-10, after landing)
+
+Honest regime map from the off-vs-kill kymograph
+(`kymograph_off_vs_kill.png`) and a soft-table probe:
+
+- **Paper-material dinner table (defaults): nothing visible to remove.**
+  At true scale both runs look identical — the co-solve's own dissipation
+  (σ ≈ 12 s⁻¹ on the carrier) ends visible motion by ~0.5 s; the kill only
+  shortens the ×300-exaggeration shimmer (~1.3 s → ~0.8 s). The remembered
+  multi-second rubber came from the pre-fix regime (relax-default bug 17×
+  energy; kick-gain amplification), both since removed.
+- **Soft table (E = 1.5e8, f₁ ≈ 4 Hz): visible multi-second motion exists
+  but is NOT free ring — the kill cannot settle it.** D = 0.5 J is removed
+  yet the >0.1 mm duration is unchanged (~1.6–2.2 s): the energy reservoir
+  is the resting/bouncing objects riding the slow loaded mode, which
+  re-drive the surface every substep after each kill. Also qbar_tau (0.3 s)
+  ≈ the mode period (0.25 s) there, so the sag reference itself is no
+  longer slow relative to the oscillation. A modal-state operator is the
+  wrong medicine for object-driven motion.
+- **Softness is not the jump lever either**: 7× softer table gives SMALLER
+  plate hops (0.76 mm vs 1.84 mm) — compliance lowers peak surface
+  velocity. The distant-transfer fraction at paper material is ~0.1 %
+  (plates receive ~10 mJ of the ~7 J ring), which is where any future
+  DCR-look "visible pop" work has to aim.
+
+Status: correct, tested, off-by-default; its value is the termination
+guarantee + the paper ablation arm, not a visual change at current
+defaults.
