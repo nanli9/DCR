@@ -1,0 +1,2 @@
+scene,solver,mean_ms,std_ms,worst_ms,clamp_ms,clamp_std_ms,steps_per_s,reps,frames,symplectic
+stack,avbd,78.53630435466766,0.6426636459300811,85.92543378472328,1.6747441249899566,0.8476182273909881,12.732964814387358,10,100,False

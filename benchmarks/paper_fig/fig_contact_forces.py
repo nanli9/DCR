@@ -36,11 +36,14 @@ def main():
     fig, (axa, axb) = plt.subplots(1, 2, figsize=(7.0, 2.7))
 
     # ---- (a) two-way ring discriminator ---------------------------------- #
+    # The abd variant is excluded from this panel: its affine coordinate is
+    # not commensurable with a mass-normalized modal amplitude, and its
+    # long-horizon buildup is unresolved (paper Fig. 1 caption + limitations).
     ring = d["ring_upper"]
-    order = ["fem_rigid", "abd", "rigid", "off"]
-    lab = {"fem_rigid": "native\n(fem-rigid)", "abd": "native\n(abd)",
+    order = ["fem_rigid", "rigid", "off"]
+    lab = {"fem_rigid": "native\n(fem-rigid)",
            "rigid": "rigid\ncargo", "off": "network\nOFF"}
-    col = {"fem_rigid": PALETTE["native"], "abd": PALETTE["variant"],
+    col = {"fem_rigid": PALETTE["native"],
            "rigid": "0.6", "off": "0.6"}
     vals = [ring[k] for k in order]
     floor = 1e-6
@@ -52,7 +55,7 @@ def main():
         axa.text(x, max(v, floor) * 1.3, ("$\\equiv0$" if v == 0 else f"{v:.1e}"),
                  ha="center", va="bottom", fontsize=6.2)
     axa.set_yscale("log")
-    axa.set_ylim(floor, 5e-2)
+    axa.set_ylim(floor, 2e-4)
     axa.set_xticks(xs)
     axa.set_xticklabels([lab[k] for k in order], fontsize=6.3)
     axa.set_ylabel(r"top-cube ring amplitude $|a|$")

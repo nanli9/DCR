@@ -1,0 +1,99 @@
+===== [1/4] eta sweep =====
+### X1c eta sweep: XPBD clamp ON, eta x budget x scene ###
+  shelf    8x2 eta=0.10: ratio=2975378361.298 passive=True clamp=201/216 gain=3.12/budget=3.12 |a|=0.00215
+  shelf    8x2 eta=0.30: ratio=8910952571.434 passive=True clamp=187/216 gain=9.5/budget=9.5 |a|=0.00524
+  shelf    8x2 eta=0.50: ratio=14668918186.397 passive=True clamp=180/216 gain=15.7/budget=15.7 |a|=0.00576
+  shelf    8x2 eta=1.00: ratio=29260102225.122 passive=True clamp=162/216 gain=31/budget=31 |a|=0.0087
+  shelf   16x4 eta=0.10: ratio=2973203644.282 passive=True clamp=179/432 gain=3.17/budget=3.17 |a|=0.0151
+  shelf   16x4 eta=0.30: ratio=8848028252.793 passive=True clamp=93/432 gain=10.9/budget=10.9 |a|=0.0303
+  shelf   16x4 eta=0.50: ratio=12639489166.655 passive=True clamp=18/432 gain=19/budget=19.5 |a|=0.0365
+  shelf   16x4 eta=1.00: ratio=12639489166.655 passive=True clamp=0/432 gain=27.9/budget=38.8 |a|=0.0365
+  ledge    8x2 eta=0.10: ratio=39167400549.728 passive=True clamp=100/216 gain=39.9/budget=39.9 |a|=0.000179
+  ledge    8x2 eta=0.30: ratio=117050189146.563 passive=True clamp=101/216 gain=120/budget=120 |a|=0.000511
+  ledge    8x2 eta=0.50: ratio=195055529616.494 passive=True clamp=101/216 gain=199/budget=199 |a|=0.00054
+  ledge    8x2 eta=1.00: ratio=390974345092.569 passive=True clamp=96/216 gain=399/budget=399 |a|=0.000586
+  ledge   16x4 eta=0.10: ratio=30199156219.296 passive=True clamp=127/432 gain=40.5/budget=40.5 |a|=0.00952
+  ledge   16x4 eta=0.30: ratio=68839178401.666 passive=True clamp=65/432 gain=125/budget=125 |a|=0.0109
+  ledge   16x4 eta=0.50: ratio=84670268712.329 passive=True clamp=0/432 gain=144/budget=209 |a|=0.0108
+  ledge   16x4 eta=1.00: ratio=84670268712.329 passive=True clamp=0/432 gain=144/budget=419 |a|=0.0108
+  dinner   8x2 eta=0.10: ratio=2325910147.253 passive=True clamp=80/216 gain=2.75/budget=2.75 |a|=0.067
+  dinner   8x2 eta=0.30: ratio=2310631600.128 passive=True clamp=0/216 gain=3.86/budget=8.48 |a|=0.0672
+  dinner   8x2 eta=0.50: ratio=2310631600.128 passive=True clamp=0/216 gain=3.86/budget=14.1 |a|=0.0672
+  dinner   8x2 eta=1.00: ratio=2310631600.128 passive=True clamp=0/216 gain=3.86/budget=28.3 |a|=0.0672
+  dinner  16x4 eta=0.10: ratio=2432751141.584 passive=True clamp=228/432 gain=2.71/budget=2.71 |a|=0.0637
+  dinner  16x4 eta=0.30: ratio=2762824904.321 passive=True clamp=23/432 gain=4.47/budget=8.51 |a|=0.0672
+  dinner  16x4 eta=0.50: ratio=2731021746.712 passive=True clamp=0/432 gain=4.41/budget=14.2 |a|=0.0669
+  dinner  16x4 eta=1.00: ratio=2731021746.712 passive=True clamp=0/432 gain=4.41/budget=28.4 |a|=0.0669
+
+wrote eta_sweep.csv (24 rows) to /root/DCR/benchmarks/paper_eval/x1_passivity/out/
+===== [2/4] static ledger =====
+### X1d static ledger (AVBD 16x4, 480 steps, tail 60) ###
+Warp 1.15.0 initialized:
+   CUDA Toolkit 12.9, Driver 12.8
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 4090" (24 GiB, sm_89, mempool enabled)
+   Kernel cache:
+     /root/.cache/warp/1.15.0
+Module dcr.avbd._solver.kernels_6dof 41b737b load on device 'cpu' took 5.55 ms  (cached)
+  ledge  pedestal       m=  5.000 kg  F=  61.759 ±  0.043 N  exp=  58.860 N  err= 4.93%
+  ledge  pillar_0       m=  0.500 kg  F=   0.000 ±  0.000 N  exp=   4.905 N  err=100.00%  [off support]
+  ledge  pillar_1       m=  0.500 kg  F=   0.000 ±  0.000 N  exp=   4.905 N  err=100.00%  [off support]
+  ledge  pillar_2       m=  0.500 kg  F=   0.000 ±  0.000 N  exp=   4.905 N  err=100.00%  [off support]
+  ledge  boulder        m= 50.000 kg  F= 488.954 ±  0.019 N  exp= 490.500 N  err= 0.32%
+  ledge  joint pedestal<->pillar_0: F=   5.298 N  exp=   4.905 N  err= 8.01%
+  ledge  joint pedestal<->pillar_1: F=   5.289 N  exp=   4.905 N  err= 7.83%
+  ledge  TOTAL          F= 550.713 N  exp= 549.360 N  err= 0.25%
+  shelf  book_0         m=  1.000 kg  F=   9.809 ±  0.002 N  exp=   9.810 N  err= 0.01%
+  shelf  book_1         m=  1.000 kg  F=   9.810 ±  0.007 N  exp=   9.810 N  err= 0.00%
+  shelf  book_2         m=  1.000 kg  F=   9.804 ±  0.003 N  exp=   9.810 N  err= 0.06%
+  shelf  book_3         m=  1.000 kg  F=   9.800 ±  0.001 N  exp=   9.810 N  err= 0.10%
+  shelf  book_4         m=  1.000 kg  F=   9.802 ±  0.001 N  exp=   9.810 N  err= 0.08%
+  shelf  drop_book      m=  6.000 kg  F=  58.852 ±  0.001 N  exp=  58.860 N  err= 0.01%
+  shelf  TOTAL          F= 107.877 N  exp= 107.910 N  err= 0.03%
+
+wrote static_ledger.csv (15 rows) to /root/DCR/benchmarks/paper_eval/x1_passivity/out/
+===== [3/4] slab passivity =====
+  slab xpbd: passive=True holds=True clamp=0/632 gain=0.1273 loss=2.415 net_excess=-0.000689
+Warp 1.15.0 initialized:
+   CUDA Toolkit 12.9, Driver 12.8
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 4090" (24 GiB, sm_89, mempool enabled)
+   Kernel cache:
+     /root/.cache/warp/1.15.0
+Module dcr.avbd._solver.kernels_6dof 41b737b load on device 'cpu' took 1.81 ms  (cached)
+  slab avbd: passive=True holds=True clamp=0/632 gain=0.228 loss=2.284 net_excess=-0.000593
+wrote slab_passivity.csv to /root/DCR/benchmarks/paper_eval/x1_passivity/out/
+===== [4/4] perf reps (alone) =====
+### X5b perf reps (10 reps x 100 frames, AMD EPYC 7542 32-Core Processor) ###
+  shelf  xpbd:   65.23 ±  0.52 ms  worst  127.42  clamp +0.80 ± 0.28    15.3 steps/s
+Warp 1.15.0 initialized:
+   CUDA Toolkit 12.9, Driver 12.8
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 4090" (24 GiB, sm_89, mempool enabled)
+   Kernel cache:
+     /root/.cache/warp/1.15.0
+Module dcr.avbd._solver.kernels_6dof 41b737b load on device 'cpu' took 1.87 ms  (cached)
+  shelf  avbd:   53.84 ±  0.20 ms  worst   60.54  clamp +1.29 ± 0.20    18.6 steps/s
+  ledge  xpbd:  110.55 ±  0.98 ms  worst  152.78  clamp +0.93 ± 0.76     9.0 steps/s
+  ledge  avbd:   51.56 ±  0.11 ms  worst   54.82  clamp +1.30 ± 0.25    19.4 steps/s
+  dinner xpbd:  451.63 ±  2.73 ms  worst  549.30  clamp +2.89 ± 2.76     2.2 steps/s
+  dinner avbd:  125.57 ±  0.56 ms  worst  144.68  clamp +1.48 ± 0.62     8.0 steps/s
+Traceback (most recent call last):
+  File "/root/DCR/benchmarks/paper_eval/x5_perf/run_perf_reps.py", line 146, in <module>
+    main()
+  File "/root/DCR/benchmarks/paper_eval/x5_perf/run_perf_reps.py", line 113, in main
+    m, wst = _time_run(fn, solver, frames=args.frames, clamp=False)
+  File "/root/DCR/benchmarks/paper_eval/x5_perf/run_perf_reps.py", line 71, in _time_run
+    w.step()
+  File "/root/DCR/dcr/avbd/world.py", line 786, in step
+    self._solver.step()
+  File "/root/DCR/dcr/avbd/_solver/solver_6dof.py", line 1655, in step
+    self._step_one()
+  File "/root/DCR/dcr/avbd/_solver/solver_6dof.py", line 1749, in _step_one
+    self._step_one_body(capture_inner=True)
+  File "/root/DCR/dcr/avbd/_solver/solver_6dof.py", line 1980, in _step_one_body
+    raise NotImplementedError(
+NotImplementedError: _modal_symplectic is host non-cargo only for now; it is not wired into the device q-block, cargo augmentation, or the IIR scaffold (see prompts/symplectic_modal_integrator_prompt.md).

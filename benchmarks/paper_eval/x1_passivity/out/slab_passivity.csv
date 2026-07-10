@@ -1,0 +1,3 @@
+scene,solver,eta,passive,holds,n_clamped,n_steps,cum_gain,cum_loss,max_net_excess,finite
+slab,xpbd,1.0,True,True,0,632,0.1273400011475907,2.4151484503700233,-0.0006891908203124999,True
+slab,avbd,1.0,True,True,0,632,0.22803624476619377,2.2835603041558206,-0.000592667742075632,True
