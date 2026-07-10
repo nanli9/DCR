@@ -1,0 +1,58 @@
+Warp 1.15.0 initialized:
+   CUDA Toolkit 12.9, Driver 12.8
+   Devices:
+     "cpu"      : "x86_64"
+     "cuda:0"   : "NVIDIA GeForce RTX 4090" (24 GiB, sm_89, mempool enabled)
+   Kernel cache:
+     /root/.cache/warp/1.15.0
+### stress N-sweep on cuda:0 (NVIDIA GeForce RTX 4090) warp 1.15.0, 200 frames ###
+Module dcr.avbd._solver.kernels_6dof 2e56d5f load on device 'cuda:0' took 3.75 ms  (cached)
+Module dcr.avbd._solver.modal_qblock_kernels 2bb7ce2 load on device 'cuda:0' took 2.31 ms  (cached)
+  N=  16 8x1  :    1.27 ms    786.5 st/s  6.55x [RT] cap=True max_xy=1.70 min_y=0.069
+  N=  16 16x2 :    4.58 ms    218.1 st/s  1.82x [RT] cap=True max_xy=1.70 min_y=0.069
+  N=  16 16x4 :    9.07 ms    110.3 st/s  0.92x [  ] cap=True max_xy=1.70 min_y=0.069
+  N=  32 8x1  :    1.39 ms    717.6 st/s  5.98x [RT] cap=True max_xy=1.70 min_y=0.069
+  N=  32 16x2 :    5.36 ms    186.6 st/s  1.56x [RT] cap=True max_xy=1.70 min_y=0.069
+  N=  32 16x4 :   10.81 ms     92.5 st/s  0.77x [  ] cap=True max_xy=1.70 min_y=0.069
+  N=  64 8x1  :    1.81 ms    552.3 st/s  4.60x [RT] cap=True max_xy=1.70 min_y=0.068
+  N=  64 16x2 :    6.98 ms    143.2 st/s  1.19x [RT] cap=True max_xy=1.70 min_y=0.068
+  N=  64 16x4 :   13.94 ms     71.7 st/s  0.60x [  ] cap=True max_xy=1.70 min_y=0.068
+  N= 128 8x1  :    2.50 ms    400.0 st/s  3.33x [RT] cap=True max_xy=1.70 min_y=0.068
+  N= 128 16x2 :    9.75 ms    102.6 st/s  0.86x [  ] cap=True max_xy=1.70 min_y=0.067
+  N= 128 16x4 :   19.47 ms     51.4 st/s  0.43x [  ] cap=True max_xy=1.70 min_y=0.067
+  N= 256 8x1  :    3.90 ms    256.7 st/s  2.14x [RT] cap=True max_xy=1.70 min_y=0.065
+  N= 256 16x2 :   15.29 ms     65.4 st/s  0.55x [  ] cap=True max_xy=1.70 min_y=0.065
+  N= 256 16x4 :   30.65 ms     32.6 st/s  0.27x [  ] cap=True max_xy=1.70 min_y=0.065
+  N= 512 8x1  :    6.42 ms    155.7 st/s  1.30x [RT] cap=True max_xy=1.70 min_y=0.064
+  N= 512 16x2 :   25.34 ms     39.5 st/s  0.33x [  ] cap=True max_xy=1.70 min_y=0.061
+  N= 512 16x4 :   50.73 ms     19.7 st/s  0.16x [  ] cap=True max_xy=1.70 min_y=0.060
+
+-- stress_device_arms.csv: modal overhead @ 16x4 --
+  N=  16: base=   8.99 coup=   9.09 ms  modal+= 0.10
+  N=  32: base=  11.01 coup=  10.95 ms  modal+=-0.06
+  N=  64: base=  13.94 coup=  13.86 ms  modal+=-0.08
+  N= 128: base=  19.46 coup=  19.47 ms  modal+= 0.02
+  N= 256: base=  30.54 coup=  30.59 ms  modal+= 0.05
+  N= 512: base=  50.74 coup=  50.71 ms  modal+=-0.03
+
+-- stress_device_psv.csv: external §15 ledger, 240 steps --
+  N=  16 8x1  : holds=True passive=True  Σgain=37.95  η·Σloss=280.8  net_excess=-0.173
+  N=  16 16x2 : holds=True passive=True  Σgain=45.76  η·Σloss=288.1  net_excess=-0.123
+  N=  16 16x4 : holds=True passive=True  Σgain=66.84  η·Σloss=298.6  net_excess=-0.223
+  N=  32 8x1  : holds=True passive=True  Σgain=36.3  η·Σloss=280.6  net_excess=-0.183
+  N=  32 16x2 : holds=True passive=True  Σgain=43.52  η·Σloss=286.9  net_excess=-0.18
+  N=  32 16x4 : holds=True passive=True  Σgain=69.43  η·Σloss=305.1  net_excess=-0.392
+  N=  64 8x1  : holds=True passive=True  Σgain=35.01  η·Σloss=282.5  net_excess=-0.204
+  N=  64 16x2 : holds=True passive=True  Σgain=43.09  η·Σloss=289  net_excess=-0.292
+  N=  64 16x4 : holds=True passive=True  Σgain=69.34  η·Σloss=311.7  net_excess=-0.692
+  N= 128 8x1  : holds=True passive=True  Σgain=35.34  η·Σloss=289.1  net_excess=-0.245
+  N= 128 16x2 : holds=True passive=True  Σgain=45.13  η·Σloss=298.5  net_excess=-0.517
+  N= 128 16x4 : holds=True passive=True  Σgain=68.04  η·Σloss=318.2  net_excess=-1.16
+  N= 256 8x1  : holds=True passive=True  Σgain=33.52  η·Σloss=294.1  net_excess=-0.328
+  N= 256 16x2 : holds=True passive=True  Σgain=53.23  η·Σloss=327.1  net_excess=-0.967
+  N= 256 16x4 : holds=True passive=True  Σgain=70.64  η·Σloss=333.4  net_excess=-2.02
+  N= 512 8x1  : holds=True passive=True  Σgain=34.03  η·Σloss=319.2  net_excess=-0.493
+  N= 512 16x2 : holds=True passive=True  Σgain=69.73  η·Σloss=385.8  net_excess=-1.87
+  N= 512 16x4 : holds=True passive=True  Σgain=99.61  η·Σloss=406.1  net_excess=-3.78
+
+passive 18/18 cells. wrote out/stress_device.csv + _arms.csv + _psv.csv

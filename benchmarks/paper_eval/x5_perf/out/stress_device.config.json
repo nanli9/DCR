@@ -1,0 +1,28 @@
+{
+  "figure": "stress_device.csv",
+  "stage": "stress-scale",
+  "generated_utc": "2026-07-10T04:26:42+00:00",
+  "device": "cuda:0",
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "warp": "1.15.0",
+  "numpy": "2.2.6",
+  "python": "3.10.12",
+  "relax": 0.7,
+  "frames": 200,
+  "psv_steps": 240,
+  "bodies": [
+    16,
+    32,
+    64,
+    128,
+    256,
+    512
+  ],
+  "budgets": [
+    "8x1",
+    "16x2",
+    "16x4"
+  ],
+  "fixed": "16x4",
+  "note": "N-body stress grid, fixed 28-mode slab basis; device-resident native co-solved (z,q) AVBD; passivity via read-only external ledger (in-solver clamp is symplectic-host-only)"
+}
