@@ -38,6 +38,14 @@
 % otherwise overflow; leaves well-set lines untouched)
 \setlength{\emergencystretch}{8pt}
 
+% pack float pages tighter — content sits at the 10-page MIG cap
+\renewcommand{\topfraction}{0.95}
+\renewcommand{\bottomfraction}{0.6}
+\renewcommand{\textfraction}{0.05}
+\renewcommand{\floatpagefraction}{0.85}
+\renewcommand{\dbltopfraction}{0.95}
+\renewcommand{\dblfloatpagefraction}{0.85}
+
 % ---- draft helpers (delete for camera-ready) ----
 \newcommand{\todo}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
 \newcommand{\note}[1]{\textcolor{Plum}{\textit{(#1)}}}
@@ -60,7 +68,6 @@
 % until the device path is passivity-validated (experiment plan G3).
 \title{Passivity-Bounded Two-Way Modal Contact in an Interactive-Rate
        Augmented-Lagrangian Solver}
-\subtitle{\note{working title --- draft \today}}
 
 \author{Nan Li}
 \orcid{0000-0000-0000-0000} % TODO: real ORCID (required by ACM at camera-ready)

@@ -9,8 +9,11 @@ enforced passivity bound $\dEmod\le\eta\,\dErig$.
 \paragraph*{Limitations.}
 \begin{itemize}
   \item The two-way coupling \emph{mechanism} is not new
-        (\citealp{zheng2011}); the contribution is its real-time-AL embedding and the
-        passivity bound.
+        (\citealp{zheng2011,hauser2003,barbic2008haptic,sheth2015}), and
+        neither are energy projection or quadratic energy clamps
+        (\citealp{su2009energy,dinev2018fepr}); the contribution is the shared
+        fixed-budget AL embedding and the directional, source-referenced
+        energy bound.
   \item The bound applies to the modal-path injection only; the
         spatial-attenuation path is empirical and carries no energy budget.
   \item Small-displacement regime only: support contact rows sample the modal
@@ -26,25 +29,29 @@ enforced passivity bound $\dEmod\le\eta\,\dErig$.
         residual is an upper bound on the true deficit. DCR's sub-stepped
         forced-IIR response re-amplifies that transient at the cost of passivity
         (\S\ref{sec:results:restitution}).
-  \item Two paths, one guarantee: the passivity- and accuracy-validated
-        correctness path is the symplectic modal step (CPU, interactive at
-        $16$--$34$~ms/step), while the real-time path is the same solver's
+  \item Two paths, one invariant: the passivity- and accuracy-validated
+        correctness path is the symplectic modal step (CPU; $11$--$34$~ms/step
+        on a laptop-class core, $3.5$--$4.6\times$ slower on the server core
+        of Table~\ref{tab:perf} --- single-core-bound), while the real-time
+        path is the same solver's
         device-resident co-solved step ($5.6$--$9.2$~ms at the paper budget,
         real-time at a lighter budget; \S\ref{sec:results:perf}). A read-only
-        $\dEmod\le\eta\,\dErig$ ledger confirms the co-solved path stays passive
-        across all four scenes and five budgets with no active clamp, so the
-        \emph{guarantee} carries over; what does not yet carry over is the
-        deflection-field \emph{accuracy} validation, measured on the symplectic
-        step --- reproducing it on the co-solved step is the one open device
-        item, and the reason we claim interactive rather than real-time rates.
+        ledger \emph{measures} the co-solved path passive across all four
+        scenes and five budgets with no active clamp --- verified per run,
+        not enforced (the $\gamma$-projection is not yet device-resident).
+        The open device items are wiring the $O(k)$ enforcement device-side
+        and reproducing the deflection-field accuracy validation on the
+        co-solved step --- the reason we claim interactive rather than
+        real-time rates.
   \item Native contact restitution is $e{=}0$: the sweep of
         \S\ref{sec:results:restitution} shows the energy ratio stays bounded at
         every $\varepsilon_r$ by construction, but a matched-restitution
         comparison against DCR needs a Newton restitution term in the native
         contact --- future work.
-  \item Scene breadth: all road-scene accuracy rows are pending (qualitative
-        only), and the affine (ABD) basis showed a slow secular buildup and
-        would need the same governor before any stability claim.
+  \item Scene breadth: the road scene is qualitative-only (timed on the
+        device path; excluded from the matrix), and the affine (ABD) basis
+        shows a slow secular buildup and would need the same governor before
+        any stability claim.
 \end{itemize}
 
 \paragraph*{Future work.} A swappable affine (ABD) cargo basis for cheap, robust
@@ -52,7 +59,5 @@ contact, energy-governed the same way; a Newton restitution term in the native
 contact so the restitution comparison against DCR
 (\S\ref{sec:results:restitution}) can be run at matched $\varepsilon_r$ rather
 than against the $e{=}0$ reference; a ground-truth accuracy pass on the road
-scene, currently qualitative only; and reproducing the deflection-field
-accuracy validation of \S\ref{sec:results:fem} on the device-resident
-co-solved step, which is the one item standing between the measured
-interactive rates and a real-time claim.
+scene; and the two device items of \S\ref{sec:results:perf}, which stand
+between the measured interactive rates and a real-time claim.

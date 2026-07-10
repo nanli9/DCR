@@ -1,7 +1,7 @@
 \section{Related Work}
 \label{sec:related}
 
-\paragraph*{Modal sound and contact.} \citet{zheng2011} carry modal amplitudes as
+\paragraph*{Modal contact.} \citet{zheng2011} carry modal amplitudes as
 generalized coordinates driven two-way by a shared contact multiplier, resolving
 vibration in both the collision and friction stages; the coupling is
 momentum-consistent by construction but solved offline as a global staggered LCP/QP.
@@ -10,6 +10,13 @@ Crucially, their large cost buys \emph{audio}: they target high-quality contact
 simulation needs. We therefore do not claim to make their method real-time --- we
 target a different, coarser regime (visual-rate two-way coupling, no synthesis), so
 the comparison is one of regime, not a speedup of the same computation.
+Interactive two-way modal contact itself predates real-time AL solvers:
+\citet{hauser2003} impose manipulation and collision constraints directly on a
+rigid-frame-plus-modes model at interactive rates, and \citet{barbic2008haptic}
+render distributed penalty contact between reduced (modal-capable) deformable
+models at haptic kilohertz rates. Neither shares a unilateral
+augmented-Lagrangian multiplier between rigid and modal DOFs at a fixed
+iteration budget, and neither bounds the contact$\to$modal energy transfer.
 \citet{james2002dyrt} render one-way real-time modal response (display-only, no
 back-reaction). DCR~\citep{coevoet2020distant} is the real-time, one-way distant
 response this project builds on and generalizes.
@@ -26,10 +33,27 @@ contact but \emph{conserve} energy rather than \emph{cap} the directional transf
 The broader contact-and-friction toolbox these methods draw on is surveyed by
 \citet{andrews2022contact}.
 
-\paragraph*{Passivity.} Port-Hamiltonian flexible multibody
-dynamics~\citep{brugnoli2021} and time-domain passivity control in
-haptics~\citep{hannaford2002} give the passivity-inequality \emph{genre}, but not a
-contact$\to$modal transfer budget of the form $\dEmod\le\eta\,\dErig$.
+\paragraph*{Passivity and energy-stable contact.} Enforced energy properties for
+contacting systems are established across several communities, and we claim none
+of the mechanisms as new. Haptics: time-domain passivity
+control~\citep{hannaford2002} accumulates an energy observer and absorbs net
+generated energy, and passive midpoint integration~\citep{kim2017pmi} enforces
+discrete-time passivity for real-time LCP contact, including a flexible-beam
+example carried on vibration coordinates. Audio: \citet{rath2008} models contact
+between vibrating modal objects so that discrete-time contact transitions never
+\emph{increase} total energy, in real time at audio rates. Graphics:
+\citet{su2009energy} clamp contact/collision energy gain analytically for
+frame-rate rigid bodies --- the same quadratic-in-the-scale argument as our
+Eq.~\ref{eq:alphaquad}; FEPR~\citep{dinev2018fepr} projects each approximate
+step of a PBD/PD solver back to the constant energy--momentum manifold;
+\citet{you2026energy} steer an implicit integrator to a prescribed energy
+target under barrier contact. Multibody: port-Hamiltonian flexible multibody
+dynamics~\citep{brugnoli2021} preserves passivity structurally. None states a
+\emph{directional} transfer budget --- each constrains the \emph{system}
+(non-increase, whole-system passivity, conservation, an energy target); ours
+is one-sided and source-referenced --- modal-storage gain at most $\eta$
+times the \emph{measured rigid contact loss} --- enforced cumulatively inside
+the shared rigid--modal contact rows.
 
 \paragraph*{Real-time augmented-Lagrangian solvers.}
 XPBD~\citep{macklin2016xpbd} casts contact as a compliant constraint --- the
@@ -39,15 +63,23 @@ descent variants~\citep{chen2024vbd,giles2025avbd}, hosts rigid and soft contact
 at a fixed low iteration budget. \citet{macklin2019small} showed that shrinking
 the substep, rather than raising the iteration count, is what recovers
 stiff-contact accuracy --- the band-limiting trade our $h$-ladder quantifies for
-the modal transient (\S\ref{sec:results:fem}). None of these hosts carry modal
-DOFs --- the slot this paper fills.
+the modal transient (\S\ref{sec:results:fem}). Reduced coordinates have reached
+these hosts --- \citet{peng2024reduced} build a reduced XPBD from linear modes
+and modal derivatives for soft-robot actuation --- but as a deformation
+subspace: no host carries vibration modes as unilateral \emph{contact-row} DOFs
+coupled two-way with rigid frames, which is the slot this paper fills.
 
 \paragraph*{Positioning.} Table~\ref{tab:positioning} maps the neighborhood on six
 axes. The two-way \emph{mechanism} (columns \textbf{DOF}, \textbf{2-way},
-\textbf{Modal}) is shared by several prior methods --- it is \emph{not} our novelty.
-The only pair of columns no prior row occupies together is (\textbf{Passive},
-\textbf{RT-AL}): an enforced energy-transfer inequality inside a real-time
-augmented-Lagrangian host. That empty cell is the contribution.
+\textbf{Modal}) is shared by several prior methods --- it is \emph{not} our
+novelty. Nor is any single column: post-step energy projection already lives in
+PBD-class hosts~\citep{dinev2018fepr}, modal subspaces already live in
+XPBD~\citep{peng2024reduced}, and energy-stable or passive real-time contact
+exists in audio and haptics~\citep{rath2008,kim2017pmi}. The contribution is the
+\emph{conjunction} no prior row occupies: vibration modes as contact-row DOFs,
+two-way under one multiplier, inside a fixed-budget real-time AL host, with an
+enforced \emph{directional} transfer bound --- one-sided and funded by measured
+rigid contact loss, rather than whole-system conservation or passivity.
 
 \begin{table*}[t]\centering\footnotesize
 \setlength{\tabcolsep}{4pt}
@@ -60,15 +92,20 @@ bodies.
 plain damping).
 \textbf{RT-AL}: real-time position-based / augmented-Lagrangian host.
 \textbf{Net}: body--body vibration through contact.
-\pmark${}={}$partial/genre-only. Qualifier key:
-\textsuperscript{d}\,damping not a cap,
-\textsuperscript{o}\,offline (audio-rate),
-\textsuperscript{i}\,separate IIR, not a solver DOF,
-\textsuperscript{m}\,conserves momentum, not energy,
-\textsuperscript{a}\,affine basis, no bending/plate modes,
-\textsuperscript{c}\,conserves ($\Delta E{=}0$), not directional cap,
-\textsuperscript{g}\,passivity \emph{genre} only.
-Only the (\textbf{Passive}, \textbf{RT-AL}) pair is unoccupied by any prior row.}
+\pmark${}={}$partial/genre-only. Qualifiers:
+\textsuperscript{d}\,damping, not a cap;
+\textsuperscript{o}\,offline (audio-rate);
+\textsuperscript{i}\,separate IIR, not a solver DOF;
+\textsuperscript{m}\,conserves momentum only;
+\textsuperscript{a}\,affine basis, no bending modes;
+\textsuperscript{c}\,conserves / projects to conservation;
+\textsuperscript{g}\,passivity genre only;
+\textsuperscript{e}\,total-energy non-increase;
+\textsuperscript{s}\,whole-system passivity;
+\textsuperscript{r}\,reduced, modal-capable;
+\textsuperscript{t}\,interactive, not an AL/PBD host;
+\textsuperscript{n}\,one-way graph propagation.
+No prior row occupies all six columns.}
 \label{tab:positioning}
 \begin{tabular}{lcccccc}
 \toprule
@@ -76,11 +113,17 @@ Only the (\textbf{Passive}, \textbf{RT-AL}) pair is unoccupied by any prior row.
 \midrule
 \textbf{This paper}                    & \yes & \yes & \yes & \yes                 & \yes                 & \yes \\
 Zheng \& James 2011                    & \yes & \yes & \yes & \no\textsuperscript{d} & \no\textsuperscript{o} & \yes \\
-DCR (Coevoet 2020)                     & \no\textsuperscript{i} & \no & \yes & \no & \yes & \no \\
+DCR (Coevoet 2020)                     & \no\textsuperscript{i} & \no & \yes & \no & \yes & \pmark\textsuperscript{n} \\
+Hauser et al.\ 2003                    & \yes & \yes & \yes & \no & \no\textsuperscript{t} & \pmark \\
+Rath 2008                              & \yes & \yes & \yes & \pmark\textsuperscript{e} & \no\textsuperscript{t} & \no \\
+Barbi\v{c} \& James 2008               & \yes & \yes & \pmark\textsuperscript{r} & \no\textsuperscript{d} & \no\textsuperscript{t} & \no \\
 Sheth et al.\ 2015                     & \yes & \yes & \yes & \no\textsuperscript{m} & \no & \pmark \\
 ABD (Lan et al.\ 2022)                 & \yes & \yes & \no\textsuperscript{a} & \no & \no & \yes \\
 FFRF / energy--mom.\ (Betsch 2007)     & \yes & \yes & \yes & \no\textsuperscript{c} & \no & \yes \\
 Port-Hamiltonian FMB (Brugnoli 2021)   & \yes & \yes & \yes & \pmark\textsuperscript{g} & \no & \no \\
+PMI (Kim et al.\ 2017)                 & \pmark & \yes & \pmark & \pmark\textsuperscript{s} & \no\textsuperscript{t} & \no \\
+FEPR (Dinev et al.\ 2018)              & \no & \na & \no & \pmark\textsuperscript{c} & \yes & \na \\
+Reduced XPBD (Peng et al.\ 2024)       & \yes & \no & \yes & \no & \yes & \no \\
 XPBD / AVBD / VBD                       & \no  & \yes & \no  & \no & \yes & \yes \\
 DyRT (James \& Pai 2002)               & \yes & \no  & \yes & \no & \yes & \no \\
 \bottomrule

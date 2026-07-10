@@ -11,13 +11,13 @@ contact).
 
 Table~\ref{tab:matrix} is the validation matrix. Each row is a metric scored against
 a named reference baseline; each column is a scene. \yes\ marks a measured result
-(number in the cell, subsection cited); \pend\ marks a measurement planned against
-the full-FEM ground truth currently being wired; \na\ marks not-applicable. The
-matrix doubles as the experiment tracker --- the current state is that the
-contact-force ledger, the two-way network discriminator, the passivity
-bound/ablation (three scenes), the restitution sweep, the slab full-FEM anchor,
-and runtime on three scenes are measured; the cross-scene FEM-accuracy rows, the
-momentum probe, and everything on the road scene are pending.
+(number in the cell, subsection cited); \na\ marks not-applicable, with the
+reason in the caption. Accuracy-vs-FEM rows are scored on the three
+ground-truth scenes (slab, ledge, dinner); the stack and shelf are
+network-stress and ablation scenes with no FEM twin. The road scene is
+exercised qualitatively and for device-resident runtime (the truck row of
+\S\ref{sec:results:perf}) and carries no measured accuracy rows, so it is
+excluded from the matrix.
 
 \paragraph*{Baselines (the reference axis).} Metrics are scored against:
 \textbf{F} --- a full-FEM (unreduced) solve of the same mesh, the accuracy ground
@@ -34,24 +34,27 @@ isolate the two claims that are ours alone.
 \setlength{\tabcolsep}{4pt}
 \caption{Evaluation scenes. Rows 1--3 are DCR's own figure layouts re-simulated with
 two-way coupling; rows 4--6 are our network-stress and reference scenes (the shelf
-is the X-suite ablation/perf reference; the slab is the full-FEM accuracy anchor).
+is the ablation/performance reference; the slab is the full-FEM accuracy anchor).
 $n_g/n_\ell$ = global/local reduced modes per body; body counts for dinner/ledge are
-the measured X5 scene sizes. $^{\dagger}$The dinner table's basis is the eigenbasis
+the measured scene sizes. $^{\dagger}$The dinner table's basis is the eigenbasis
 of the same discrete FEM operator its ground truth integrates (shared operator,
 \S\ref{sec:results:fem}); the scene duplicates DCR \S5.1 (2.2$\times$1.1~m table,
 their Table~2 material, 5~kg pot with a parameterized drop point).
 The road count is its 12 movable bodies (3 crates, 5 cones, 4 lumber) resting on
-the reduced-modal road slab, counted the same movable-only way as dinner/ledge.}
+the reduced-modal road slab, counted the same movable-only way as dinner/ledge;
+the road scene is demonstrated qualitatively and timed on the device path
+(\S\ref{sec:results:perf}) but carries no measured accuracy rows, so it does
+not appear in the matrix (Table~\ref{tab:matrix}).}
 \label{tab:scenes}
 \begin{tabular}{llccl}
 \toprule
 scene & source & bodies & $n_g/n_\ell$ & what it tests \\
 \midrule
-Road (crate/cones)    & DCR road  & 12              & 12/16 & distant response, large slab \\
+Road (crate/cones)    & DCR road  & 12              & 12/16 & distant response, large slab (qualitative) \\
 Dinner table          & DCR Fig.1/\S5.1 & 25        & 24$^{\dagger}$ & distant place-settings, drop sweep \\
 Ledge (boulder)       & DCR ledge & 5               & 12/16 & strong-coupling topple \\
 Cargo network (stack) & ours      & 6              & 8/1   & two-way, box--box network \\
-Shelf (board+cubes)   & ours      & 6              & 10/14 & X-suite reference: ablation, perf \\
+Shelf (board+cubes)   & ours      & 6              & 10/14 & ablation / performance reference \\
 Slab + bystanders     & ours      & 1+2--5         & 16    & full-FEM accuracy anchor \\
 \bottomrule
 \end{tabular}
@@ -59,28 +62,35 @@ Slab + bystanders     & ours      & 1+2--5         & 16    & full-FEM accuracy a
 
 \begin{table*}[t]\centering\footnotesize
 \setlength{\tabcolsep}{3.5pt}
-\caption{Validation matrix: metric $\times$ scene, each scored against a reference
-baseline (col.\ \textbf{ref}, key above). \yes\ measured (number cited); \pend\
-planned vs.\ full-FEM; \na\ not applicable. The rows no prior method can pass ---
-the enforced bound (measured OFF/ON on three scenes,
-\S\ref{sec:results:passivity}), the restitution consistency
-(\S\ref{sec:results:restitution}), and the two-way discriminator --- are
-measured; the cross-scene FEM-accuracy, momentum, and road rows are the pending
-work. Runtime cells are AVBD mean ms/step (\S\ref{sec:results:perf}).}
+\caption{Validation matrix: metric $\times$ scene, each scored against a
+reference baseline (col.\ \textbf{ref}, key above). \yes\ measured (number in
+the cell, subsection cited); \na\ not applicable, for cause: accuracy-vs-F
+rows need the scene's FEM twin (slab, ledge, dinner); the momentum probe is
+defined on an isolated free-flight pair (\S\ref{sec:results:momentum}) and
+anchored-support scenes exchange momentum with the environment by design; the
+two-way ring discriminator needs modal cargo, which the paper configuration
+reserves for the stack (dinner's dishes are rigid per DCR \S4.5 --- the
+all-cargo variant is Fig.~\ref{fig:dinner}); restitution is the dinner
+protocol; the blow-up ablation runs on the three XPBD robustness scenes. The
+rows no prior method can pass --- the enforced bound OFF/ON
+(\S\ref{sec:results:passivity}), the restitution consistency
+(\S\ref{sec:results:restitution}), and the two-way discriminator --- are all
+measured. Runtime cells are AVBD mean ms/step on Table~\ref{tab:perf}'s
+machine (stack: default cargo modal path).}
 \label{tab:matrix}
-\begin{tabular}{llcccccc}
+\begin{tabular}{llccccc}
 \toprule
-metric & ref & Road & Dinner & Ledge & Stack & Shelf & Slab \\
+metric & ref & Dinner & Ledge & Stack & Shelf & Slab \\
 \midrule
-Modal displ.\ $L_2$ error          & F      & \pend & \pend & \yes\q{.38$\to$.88} & \pend & \pend & \yes\q{.56$\to$1.03} \\
-Distant-response fidelity          & F,D    & \pend & \yes\q{\S\ref{sec:results:fem}} & \yes\q{$\rho$=.89} & \na   & \na & \yes\q{2.3$\times$D} \\
-Contact-force ledger               & A      & \pend & \na   & \pend & \yes\q{.06--1.9\%} & \pend & \na \\
-Passivity $\dEmod\!\le\!\eta\dErig$ & bound  & \pend & \yes & \yes & \yes & \yes & \pend \\
-Momentum drift (lin/ang)           & $0$    & \pend & \pend & \pend & \yes\q{\S\ref{sec:results:momentum}} & \yes\q{\S\ref{sec:results:momentum}} & \pend \\
-Two-way ring $|\amp|$              & off/on & \pend & \pend & \pend & \yes\q{1.1e{-}5/0} & \pend & \na \\
-Restitution ratio $\le1\ \forall\varepsilon_r$ & D & \na & \yes\q{.05 vs 2.6} & \na & \na & \na & \na \\
-Runtime (ms/step)                  & R,D    & \pend & \yes\q{33.7} & \yes\q{15.8} & \pend & \yes\q{17.1} & \na \\
-Passivity ablation (blow-up)       & off/on & \na   & \yes\q{5.1e3$\times$} & \yes\q{1.2e5$\times$} & \na & \yes\q{1.1e4$\times$} & \na \\
+Deflection ratio (native/F)        & F      & \yes\q{.02$\to$.26 launch} & \yes\q{.38$\to$.88} & \na & \na & \yes\q{.56$\to$1.03} \\
+Distant-response fidelity          & F,D    & \yes\q{\S\ref{sec:results:fem}} & \yes\q{$\rho$=.89} & \na   & \na & \yes\q{2.3$\times$D} \\
+Contact-force ledger               & A      & \na & \yes\q{.25--.32\%} & \yes\q{.06--1.9\%} & \yes\q{$\le$.10\%} & \na \\
+Passivity $\dEmod\!\le\!\eta\dErig$ & bound  & \yes & \yes & \yes & \yes & \yes\q{0 act.} \\
+Momentum drift (lin/ang)           & $0$    & \na & \na & \yes\q{\S\ref{sec:results:momentum}} & \yes\q{\S\ref{sec:results:momentum}} & \na \\
+Two-way ring $|\amp|$              & off/on & \na & \na & \yes\q{1.1e{-}5/0} & \na & \na \\
+Restitution ratio $\le1\ \forall\varepsilon_r$ & D & \yes\q{.05 vs 2.6} & \na & \na & \na & \na \\
+Runtime (ms/step)                  & --     & \yes\q{125.6} & \yes\q{51.6} & \yes\q{78.5} & \yes\q{53.8} & \na \\
+Passivity ablation (blow-up)       & off/on & \yes\q{5.1e3$\times$} & \yes\q{1.2e5$\times$} & \na & \yes\q{1.1e4$\times$} & \na \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -109,18 +119,30 @@ mid $\leftrightarrow$ upper (box--box) & 5.82~N  & $mg$  & 1.1\%  \\
 \end{tabular}
 \end{table}
 
+The same read-only ledger generalizes across scenes (Table~\ref{tab:matrix}):
+on the shelf, every settled body matches its analytic weight to at most
+$0.10\%$ (system total $0.03\%$); on the ledge --- the topple scene --- the
+settled boulder matches to $0.32\%$ and the supported system total to
+$0.25\%$, with the knocked-off pillar excluded and the two surviving pillars
+leaning against the pedestal: their joint multipliers each read ${\sim}8\%$
+above the vertical weight because a leaning contact's normal is tilted (a
+geometric effect, not a force imbalance).
+
 \begin{figure*}[t]\centering
-  \includegraphics[width=\linewidth]{fig_contact_forces.pdf}
+  \includegraphics[width=0.92\linewidth]{fig_contact_forces.pdf}
   \Description{Two panels. Left: the top cube's steady modal ring amplitude on a
-  log scale for native fem-rigid and abd cargo versus rigid cargo and network-off,
-  the latter two identically zero. Right: each joint's measured normal load beside
+  log scale for the native modal cargo versus rigid cargo and network-off, the
+  latter two identically zero. Right: each joint's measured normal load beside
   the analytic stack-above times mg, matching within 1.9 percent.}
   \caption{(a) The two-way discriminator: the top cube --- two box--box hops from
-  the slab --- carries a steady ring only when the modal network is on (native
-  fem-rigid / abd), and $|\amp|\!\equiv\!0$ for rigid cargo or network-off. (b) The
-  static contact-force ledger: each joint's measured normal load matches the
-  analytic $(\Sigma\,\text{above})\,mg$ to $<1.9\%$ --- the shared multiplier
-  balances the tower with no per-joint tuning.}
+  the slab --- carries a steady ring only when the modal contact network is on,
+  and $|\amp|\!\equiv\!0$ for rigid cargo or network-off. (The affine-cargo
+  variant rings through the same network, but its affine coordinate is not
+  commensurable with a mass-normalized modal amplitude and its long-horizon
+  buildup is unresolved, so it is excluded here; \S\ref{sec:conclusion}.)
+  (b) The static contact-force ledger: each joint's measured normal load
+  matches the analytic $(\Sigma\,\text{above})\,mg$ to $<1.9\%$ --- the shared
+  multiplier balances the tower with no per-joint tuning.}
   \label{fig:forces}
 \end{figure*}
 
@@ -158,12 +180,11 @@ distance and reproduced by the native arm with no $C\,r^{-\beta}$ term at
 every $h$ --- not traveling-wave decay; the no-attenuation-term advantage is
 claimed for this modal regime only. At the paper step the native arm costs
 $13.6\times$ less wall-clock than the full-FEM GT on this scene.
-A tet-refinement ladder on the ground-truth meshes (R0--R4, up to
-67k nodes per support) shows the linear-tet operators themselves are still
-$3$--$10\%$/rung from the continuum (CST bending lock releases slowly), so all
-ground-truth frequencies and sags are reported as properties of the
-\emph{shared discrete operator}, never as physical plate values --- both arms
-use the same operator, so discretization bias cancels from every ratio.
+A tet-refinement ladder (up to 67k nodes per support) shows the linear-tet
+operators are still $3$--$10\%$/rung from the continuum, so ground-truth
+frequencies and sags are properties of the \emph{shared discrete operator},
+never physical plate values --- both arms use the same operator, so
+discretization bias cancels from every ratio.
 
 \paragraph*{Ledge --- a second ground-truth scene.} The strong-coupling ledge
 (a $16$~kg boulder dropped off-centre onto a stiff $1.2{\times}0.8{\times}0.08$~m
@@ -183,7 +204,7 @@ falloff along the slab tracks the GT with Spearman $\rho=0.89$ --- no fitted
 attenuation term, on a second scene.
 
 \begin{figure*}[t]\centering
-  \includegraphics[width=\linewidth]{fig_ledge_gt.pdf}
+  \includegraphics[width=0.92\linewidth]{fig_ledge_gt.pdf}
   \Description{Two panels for the ledge ground-truth comparison. Left: the
   native-over-ground-truth peak deflection ratio rising from 0.38 to 0.88 as the
   rigid step refines from 1/120 to 1/960, toward a dashed line at 1.0. Right:
@@ -222,17 +243,16 @@ low-passes), and it is also the observable the GT itself resolves poorly
 (above), so the residual gap at $1/960$ \emph{bounds the true deficit from
 above} rather than measuring it --- the GT-convergent deflection field is
 the accuracy metric, and it reaches $1.03$. DCR's forced-IIR architecture
-(their Eqs.~10--12) makes the opposite trade: it sub-steps the filter and
-re-injects the \emph{maximum} displacement as a velocity change,
-deliberately re-amplifying that transient --- and thereby exceeding the
-passive bound as $\varepsilon_r\!\to\!1$
-(\S\ref{sec:results:restitution}). Recovering the transient passively costs
-timestep ($8\times$ the steps $\Rightarrow$ ${\sim}34$~s per simulated
-second at $1/960$, still ${\sim}22\times$ under the all-FEM GT); recovering
-it at no timestep cost sacrifices the guarantee.
+(their Eqs.~10--12) makes the opposite trade: it re-injects the
+\emph{maximum} filter displacement as a velocity change, deliberately
+re-amplifying that transient --- and exceeding the passive bound as
+$\varepsilon_r\!\to\!1$ (\S\ref{sec:results:restitution}). Passive recovery
+costs timestep (${\sim}34$~s per simulated second at $1/960$, still
+${\sim}22\times$ under the all-FEM GT); recovery at no timestep cost
+sacrifices the guarantee.
 
 \begin{figure*}[t]\centering
-  \includegraphics[width=\linewidth]{fig_dinner_response.pdf}
+  \includegraphics[width=0.92\linewidth]{fig_dinner_response.pdf}
   \Description{Three log-scale panels of peak upward jump versus distance
   from the drop point, comparing the native modal solver, the all-cargo
   variant, and the all-FEM ground truth.}
@@ -285,8 +305,10 @@ actually ship.
 \paragraph*{Adversarial sweep (Fig.~\ref{fig:x1robust}).} XPBD (the injecting
 formulation, \S\ref{sec:method:solve}) on three scenes (shelf, ledge, dinner)
 $\times$ relax $\{0.7, 1.0\}$ $\times$ budget $\{4{\times}1, 8{\times}2,
-16{\times}4, 32{\times}8\}$, clamp OFF vs ON; ``passivity'' is the peak
-support-ring energy over the impactor KE. OFF: \textbf{12 of 24 cells inject},
+16{\times}4, 32{\times}8\}$, clamp OFF vs ON; the plotted ratio is the peak
+support-ring energy over the impactor KE --- an intensity diagnostic; the
+\emph{enforced} invariant is the ledger inequality, which the ON sweep
+satisfies in every cell. OFF: \textbf{12 of 24 cells inject},
 with per-scene worst cases $1.1\times10^{4}$ (shelf), $1.2\times10^{5}$
 (ledge), $5.1\times10^{3}$ (dinner). ON: \textbf{all 24 cells satisfy the
 ledger invariant}, and every injecting cell lands at $\le 1.22$. At the paper
@@ -306,22 +328,51 @@ $4{\times}4$ / $2{\times}4$ is \emph{bit-identical} with the clamp off or on
 holds at no cost and the ledger is a monitor, not an actor --- the dichotomy of
 \S\ref{sec:method:solve} measured.
 
-\paragraph*{Enforcement as shipped.} The budget each substep is the
-\emph{irreversible} contact loss, $\mathrm{grav\ work} - \Delta \mathrm{KE}$
-(zero in ballistic flight, positive only when contact dissipates); losses
-accumulate in a reservoir so the guarantee is cumulative,
-$\sum \dEmod \le \eta \sum \dErig$, and stays inert while slack remains; a
-substep that would overshoot is projected back by scaling the modal state
-$(\amp,\dot\amp)$ by a factor $\gamma$ with
-$\gamma^2 = (E_{\mathrm{old}}+\mathrm{budget})/E_{\mathrm{new}}$, landing
-exactly on the ceiling. This shipped clamp is the cumulative, full-state
-generalization of the per-step velocity-increment bound of
-Eq.~\ref{eq:alphastar}: the same budget, applied as a projection of
-$(\amp,\dot\amp)$ rather than a scale on the increment alone.
+\paragraph*{Choosing $\eta$ (Table~\ref{tab:eta}).} Every headline result runs
+$\eta=1$ (\S\ref{sec:method:passivity}); this sweep measures the knob. XPBD,
+clamp ON, $\eta\in\{0.1,0.3,0.5,1.0\}$ on the three scenes at the injecting
+($8{\times}2$) and paper ($16{\times}4$) budgets: all $24$ cells satisfy the
+ledger invariant, and where the clamp is load-bearing the realized modal gain
+tracks its budget exactly and linearly in $\eta$ (ledge $8{\times}2$:
+$39.9/120/199/399$~J at $\eta=0.1/0.3/0.5/1.0$, each equal to
+$\eta\,\Sigma\,\dErig$ to round-off) --- the knob transfers as specified. At
+the paper budget the clamp stays inert exactly while $\eta$ exceeds the
+scene's \emph{natural transfer ratio} --- the fraction of contact loss the
+un-governed solve sends into the modes, measured $0.16$ (dinner), $0.34$
+(ledge), $0.72$ (shelf); cf.\ the $0.26$--$0.28$ friction-sweep ratios below
+--- and below it the governor damps the legitimate ring (dinner
+$16{\times}4$, $\eta=0.1$: $228/432$ substeps clamped). $\eta=1$ is therefore
+the passivity-only default; $\eta<1$ is a deliberately tighter budget that is
+inert above the natural ratio and an active damper below it.
 
-\paragraph*{The cost of the ledger.} The ledger costs $+0.5$--$4.8$~ms/step at
-the paper configuration (single-run; re-measured with repetitions in the
-performance pass) and up to $+37$--$64\%$ on XPBD at extreme substep counts
+\begin{table}[t]\centering\footnotesize
+\setlength{\tabcolsep}{4.5pt}
+\caption{$\eta$ sweep (XPBD, clamp ON, relax $0.7$): clamp activations /
+realized modal gain [J] per cell, over $216$ ($8{\times}2$) or $432$
+($16{\times}4$) substeps; every cell passive. In saturated cells the realized
+gain equals $\eta\,\Sigma\dErig$ to round-off --- the projection of
+Eq.~\ref{eq:gammaproj} lands on the ceiling; cells with only early transient
+activations end below it once the reservoir refills. At $16{\times}4$ the
+clamp goes inert once $\eta$ clears the scene's natural transfer ratio
+($0.16/0.34/0.72$ for dinner/ledge/shelf).}
+\label{tab:eta}
+\begin{tabular}{llrrrr}
+\toprule
+scene & budget & $\eta{=}0.1$ & $0.3$ & $0.5$ & $1.0$ \\
+\midrule
+shelf  & $8{\times}2$  & 201 / 3.1  & 187 / 9.5 & 180 / 15.7 & 162 / 31.0 \\
+ledge  & $8{\times}2$  & 100 / 39.9 & 101 / 120 & 101 / 199  & 96 / 399 \\
+dinner & $8{\times}2$  & 80 / 2.8   & 0 / 3.9   & 0 / 3.9    & 0 / 3.9 \\
+shelf  & $16{\times}4$ & 179 / 3.2  & 93 / 10.9 & 18 / 19.0  & 0 / 27.9 \\
+ledge  & $16{\times}4$ & 127 / 40.5 & 65 / 125  & 0 / 144    & 0 / 144 \\
+dinner & $16{\times}4$ & 228 / 2.7  & 23 / 4.5  & 0 / 4.4    & 0 / 4.4 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph*{The cost of the ledger.} The ledger costs $+0.8$--$2.9$~ms/step at
+the paper configuration (mean over 10 runs, Table~\ref{tab:perf}) and up to
+$+37$--$64\%$ on XPBD at extreme substep counts
 --- host read-backs in the energy accounting, an implementation cost, not
 fundamental. The physical price is one-sided: on AVBD the clamp never fires
 (zero cost); on XPBD it prevents the blow-up but \emph{over-damps} the ring
@@ -342,8 +393,22 @@ there are \emph{zero} clamp activations at every $\mu$ (AVBD monitor-only).
 Friction enlarges the loss budget rather than opening an unbounded tangential
 modal channel, so the guarantee needs no tangential term.
 
+\paragraph*{What the guarantee costs, and where it is free.} On the
+descent-class host (AVBD), accuracy, passivity, and interactive cost hold
+\emph{simultaneously}: the FEM-validated configuration of
+\S\ref{sec:results:fem} runs with the ledger attached at zero activations and
+bit-identical trajectories, so the clamp there is a per-run certificate, not
+an actor. On the projection-class host (XPBD) the clamp is load-bearing: it
+converts a $10^{5}\times$ blow-up into a bounded run at the price of
+over-damping the ring --- stable, not accurate. On both hosts the impact
+transient is band-limited by the rigid step (\S\ref{sec:results:fem});
+amplitude recovers under substepping at linear cost, where DCR's forced IIR
+recovers it by re-amplification at the price of the bound itself
+(\S\ref{sec:results:restitution}). The bound is free exactly where the host
+is already passive, and load-bearing exactly where it is not.
+
 \begin{figure*}[t]\centering
-  \includegraphics[width=\linewidth]{fig_x1_robust.pdf}
+  \includegraphics[width=0.86\linewidth]{fig_x1_robust.pdf}
   \Description{Grid of passivity ratios across scenes, budgets, and
   relaxation values, clamp off versus on.}
   \caption{Adversarial robustness: XPBD across scene $\times$ budget $\times$
@@ -367,11 +432,29 @@ with the modal network on or off and with fully rigid cubes: the modal
 coupling adds \textbf{no momentum error beyond the host's own truncation
 error}, which scopes the third-law claim of \S\ref{sec:method:constraint} ---
 exact per row, budget-limited per sweep, the momentum-side twin of the energy
-story that motivates the bound. The clamp itself is momentum-silent: clamped
+story that motivates the bound. The clamp itself is momentum-silent --- the
+$\gamma$ projection touches modal state only, never rigid momenta: clamped
 and unclamped runs (XPBD $8{\times}2$ shelf, 183 activations) are
-bit-identical on every frame before the first activation, and diverge
-afterwards only through the support geometry subsequent contacts see --- the
-$\gamma$ projection touches modal state only, never rigid momenta.
+bit-identical until the first activation and diverge only through the
+support geometry later contacts see.
+
+\begin{figure*}[t]\centering
+  \includegraphics[width=0.86\linewidth]{fig_device_runtime.pdf}
+  \Description{Two panels for the device path. Left: milliseconds per step versus
+  iteration budget for dinner and ledge, with a 120 Hz real-time line and a
+  shaded real-time region below it; both scenes enter the region below a
+  16-by-4 budget. Right: realized modal energy gain versus the eta-times-rigid-
+  loss budget for all twenty scene-budget cells, every point below the passive
+  diagonal.}
+  \caption{Device-resident co-solved path (RTX~4090). (a) ms/step is linear in
+  the iteration budget; both swept scenes cross into the $120$~Hz real-time
+  region (shaded) at $16{\times}2$ and below. (b) The passivity ledger over all
+  $20$ scene$\times$budget cells: realized modal gain stays under the
+  $\eta\,\Delta E_{\rm rigid}$ budget (the passive diagonal) at every budget with
+  \emph{no active clamp} --- the real-time path is measured passive at every
+  tested budget.}
+  \label{fig:device}
+\end{figure*}
 
 \subsection{Restitution: bounded where the forced IIR double-counts}
 \label{sec:results:restitution}
@@ -404,13 +487,17 @@ matched-restitution comparison.
 
 \subsection{Runtime at the paper configuration}
 \label{sec:results:perf}
+
 Table~\ref{tab:perf} gives CPU-host timings at the paper configuration
-(single machine, 100 frames after warm-up, symplectic modal path --- the
-configuration every result above validates). AVBD is $1.6$--$3.1\times$
+(100 frames after warm-up, symplectic modal path --- the configuration every
+result above validates), measured on the RTX~4090 machine's host CPU so this
+section's CPU and device numbers share one box. AVBD is $1.2$--$3.6\times$
 faster than XPBD here (XPBD pays a per-mode Gauss--Seidel sweep;
 dinner at 25 bodies / 24 modes is its worst case). The split behind the title
-is the following. The fastest validated \emph{CPU-host} configuration (ledge/AVBD,
-$15.8$~ms, ${\sim}63$~steps/s) is interactive but not $120$~Hz real-time. The
+is the following. The \emph{CPU-host} path is validation-grade rather than
+fast --- ledge/AVBD costs $51.6$~ms/step on the server core and $11.2$~ms
+(${\sim}89$~steps/s) on a laptop-class core: interactive on consumer
+silicon, not $120$~Hz real-time. The
 same solver also runs device-resident: its co-solved (non-symplectic) modal
 step, with a warp-cooperative modal solve and full-substep CUDA-graph capture,
 measured here on an RTX~4090 (Table~\ref{tab:perfdev}, Fig.~\ref{fig:device}). At the paper budget it
@@ -422,37 +509,46 @@ the iteration budget, so $16{\times}2$ puts every scene comfortably real-time
 ($795$--$1092$~steps/s). Because the resident $q$-solve is bit-identical to the
 CPU reference, the two paths differ only in the modal integrator (host
 symplectic vs.\ co-solved), not the constraint. Critically, a read-only
-$\S15$ ledger evaluated over the full trajectory of all four scenes across five
+passivity ledger evaluated over the full trajectory of all four scenes across five
 budgets ($8{\times}1$ to $32{\times}4$) finds the device path \emph{passive in
 $20/20$ cells with no active clamp}: peak modal energy never reaches its start
 value plus $\eta$ times the cumulative rigid loss (net excess $<0$ in every
 cell), including the $8{\times}1$ real-time budget where a stationarity-class
-host would inject. The passivity guarantee therefore \emph{does} cover the
-device path --- it is an AVBD descent-class property, the same one that makes
-the clamp of \S\ref{sec:results:passivity} monitor-only on AVBD, not a separate
-mechanism. We keep interactive rates as the headline only because the
-deflection-field accuracy of \S\ref{sec:results:fem} is validated on the
-symplectic modal step; reproducing it on the co-solved step is the one
-remaining device-path item. For context, the full-FEM ground truth costs
+host would inject. We state this precisely: the $\gamma$-projection of
+Eq.~\ref{eq:gammaproj} is not device-resident, so on this path the invariant
+is \emph{verified per run} (measured passivity, consistent with the
+descent-class behavior that keeps the clamp monitor-only on AVBD,
+\S\ref{sec:results:passivity}) rather than enforced; wiring the $O(k)$
+projection device-side is mechanical future work. We keep interactive rates
+as the headline because the deflection-field accuracy of
+\S\ref{sec:results:fem} is validated on the symplectic modal step;
+reproducing it on the co-solved step is the other remaining device-path
+item. For context, the full-FEM ground truth costs
 $13.6\times$ the native arm on the slab scene (\S\ref{sec:results:fem}). The
 device measurements use an RTX~4090 (warp 1.15, 200 timed frames after
-warm-up); the CPU timings of Table~\ref{tab:perf} are single-run.
+warm-up); the CPU timings of Table~\ref{tab:perf} are mean$\pm$std over 10
+runs on the same machine's host CPU.
 
 \begin{table}[t]\centering\footnotesize
-\setlength{\tabcolsep}{4pt}
-\caption{ms/step at the paper configuration (CPU host, single run). ``clamp''
-is the passivity-ledger overhead included in the mean.}
+\setlength{\tabcolsep}{3.2pt}
+\caption{ms/step at the paper configuration: mean$\pm$std over 10 runs of 100
+frames (fresh build per run) on the host CPU (AMD EPYC 7542) of the RTX~4090
+machine of Table~\ref{tab:perfdev} --- every timing in this section comes
+from one box. ``clamp'' is the passivity-ledger overhead (clamped $-$
+unclamped mean). The CPU path is single-core-bound: the same protocol on an
+Apple M-series laptop core runs $3.5$--$4.6\times$ faster (e.g.\ ledge/AVBD
+$11.2\pm0.04$~ms, dinner/AVBD $34.1\pm0.3$~ms).}
 \label{tab:perf}
 \begin{tabular}{llrrrr}
 \toprule
-scene & solver & mean & worst & clamp & steps/s \\
+scene & solver & mean$\pm$std & worst & clamp & steps/s \\
 \midrule
-shelf  & XPBD & 26.9 & 43.0 & +2.4 & 37.2 \\
-shelf  & AVBD & 17.1 & 20.8 & +4.8 & 58.6 \\
-ledge  & XPBD & 42.0 & 63.6 & +3.0 & 23.8 \\
-ledge  & AVBD & 15.8 & 17.3 & +0.5 & 63.4 \\
-dinner & XPBD & 102.9 & 137.6 & +2.6 & 9.7 \\
-dinner & AVBD & 33.7 & 41.4 & +1.8 & 29.7 \\
+shelf  & XPBD & $65.2\pm0.5$  & 127.4 & $+0.8$ & 15.3 \\
+shelf  & AVBD & $53.8\pm0.2$  & 60.5  & $+1.3$ & 18.6 \\
+ledge  & XPBD & $110.6\pm1.0$ & 152.8 & $+0.9$ & 9.0 \\
+ledge  & AVBD & $51.6\pm0.1$  & 54.8  & $+1.3$ & 19.4 \\
+dinner & XPBD & $451.6\pm2.7$ & 549.3 & $+2.9$ & 2.2 \\
+dinner & AVBD & $125.6\pm0.6$ & 144.7 & $+1.5$ & 8.0 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -463,9 +559,9 @@ dinner & AVBD & 33.7 & 41.4 & +1.8 & 29.7 \\
 full-substep CUDA-graph capture, 200 frames). ms/step for the two-way modal
 support DOF; the resident $q$-solve is bit-identical to the CPU reference.
 Real-time is ${\le}8.33$~ms/step ($120$~Hz, shaded). The $16{\times}2$ and
-$8{\times}1$ budget columns are measured on ledge/dinner; a read-only $\S15$
-ledger confirms passivity in all $20$ scene$\times$budget cells with no active
-clamp.}
+$8{\times}1$ budget columns are measured on ledge/dinner; a read-only
+passivity ledger verifies the bound in all $20$ scene$\times$budget cells
+(measured, monitor-only; no active clamp).}
 \label{tab:perfdev}
 \begin{tabular}{lrrrrr}
 \toprule
@@ -479,19 +575,3 @@ dinner & 24 & 9.2 & \textbf{4.7} & \textbf{1.3} & 109 \\
 \end{tabular}
 \end{table}
 
-\begin{figure*}[t]\centering
-  \includegraphics[width=\linewidth]{fig_device_runtime.pdf}
-  \Description{Two panels for the device path. Left: milliseconds per step versus
-  iteration budget for dinner and ledge, with a 120 Hz real-time line and a
-  shaded real-time region below it; both scenes enter the region below a
-  16-by-4 budget. Right: realized modal energy gain versus the eta-times-rigid-
-  loss budget for all twenty scene-budget cells, every point below the passive
-  diagonal.}
-  \caption{Device-resident co-solved path (RTX~4090). (a) ms/step is linear in
-  the iteration budget; both swept scenes cross into the $120$~Hz real-time
-  region (shaded) at $16{\times}2$ and below. (b) The $\S15$ ledger over all
-  $20$ scene$\times$budget cells: realized modal gain stays under the
-  $\eta\,\Delta E_{\rm rigid}$ budget (the passive diagonal) at every budget with
-  \emph{no active clamp} --- the real-time path is passive by construction.}
-  \label{fig:device}
-\end{figure*}

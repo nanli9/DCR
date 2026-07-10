@@ -149,3 +149,45 @@ timed frames. Supersedes the stale `0.9–2.4 ms` estimate from
 Ledger 0.06–1.9%, ripple ±2.72→±1.48 N, ring 1.1e-5/0 ←
 `benchmarks/network/report_sheldon_contact_forces.py` output +
 `docs/sheldon_report/` (native branch).
+
+## Tier-1 additions (2026-07-10, measured on compshare AMD EPYC 7542; the
+## in-repo CSVs under `x1_passivity/out/` are the server runs — canonical)
+
+### §4.5 η sweep (X1c, Table `tab:eta`)
+
+| printed | value | source |
+|---|---|---|
+| all 24 cells passive; activations / gain table | verbatim | `x1_passivity/out/eta_sweep.csv` (XPBD, clamp ON, relax 0.7, 8×2 + 16×4) |
+| ledge 8×2 gain = η·Σloss exactly (39.9/120/199/399 J) | 39.8788/119.6448/199.4183/398.8811 = budgets | same : cum_gain vs cum_budget |
+| natural transfer ratios 0.16 / 0.34 / 0.72 (dinner/ledge/shelf) | 4.414/28.358; 143.96/418.68; 27.917/38.767 | same : cum_gain/cum_budget @ η=1, 16×4 |
+| dinner 16×4 η=0.1: 228/432 clamped | 228 | same |
+| saturated cells land on the ceiling; early-transient cells end below it | e.g. shelf 16×4 η=0.5: 18 clamps, 18.97 < 19.46 | same |
+
+### §4.1 static ledger extension (X1d)
+
+| printed | value | source |
+|---|---|---|
+| shelf: every body ≤0.10%, total 0.03% | max 0.098%, total 0.0303% | `x1_passivity/out/static_ledger.csv` (AVBD 16×4, 480 steps, tail 60) |
+| ledge: boulder 0.32%, system total 0.25% | 0.3151% / 0.2464% | same |
+| two surviving pillars lean on pedestal, joints ~8% over vertical weight | 8.01% / 7.83% (tilted normals) | same : boxbox rows |
+
+### §4.4 matrix slab-passivity cell (X1e)
+
+| printed | value | source |
+|---|---|---|
+| slab passive both hosts, 0 activations, net excess < 0 | xpbd 0/632, −6.89e-4; avbd 0/632, −5.93e-4 | `x1_passivity/out/slab_passivity.csv` (16×4, η=1; scene via benchmark-branch `scene_and_gt`) |
+
+### §4.8 CPU timings with repetitions (X5b, Table 5)
+
+| printed | value | source |
+|---|---|---|
+| shelf xpbd 65.2±0.5 / 127.4 / +0.8 / 15.3 | 65.23±0.52, worst 127.42, clamp +0.80±0.28 | `x5_perf/out/perf_reps_server.log` (the six symplectic rows: the original run crashed at the stack config before the CSV write; the log is the artifact) |
+| shelf avbd 53.8±0.2 / 60.5 / +1.3 / 18.6 | 53.84±0.20, 60.54, +1.29±0.20 | same |
+| ledge xpbd 110.6±1.0 / 152.8 / +0.9 / 9.0 | 110.55±0.98, 152.78, +0.93±0.76 | same |
+| ledge avbd 51.6±0.1 / 54.8 / +1.3 / 19.4 | 51.56±0.11, 54.82, +1.30±0.25 | same |
+| dinner xpbd 451.6±2.7 / 549.3 / +2.9 / 2.2 | 451.63±2.73, 549.30, +2.89±2.76 | same |
+| dinner avbd 125.6±0.6 / 144.7 / +1.5 / 8.0 | 125.57±0.56, 144.68, +1.48±0.62 | same |
+| stack (matrix cell) 78.5 ms, 12.7 steps/s | 78.536±0.643, worst 85.93, clamp +1.67±0.85 | `x5_perf/out/perf_reps_summary.csv` (default cargo modal path — symplectic is host non-cargo only) |
+| AVBD 1.2–3.6× XPBD | 65.2/53.8=1.21; 110.6/51.6=2.14; 451.6/125.6=3.60 | derived |
+| ledger cost +0.8–2.9 ms/step (§4.5) | clamp column range over the six symplectic rows | perf_reps_server.log |
+| Mac cross-check 3.5–4.6× (M-series laptop core, same protocol) | shelf avbd 12.59±0.62; ledge avbd 11.24±0.04; dinner avbd 34.12±0.27; ledge xpbd 31.40±0.20; dinner xpbd 125.36±0.90 → factors 4.28/4.59/3.68/3.52/3.60 | local run 2026-07-10 (10 reps × 100 frames); rerun `run_perf_reps.py` locally to regenerate |

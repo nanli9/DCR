@@ -155,11 +155,21 @@ modes. We cap the per-step contact$\to$modal transfer by
   \dEmod \;\le\; \eta\,\dErig , \qquad \eta\in[0,1],
   \label{eq:passivity}
 \end{equation}
-enforced globally across all contacts each rigid step (foundation \S15), with
+enforced globally across all contacts each rigid step, with
 $\dErig$ the rigid kinetic energy lost during contact resolution that step ---
-the physical reservoir any vibration must be paid from.
+the physical reservoir any vibration must be paid from. Every result in this
+paper runs $\eta=1$, the pure passivity point (vibration may consume at most
+the energy contact actually dissipated); \S\ref{sec:results:passivity} sweeps
+$\eta<1$ and measures what tightening the budget buys. We use
+\emph{passivity} in the time-domain sense of \citet{hannaford2002}: the modal
+subsystem may gain at most the $\eta$-scaled energy measured leaving the rigid
+subsystem through contact resolution. The building blocks --- the exact
+quadratic dependence of energy on an update scale~\citep{su2009energy,
+you2026energy} and post-step energy projection in a position-based
+host~\citep{dinev2018fepr} --- are established mechanisms; the content here is
+the port and supply rate (\S\ref{sec:related}).
 
-\paragraph*{Derivation of the passive scale $\alpha$ (foundation \S6).}
+\paragraph*{The passive scale $\alpha$.}
 The step's aggregate contact$\to$modal transfer is a velocity-level increment: the
 modes' velocities change by $\dot\amp \leftarrow \dot\amp + \alpha\,s$, where
 $s = M_q^{-1}\sum\Ghat^{\!\top}\!j$ collects the projected contact impulses and
@@ -191,12 +201,46 @@ the physics: $b<0$ means the impulse \emph{opposes} the current modal velocity,
 so a partial increment first removes energy and a larger $\alpha$ is admissible;
 $b>0$ means it adds energy to an already-moving mode, and the square root caps it. Because
 $a,b$ are aggregated over all contacts before scaling, a single $\alpha^\star$
-(the code's $\gamma$ ledger scale) bounds the \emph{global} step, closing the
-loophole where each contact is individually passive but their sum is not. In
-practice the two formulations sit on opposite sides of this bound: the AVBD block
-solve of Eq.~\ref{eq:qblock} is measured passive at the production budget (the clamp is
-a monitor, $0$ activations at $\omega_r=0.7$), while the XPBD projections of
-Eq.~\ref{eq:xpbd} inject without it and the clamp is load-bearing
-(\S\ref{sec:results:passivity}). This is a deliberate departure from DCR's
-forced IIR (their Eq.~10): the injection is a velocity-level increment to
-$\dot q$ funded by rigid kinetic-energy loss, not a forced response.
+bounds the \emph{global} step, closing the
+loophole where each contact is individually passive but their sum is not.
+
+\paragraph*{The controller as shipped: cumulative reservoir, exact projection.}
+Eq.~\ref{eq:alphastar} caps one velocity-level increment in isolation; the
+implementation enforces the \emph{cumulative} form of Eq.~\ref{eq:passivity}.
+Each rigid substep deposits the irreversible contact loss into a reservoir,
+$r \leftarrow r + \eta\,\max(\dErig,0)$, with $\dErig$ the substep's
+gravitational work minus its change in rigid kinetic energy --- zero in
+ballistic flight, positive only when contact dissipates --- and the realized
+modal gain $g=\max(\Delta E_m,0)$ debits it. While $g$ fits the reservoir the
+controller is inert. A substep that would overshoot is projected back by
+scaling the full modal state,
+\begin{equation}
+  (\amp,\dot\amp) \;\leftarrow\; \gamma\,(\amp,\dot\amp), \qquad
+  \gamma^2 \;=\; \frac{E_m^{\mathrm{pre}} + r}{E_m^{\mathrm{post}}},
+  \label{eq:gammaproj}
+\end{equation}
+with $E_m=\tfrac12\dot\amp^{\!\top}\!M_q\dot\amp+\tfrac12\amp^{\!\top}\!K_q\amp$
+the modal mechanical energy before / after the un-clamped substep. Because
+$E_m$ is a homogeneous quadratic in the state,
+$E_m(\gamma\amp,\gamma\dot\amp)=\gamma^2E_m(\amp,\dot\amp)$ \emph{exactly}, so
+the projected substep realizes precisely its remaining budget --- the clamp
+lands on the ceiling, not near it (measured to $\sim\!10^{-17}$~J,
+\S\ref{sec:results:passivity}) --- and by induction over substeps every prefix
+of every run satisfies
+$\sum\dEmod \le \eta\sum\dErig + \varepsilon_{\mathrm{tol}}$. The cumulative
+inequality therefore holds \emph{by construction} wherever the controller
+runs. Eq.~\ref{eq:alphastar} is its special case when the substep's whole
+modal update is the increment $\alpha s$: only $\dot\amp$ is touched and the
+projection reduces to the $\alpha$-cap. Scaling $\amp$ together with
+$\dot\amp$ is what makes the projection exact for an arbitrary co-solved
+update; it is also why an injecting host is over-damped rather than merely
+capped (\S\ref{sec:results:passivity}) --- once injected energy mixes into
+elastic PE, the ledger cannot separate it from the valid ring.
+
+In practice the two formulations sit on opposite sides of this bound: the AVBD
+block solve of Eq.~\ref{eq:qblock} is measured passive at the production
+budget (the clamp is a monitor, $0$ activations at $\omega_r=0.7$), while the
+XPBD projections of Eq.~\ref{eq:xpbd} inject without it and the clamp is
+load-bearing (\S\ref{sec:results:passivity}). This is a deliberate departure
+from DCR's forced IIR (their Eq.~10): the modal excitation is funded by
+measured rigid kinetic-energy loss, not a forced response.

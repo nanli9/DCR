@@ -18,26 +18,36 @@ and the simulation ``remains rigid.'' Neither offers a guarantee on the \emph{en
 the contact injects into the modes.
 
 \paragraph*{This paper.} We embed the vibration modes as native compliant constraints
-inside a real-time augmented-Lagrangian / position-based rigid solver
+inside an interactive-rate augmented-Lagrangian / position-based rigid solver
 (XPBD~\citep{macklin2016xpbd}, VBD/AVBD~\citep{chen2024vbd,giles2025avbd}). One
 unilateral contact multiplier excites the modes and reacts on the bodies within the
-same solver iteration (\S\ref{sec:method}). This real-time regime \emph{creates} a
+same solver iteration (\S\ref{sec:method}). This fixed-budget regime \emph{creates} a
 failure mode the convergent offline solver never had: an under-converged local solve
-can inject spurious energy into the stiff modal block. Our remedy is an enforced per-step passivity
-bound $\dEmod \le \eta\,\dErig$ on the contact$\to$modal transfer, which makes the
-coupling usable at a fixed low iteration budget. We generalize the guarantee across a
+can inject spurious energy into the stiff modal block. Our remedy is an enforced
+passivity bound $\dEmod \le \eta\,\dErig$ on the contact$\to$modal transfer ---
+maintained cumulatively every substep by an exact energy projection
+(\S\ref{sec:method:passivity}) --- which makes the
+coupling usable at a fixed low iteration budget. We generalize the invariant across a
 body--body modal contact network and validate against a full-FEM ground truth
 (\S\ref{sec:results}).
 
 \paragraph*{Contributions.}
 \begin{itemize}
-  \item An enforced per-step \textbf{passivity inequality} bounding the
-        contact$\to$modal energy transfer --- absent from prior modal-contact work.
-  \item Vibration modes as \textbf{first-class compliant-constraint DOFs} in a
-        real-time augmented-Lagrangian rigid solver: the two-way coupling of
-        \citet{zheng2011} brought from an offline LCP/QP to real time.
-  \item That guarantee \textbf{generalized across a body--body modal contact network}
-        --- stacked bodies ring through their shared contacts.
+  \item A cumulative \textbf{directional energy budget} on the transfer from
+        contact into the modes, funded by measured rigid contact loss and
+        enforced by an exact modal-state projection
+        (\S\ref{sec:method:passivity}). Prior energy-stable contact constrains
+        the \emph{system} --- non-increase, whole-system passivity, or
+        conservation projection (\S\ref{sec:related}) --- not the one-sided,
+        source-referenced transfer.
+  \item Vibration modes as \textbf{first-class compliant-constraint DOFs}
+        sharing one unilateral contact multiplier with the rigid solve of a
+        fixed-budget augmented-Lagrangian host --- prior interactive modal
+        contact used LP constraints or penalties (\S\ref{sec:related}); the
+        shared fixed-budget AL row, and what its truncation does to energy,
+        is the new embedding.
+  \item That bound \textbf{generalized across a body--body modal contact
+        network} --- stacked bodies ring through their shared contacts.
   \item Validation against a full-FEM ground truth and a contact-force audit
         (\S\ref{sec:results}).
 \end{itemize}

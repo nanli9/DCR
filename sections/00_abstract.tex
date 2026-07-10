@@ -1,12 +1,14 @@
 \begin{abstract}
-We bring \emph{two-way} rigid--modal contact coupling into a real-time,
+We bring \emph{two-way} rigid--modal contact coupling into an interactive-rate,
 augmented-Lagrangian rigid-body solver. Each body's linear vibration modes are
 carried as first-class compliant-constraint degrees of freedom: a single shared
 unilateral contact multiplier both excites the modes of the bodies in contact and
-reacts on their rigid frames, so linear and angular momentum are conserved by
-construction and vibration propagates through a body--body contact network.
+reacts on their rigid frames through equal-and-opposite Jacobian blocks ---
+momentum-consistent per contact row --- and vibration propagates through a
+body--body contact network.
 Because the host solver runs at a fixed, low iteration budget, this coupling can
 inject spurious energy into the modes; we bound the contact$\to$modal transfer with
-an enforced per-step passivity inequality $\dEmod \le \eta\,\dErig$ that keeps the
+an enforced passivity inequality $\dEmod \le \eta\,\dErig$, maintained
+cumulatively across every substep of every run, that keeps the
 coupling stable at interactive rates.
 \end{abstract}
