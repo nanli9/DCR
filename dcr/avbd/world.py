@@ -519,6 +519,19 @@ class AVBDDCRWorld:
         self._native_modal_enabled = True
         s._dirty = True
 
+    def set_modal_ringdown(self, mode: str = "kill", **kw) -> None:
+        """Attach (or clear, mode="off") the modal ring-down operator on the
+        native solver — the arm-at-injection, velocity-only settle of the
+        support ring about its sag reference (dcr/modal/ringdown.py). Requires
+        `enable_reduced_modal_support` first. Host path only; removed energy
+        is logged on the solver as `cum_ringdown_dissipated` (foundation
+        §9/§11 dissipation channel), never refunded to the §15 reservoir.
+        """
+        if mode != "off" and not self._native_modal_enabled:
+            raise RuntimeError(
+                "set_modal_ringdown requires enable_reduced_modal_support")
+        self._solver.set_modal_ringdown(mode, **kw)
+
     def add_native_cargo(self, body_avbd_idx: int, cargo_body,
                          allow_stacked: bool = False) -> None:
         """Register a deformable cargo cube on the NATIVE modal path (M2). Call

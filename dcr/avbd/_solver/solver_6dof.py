@@ -650,6 +650,13 @@ class Solver6DOF:
         self._E_rig_pre = 0.0
         self._E_modal_pre = 0.0
         self._psv_x_pre = None
+        # Modal ring-down ("settle"): scheduled post-commit dissipation of the
+        # support ring about its sag reference (dcr/modal/ringdown.py). None =
+        # off (default; behaviour-neutral). Host path only — see
+        # set_modal_ringdown / _apply_modal_ringdown.
+        self._modal_ringdown = None
+        self.cum_ringdown_dissipated = 0.0
+        self.last_ringdown_dissipated = 0.0
 
     # ---- Scene building -----------------------------------------------------
 
@@ -788,6 +795,39 @@ class Solver6DOF:
         self._modal_enabled = True
         self._n_modes_tot = r
         self._dirty = True
+
+    def set_modal_ringdown(
+        self,
+        mode: str = "kill",
+        *,
+        delay: float = 0.15,
+        qbar_tau: float = 0.3,
+        rearm_threshold: float = 1e-7,
+        zeta_target: float = 1.0,
+    ) -> None:
+        """Attach (or clear, mode="off") the modal ring-down operator — the
+        arm-at-injection, velocity-only settle of the support ring about its
+        sag reference (dcr/modal/ringdown.py). Requires `set_modal_support`
+        first and a diagonal (eigenbasis) modal system.
+
+        Host path only: applied post-commit in `_step_one_body`, gated on
+        `not _modal_resident`, so on the CUDA-resident path it is a silent
+        no-op (a device kernel is a follow-up). Removed energy accumulates in
+        `cum_ringdown_dissipated` — logged dissipation (foundation §9/§11),
+        never refunded to the §15 reservoir.
+        """
+        if mode == "off":
+            self._modal_ringdown = None
+            return
+        if not self._modal_enabled:
+            raise RuntimeError("set_modal_support must be called first")
+        from dcr.modal.ringdown import ModalRingdown, RingdownConfig
+        cfg = RingdownConfig(mode=mode, delay=float(delay),
+                             qbar_tau=float(qbar_tau),
+                             rearm_threshold=float(rearm_threshold),
+                             zeta_target=float(zeta_target))
+        self._modal_ringdown = ModalRingdown(
+            self._Mq, self._Kq, self._Dq, cfg, q0=self._q_modal_host)
 
     def add_cargo_native(self, body: RigidBody, cargo_body,
                          support_rows: list[tuple[int, int]]) -> None:
@@ -2026,6 +2066,14 @@ class Solver6DOF:
                 self._modal_commit_cargo()
             else:
                 self._modal_commit()
+            # Modal ring-down: post-commit, post-clamp (removed energy must
+            # never be misattributed as a §15 injection). Host path only —
+            # on the CUDA-resident path the commit ran on device and this is
+            # a silent no-op (graph replay never executes this body anyway).
+            if (self._modal_ringdown is not None
+                    and not self._modal_resident
+                    and not self._modal_freeze_qdot):
+                self._apply_modal_ringdown()
 
         # ---- 7. Refresh pair hash for next-substep warm-start ----
         self._refresh_pair_hash(dev)
@@ -2547,6 +2595,42 @@ class Solver6DOF:
                 self.last_q_norm = float(np.linalg.norm(self._q_modal_host))
             self._psv_ledger.commit(e_modal_new - self._E_modal_pre, budget, gamma,
                                     e_modal_now=e_modal_new)
+
+    def _apply_modal_ringdown(self) -> None:
+        """Apply the ring-down operator to the committed support modal state.
+
+        Velocity-only (q untouched ⇒ the contact surface never snaps ⇒ no
+        float32 `q_modal` mirror refresh is needed — the primal kernels read
+        positions only). Removed energy is logged, never refunded
+        (foundation §9/§11; contract of homogeneous_stepper
+        apply_rigid_step_decay). Covers all three host commit branches:
+
+        * plain support: mutate `_qdot_modal_host`;
+        * cargo/augmented: `_modal_commit_cargo` split `_q(dot)_modal_host`
+          out of `_q(dot)_aug` as COPIES — write the support block back into
+          `_qdot_aug[:r]` (the authoritative vector the next predictor reads);
+        * IIR (paper Eq. 10 path): the recursion carries velocity implicitly
+          in (q, q_prev) — re-encode the mutated q̇ as
+          `q_prev = q − h·q̇` so the resonator doesn't reconstruct the old
+          amplitude next substep.
+        """
+        h = float(self.dt)
+        r = self._n_modes
+        q = self._q_modal_host
+        qd = self._qdot_modal_host
+        D = self._modal_ringdown.apply(q, qd, h)   # mutates qd in place
+        self.last_ringdown_dissipated = D
+        if D <= 0.0:
+            return
+        self.cum_ringdown_dissipated += D
+        if self._cargo_enabled:
+            self._qdot_aug[:r] = qd
+            Qd = self._qdot_aug
+            self.last_modal_KE = float(0.5 * Qd @ self._Mq_aug @ Qd)
+        else:
+            self.last_modal_KE = float(0.5 * qd @ self._Mq @ qd)
+        if self._modal_iir:
+            self._q_modal_prev = q - h * qd
 
     def _ensure_iir_coeffs(self, h: float) -> None:
         """Per-mode IIR coefficients (paper Eq. 10) for the damped SDOF
