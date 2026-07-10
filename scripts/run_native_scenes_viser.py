@@ -269,6 +269,7 @@ class UnifiedViser:
         self.ride = bool(getattr(args, "ride", False))
         self.show_proxy = False
         self.static_view = False
+        self.ring_view = False       # "ring only (q − static)" render view
         self._pending_rebuild = False
         # scene-dependent knobs (seeded from the scene preset; reset on rebuild)
         sp = SCENE_SPEC[self.scene]
@@ -378,6 +379,10 @@ class UnifiedViser:
             cargo_n_elastic=3,               # per-body k (the cargo-scene value)
             iterations=int(self.knob_iters), avbd_substeps=int(self.knob_subs),
             support_thickness=float(self.knob_thickness),
+            # dinner's builder names it table_thickness — without this alias
+            # the signature filter silently DROPPED the thickness knob there
+            # (the slider did nothing on the dinner scene)
+            table_thickness=float(self.knob_thickness),
             youngs=float(mat.youngs), density=float(mat.density),
             support_youngs=float(mat.youngs), support_density=float(mat.density),
             impactor_drop_height=float(self.knob_drop),
@@ -568,7 +573,15 @@ class UnifiedViser:
                 flat_shading=True, side="double"))
 
     def _render_q(self):
-        return self._q_static if self.static_view else self.rs.q
+        if self.static_view:
+            return self._q_static
+        if self.ring_view:
+            # "ring only": render the TRANSIENT deformation (q − static EMA) —
+            # the table reads FLAT at rest (no visible sag), deformation shows
+            # only during events. Render-side only: physics and contact
+            # geometry are untouched (they use the full q).
+            return self.rs.q - self._q_static
+        return self.rs.q
 
     def _deform_faces(self, d) -> np.ndarray:
         if self.show_proxy:
@@ -718,11 +731,16 @@ class UnifiedViser:
                      "override (e.g. render a thin physical sheet as a thick "
                      "slab for visibility).")
             self.gui_view = g.add_dropdown(
-                "modal view", ("full (q)", "static (low-pass)"),
+                "modal view",
+                ("full (q)", "static (low-pass)", "ring only (q − static)"),
                 initial_value="static (low-pass)" if self.static_view
                 else "full (q)",
                 hint="full = the live modal state incl. the dynamic ring; "
-                     "static = a render-side low-pass (the resting sag only)")
+                     "static = a render-side low-pass (the resting sag only); "
+                     "ring only = the transient deformation with the sag "
+                     "subtracted — the table reads FLAT at rest and deforms "
+                     "only during events (render-side only; physics and "
+                     "contact geometry untouched).")
             self.gui_proxy = g.add_checkbox(
                 "impactor as collision proxy", initial_value=self.show_proxy,
                 hint="draw the deformable impactor as the rigid box the solver "
@@ -760,9 +778,11 @@ class UnifiedViser:
         # Render slab thickness follows the physical thickness slider live, so
         # the rendered slab tracks the chosen thickness without a manual nudge.
         self.gui_thickness.on_update(self._thickness_changed)
-        self.gui_view.on_update(
-            lambda _: setattr(self, "static_view",
-                              self.gui_view.value.startswith("static")))
+        def _view_changed(_evt):
+            v = self.gui_view.value
+            self.static_view = v.startswith("static")
+            self.ring_view = v.startswith("ring")
+        self.gui_view.on_update(_view_changed)
         self.gui_proxy.on_update(self._proxy_changed)
 
     def _iters_changed(self, _evt):
@@ -1050,12 +1070,14 @@ def main():
                     help="initial support-slab material → Young's modulus + "
                          "density (default: per-scene preset)")
     ap.add_argument("--device", default="cpu")
-    ap.add_argument("--modal-relax", type=float, default=0.7,
-                    help="modal under-relaxation (q chase per iteration), "
-                         "applied to BOTH solvers. Higher = more visible modal "
-                         "flex/ring. Default 0.7 (= AVBD's class default; "
-                         "CAUTION on XPBD: its GS diverges ≥~0.5 on stiff "
-                         "scenes). Tunable live in the GUI.")
+    ap.add_argument("--modal-relax", type=float, default=None,
+                    help="modal under-relaxation override (q chase per "
+                         "iteration). Default: FOLLOW the live solver's own "
+                         "default (AVBD 0.7, XPBD 0.25) — the old fixed 0.7 "
+                         "default sat above XPBD's measured ~0.25 GS ceiling "
+                         "and visibly over-deformed the support at launch "
+                         "(XPBD is the default solver). Tunable live in the "
+                         "GUI; pass a value to pin both solvers.")
     ap.add_argument("--symplectic", action="store_true",
                     help="(default ON) energy-conserving implicit-midpoint "
                          "modal step. Kept for explicitness; use --be to opt "

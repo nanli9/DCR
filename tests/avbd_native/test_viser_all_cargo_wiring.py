@@ -58,6 +58,17 @@ class _Scene:
         w.vertices = vertices
         return w
 
+    def add_batched_meshes_simple(self, name, vertices=None, faces=None,
+                                  batched_wxyzs=None, batched_positions=None,
+                                  batched_scales=None, batched_colors=None,
+                                  flat_shading=False, side="double"):
+        # decorated-model instancing (viser >= 0.2.x); the viewer later writes
+        # handle.batched_positions / .batched_wxyzs each frame
+        w = _Widget()
+        w.batched_positions = batched_positions
+        w.batched_wxyzs = batched_wxyzs
+        return w
+
     def remove_by_name(self, name):
         pass
 
