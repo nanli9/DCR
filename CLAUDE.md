@@ -16,8 +16,9 @@ After the DCR core completes, this repo extends into a **follow-up project of ou
 
 ## What this project is NOT
 
-- Not a fork or extension of *other people's* follow-up papers. No bounce maps, no contact sounds, no anisotropic friction.
+- Not a fork or extension of *other people's* follow-up papers. No bounce maps, no anisotropic friction, and no contact-sound *research claims*.
   - *(GPU port: previously out of scope. Now in scope on the `AVBD-Native` branch only — the AVBD solver + reduced-coupled coupler are CUDA device-resident there, with the CPU/numpy path kept as the parity-tested reference. Still out of scope on `main` / DCR core.)*
+  - *(Impact-sound render: previously fully out of scope. As of 2026-07-11 (user-approved scope change) an impact-sound **render** of the logged, energy-bounded contact excitation is in scope as the Stage E6 demo — see the E6 clarification below. Synthesis is a standard technique (van den Doel–Pai modal IIR bank) and is **never** claimed as a contribution.)*
 - Not a production physics engine. Numerical robustness comes second to readability and faithfulness to the paper.
 - Not real-time yet. Get correctness first.
 
@@ -38,7 +39,11 @@ holds every rigid step, globally across all contacts. This deviates from the pap
 Stage order for the follow-up: **E0 → E1 → E2 → E3 → E4 → E5 → E6 (optional stretch)**. Each stage has acceptance criteria that must be demonstrated (test passing + plot / MP4) before the next begins. Same rules as DCR core.
 
 Important scope clarifications for the follow-up:
-- **Stage E6 is a logged scalar energy bound, not audio synthesis.** It does not contradict the "no contact sounds" line above — no `.wav` files, no audio backend.
+- **Stage E6 is a logged scalar energy bound, plus (scope change 2026-07-11) an offline impact-sound render that demonstrates it.** The render lives in `dcr/sound/`: a band-split, audio-rate modal IIR bank driven **open-loop** by the per-substep native-contact excitation logged from the solver, with cumulative audio-band energy capped by the same §15-form ledger (`ΔE_audio ≤ η_audio · ΔE_rigid_loss`, cumulative). Constraints that keep this honest:
+  - The co-solved sim-rate modal band is **untouched** — the audio bank is a *renderer* of the excitation stream, exactly as the viewer is a renderer of the displacement stream. High-frequency modes must never enter the co-solve (they are unrepresentable at substep rate and are the documented stiff-row injection failure mode).
+  - **Impacts only.** Excitation comes from normal contact rows; friction/scrape/rolling sounds are impossible in the current normal-only coupling and must not be attempted or implied.
+  - **Offline render only (Tier 0).** No live audio backend, no new dependencies (`scipy.io.wavfile` writes the `.wav`). A live `sounddevice` thread is a possible follow-up requiring its own written justification.
+  - **Never a claimed contribution.** The bank is standard (van den Doel–Pai 1998); the only novel-adjacent element is that the excitation is the ledger-bounded native multiplier, and even that is framed as an E6 *demo*, per the findings.md claim discipline.
 - **The energy bound applies to the modal-path injection only** (Stage E3). The Stage 6 spatial-attenuation path is empirical and is not energy-budgeted in this follow-up.
 
 ## Tech stack — fixed
@@ -49,6 +54,7 @@ Important scope clarifications for the follow-up:
 - **`warp-lang`** for any hot inner loops. `wp.init()`. CPU (`device="cpu"`) is the reference and the default. **CUDA is in scope on the `AVBD-Native` branch** for GPU residency (the AVBD solver and the reduced-coupled coupler run device-resident on `--device cuda:0`); the CPU/numpy path remains the correctness reference and every device kernel is parity-tested against it. On `main` and the DCR-core stages, stay CPU-only.
 - **`polyscope`** for visualization (fast to integrate, decent enough). `pyvista` is a fallback.
 - **`pylibigl`** if available, for the heat-method geodesic in Stage 6. Otherwise implement it from scratch (it's small).
+- **`sounddevice`** (PortAudio) — justified 2026-07-11 for the Tier 1 LIVE E6 sound demo **only** (`dcr/sound/live.py` + the viser `--sound` flag). The offline E6 render stays scipy-only; no sim/solver code may import it, and it is imported lazily so the repo works without it.
 
 Do **not** add a new dependency without justifying it in writing. No PyTorch, no JAX, no Taichi, no C++, no pybind11. The energy-injection follow-up does not require any new dependency.
 
@@ -121,6 +127,8 @@ Do **not** add a new dependency without justifying it in writing. No PyTorch, no
 │   │   ├── passive_inject.py                       # Stages E1-E3: Phi^T j, alpha, q̇ kick
 │   │   └── homogeneous_stepper.py                  # Stage E3: free SDOF integrator
 │   ├── dcr/                                        # Stages 5-6: the coupling layer
+│   ├── sound/                                      # Stage E6 demo: offline impact-sound render
+│   │                                               #   (band-split audio bank, ledger-capped; NOT a contribution)
 │   └── viewer/                                     # polyscope wrapper
 ├── scenes/                                         # python scene files (one per scenario)
 ├── scripts/                                        # entry points: run_stage1.py, ...

@@ -333,7 +333,12 @@ class UnifiedViser:
         self.render_thick = sp["thickness"]
         self._slab_faces = _slab_faces(N_GRID_X, N_GRID_Z)
         self._q_static = None        # EMA of rs.q for the "static" modal view
+        # Tier 1 live E6 audio (dinner + AVBD host path; CLAUDE.md E6 scope).
+        self._sound = None
+        self._sound_note = "off"
         self._build()
+        if bool(getattr(args, "sound", False)):
+            self._attach_sound()
         self._init_gui()
 
     def _all_cargo_on(self) -> bool:
@@ -600,7 +605,60 @@ class UnifiedViser:
         z[7:] = self.world._solver.cargo_a(idx)          # native: cube state from the solver
         return cube.deformed_surface(z, self.cube_exag).astype(np.float32)
 
+    # ---- Tier 1 live sound (Stage E6 demo; dcr/sound/live.py) --------
+    # Per-material AUDIO table damping: the scene's Rayleigh α is a wood-scale
+    # sim fit that would make every material thud; constant-ζ render override
+    # (audio_basis DEVIATION note). None = keep the sim's Rayleigh law (wood).
+    _AUDIO_TABLE_ZETA = {"wood": None, "steel": 3.0e-4,
+                         "plastic": 8.0e-3, "soft": 2.5e-2}
+
+    def _attach_sound(self):
+        """Dinner + AVBD-native host path only; failures never break the
+        viewer (audio is a demo layer, the sim owes it nothing)."""
+        a = self.args
+        if self.scene != "dinner":
+            self._sound_note = f"off (scene={self.scene}; dinner only)"
+            print(f"[sound] {self._sound_note}")
+            return
+        if self._eff_solver != "avbd" or self.device.startswith("cuda"):
+            self._sound_note = ("off (needs the AVBD host path: "
+                                "--solver avbd --device cpu)")
+            print(f"[sound] {self._sound_note}")
+            return
+        try:
+            from dcr.sound.live import attach_live_sound
+            from scripts.sound_voices import build_dinner_audio
+            mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
+            da = build_dinner_audio(
+                self.handle, self.world, fs=float(a.sound_fs),
+                table_thickness=float(self.knob_thickness),
+                youngs=float(mat.youngs), density=float(mat.density),
+                table_zeta_const=self._AUDIO_TABLE_ZETA.get(self.material),
+                cache_dir="data/audio_basis")
+            self._sound = attach_live_sound(
+                self.world, table_basis=da.table_basis,
+                body_bases=da.body_bases,
+                tau_ref_per_body=da.tau_ref_per_body,
+                eta_audio=float(a.sound_eta), fs=float(a.sound_fs),
+                blocksize=int(a.sound_block), gain=float(a.sound_gain))
+            self._sound_note = f"live ({len(da.body_bases) + 1} voices)"
+            print(f"[sound] {self._sound_note}  gain={a.sound_gain}  "
+                  f"block={a.sound_block} (~{1e3 * int(a.sound_block) / float(a.sound_fs):.1f} ms)")
+        except Exception as e:                       # pragma: no cover
+            self._sound = None
+            self._sound_note = f"failed: {type(e).__name__}: {e}"
+            print(f"[sound] {self._sound_note}")
+
+    def _detach_sound(self):
+        if self._sound is not None:
+            try:
+                self._sound.stop()
+            except Exception:                        # pragma: no cover
+                pass
+            self._sound = None
+
     def _rebuild(self):
+        self._detach_sound()
         names = (["/support"]
                  + [f"/deform_{k}" for k in range(len(self._deforms))]
                  + [f"/body_{g['kind']}" for g in getattr(self, "_box_groups", [])])
@@ -610,6 +668,8 @@ class UnifiedViser:
             except Exception:
                 pass
         self._build()
+        if bool(getattr(self.args, "sound", False)):
+            self._attach_sound()
 
     # ---- GUI ---------------------------------------------------------
     def _init_gui(self):
@@ -758,6 +818,7 @@ class UnifiedViser:
             self.hud_psv = g.add_text("modal E vs loss budget",
                                       initial_value="—")
             self.hud_clamp = g.add_text("passivity clamp", initial_value="—")
+            self.hud_sound = g.add_text("live sound (E6)", initial_value="—")
 
         # handlers
         for w in (self.gui_scene, self.gui_solver, self.gui_kind,
@@ -1058,6 +1119,15 @@ class UnifiedViser:
                 else:
                     self.hud_psv.value = "—"
                     self.hud_clamp.value = "—"
+                # Tier 1 live sound (E6): inequality state + engine health.
+                if self._sound is not None:
+                    st = self._sound.stats()
+                    self.hud_sound.value = (
+                        f"{'E6 ✓' if st['e6_holds'] else 'E6 ✗'}  "
+                        f"ev={st['events_emitted']} cap={st['n_capped']}  "
+                        f"cb={st['max_cb_ms']:.1f}ms ur={st['underruns']}")
+                else:
+                    self.hud_sound.value = self._sound_note
             time.sleep(max(0.0, (1.0 / 120.0) / max(self.speed, 1e-3)))
 
 
@@ -1143,6 +1213,20 @@ def main():
     ap.add_argument("--support-exag", type=float, default=1.0,
                     help="initial slab-deflection render exaggeration (1 = true scale)")
     ap.add_argument("--port", type=int, default=8192)
+    ap.add_argument("--sound", action="store_true",
+                    help="Tier 1 LIVE E6 audio (dinner scene on the AVBD host "
+                         "path: --scene dinner --solver avbd --device cpu). "
+                         "Impact sound streamed from the native contact "
+                         "multipliers under the §15-form energy budget "
+                         "(dcr/sound/live.py). Speakers on.")
+    ap.add_argument("--sound-gain", type=float, default=0.35,
+                    help="master gain into the soft limiter (0.05 quiet … 1 loud)")
+    ap.add_argument("--sound-fs", type=float, default=44100.0)
+    ap.add_argument("--sound-block", type=int, default=512,
+                    help="audio block size [samples]; 512 ≈ 11.6 ms latency "
+                         "(comfortable callback headroom; 256 is snappier)")
+    ap.add_argument("--sound-eta", type=float, default=1.0,
+                    help="η_audio in the E6 budget ΔE_audio ≤ η·ΔE_rigid_loss")
     UnifiedViser(ap.parse_args()).run()
 
 

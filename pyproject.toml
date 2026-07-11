@@ -10,6 +10,11 @@ dependencies = [
     "viser>=1.0.29",
     "polyscope>=2.0",
     "matplotlib>=3.5",
+    # Justification (CLAUDE.md tech-stack rule): PortAudio bindings for the
+    # Tier 1 LIVE E6 sound demo ONLY (dcr/sound/live.py, user-approved
+    # 2026-07-11). The offline render path stays scipy-only; nothing in the
+    # sim/solver imports this.
+    "sounddevice>=0.4",
 ]
 
 [build-system]
