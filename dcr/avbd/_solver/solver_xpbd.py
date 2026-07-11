@@ -337,13 +337,6 @@ class SolverXPBD:
         self._psv_ledger = None
         self._psv_Il = None      # cached body-local inertia = inv(invIl) (§15 clamp)
         self._E_rig_pre = 0.0
-        # Modal ring-down ("settle"): scheduled post-commit dissipation of the
-        # support ring about its sag reference (dcr/modal/ringdown.py). None =
-        # off (default; behaviour-neutral). Host path only — see
-        # set_modal_ringdown and the _substep_cpu tail.
-        self._modal_ringdown = None
-        self.cum_ringdown_dissipated = 0.0
-        self.last_ringdown_dissipated = 0.0
         # Cargo (Stage 4): augmented modal vector Q = [q_support; a_cargo…].
         self._cargo: dict = {}        # body_idx -> cargo body model
         self._cargo_a: dict = {}      # body_idx -> (k,) amplitude
@@ -472,36 +465,6 @@ class SolverXPBD:
         self._modal = True
         from .passivity import PassivityLedger
         self._psv_ledger = PassivityLedger(eta=float(self._modal_eta))
-
-    def set_modal_ringdown(
-        self,
-        mode: str = "kill",
-        *,
-        delay: float = 0.15,
-        qbar_tau: float = 0.3,
-        rearm_threshold: float = 1e-7,
-        zeta_target: float = 1.0,
-    ) -> None:
-        """Attach (or clear, mode="off") the modal ring-down operator — the
-        arm-at-injection, velocity-only settle of the support ring about its
-        sag reference (dcr/modal/ringdown.py). Requires `set_modal_support`
-        first. Host (`_substep_cpu`) path only: the device path never calls
-        it (silent no-op there; a kernel port is a follow-up). Removed energy
-        accumulates in `cum_ringdown_dissipated` — logged dissipation
-        (foundation §9/§11), never refunded to the §15 reservoir.
-        """
-        if mode == "off":
-            self._modal_ringdown = None
-            return
-        if not self._modal:
-            raise RuntimeError("set_modal_support must be called first")
-        from dcr.modal.ringdown import ModalRingdown, RingdownConfig
-        cfg = RingdownConfig(mode=mode, delay=float(delay),
-                             qbar_tau=float(qbar_tau),
-                             rearm_threshold=float(rearm_threshold),
-                             zeta_target=float(zeta_target))
-        self._modal_ringdown = ModalRingdown(
-            self._mq, self._kq, self._dq, cfg, q0=self._q)
 
     def add_support_contact_corner(
         self,
@@ -1288,20 +1251,6 @@ class SolverXPBD:
             dE_modal = e_modal_new - self._E_modal_pre
             self._psv_ledger.commit(dE_modal, budget, gamma,
                                     e_modal_now=e_modal_new)
-
-        # ---- Modal ring-down ("settle"): post-commit, post-clamp ------------
-        # Velocity-only removal of the support ring about its sag reference
-        # (dcr/modal/ringdown.py). Runs AFTER the §15 ledger commit so the
-        # removed energy is logged dissipation (foundation §9/§11), never a
-        # misattributed injection and never refunded to the reservoir.
-        if (self._modal and self._modal_ringdown is not None
-                and not self._freeze_qdot):
-            D = self._modal_ringdown.apply(self._q, self._qdot, h)
-            self.last_ringdown_dissipated = D
-            if D > 0.0:
-                self.cum_ringdown_dissipated += D
-                self.last_modal_KE = float(
-                    0.5 * (self._mq * self._qdot) @ self._qdot)
 
     # -- contact generation -------------------------------------------------
     def _collect_contacts(self) -> list[_Contact]:

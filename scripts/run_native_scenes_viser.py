@@ -304,13 +304,6 @@ class UnifiedViser:
         # scales the augmented modal state [q_support; a_cargo…] back onto the
         # passive manifold (ΔE_modal ≤ η·ΔE_rigid_loss). Cargo scene only.
         self.passivity = bool(getattr(args, "passivity", False))
-        # Modal ring-down ("settle", dcr/modal/ringdown.py): arm-at-injection
-        # velocity-only removal of the support ring about its sag reference —
-        # the table stills right after the response is delivered instead of
-        # ringing for seconds. Removed energy is logged (HUD "ring-down D"),
-        # never refunded. Host (CPU) path only.
-        self.knob_ringdown = str(getattr(args, "ringdown", "off"))
-        self.knob_ringdown_delay = float(getattr(args, "ringdown_delay", 0.15))
         # --inject: the over-injecting preset (see the arg help). Runs on the BE
         # cargo path (the network lives in the augmented q-block) at the STARVED
         # real-time budget — 2 iterations × 1 substep — where the fixed-low-
@@ -458,7 +451,6 @@ class UnifiedViser:
             sol._modal_contact_network = self.network
             sol._modal_contact_ride = self.ride
         self._apply_passivity()
-        self._apply_ringdown()
         self._collect_render()
         self._make_meshes()
 
@@ -724,29 +716,6 @@ class UnifiedViser:
                      "AVBD support is naturally passive (OFF ≡ ON). Read the "
                      "'modal E vs loss budget' HUD line when the clamp is on.")
             self.gui_passivity.on_update(self._passivity_changed)         # live
-            # Modal ring-down ("settle") — arm-at-injection, velocity-only,
-            # position-continuous removal of the support ring (live, both
-            # solvers, CPU path). foundation §9/§11 logged dissipation.
-            self.gui_ringdown = g.add_dropdown(
-                "modal ring-down", ("off", "kill", "damp"),
-                initial_value=self.knob_ringdown,
-                hint="settle the table right after the response is delivered. "
-                     "'kill' zeroes each mode's ring velocity at its sag "
-                     "crossing (dead within half a period of arming, exact "
-                     "energy logging); 'damp' ramps to near-critical damping "
-                     "(smoother). Velocity-only ⇒ the surface never snaps and "
-                     "resting objects never pop. Removed energy: HUD "
-                     "'ring-down D [J]' — logged, never re-injected.")
-            self.gui_ringdown.on_update(self._ringdown_changed)           # live
-            self.gui_ringdown_delay = g.add_slider(
-                "ring-down delay [ms]", 10.0, 400.0, 5.0,
-                float(self.knob_ringdown_delay * 1e3),
-                hint="how long the ring lives after each impact before removal "
-                     "begins. This is the DISTANT-response window: the ring "
-                     "carries the kick to far objects over several cycles — "
-                     "dinner plates need ~150 ms for the full hop; lower = "
-                     "stiller table but shorter reach of the response.")
-            self.gui_ringdown_delay.on_update(self._ringdown_changed)     # live
         with g.add_folder("Visualization"):
             self.gui_cube_exag = g.add_slider(
                 "cube flex ×", 1.0, _EXAG_MAX, 1.0, self.cube_exag,
@@ -789,7 +758,6 @@ class UnifiedViser:
             self.hud_psv = g.add_text("modal E vs loss budget",
                                       initial_value="—")
             self.hud_clamp = g.add_text("passivity clamp", initial_value="—")
-            self.hud_ringdown = g.add_text("ring-down D [J]", initial_value="—")
 
         # handlers
         for w in (self.gui_scene, self.gui_solver, self.gui_kind,
@@ -851,24 +819,6 @@ class UnifiedViser:
         self.knob_modal_relax = float(self.gui_modal_relax.value)
         self._set_solver_modal_relax(self.knob_modal_relax)
         self._eff_modal_relax = self.knob_modal_relax
-
-    def _apply_ringdown(self):
-        """(Re)attach the ring-down operator to the live solver from the knobs.
-        Reconstruction re-seeds the sag reference from the CURRENT q, so a
-        live GUI change mid-ring is safe (velocity-only operator; the surface
-        never snaps). Downgrades to 'off' with a console note if the scene's
-        modal basis doesn't support it (non-eigenbasis)."""
-        try:
-            self.world.set_modal_ringdown(self.knob_ringdown,
-                                          delay=self.knob_ringdown_delay)
-        except (RuntimeError, ValueError) as e:
-            print(f"[ring-down] disabled: {e}")
-            self.knob_ringdown = "off"
-
-    def _ringdown_changed(self, _evt):
-        self.knob_ringdown = str(self.gui_ringdown.value)
-        self.knob_ringdown_delay = float(self.gui_ringdown_delay.value) * 1e-3
-        self._apply_ringdown()
 
     def _set_solver_symplectic(self, val: bool) -> None:
         """Toggle the energy-conserving (implicit-midpoint) modal step on the
@@ -1108,13 +1058,6 @@ class UnifiedViser:
                 else:
                     self.hud_psv.value = "—"
                     self.hud_clamp.value = "—"
-                rd = getattr(sv, "_modal_ringdown", None)
-                if rd is not None:
-                    self.hud_ringdown.value = (
-                        f"{sv.cum_ringdown_dissipated:.3e}  "
-                        f"(kills={rd.n_kills})")
-                else:
-                    self.hud_ringdown.value = "off"
             time.sleep(max(0.0, (1.0 / 120.0) / max(self.speed, 1e-3)))
 
 
@@ -1166,17 +1109,6 @@ def main():
                          "(the lower cube's flex also lifts the stacked cube's "
                          "RIGID body). Default OFF; needs the network + friction. "
                          "Toggle live in the GUI.")
-    ap.add_argument("--ringdown", default="off",
-                    choices=("off", "kill", "damp"),
-                    help="modal ring-down ('settle'): remove the support ring "
-                         "shortly after each impact's response is delivered, "
-                         "so the table reads rigid instead of ringing for "
-                         "seconds. Velocity-only + energy-logged (HUD "
-                         "'ring-down D [J]'); CPU path only.")
-    ap.add_argument("--ringdown-delay", type=float, default=0.15,
-                    help="seconds the ring lives after each impact before "
-                         "removal begins — the distant-response window "
-                         "(dinner plates need ~0.15 s for the full hop).")
     ap.add_argument("--passivity", action="store_true",
                     help="cargo scene only: start with the §N2/X1 network "
                          "passivity clamp ACTIVE (bound modal E ≤ η·rigid loss, "
