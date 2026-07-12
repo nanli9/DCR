@@ -38,13 +38,16 @@ import numpy as np
 from numpy.typing import NDArray
 
 from .audio_basis import AudioBasis, phi_at_corner, phi_at_xz
+from .events import LoadedTracker
 from .render import AudioLedger
 from .shaping import half_sine_spectrum, hertz_tau
 from .logger import (
+    DeviceRingSource,
     RowCache,
     build_row_cache,
     sample_substep,
     validate_native_host_world,
+    validate_native_world_ring,
 )
 
 
@@ -53,25 +56,55 @@ from .logger import (
 # ---------------------------------------------------------------------------
 
 class ComplexModalSynth:
-    """Damped-phasor bank for one voice (module docstring math)."""
+    """Damped-phasor bank for one voice (module docstring math).
+
+    `zeta_contact` (optional) precomputes a second, CHOKED pole table with
+    per-mode ζ_i → max(ζ_i, zeta_contact); `set_choked` switches decay tables
+    while the phasor state c carries over continuously — a damping change,
+    not a re-strike, exactly what a body picking up / losing support load
+    does to its ring. Without `zeta_contact` the synth is single-table and
+    behaves as before.
+    # DEVIATION (contact choke): see render._render_voice_phasor — free-air
+    # modal damping while a body rests loaded on the support is the audibly
+    # wrong limit; constant choked ζ is a render-side contact-damping
+    # heuristic (no stiffness/frequency shift). Disclosed in docs/stageE6.
+    """
 
     def __init__(self, basis: AudioBasis, fs: float, max_block: int,
-                 gain: float = 1.0):
+                 gain: float = 1.0, zeta_contact: float | None = None):
         omega = np.asarray(basis.omega, dtype=np.float64)
-        zeta = np.clip(np.asarray(basis.zeta, dtype=np.float64), 0.0, 0.999999)
-        T = 1.0 / float(fs)
-        omega_d = omega * np.sqrt(1.0 - zeta ** 2)
-        assert np.all(omega_d * T < np.pi), "audio mode above render Nyquist"
-        z = np.exp((-zeta * omega + 1j * omega_d) * T)
-        self.jump = 1.0 + 1j * (zeta * omega / np.maximum(omega_d, 1e-30))
-        # Zpow[:, n] = z^n for n = 0..max_block (last column advances a block).
-        self.Zpow = z[:, None] ** np.arange(max_block + 1)[None, :]
+        zeta = np.asarray(basis.zeta, dtype=np.float64)
+        self._T = 1.0 / float(fs)
+        self._n_pow = int(max_block)
+        # (Zpow, jump) per choke state; Zpow[:, n] = z^n for n = 0..max_block
+        # (last column advances a block).
+        self._tables = {False: self._pole_table(omega, zeta)}
+        if zeta_contact is not None:
+            self._tables[True] = self._pole_table(
+                omega, np.maximum(zeta, float(zeta_contact)))
+        self.choked = False
         self.w = np.asarray(basis.weight, dtype=np.float64) * float(gain)
         self.c = np.zeros(omega.shape[0], dtype=np.complex128)
 
+    def _pole_table(self, omega: NDArray[np.float64],
+                    zeta: NDArray[np.float64]) -> tuple:
+        zc = np.clip(zeta, 0.0, 0.999999)
+        omega_d = omega * np.sqrt(1.0 - zc ** 2)
+        assert np.all(omega_d * self._T < np.pi), \
+            "audio mode above render Nyquist"
+        z = np.exp((-zc * omega + 1j * omega_d) * self._T)
+        jump = 1.0 + 1j * (zc * omega / np.maximum(omega_d, 1e-30))
+        return z[:, None] ** np.arange(self._n_pow + 1)[None, :], jump
+
+    def set_choked(self, choked: bool) -> None:
+        """Switch decay tables (no-op unless built with zeta_contact)."""
+        if True in self._tables:
+            self.choked = bool(choked)
+
     def kick(self, g: NDArray[np.float64]) -> None:
         """Apply velocity jumps g (r,) NOW (at the current render cursor)."""
-        self.c = self.c + np.asarray(g, dtype=np.float64) * self.jump
+        jump = self._tables[self.choked][1]
+        self.c = self.c + np.asarray(g, dtype=np.float64) * jump
 
     def render_into(self, out: NDArray[np.float64], start: int,
                     length: int) -> None:
@@ -79,12 +112,14 @@ class ComplexModalSynth:
         advance the phasor states."""
         if length <= 0:
             return
-        seg = self.Zpow[:, :length]
-        out[start:start + length] += self.w @ (self.c[:, None] * seg).real
-        self.c = self.c * self.Zpow[:, length]
+        Zpow = self._tables[self.choked][0]
+        out[start:start + length] += \
+            self.w @ (self.c[:, None] * Zpow[:, :length]).real
+        self.c = self.c * Zpow[:, length]
 
     def reset(self) -> None:
         self.c[:] = 0.0
+        self.choked = False
 
 
 # ---------------------------------------------------------------------------
@@ -187,11 +222,13 @@ class LiveSoundEngine:
         self.peak_pre_gain = 0.0
         self.clipped_blocks = 0
 
-    def add_voice(self, key, basis: AudioBasis, gain: float = 1.0) -> None:
+    def add_voice(self, key, basis: AudioBasis, gain: float = 1.0,
+                  zeta_contact: float | None = None) -> None:
         if basis.n_modes == 0:
             return
         self._voices[key] = ComplexModalSynth(
-            basis, self.fs, self.blocksize, gain=gain)
+            basis, self.fs, self.blocksize, gain=gain,
+            zeta_contact=zeta_contact)
 
     @property
     def voice_keys(self):
@@ -201,7 +238,13 @@ class LiveSoundEngine:
                    kicks: list[tuple[object, NDArray[np.float64]]]) -> None:
         """Sim-thread entry: schedule (voice_key, g) kicks stamped t_sim."""
         if kicks:
-            self._q.put((float(t_sim), kicks))
+            self._q.put(("kicks", float(t_sim), kicks))
+
+    def push_choke(self, t_sim: float, key, choked: bool) -> None:
+        """Sim-thread entry: switch a voice's choke state. Applied at BLOCK
+        granularity (≤ blocksize/fs ≈ 6 ms slop vs the kick timeline —
+        inaudible for a damping change; disclosed approximation)."""
+        self._q.put(("choke", float(t_sim), key, bool(choked)))
 
     def start(self) -> None:
         import sounddevice as sd     # lazy: repo must work without it
@@ -250,22 +293,29 @@ class LiveSoundEngine:
                     voices=len(self._voices))
 
     # ---- audio thread ------------------------------------------------
-    def _drain(self, frames: int) -> dict[int, list]:
-        """Queue → {sample_offset: [(voice_key, g), ...]}, offsets preserving
-        relative sim timing within this block (earliest drained kick plays at
-        offset 0 — "ASAP" scheduling; AV sync error ≈ one block + hook lag)."""
+    def _drain(self, frames: int) -> tuple[dict[int, list], dict]:
+        """Queue → ({sample_offset: [(voice_key, g), ...]}, {key: choked}),
+        kick offsets preserving relative sim timing within this block
+        (earliest drained kick plays at offset 0 — "ASAP" scheduling; AV sync
+        error ≈ one block + hook lag). Choke flips collapse to their LAST
+        drained value and apply at block start (push_choke docstring)."""
         by_off: dict[int, list] = {}
+        chokes: dict = {}
         t0 = None
         while True:
             try:
-                t_sim, kicks = self._q.get_nowait()
+                item = self._q.get_nowait()
             except queue.Empty:
                 break
+            if item[0] == "choke":
+                chokes[item[2]] = item[3]
+                continue
+            _, t_sim, kicks = item
             if t0 is None:
                 t0 = t_sim
             off = int(np.clip(round((t_sim - t0) * self.fs), 0, frames - 1))
             by_off.setdefault(off, []).extend(kicks)
-        return by_off
+        return by_off, chokes
 
     def _callback(self, outdata, frames, _time_info, status) -> None:
         t_cb = time.perf_counter()
@@ -273,7 +323,11 @@ class LiveSoundEngine:
             self.underruns += 1
         try:
             buf = np.zeros(frames, dtype=np.float64)
-            by_off = self._drain(frames)
+            by_off, chokes = self._drain(frames)
+            for key, flag in chokes.items():
+                syn = self._voices.get(key)
+                if syn is not None:
+                    syn.set_choked(flag)
             cur = 0
             for off in sorted(by_off):
                 for v in self._voices.values():
@@ -306,9 +360,19 @@ class LiveSoundEngine:
 # ---------------------------------------------------------------------------
 
 class LiveExcitationTap:
-    """Per-substep: sample forces (shared with the offline logger), run the
-    streaming burst tracker, deposit/admit on the E6 ledger, push γ-scaled,
-    Ĥ-shaped kicks to the engine."""
+    """Streams the solver's contact excitation into the engine: burst-track,
+    deposit/admit on the E6 ledger, push γ-scaled Ĥ-shaped kicks + choke
+    state. Two sample sources feed the SAME consumer (`_consume`):
+
+    - source="hook" (default): per-substep host sampling via
+      substep_end_hook — the CPU host path (forces per-substep syncs; the
+      solver disables CUDA-graph capture while any host hook is set).
+    - source="ring": the device staging ring (Stage A,
+      sound_stage_kernels.py) drained ONCE PER FRAME — the CUDA path (works
+      on CPU too; parity-tested). The caller must call `drain()` after each
+      `world.step()`; kicks then arrive in per-frame batches, which the
+      engine's ASAP scheduler already handles (≤ 1 frame extra latency).
+    """
 
     def __init__(self, world, engine: LiveSoundEngine, *,
                  table_basis: AudioBasis | None,
@@ -320,8 +384,14 @@ class LiveExcitationTap:
                  settle_quiet: float = 0.15,
                  settle_max: float = 1.5,
                  arm_prominence: float = 5.0,
-                 arm_j_floor: float = 2.0e-2):
-        self._solver = validate_native_host_world(world)
+                 arm_j_floor: float = 2.0e-2,
+                 choke_load_on: float = 0.25,
+                 choke_load_off: float = 0.10,
+                 source: str = "hook"):
+        self.source = str(source)
+        self._solver = (validate_native_world_ring(world)
+                        if self.source == "ring"
+                        else validate_native_host_world(world))
         self.engine = engine
         self.table_basis = table_basis
         self.body_bases = body_bases or {}
@@ -343,12 +413,39 @@ class LiveExcitationTap:
         self._last_ev_t = 0.0
         self._settle_j_max = 0.0
         self.events_muted = 0
+        # Contact-load gate → voice choking (events.LoadedTracker; choke state
+        # flows regardless of settle arming — it is state, not an event).
+        self.choke_load_on = float(choke_load_on)
+        self.choke_load_off = float(choke_load_off)
+        self._loadgate: LoadedTracker | None = None
+        self.chokes_pushed = 0
         self._cache: RowCache | None = None
         self._tracker: BurstTracker | None = None
+        self._h_sub: float = 0.0
+        self._ring: DeviceRingSource | None = None
         self._e_prev: float | None = None
         self._prev_hook = None
         self.events_emitted = 0
-        self._attach()
+        if self.source == "ring":
+            self._ring = DeviceRingSource(self._solver)
+            self._init_stream(self._ring.cache, self._ring.h_sub,
+                              self._solver)
+        else:
+            self._attach()
+
+    def _init_stream(self, cache: RowCache, h_sub: float, s) -> None:
+        self._cache = cache
+        self._h_sub = float(h_sub)
+        self._tracker = BurstTracker(cache, self._h_sub,
+                                     j_floor=self.j_floor)
+        # Gate resets to all-unloaded on (re)build; loaded bodies re-fire
+        # their choke-on transition on the next update.
+        self._loadgate = LoadedTracker(
+            row_body=cache.body,
+            body_mass=np.asarray(s._mass, dtype=np.float64),
+            g_mag=float(np.linalg.norm(
+                np.asarray(s.gravity, dtype=np.float64))) or 9.81,
+            on_frac=self.choke_load_on, off_frac=self.choke_load_off)
 
     def _attach(self) -> None:
         self._prev_hook = self._solver.substep_end_hook
@@ -361,23 +458,42 @@ class LiveExcitationTap:
         self._solver.substep_end_hook = _hook
 
     def detach(self) -> None:
-        if self._solver is not None:
+        if self._solver is None:
+            return
+        if self.source == "ring":
+            self._solver.disable_sound_stage()
+            self._ring = None
+        else:
             self._solver.substep_end_hook = self._prev_hook
-            self._solver = None
+        self._solver = None
 
     # ------------------------------------------------------------------
     def _on_substep_end(self, s) -> None:
         if (self._cache is None
                 or len(s._support_row_cidx) != self._cache.n_rows):
-            self._cache = build_row_cache(s)
-            self._tracker = BurstTracker(self._cache, float(s.dt),
-                                         j_floor=self.j_floor)
-        smp = sample_substep(s, self._cache)
+            self._init_stream(build_row_cache(s), float(s.dt), s)
+        self._consume(sample_substep(s, self._cache))
 
+    def drain(self) -> int:
+        """Ring source only: pull the frame's staged substeps through the
+        consumer; returns how many. Call after `world.step()`."""
+        assert self._ring is not None, "drain() needs source='ring'"
+        smps = self._ring.drain()
+        for smp in smps:
+            self._consume(smp)
+        return len(smps)
+
+    def _consume(self, smp) -> None:
         # E6 budget deposit (render.AudioLedger docstring; foundation §15).
         if self._e_prev is not None:
             self.ledger.deposit(max(self._e_prev - smp.e_mech, 0.0))
         self._e_prev = smp.e_mech
+
+        t_now = float(self._tracker._k) * self._h_sub
+        for b, flag in self._loadgate.update(smp.F):
+            if b in self.body_bases:
+                self.engine.push_choke(t_now, b, flag)
+                self.chokes_pushed += 1
 
         for ev in self._tracker.push(smp.F, smp.corner_x, smp.corner_z,
                                      smp.body_vy):
@@ -432,6 +548,11 @@ class LiveSound:
         self.tap.detach()
         self.engine.stop()
 
+    def drain(self) -> int:
+        """Ring-source runs: forward staged substeps to the tap (call once
+        per frame, after stepping). No-op for the hook source."""
+        return self.tap.drain() if self.tap.source == "ring" else 0
+
     def stats(self) -> dict:
         d = self.engine.stats()
         d.update(events_emitted=self.tap.events_emitted,
@@ -440,7 +561,10 @@ class LiveSound:
                  e6_holds=self.tap.ledger.holds(),
                  n_capped=self.tap.ledger.n_capped,
                  cum_kick_J=self.tap.ledger.cum_kick_energy,
-                 cum_loss_J=self.tap.ledger.cum_rigid_loss)
+                 cum_loss_J=self.tap.ledger.cum_rigid_loss,
+                 chokes_pushed=self.tap.chokes_pushed,
+                 bodies_loaded=(int(self.tap._loadgate.loaded.sum())
+                                if self.tap._loadgate is not None else 0))
         return d
 
 
@@ -460,19 +584,30 @@ def attach_live_sound(
     blocksize: int = 256,
     gain: float = 0.35,
     table_gain: float = 1.0,
+    zeta_contact: float | None = 0.08,
+    source: str = "hook",
 ) -> LiveSound:
     """Build engine + voices, start the stream, attach the tap. Call
-    `.stop()` before rebuilding the world; attach a fresh one after."""
+    `.stop()` before rebuilding the world; attach a fresh one after.
+
+    `zeta_contact`: choked modal ζ for BODY voices while they carry support
+    load (ComplexModalSynth choke DEVIATION note; the table voice — the
+    permanent support — is never choked). None disables.
+
+    `source`: "hook" (host per-substep sampling, CPU path) or "ring" (device
+    staging drained per frame — the CUDA path; caller must call `.drain()`
+    after each `world.step()`)."""
     engine = LiveSoundEngine(fs=fs, blocksize=blocksize, gain=gain)
     if table_basis is not None:
         engine.add_voice("table", table_basis, gain=table_gain)
     body_gains = body_gains or {}
     for idx, basis in (body_bases or {}).items():
-        engine.add_voice(idx, basis, gain=body_gains.get(idx, 1.0))
+        engine.add_voice(idx, basis, gain=body_gains.get(idx, 1.0),
+                         zeta_contact=zeta_contact)
     engine.start()
     tap = LiveExcitationTap(
         world, engine, table_basis=table_basis, body_bases=body_bases,
         tau_ref_per_body=tau_ref_per_body, tau_ref=tau_ref,
         eta_audio=eta_audio, j_floor=j_floor,
-        settle_quiet=settle_quiet, settle_max=settle_max)
+        settle_quiet=settle_quiet, settle_max=settle_max, source=source)
     return LiveSound(engine=engine, tap=tap)

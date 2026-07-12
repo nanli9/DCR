@@ -33,7 +33,7 @@ from numpy.typing import NDArray
 
 from .audio_basis import AudioBasis, phi_at_corner, phi_at_xz
 from .bank import render_modes_lfilter
-from .events import ImpulseEvents, SoundLog, extract_impulses
+from .events import ImpulseEvents, LoadedTracker, SoundLog, extract_impulses
 from .shaping import half_sine_spectrum, hertz_tau, impulse_kernel
 
 
@@ -121,6 +121,89 @@ def _render_voice(voice: Voice, n_samples: int, fs: float,
     return out
 
 
+def _render_voice_phasor(
+    voice: Voice,
+    n_samples: int,
+    fs: float,
+    zeta_contact: float,
+    toggles: list[tuple[int, bool]],
+    seg_chunk: int = 65536,
+) -> NDArray[np.float64]:
+    """Damped-phasor render of one CHOKEABLE body voice — the offline twin of
+    `live.ComplexModalSynth`. Impulse-invariant per sample exactly like
+    `bank.render_modes_lfilter` (z^n = e^{(−ζω+iω_d)nT}), so with no toggles
+    it matches `_render_voice` to float precision (tests/stageE6 asserts).
+
+    Kicks arrive as the same kernel-weighted splats `_render_voice` consumes;
+    each kernel sample is a q̇ jump of w_j·g. `toggles` is the body's
+    time-sorted (sample, loaded) list switching between the free pole set and
+    the choked one (ζ_i → max(ζ_i, zeta_contact)), phasor state carried
+    across the switch — a damping change, not a re-strike.
+
+    # DEVIATION (contact choke): the bank is open-loop, so a body resting
+    # loaded on the support would otherwise keep ringing with free-air ζ —
+    # audibly wrong (real contact chokes the ring; part of why everything
+    # sounded like a sustained "ting"). Constant choked ζ is a render-side
+    # contact-damping heuristic: no stiffness/frequency shift, table voice
+    # never choked, gate = LoadedTracker hysteresis on the logged support
+    # forces. Ledger unaffected — choking only removes modal energy faster,
+    # so the admitted kick energy remains the §15-form upper bound.
+    # Disclosed in docs/stageE6.
+    """
+    basis = voice.basis
+    out = np.zeros(n_samples, dtype=np.float64)
+    if not voice._splats:
+        return out
+    T = 1.0 / float(fs)
+    omega = np.asarray(basis.omega, dtype=np.float64)
+
+    def _pole_set(zeta: NDArray[np.float64]) -> tuple:
+        zc = np.clip(np.asarray(zeta, dtype=np.float64), 0.0, 0.999999)
+        omega_d = omega * np.sqrt(1.0 - zc ** 2)
+        pole = (-zc * omega + 1j * omega_d) * T          # ln z, per sample
+        jump = 1.0 + 1j * (zc * omega / np.maximum(omega_d, 1e-30))
+        return pole, jump
+
+    tables = {False: _pole_set(basis.zeta),
+              True: _pole_set(np.maximum(basis.zeta, float(zeta_contact)))}
+
+    # Action timeline: (sample, order, payload); toggles (order 0) apply
+    # before kicks (order 1) landing on the same sample.
+    actions: list[tuple[int, int, object]] = []
+    for k0, w, g in voice._splats:
+        for j in range(w.shape[0]):
+            sj = k0 + j
+            if 0 <= sj < n_samples and w[j] != 0.0:
+                actions.append((sj, 1, float(w[j]) * g))
+    for s_t, flag in toggles:
+        if 0 <= s_t < n_samples:
+            actions.append((int(s_t), 0, bool(flag)))
+    actions.sort(key=lambda a: (a[0], a[1]))
+
+    c = np.zeros(basis.n_modes, dtype=np.complex128)
+    choked = False
+    cur = 0
+
+    def _advance(upto: int) -> None:
+        nonlocal cur, c
+        while cur < upto:
+            length = min(upto - cur, seg_chunk)
+            pole = tables[choked][0]
+            ph = np.exp(pole[:, None] * np.arange(length)[None, :])
+            out[cur:cur + length] += basis.weight @ (c[:, None] * ph).real
+            c = c * np.exp(pole * length)
+            cur += length
+
+    for s_a, kind, payload in actions:
+        _advance(s_a)
+        if kind == 0:
+            choked = bool(payload)
+        else:
+            c = c + payload * tables[choked][1]
+    _advance(n_samples)
+    return out
+
+
 def render_soundtrack(
     log: SoundLog,
     *,
@@ -135,6 +218,9 @@ def render_soundtrack(
     j_floor: float = 1.0e-3,
     events: ImpulseEvents | None = None,
     tau_ref_per_body: dict[int, float] | None = None,
+    zeta_contact: float | None = 0.08,
+    choke_load_on: float = 0.25,
+    choke_load_off: float = 0.10,
 ) -> tuple[NDArray[np.float64], dict]:
     """Render the logged run to a mono soundtrack.
 
@@ -146,6 +232,12 @@ def render_soundtrack(
     the per-substep budget deposits (module docstring). `tau_ref_per_body`
     overrides the Hertz τ_ref per impacting body (material-pair stiffness —
     steel/ceramic on wood is shorter than the global default).
+
+    `zeta_contact`: choked modal ζ applied to a BODY voice while its body
+    carries support load (`_render_voice_phasor` DEVIATION note; gate =
+    `LoadedTracker` hysteresis at `choke_load_on/off` × m·g). The table voice
+    — the permanent support — is never choked. None disables (pure-LTI path
+    for every voice, the pre-choke behavior).
     """
     body_voices = body_voices or {}
     tau_ref_per_body = tau_ref_per_body or {}
@@ -154,6 +246,22 @@ def render_soundtrack(
     n_samples = int(np.ceil((log.duration + tail) * fs))
     ledger = AudioLedger(eta_audio=float(eta_audio))
     loss = log.rigid_loss_series()
+
+    # Per-body choke toggles from the logged support forces (substep grid →
+    # sample indices). SoundLog stores no gravity; scenes use standard g and
+    # the gate is a heuristic threshold, so 9.81 is assumed here.
+    choke_toggles: dict[int, list[tuple[int, bool]]] = {}
+    if zeta_contact is not None and body_voices:
+        gate = LoadedTracker(
+            row_body=np.asarray(log.row_body, dtype=np.int64),
+            body_mass=np.asarray(log.body_mass, dtype=np.float64),
+            g_mag=9.81, on_frac=choke_load_on, off_frac=choke_load_off)
+        choke_toggles = {b: [] for b in body_voices}
+        for k in range(log.n_substeps):
+            for b, flag in gate.update(log.F[k]):
+                if b in choke_toggles:
+                    choke_toggles[b].append(
+                        (int(round(k * log.h_sub * fs)), flag))
 
     for v in ([table_voice] if table_voice else []) + list(body_voices.values()):
         v._splats.clear()
@@ -193,8 +301,17 @@ def render_soundtrack(
 
     master = np.zeros(n_samples, dtype=np.float64)
     per_voice_peak: dict[str, float] = {}
-    for v in ([table_voice] if table_voice else []) + list(body_voices.values()):
-        track = v.gain * _render_voice(v, n_samples, fs)
+    voice_items = (([(None, table_voice)] if table_voice else [])
+                   + list(body_voices.items()))
+    n_choke_toggles = 0
+    for bidx, v in voice_items:
+        if bidx is not None and zeta_contact is not None:
+            tg = choke_toggles.get(bidx, [])
+            n_choke_toggles += len(tg)
+            track = v.gain * _render_voice_phasor(
+                v, n_samples, fs, float(zeta_contact), tg)
+        else:
+            track = v.gain * _render_voice(v, n_samples, fs)
         per_voice_peak[v.name] = float(np.max(np.abs(track))) if track.size else 0.0
         master += track
 
@@ -212,6 +329,7 @@ def render_soundtrack(
         "e6_holds": ledger.holds(),
         "raw_peak": peak,
         "per_voice_peak": per_voice_peak,
+        "n_choke_toggles": n_choke_toggles,
         "fs": fs,
         "n_samples": n_samples,
     }

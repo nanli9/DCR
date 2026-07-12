@@ -97,6 +97,46 @@ class ImpulseEvents:
         return int(self.t.shape[0])
 
 
+@dataclass
+class LoadedTracker:
+    """Per-body contact-load gate with hysteresis — the render-side driver of
+    voice CHOKING (render.py / live.py `# DEVIATION (contact choke)`).
+
+    A body counts as LOADED once the sum of its engaged support forces
+    reaches ``on_frac·m·g``, and stays loaded until that sum falls below
+    ``off_frac·m·g``. The hysteresis keeps the load jitter of a body riding
+    the ringing support (its rest force fluctuates every substep) from
+    strobing the choke. Bodies with no support rows (e.g. stacked on another
+    body — box-box rows are not logged) never load and keep free-air damping.
+    Shared by the offline render and the live tap so both choke identically.
+    """
+
+    row_body: NDArray[np.int64]         # (n_rows,) row → solver body index
+    body_mass: NDArray[np.float64]      # (n_bodies,)
+    g_mag: float = 9.81
+    on_frac: float = 0.25
+    off_frac: float = 0.10
+
+    def __post_init__(self) -> None:
+        self.row_body = np.asarray(self.row_body, dtype=np.int64)
+        m = np.asarray(self.body_mass, dtype=np.float64)
+        self._thr_on = self.on_frac * m * float(self.g_mag)
+        self._thr_off = self.off_frac * m * float(self.g_mag)
+        self.loaded = np.zeros(m.shape[0], dtype=bool)
+
+    def update(self, F: NDArray) -> list[tuple[int, bool]]:
+        """Feed one substep's per-row engaged forces (≥ 0); returns the
+        (body, now_loaded) transitions this substep."""
+        f_body = np.bincount(self.row_body,
+                             weights=np.asarray(F, dtype=np.float64),
+                             minlength=self.loaded.shape[0])
+        new = np.where(self.loaded, f_body > self._thr_off,
+                       f_body >= self._thr_on)
+        changed = np.nonzero(new != self.loaded)[0]
+        self.loaded = new
+        return [(int(b), bool(new[b])) for b in changed]
+
+
 def settle_arm_index(t: NDArray[np.float64],
                      impulse: NDArray[np.float64] | None = None,
                      quiet_gap: float = 0.15,

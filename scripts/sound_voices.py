@@ -104,7 +104,8 @@ def build_dinner_audio(
                         alpha0=rayleigh_alpha0, alpha1=rayleigh_alpha1,
                         k=table_modes, fmin=table_fmin, fs=fs,
                         nx=N_GRID_X, nz=N_GRID_Z,
-                        zeta_const=table_zeta_const)
+                        zeta_const=table_zeta_const,
+                        radiation_v=2)     # weight-recipe version (cache key)
     table_basis = _load_or_build(
         _cache_path(cache_dir, "table", table_inputs),
         lambda: build_table_audio_basis(
@@ -137,9 +138,10 @@ def build_dinner_audio(
         out.body_names[avbd_idx] = b.name
         builder_kwargs = {k: v for k, v in spec.items() if k != "tau_ref"}
         pool_inputs = dict(prefix=prefix, he=list(b.half_extents), mass=mass,
-                           fs=fs, **{k: (list(v) if isinstance(v, tuple)
-                                          else v)
-                                     for k, v in builder_kwargs.items()})
+                           fs=fs, radiation_v=2,
+                           **{k: (list(v) if isinstance(v, tuple)
+                                  else v)
+                              for k, v in builder_kwargs.items()})
         pool_key = json.dumps(pool_inputs, sort_keys=True)
         if pool_key not in basis_pool:
             basis_pool[pool_key] = _load_or_build(

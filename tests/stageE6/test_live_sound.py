@@ -68,6 +68,44 @@ def test_phasor_synth_matches_reference_bank():
     assert np.allclose(y_live, y_ref, atol=1e-9, rtol=1e-8)
 
 
+def test_synth_choke_matches_offline_phasor():
+    """Live synth with block-boundary choke flips ≡ the offline segmented
+    phasor render given the same kicks and toggle samples — the two contact-
+    choke implementations must be the same instrument."""
+    from dcr.sound.render import Voice, _render_voice_phasor
+
+    fs = 44100.0
+    zeta_c = 0.02
+    basis = _mini_basis()
+    n, block = 4096, 256
+    rng = np.random.default_rng(5)
+    kicks = [(64, rng.normal(size=basis.n_modes)),
+             (1000, rng.normal(size=basis.n_modes)),
+             (2500, rng.normal(size=basis.n_modes))]
+    toggles = [(512, True), (2048, False), (3072, True)]  # block multiples
+
+    voice = Voice(name="v", basis=basis)
+    for pos, g in kicks:
+        voice._splats.append((pos, np.array([1.0]), g))
+    y_off = _render_voice_phasor(voice, n, fs, zeta_c, toggles)
+
+    syn = ComplexModalSynth(basis, fs, max_block=block, zeta_contact=zeta_c)
+    y_live = np.zeros(n)
+    for b0 in range(0, n, block):
+        for pos, flag in toggles:
+            if pos == b0:
+                syn.set_choked(flag)
+        cur = 0
+        for pos, g in kicks:
+            if b0 <= pos < b0 + block:
+                syn.render_into(y_live, b0 + cur, pos - b0 - cur)
+                syn.kick(g)
+                cur = pos - b0
+        syn.render_into(y_live, b0 + cur, block - cur)
+
+    assert np.allclose(y_live, y_off, atol=1e-9, rtol=1e-8)
+
+
 # ---------------------------------------------------------------------------
 # Streaming tracker ≡ offline extractor
 # ---------------------------------------------------------------------------
@@ -170,9 +208,13 @@ def test_settle_prominence_breakthrough():
 class _StubEngine:
     def __init__(self):
         self.pushed = []
+        self.chokes = []
 
     def push_kicks(self, t_sim, kicks):
         self.pushed.append((t_sim, kicks))
+
+    def push_choke(self, t_sim, key, choked):
+        self.chokes.append((t_sim, key, choked))
 
 
 def test_live_tap_dinner_headless():
@@ -242,6 +284,51 @@ def test_live_tap_low_drop_prominence_arming():
     assert tap.events_emitted >= 1                # …but the crash played
     t_first = min(t for t, _ in engine.pushed)
     assert 0.18 < t_first < 0.28                  # armed AT the impact
+
+
+def test_live_tap_pushes_chokes_for_body_voices():
+    """A body with a registered voice must get choke-ON when it lands and
+    carries load (pot: drops at ~0.32 s, rests loaded by 0.9 s); bodies
+    without voices push nothing."""
+    from scenes.reduced_dinner_table import build_reduced_dinner_table
+
+    handle = build_reduced_dinner_table(
+        h=1.0 / 120.0, device="cpu", iterations=6, avbd_substeps=2,
+        pot_drop_xz=(0.0, 0.0), solver="avbd", support_basis="debug")
+
+    pot_idx = None
+    for b in handle.bodies:
+        if b.name.startswith("pot"):
+            desc = handle.world._descs[b.dcr_idx]
+            pot_idx = int(desc.avbd_body.index)
+            break
+    assert pot_idx is not None
+
+    r = 3
+    corner_signs = np.array([[sx, sy, sz]
+                             for sy in (-1.0, 1.0)
+                             for sx in (-1.0, 1.0)
+                             for sz in (-1.0, 1.0)])
+    pot_basis = AudioBasis(
+        name="pot", kind="corners",
+        omega=2 * np.pi * np.array([800.0, 1600.0, 3200.0]),
+        zeta=np.full(r, 2e-3), weight=np.ones(r),
+        phi_corners=np.ones((8, r)), corner_signs=corner_signs)
+
+    engine = _StubEngine()
+    tap = LiveExcitationTap(handle.world, engine, table_basis=None,
+                            body_bases={pot_idx: pot_basis})
+    for _ in range(108):                          # 0.9 s
+        handle.world.step()
+    tap.detach()
+
+    assert tap.chokes_pushed >= 1
+    assert len(engine.chokes) == tap.chokes_pushed
+    keys = {key for _, key, _ in engine.chokes}
+    assert keys == {pot_idx}                      # only voiced bodies push
+    assert any(flag for _, _, flag in engine.chokes)   # landed & loaded
+    assert engine.chokes[-1][2] is True           # at rest: choked
+    assert tap._loadgate.loaded[pot_idx]
 
 
 # ---------------------------------------------------------------------------

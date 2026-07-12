@@ -620,11 +620,13 @@ class UnifiedViser:
             self._sound_note = f"off (scene={self.scene}; dinner only)"
             print(f"[sound] {self._sound_note}")
             return
-        if self._eff_solver != "avbd" or self.device.startswith("cuda"):
-            self._sound_note = ("off (needs the AVBD host path: "
-                                "--solver avbd --device cpu)")
+        if self._eff_solver != "avbd":
+            self._sound_note = "off (needs --solver avbd)"
             print(f"[sound] {self._sound_note}")
             return
+        # CPU host path → per-substep hook tap; CUDA → device staging ring
+        # drained once per frame (graph-capture-safe; sound_stage_kernels.py).
+        source = "ring" if self.device.startswith("cuda") else "hook"
         try:
             from dcr.sound.live import attach_live_sound
             from scripts.sound_voices import build_dinner_audio
@@ -640,8 +642,12 @@ class UnifiedViser:
                 body_bases=da.body_bases,
                 tau_ref_per_body=da.tau_ref_per_body,
                 eta_audio=float(a.sound_eta), fs=float(a.sound_fs),
-                blocksize=int(a.sound_block), gain=float(a.sound_gain))
-            self._sound_note = f"live ({len(da.body_bases) + 1} voices)"
+                blocksize=int(a.sound_block), gain=float(a.sound_gain),
+                zeta_contact=(float(a.sound_zeta_contact)
+                              if a.sound_zeta_contact > 0 else None),
+                source=source)
+            self._sound_note = (f"live ({len(da.body_bases) + 1} voices, "
+                                f"{source} tap)")
             print(f"[sound] {self._sound_note}  gain={a.sound_gain}  "
                   f"block={a.sound_block} (~{1e3 * int(a.sound_block) / float(a.sound_fs):.1f} ms)")
         except Exception as e:                       # pragma: no cover
@@ -1051,6 +1057,8 @@ class UnifiedViser:
             if not self.paused:
                 t0 = time.perf_counter()
                 self.world.step()
+                if self._sound is not None:
+                    self._sound.drain()      # ring source only (no-op on hook)
                 ms = (time.perf_counter() - t0) * 1e3
                 # Both solvers are native: q lives on the solver (no coupler).
                 # Mirror it into rs.q so the rs.q-based slab render + HUD work.
@@ -1214,11 +1222,12 @@ def main():
                     help="initial slab-deflection render exaggeration (1 = true scale)")
     ap.add_argument("--port", type=int, default=8192)
     ap.add_argument("--sound", action="store_true",
-                    help="Tier 1 LIVE E6 audio (dinner scene on the AVBD host "
-                         "path: --scene dinner --solver avbd --device cpu). "
-                         "Impact sound streamed from the native contact "
-                         "multipliers under the §15-form energy budget "
-                         "(dcr/sound/live.py). Speakers on.")
+                    help="Tier 1 LIVE E6 audio (dinner scene, --solver avbd; "
+                         "cpu = per-substep hook tap, cuda = device staging "
+                         "ring drained per frame). Impact sound streamed "
+                         "from the native contact multipliers under the "
+                         "§15-form energy budget (dcr/sound/live.py). "
+                         "Speakers on.")
     ap.add_argument("--sound-gain", type=float, default=0.35,
                     help="master gain into the soft limiter (0.05 quiet … 1 loud)")
     ap.add_argument("--sound-fs", type=float, default=44100.0)
@@ -1227,6 +1236,10 @@ def main():
                          "(comfortable callback headroom; 256 is snappier)")
     ap.add_argument("--sound-eta", type=float, default=1.0,
                     help="η_audio in the E6 budget ΔE_audio ≤ η·ΔE_rigid_loss")
+    ap.add_argument("--sound-zeta-contact", type=float, default=0.08,
+                    help="choked modal ζ for body voices while they carry "
+                         "support load (contact-damping choke, "
+                         "dcr/sound/live.py DEVIATION; 0 disables)")
     UnifiedViser(ap.parse_args()).run()
 
 

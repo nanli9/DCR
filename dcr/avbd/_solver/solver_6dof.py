@@ -472,6 +472,15 @@ class Solver6DOF:
         self.substep_begin_hook = None     # fn(self) — once per substep
         self.iteration_hook = None         # fn(self, iter_idx) — after each it
         self.substep_end_hook = None       # fn(self) — once per substep
+
+        # Stage E6 sound staging (sound_stage_kernels.py): device ring buffer
+        # of per-substep excitation records, drained per FRAME by the sound
+        # tap (dcr/sound/logger.DeviceRingSource). Pure device launches inside
+        # the substep — graph-capturable, unlike a host substep_end_hook.
+        # Off by default: zero cost, no capture impact (flag is part of
+        # _current_graph_signature so toggling recaptures).
+        self._snd_stage_enabled = False
+        self._snd_capacity = 0
         # When True, hooks are pure device-kernel launches (no `.numpy()`,
         # no `.assign()`, no host sync) that read/write the solver's device
         # arrays in place. The per-hook `wp.synchronize_device` drains below
@@ -1630,6 +1639,89 @@ class Solver6DOF:
         self._color_dirty = True
         # Layout changed → previous capture (if any) is invalid.
         self._graph = None
+        # Sound-staging buffers are sized to (n_sup, n_b) — refresh with the
+        # new layout (also rewinds the ring head; DeviceRingSource resyncs).
+        if self._snd_stage_enabled:
+            self._snd_alloc()
+
+    # ---- Stage E6 sound staging (sound_stage_kernels.py) --------------------
+
+    def enable_sound_stage(self, capacity: int | None = None) -> None:
+        """Turn on the device excitation ring for the sound tap (module
+        docstring of `sound_stage_kernels.py`). Requires the native modal
+        path (`set_modal_support`). `capacity` is the ring depth in substeps;
+        the default covers 4 frames of substeps (drain is per frame).
+        Toggling changes `_current_graph_signature` → graphs recapture."""
+        if not self._modal_enabled:
+            raise RuntimeError(
+                "enable_sound_stage requires the native modal path "
+                "(set_modal_support) — the sound tap records support rows")
+        if self._dirty:
+            self._flush()
+        self._snd_capacity = (int(capacity) if capacity
+                              else max(4 * int(self.substeps), 64))
+        self._snd_stage_enabled = True
+        self._snd_alloc()
+
+    def disable_sound_stage(self) -> None:
+        """Stop staging (buffers kept; signature change drops the launches
+        from the next captured graph)."""
+        self._snd_stage_enabled = False
+
+    def _snd_alloc(self) -> None:
+        from .passivity import local_inertia_from_invIl
+        dev = self.device
+        cap = self._snd_capacity
+        n_b = len(self._x)
+        n_sup = max(self._n_sup_dev, 1)
+        self._snd_F = wp.zeros((cap, n_sup), dtype=float, device=dev)
+        self._snd_cx = wp.zeros((cap, n_sup), dtype=float, device=dev)
+        self._snd_cz = wp.zeros((cap, n_sup), dtype=float, device=dev)
+        self._snd_vy = wp.zeros((cap, max(n_b, 1)), dtype=float, device=dev)
+        self._snd_E = wp.zeros(cap, dtype=wp.float64, device=dev)
+        self._snd_head = wp.zeros(1, dtype=int, device=dev)
+        self._snd_mass = wp.array(
+            np.asarray(self._mass, dtype=np.float64), dtype=wp.float64,
+            device=dev)
+        self._snd_Il = wp.array(
+            local_inertia_from_invIl(
+                np.asarray(self._inv_I_local, dtype=np.float64)),
+            dtype=wp.mat33d, device=dev)
+        self._snd_grav = tuple(
+            float(g) for g in np.asarray(self.gravity, dtype=np.float64))
+
+    def _snd_stage_launch(self, dev) -> None:
+        """Record this substep into the ring — fixed-shape device launches
+        only (runs inside the captured substep graph). Launch order matters:
+        rows/bodies read head[0] for their slot; the energy kernel advances
+        head LAST, publishing the substep."""
+        from . import sound_stage_kernels as SK
+        n_b = len(self._x)
+        if n_b == 0:
+            return
+        cap = int(self._snd_capacity)
+        if self._n_sup_dev > 0:
+            wp.launch(
+                SK.k_snd_stage_rows, dim=self._n_sup_dev,
+                inputs=[int(self._n_modes), cap, self._snd_head,
+                        self._d_support_row_idx, self.c_active,
+                        self.c_body_a, self.c_off_a, self.c_penalty,
+                        self.c_lambda, self.c_stiffness, self.c_alpha_C0,
+                        self.x, self.q, self._d_U_y, self.q_modal,
+                        self._d_y_rest,
+                        self._snd_F, self._snd_cx, self._snd_cz],
+                device=dev)
+        wp.launch(
+            SK.k_snd_stage_bodies, dim=n_b,
+            inputs=[cap, self._snd_head, self.v, self._snd_vy],
+            device=dev)
+        gx, gy, gz = self._snd_grav
+        wp.launch(
+            SK.k_snd_stage_energy_advance, dim=1,
+            inputs=[n_b, cap, wp.float64(gx), wp.float64(gy), wp.float64(gz),
+                    self._snd_head, self.x, self.q, self.v, self.omega,
+                    self._snd_mass, self._snd_Il, self._snd_E],
+            device=dev)
 
     # ---- The step -----------------------------------------------------------
 
@@ -2010,6 +2102,12 @@ class Solver6DOF:
         else:
             self._run_iter_loop(total_iters, row_dim, n_b, dev)
 
+        # Stage E6 sound staging: record the POST-SOLVE excitation (same
+        # observation point as substep_end_hook) into the device ring. Pure
+        # launches — folds into the full-substep graph on the resident path.
+        if self._snd_stage_enabled:
+            self._snd_stage_launch(dev)
+
         if self.substep_end_hook is not None:
             if not self.hooks_device_resident:
                 wp.synchronize_device(dev)
@@ -2075,6 +2173,7 @@ class Solver6DOF:
             float(self.gamma),
             float(self.max_linear_speed),
             float(self.max_angular_speed),
+            int(self._snd_stage_enabled),
         )
 
     def _graph_cuda_supported(self) -> bool:

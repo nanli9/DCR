@@ -20,9 +20,10 @@ fit was never meant to model.
 # Rayleigh D_q. This never affects the dynamics — the bank is open-loop
 # (one-way is physically defensible up here: modal displacement per unit
 # impulse ~ 1/ω, back-reaction energy ~ 1/ω²).
-# DEVIATION (radiation): per-mode listening weights are an RMS surface-
-# displacement heuristic, not an acoustic-transfer (BEM/FFAT) solve. The
-# render is *plausible*, not measured-accurate. Disclosed in docs/stageE6.
+# DEVIATION (radiation): per-mode listening weights are a √(σ·S)-scaled RMS
+# surface-displacement heuristic (see `radiation_weight`), not an acoustic-
+# transfer (BEM/FFAT) solve. The render is *plausible*, not measured-accurate.
+# Disclosed in docs/stageE6.
 """
 from __future__ import annotations
 
@@ -33,6 +34,38 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 import scipy.sparse.linalg as spla
+
+C_AIR = 343.0    # speed of sound in air [m/s], for the radiation heuristic
+
+
+def radiation_weight(
+    phi_rms: NDArray[np.float64],
+    omega: NDArray[np.float64],
+    area: float,
+) -> NDArray[np.float64]:
+    """Per-mode listening weight  w_i = √(σ_i · S) · rms(Φ_y,i).
+
+    Far-field radiated power of a vibrating surface is ~ ρ_air·c·σ(ω)·S·⟨v²⟩,
+    so listening pressure ∝ √(σ·S)·(surface-velocity rms). The bare-rms
+    heuristic this replaces dropped both factors, which inverted the physical
+    balance between small and large radiators: mass-normalized modes make a
+    light body's Φ large (∝ 1/√m), so a ~7 kg pot slab out-shouted the ~75 kg
+    table by >60 dB per unit impulse. σ is a compact-source (dipole-like)
+    acoustic short-circuit roll-off for an unbaffled radiator:
+
+        σ_i = (k_i a)² / (1 + (k_i a)²),   k_i = ω_i / c_air,  a = √(S/π)
+
+    → σ → 1 once the source is large against the wavelength, ∝ (ka)² below.
+
+    # DEVIATION (radiation, supersedes the bare-RMS note): still a heuristic —
+    # no Helmholtz/BEM/FFAT transfer, no directivity, no listener distance,
+    # no baffling. Disclosed in docs/stageE6.
+    """
+    area = max(float(area), 1e-12)
+    k = np.asarray(omega, dtype=np.float64) / C_AIR
+    ka2 = (k * np.sqrt(area / np.pi)) ** 2
+    sigma = ka2 / (1.0 + ka2)
+    return np.sqrt(sigma * area) * np.asarray(phi_rms, dtype=np.float64)
 
 
 @dataclass
@@ -206,17 +239,18 @@ def build_table_audio_basis(
             phi_grid[i * n_grid_z + k, :] = U3r[1, kept_cols]
 
     omega, zeta = omega[keep], zeta[keep]
-    # DEVIATION (radiation heuristic, see module docstring): listening weight
-    # = RMS of Φ_y over the grid — average normal surface displacement per
-    # unit modal amplitude; no Helmholtz transfer.
-    weight = np.sqrt(np.mean(phi_grid ** 2, axis=0))
+    # Listening weight = √(σ·S)·rms(Φ_y over the grid), S = table-top plan
+    # area (`radiation_weight` DEVIATION note).
+    weight = radiation_weight(np.sqrt(np.mean(phi_grid ** 2, axis=0)),
+                              omega, length * width)
 
     params = dict(kind="table", length=length, width=width,
                   thickness=thickness, youngs=youngs, poisson=poisson,
                   density=density, alpha0=rayleigh_alpha0,
                   alpha1=rayleigh_alpha1, num_modes=num_modes,
                   n_grid_x=n_grid_x, n_grid_z=n_grid_z, fs=fs,
-                  fmin_hz=fmin_hz, zeta_const=zeta_const)
+                  fmin_hz=fmin_hz, zeta_const=zeta_const,
+                  radiation_v=2)
     return AudioBasis(
         name=name, kind="grid", omega=omega, zeta=zeta, weight=weight,
         phi_grid=phi_grid, length=length, width=width,
@@ -311,12 +345,17 @@ def build_box_audio_basis(
         v_idx = int(np.argmin(np.sum((Vc - target[None, :]) ** 2, axis=1)))
         phi_corners[ci, :] = eigvecs[3 * v_idx + 1, kept]
 
-    weight = np.sqrt(np.mean(eigvecs[:, kept] ** 2, axis=0))
+    # Listening weight = √(σ·S)·rms(eigvec), S = the slab proxy's plan area
+    # (its two large faces are the radiators; the unbaffled/dipole character
+    # is what σ models — `radiation_weight` DEVIATION note).
+    weight = radiation_weight(np.sqrt(np.mean(eigvecs[:, kept] ** 2, axis=0)),
+                              omega, 4.0 * hx * hz)
 
     params = dict(kind="box", half_extents=[hx, hy, hz], mass=mass,
                   youngs=youngs, poisson=poisson, zeta_const=zeta_const,
                   num_modes=num_modes, fs=fs, fmin_hz=fmin_hz,
-                  cells=list(cells), thickness=t_full, density=rho)
+                  cells=list(cells), thickness=t_full, density=rho,
+                  radiation_v=2)
     return AudioBasis(
         name=name, kind="corners", omega=omega, zeta=zeta, weight=weight,
         phi_corners=phi_corners, corner_signs=corner_signs,

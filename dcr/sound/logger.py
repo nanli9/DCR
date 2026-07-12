@@ -139,7 +139,7 @@ def sample_substep(s, cache: RowCache) -> SubstepSample:
 
 
 def validate_native_host_world(world) -> object:
-    """Common guards for excitation taps; returns the solver."""
+    """Common guards for the HOOK-based excitation taps; returns the solver."""
     if not getattr(world, "_native_modal_enabled", False):
         raise RuntimeError(
             "sound tap: world is not on the native modal path "
@@ -151,19 +151,108 @@ def validate_native_host_world(world) -> object:
     s = world._solver
     if getattr(s, "_modal_resident", False):
         raise NotImplementedError(
-            "sound tap: device-resident q-block — use the CPU host path "
-            "(device readback staging is a follow-up)")
+            "sound tap: device-resident q-block — the hook tap forces "
+            "per-substep syncs; use the ring tap (source='ring', device "
+            "sound staging) instead")
     return s
+
+
+def validate_native_world_ring(world) -> object:
+    """Guards for the RING-based tap (device staging — Stage A/B of the GPU
+    sound architecture). Unlike the hook tap, the device-resident q-block is
+    ALLOWED (staging is graph-capturable); enables staging on the solver."""
+    if not getattr(world, "_native_modal_enabled", False):
+        raise RuntimeError(
+            "sound tap: world is not on the native modal path "
+            "(call enable_reduced_modal_support first)")
+    if getattr(world, "solver_kind", "avbd") != "avbd":
+        raise NotImplementedError(
+            "sound tap: only the AVBD/Solver6DOF path is wired; "
+            "XPBD-native staging is a follow-up")
+    s = world._solver
+    if not getattr(s, "_snd_stage_enabled", False):
+        s.enable_sound_stage()
+    return s
+
+
+class DeviceRingSource:
+    """Frame-cadence drain of the solver's sound-staging ring (Stage B host
+    side; `sound_stage_kernels.py` is Stage A).
+
+    `drain()` reads the device substep counter once, bulk-copies the new ring
+    slots, and returns them as `SubstepSample`s in substep order — the SAME
+    record `sample_substep` produces, so the burst tracker / load gate /
+    ledger consume either source unchanged. Call once per frame (after
+    `world.step()`); a drain gap longer than the ring capacity drops the
+    OLDEST substeps (counted in `.dropped`, warned once). A head rewind
+    (solver re-flush reallocated the ring) resyncs from zero."""
+
+    def __init__(self, solver):
+        if not getattr(solver, "_snd_stage_enabled", False):
+            raise RuntimeError(
+                "DeviceRingSource: call solver.enable_sound_stage() first")
+        self._s = solver
+        self.cache = build_row_cache(solver)
+        self.h_sub = float(solver.dt) / max(int(solver.substeps), 1)
+        self.n_bodies = len(solver._mass)
+        self._last_head = 0
+        self.dropped = 0
+        self._warned = False
+
+    def drain(self) -> list[SubstepSample]:
+        s = self._s
+        head = int(s._snd_head.numpy()[0])
+        if head < self._last_head:            # ring reallocated → resync
+            self._last_head = 0
+        n_new = head - self._last_head
+        if n_new <= 0:
+            return []
+        cap = int(s._snd_capacity)
+        if n_new > cap:
+            self.dropped += n_new - cap
+            if not self._warned:
+                import warnings
+                warnings.warn(
+                    f"sound ring overrun: {n_new - cap} substeps dropped "
+                    f"(drain cadence slower than capacity {cap}) — raise "
+                    "enable_sound_stage(capacity=...) or drain more often",
+                    RuntimeWarning, stacklevel=2)
+                self._warned = True
+            n_new = cap
+        # One bulk host copy per array per frame (on CPU .numpy() is a live
+        # view — the per-slot .copy() below detaches before the ring wraps).
+        F = s._snd_F.numpy()
+        CX = s._snd_cx.numpy()
+        CZ = s._snd_cz.numpy()
+        VY = s._snd_vy.numpy()
+        E = s._snd_E.numpy()
+        n_rows = self.cache.n_rows
+        out: list[SubstepSample] = []
+        for k in range(head - n_new, head):
+            i = k % cap
+            out.append(SubstepSample(
+                F=F[i, :n_rows].astype(np.float32, copy=True),
+                corner_x=CX[i, :n_rows].astype(np.float32, copy=True),
+                corner_z=CZ[i, :n_rows].astype(np.float32, copy=True),
+                body_vy=VY[i, :self.n_bodies].astype(np.float32, copy=True),
+                e_mech=float(E[i]),
+            ))
+        self._last_head = head
+        return out
 
 
 @dataclass
 class SoundImpulseLogger:
-    """Accumulates the per-substep record; `finalize()` → `events.SoundLog`."""
+    """Accumulates the per-substep record; `finalize()` → `events.SoundLog`.
+    Two backends record the identical stream: `attach()` (host hook, per-
+    substep sampling) and `attach_ring()` (device staging; caller must call
+    `drain()` once per frame after `world.step()`)."""
 
     h_sub: float = 0.0
     _solver: object = field(default=None, repr=False)
     _prev_hook: object = field(default=None, repr=False)
     _cache: RowCache | None = field(default=None, repr=False)
+    _ring: DeviceRingSource | None = field(default=None, repr=False)
 
     _F: list = field(default_factory=list, repr=False)
     _cx: list = field(default_factory=list, repr=False)
@@ -184,7 +273,35 @@ class SoundImpulseLogger:
 
         solver.substep_end_hook = _hook
 
+    def attach_ring(self, solver) -> None:
+        """Ring backend: no hook, no per-substep syncs — the device stages
+        each substep (`sound_stage_kernels.py`) and `drain()` collects."""
+        if not getattr(solver, "_snd_stage_enabled", False):
+            solver.enable_sound_stage()
+        self._solver = solver
+        self._ring = DeviceRingSource(solver)
+        self._cache = self._ring.cache
+        self.h_sub = self._ring.h_sub
+
+    def drain(self) -> int:
+        """Ring backend only: pull staged substeps; returns how many."""
+        assert self._ring is not None, "drain() needs attach_ring()"
+        smps = self._ring.drain()
+        for smp in smps:
+            self._F.append(smp.F)
+            self._cx.append(smp.corner_x)
+            self._cz.append(smp.corner_z)
+            self._vy.append(smp.body_vy)
+            self._em.append(smp.e_mech)
+        return len(smps)
+
     def detach(self) -> None:
+        if self._ring is not None:
+            if self._solver is not None:
+                self._solver.disable_sound_stage()
+            self._ring = None
+            self._solver = None
+            return
         if self._solver is not None:
             self._solver.substep_end_hook = self._prev_hook
             self._solver = None
@@ -222,14 +339,25 @@ class SoundImpulseLogger:
         )
 
 
-def attach_sound_logger(world) -> SoundImpulseLogger:
+def attach_sound_logger(world, source: str = "hook") -> SoundImpulseLogger:
     """Wire a logger into an `AVBDDCRWorld` running the NATIVE modal path.
 
-    Requirements (clear errors otherwise): `enable_reduced_modal_support` was
-    called (native q-block engaged), solver_kind == "avbd" (the Solver6DOF
-    host path — XPBD-native logging is a documented follow-up), and the
-    q-block is host-resident (device runs need a readback stage, follow-up).
+    source="hook" (default): per-substep host sampling via substep_end_hook —
+    zero-copy on CPU, but forces per-substep syncs and disables CUDA-graph
+    capture, so it is the CPU-path recorder. Requires a host-resident q-block.
+
+    source="ring": device staging (sound_stage_kernels.py) + per-frame drain —
+    the CUDA-path recorder (works on CPU too; parity-tested). The caller must
+    call `logger.drain()` once per frame after `world.step()`.
+
+    Both require `enable_reduced_modal_support` (native q-block engaged) and
+    solver_kind == "avbd" (XPBD-native logging is a documented follow-up).
     """
+    if source == "ring":
+        s = validate_native_world_ring(world)
+        logger = SoundImpulseLogger()
+        logger.attach_ring(s)
+        return logger
     s = validate_native_host_world(world)
     logger = SoundImpulseLogger()
     logger.attach(s)

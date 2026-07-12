@@ -149,3 +149,110 @@ then cached).
 Tests: `tests/stageE6/test_live_sound.py` — phasor synth ≡ reference bank,
 streaming tracker ≡ offline extractor, live tap on the real scene (stub
 engine, headless), real-stream smoke (skips sandboxed/CI).
+
+## Render-quality pass (2026-07-11, second): radiation weights + contact choke
+
+Two audible-realism fixes to the render layer (voices/mix only — excitation,
+event extraction, band split, and the E6 ledger are untouched; the ledger
+verifies bit-for-bit: 11.49 J ≤ 25.69 J, 0/814 capped, γ=1 throughout).
+
+**Problem.** Every impact read as the same lightly-damped 1.5–3 kHz "ting":
+(a) with mass-normalized modes the bare-rms listening weight made the light
+body voices out-shout the 75 kg table by ~62 dB per unit impulse (measured:
+pot mix amplitude 1281× the table's), burying the wood response entirely;
+(b) the open-loop bank let bodies ring with free-air ζ *while resting loaded
+on the table* — a physically wrong limit that sustained the ting.
+
+**Fix 1 — radiation weight** (`audio_basis.radiation_weight`, DEVIATION):
+per-mode weight is now `√(σ·S)·rms(Φ_y)` with S the radiator's plan area and
+σ = (ka)²/(1+(ka)²) a compact-dipole short-circuit roll-off (a = √(S/π),
+k = ω/c_air). Still a heuristic — no BEM/FFAT, directivity, or listener
+distance. Cache key bumped (`radiation_v=2`); old `data/audio_basis/*.npz`
+are orphaned and can be deleted.
+
+**Fix 2 — contact choke** (`render._render_voice_phasor`,
+`live.ComplexModalSynth`, DEVIATION): while a body's summed engaged support
+force is ≥ 0.25·m·g (hysteresis, off < 0.10·m·g — `events.LoadedTracker`,
+shared by both paths), its voice decays with ζ_i → max(ζ_i, ζ_contact = 0.08)
+— a damping switch with the phasor state carried across, not a re-strike.
+Free flight between bounces rings free; rest chokes. Table voice (the
+permanent support) is never choked. Offline renders body voices through a
+segmented damped-phasor path that is float-identical to the LTI lfilter path
+when unchoked (tested), and identical to the live synth given the same
+toggles (tested). Choking only *removes* modal energy faster, so the §15-form
+bound is unaffected. Knobs: `--zeta-contact` (offline) /
+`--sound-zeta-contact` (viser), 0 disables.
+
+**Measured (same 6 s dinner run, `dinner_impact.wav` → `dinner_impact_v2.wav`):**
+
+| metric | before | after |
+|---|---|---|
+| low-band (<800 Hz) energy fraction, impact window | 0.011 | 0.941 |
+| spectral centroid of the pot impact | 1821 Hz | 361 Hz |
+| low-band fraction, late tail [1–2 s] | 0.011 | 0.996 |
+| ring residue at +400 ms (rel. to hit rms) | 12 % | 2.5 % |
+| high-band (>1.2 kHz) fraction, first 25 ms of hit | — | 0.098 |
+
+i.e. pot-on-wood is now a metallic clank *onset* (~10 % high-band for
+~25 ms) handing over to the table's 151–828 Hz woody body — "lower and
+dense" — instead of a quarter-second 1.7 kHz ping. Live master level drops a
+few dB (body weights shrank); compensate with `--sound-gain` if needed.
+
+Tests added: radiation-weight scaling, LoadedTracker hysteresis, phasor ≡
+lfilter (unchoked), choke-shortens-ring + unchoke-resumes, live ≡ offline
+choke parity, live tap pushes chokes on the real scene (19 pass / 1 hw skip).
+
+## GPU sound architecture — Stage A/B landed (2026-07-12), 4090 validation pending
+
+The sound tap now has a second, CUDA-compatible excitation source. Design
+principle: the tap consumes the sim the way the *viewer* does — at frame
+cadence from a device-staged buffer — instead of at substep cadence through a
+host hook (which forces per-substep syncs and disqualifies both CUDA-graph
+tiers, `solver_6dof.py` capture eligibility).
+
+**Stage A — device staging** (`dcr/avbd/_solver/sound_stage_kernels.py`):
+three fixed-shape kernels appended to the end of `_step_one_body` behind
+`Solver6DOF.enable_sound_stage()` (flag is part of
+`_current_graph_signature`, so toggling recaptures; OFF = zero cost). Per
+substep they write into a fixed-capacity ring (default 4 frames deep):
+per-support-row engaged force F = −min(ρC+λ_eff, 0) — the same assembly as
+`k_modal_rowforce`/`sample_substep`, evaluated post-solve on the float32
+`q_modal` mirror (fresh on both host and device q-block paths) — corner
+world (x,z), per-body v_y, rigid mechanical energy (float64, passivity
+form), then a head increment publishing the substep. Pure `wp.launch` — no
+host interaction, no allocation — so on the resident CUDA path the whole
+sequence folds into the full-substep captured graph.
+
+**Stage B — frame drain** (`dcr.sound.logger.DeviceRingSource`): one bulk
+copy per frame → `SubstepSample`s in substep order → the SAME consumer the
+hook tap uses (`LiveExcitationTap._consume`: burst tracker, load gate,
+ledger deposits/admits in sim order, kick+choke pushes). Overrun drops the
+oldest substeps with a one-time warning (`.dropped`). Both
+`LiveExcitationTap` and `SoundImpulseLogger` take `source="hook"|"ring"`;
+ring callers call `.drain()` once per frame after `world.step()`.
+`attach_live_sound(..., source=)` plumbs it; the viser `--sound` flag picks
+hook on cpu, ring on cuda, and drains in the render loop;
+`render_sound.py --device cuda:0` records offline via the ring.
+
+**Parity (CPU device, tests/stageE6/test_device_ring.py — same kernels run
+on CUDA):** staged F within 5e-2 N (f32-mirror-q vs f64-host-q, ρ-amplified;
+impacts are 10² N), corners 1e-5, v_y bit-equal, e_mech 1e-9 rel; tap-level:
+identical event/mute/choke counts, kick times and voices exact, kick g
+within 1% on the quietest rattle kicks, ledger totals 1e-4 rel, §15 holds on
+both. Guard split: the hook tap now *errors toward the ring tap* on a
+resident q-block instead of dead-ending.
+
+**4090 checklist (next compshare session):**
+1. `pytest tests/stageE6/test_device_ring.py` on `--device cuda:0` variants
+   (edit `_build_dinner` device or parametrize) — same tolerances.
+2. `python scripts/render_sound.py --device cuda:0 --seconds 6` → WAV; diff
+   band-split metrics vs the CPU render of the same scene.
+3. Steady-state graph health: with `--sound` + ring on the resident path,
+   assert zero recaptures after warmup (signature stable) and frame-time
+   regression < 0.2 ms vs staging off (nsys with --cuda-graph-trace=node,
+   per the graph-kernel profiling note).
+4. Live viser on cuda: 0 underruns, HUD ledger HOLDS, AV latency subjectively
+   ≤ hook path + one frame.
+
+Still out of scope: XPBD-native staging, box-box (body-body) impact rows —
+documented follow-ups.

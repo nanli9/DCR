@@ -40,6 +40,10 @@ def main() -> int:
     ap.add_argument("--h", type=float, default=1.0 / 120.0)
     ap.add_argument("--substeps", type=int, default=2)
     ap.add_argument("--iterations", type=int, default=6)
+    ap.add_argument("--device", default="cpu",
+                    help="sim device; cpu records via the substep hook, "
+                    "cuda:* via the device staging ring (graph-capture-safe, "
+                    "drained per frame — sound_stage_kernels.py)")
     ap.add_argument("--drop-xz", type=float, nargs=2, default=(0.0, 0.0))
     ap.add_argument("--drop-height", type=float, default=0.5)
     ap.add_argument("--support-basis", choices=("debug", "fem"),
@@ -67,6 +71,10 @@ def main() -> int:
                     help="band-split crossover [Hz] for the table voice")
     ap.add_argument("--table-gain", type=float, default=1.0)
     ap.add_argument("--body-gain", type=float, default=1.0)
+    ap.add_argument("--zeta-contact", type=float, default=0.08,
+                    help="choked modal ζ for body voices while they carry "
+                    "support load (contact-damping choke, render.py "
+                    "DEVIATION; 0 disables)")
     ap.add_argument("--out", default="exports/sound/dinner_impact.wav")
     ap.add_argument("--basis-cache", default="data/audio_basis")
     ap.add_argument("--rebuild-basis", action="store_true")
@@ -79,21 +87,25 @@ def main() -> int:
     from scenes.reduced_dinner_table import build_reduced_dinner_table
 
     # ---- 1. Scene + logger + headless run --------------------------------
+    source = "ring" if args.device.startswith("cuda") else "hook"
     print(f"[scene] dinner table, drop at {tuple(args.drop_xz)}, "
           f"h=1/{round(1/args.h)}, substeps={args.substeps}, "
-          f"iters={args.iterations}, sim basis={args.support_basis}")
+          f"iters={args.iterations}, sim basis={args.support_basis}, "
+          f"device={args.device} ({source} tap)")
     handle = build_reduced_dinner_table(
-        h=args.h, device="cpu", iterations=args.iterations,
+        h=args.h, device=args.device, iterations=args.iterations,
         avbd_substeps=args.substeps, pot_drop_xz=tuple(args.drop_xz),
         pot_drop_height=args.drop_height, solver="avbd",
         support_basis=args.support_basis)
     world = handle.world
-    logger = attach_sound_logger(world)
+    logger = attach_sound_logger(world, source=source)
 
     n_steps = int(round(args.seconds / args.h))
     t0 = time.perf_counter()
     for i in range(n_steps):
         world.step()
+        if source == "ring":
+            logger.drain()
         if (i + 1) % int(round(1.0 / args.h)) == 0:
             print(f"[run] t={((i + 1) * args.h):.1f}s "
                   f"({time.perf_counter() - t0:.1f}s wall)")
@@ -135,13 +147,15 @@ def main() -> int:
                                gain=args.table_gain),
         body_voices=body_voices, fs=args.fs, eta_audio=args.eta_audio,
         tail=args.tail, tau_ref=args.tau_ref, events=events,
-        tau_ref_per_body=da.tau_ref_per_body)
+        tau_ref_per_body=da.tau_ref_per_body,
+        zeta_contact=(args.zeta_contact if args.zeta_contact > 0 else None))
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     write_wav(args.out, audio, args.fs)
     print(f"[wav] {args.out}  ({diag['n_samples'] / args.fs:.1f}s)")
     print(f"[E6] events={diag['n_events']} capped={diag['n_capped']} "
-          f"min_gamma={diag['min_gamma']:.3f}")
+          f"min_gamma={diag['min_gamma']:.3f} "
+          f"choke_toggles={diag['n_choke_toggles']}")
     print(f"[E6] kick energy {diag['cum_kick_energy_J']:.4g} J  <=  "
           f"eta_audio * rigid loss {args.eta_audio} * "
           f"{diag['cum_rigid_loss_J']:.4g} J : "
