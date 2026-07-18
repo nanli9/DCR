@@ -97,7 +97,7 @@ def build_cargo_network_scene(
     world = AVBDDCRWorld(
         h=h, device=device, avbd_iterations=int(iterations),
         avbd_substeps=int(substeps),
-        solver_kind="xpbd" if solver == "xpbd" else "avbd")
+        solver_kind=solver if solver in ("xpbd", "impulse") else "avbd")
     if device_resident is not None and solver != "xpbd":
         world._solver._modal_device_resident = bool(device_resident)
     world.add_floor(floor_y=support_top, friction=float(friction), name="support")

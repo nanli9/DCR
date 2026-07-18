@@ -83,7 +83,7 @@ def build_payload_plate_scene(
     world = AVBDDCRWorld(
         h=h, device=device, avbd_iterations=int(iterations),
         avbd_substeps=int(substeps),
-        solver_kind="xpbd" if solver == "xpbd" else "avbd")
+        solver_kind=solver if solver in ("xpbd", "impulse") else "avbd")
     if device_resident is not None and solver != "xpbd":
         world._solver._modal_device_resident = bool(device_resident)
     world.add_floor(floor_y=support_top, friction=float(friction),
@@ -156,6 +156,26 @@ def _attach_one_way_ride(handle: PayloadPlateHandle) -> None:
     s = handle.world._solver
     bi = int(handle.avbd_idx["payload"])
     L, W, top = handle.support_length, handle.support_width, handle.support_top
+
+    if not hasattr(s, "_rows"):
+        # Impulse backend: no AVBD row pool. Same one-way readout ride, moved
+        # to the solver's floor registration: each substep the payload's floor
+        # height follows the live surface at the body's (x, z) — surface →
+        # body only, weight/inertia in no modal row (the A/B baseline arm).
+        def hook_impulse(sol):
+            q = sol.modal_q
+            if q is None:
+                return
+            pos = sol._X[bi]
+            u = evaluate_basis_at_point(
+                handle.rs, (float(pos[0]), float(pos[2])),
+                length=L, width=W, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
+            y = top + float(u[1, :] @ q)
+            sol._floors = [(b, y if b == bi else fy, mu)
+                           for (b, fy, mu) in sol._floors]
+
+        s.substep_begin_hook = hook_impulse
+        return
 
     def hook(sol):
         q = sol.modal_q

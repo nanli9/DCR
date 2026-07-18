@@ -263,7 +263,7 @@ def build_support_and_attach(
             tracked.append(int(desc.avbd_body.index))
     rs.probe_body_indices = list(tracked)
 
-    if solver in ("avbd", "native", "xpbd"):
+    if solver in ("avbd", "native", "xpbd", "impulse"):
         # Native dynamic two-way modal constraint (two_band_coupling.html,
         # Approach B): q is a solver DOF, NO coupler. Deformable cargo (M2) joins
         # the augmented modal vector via add_native_cargo (fem_rigid/fem/abd).
@@ -306,4 +306,4 @@ def build_support_and_attach(
             rs._native_cargo_cube = cube           # read back by the scene
             rs._native_cargo_avbd_idx = avbd_idx
         return rs
-    raise ValueError(f"unknown solver {solver!r} (avbd | xpbd)")
+    raise ValueError(f"unknown solver {solver!r} (avbd | xpbd | impulse)")

@@ -92,7 +92,7 @@ def _kind_has_model(kind: str) -> bool:
 
 N_GRID_X, N_GRID_Z = 21, 11
 KINDS = ("rigid", "fem_rigid", "abd", "fem")
-SOLVERS = ("avbd", "xpbd")
+SOLVERS = ("avbd", "xpbd", "impulse")
 SCENES = ("cargo", "payload", "truck", "ledge", "shelf", "dinner")
 _PROD = {"truck": build_reduced_truck, "ledge": build_reduced_ledge,
          "shelf": build_reduced_shelf, "dinner": build_reduced_dinner_table}
@@ -180,8 +180,9 @@ _BOX_FACES = np.array([
 
 
 def _effective_solver(solver: str, kind: str) -> str:
-    """abd routes to AVBD (its stiff V⊥ is not GS-stable; oracle note)."""
-    return "avbd" if (solver == "xpbd" and kind == "abd") else solver
+    """abd routes to AVBD (its stiff V⊥ is not GS-stable on XPBD; the impulse
+    backend does not implement abd's nonlinear V⊥ either — oracle note)."""
+    return "avbd" if (solver in ("xpbd", "impulse") and kind == "abd") else solver
 
 
 def _xpbd_iter_floor(solver: str, spec: dict) -> tuple[int, int]:
@@ -373,9 +374,11 @@ class UnifiedViser:
         # is the documented abd → AVBD fallback (abd's stiff nonlinear V⊥ is the
         # XPBD caveat; _effective_solver handles it).
         eff = _effective_solver(self.solver, self.kind)
-        if self.scene in ("cargo", "payload") or self._all_cargo_on():
-            # the box-box modal network is AVBD-native (XPBD = N5); the payload
-            # A/B pins AVBD so both worlds run the demo-tuned path
+        if ((self.scene in ("cargo", "payload") or self._all_cargo_on())
+                and eff == "xpbd"):
+            # the box-box modal network is native to AVBD and impulse (XPBD =
+            # N5); only XPBD falls back so the payload A/B / network scenes run
+            # a network-capable backend on both worlds
             eff = "avbd"
         self._handle_off = None          # payload A/B: set by its branch below
         self._eff_solver = eff
@@ -397,7 +400,7 @@ class UnifiedViser:
         else:
             cargo_kind = None if (self.no_cargo or self.symplectic) else self.kind
         cand = dict(
-            device=self.device, solver="avbd", cargo_material=cargo_kind,
+            device=self.device, solver=eff, cargo_material=cargo_kind,
             cargo_all=self._all_cargo_on(),
             cargo_n_elastic=3,               # per-body k (the cargo-scene value)
             iterations=int(self.knob_iters), avbd_substeps=int(self.knob_subs),
@@ -432,7 +435,7 @@ class UnifiedViser:
             self.handle = build_cargo_network_scene(
                 network=self.network, ride=self.ride, kind=self.kind,
                 device=self.device,
-                solver="avbd", iterations=int(self.knob_iters),
+                solver=eff, iterations=int(self.knob_iters),
                 substeps=int(self.knob_subs),
                 support_thickness=float(self.knob_thickness),
                 support_youngs=float(mat.youngs),
@@ -447,7 +450,7 @@ class UnifiedViser:
             # the impactor is tracked on both. The "soft" material puts the
             # ring at ~5 Hz / mm–cm, visible at TRUE SCALE (exaggeration 1).
             pkw = dict(
-                device=self.device, solver="avbd",
+                device=self.device, solver=eff,
                 iterations=int(self.knob_iters),
                 substeps=int(self.knob_subs),
                 support_thickness=float(self.knob_thickness),

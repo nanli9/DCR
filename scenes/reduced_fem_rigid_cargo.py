@@ -108,7 +108,7 @@ def build_cargo_scene(
     world = AVBDDCRWorld(
         h=h, device=device,
         avbd_iterations=int(iterations), avbd_substeps=int(avbd_substeps),
-        solver_kind="xpbd" if solver == "xpbd" else "avbd")
+        solver_kind=solver if solver in ("xpbd", "impulse") else "avbd")
     world.add_floor(floor_y=support_top, friction=0.5, name="support")
 
     cube = _make_cube(kind, cube_size=cube_size, cube_nx=cube_nx,
@@ -130,7 +130,7 @@ def build_cargo_scene(
         y_rest=support_top, overlay_enabled=False,
         rayleigh_alpha0=2.0, rayleigh_alpha1=1.0e-5, to_eigenbasis=True)
 
-    if solver in ("avbd", "native", "xpbd"):
+    if solver in ("avbd", "native", "xpbd", "impulse"):
         # Native cargo (M2): the cube's elastic modes are a NATIVE modal block of
         # the chosen solver (two_band_coupling.html, Approach B). No coupler, no
         # hook — the cube's support contacts and its a-modes are co-solved in the
@@ -159,7 +159,7 @@ def build_cargo_scene(
             world=world, rs=rs, coupler=None, cube=cube, avbd_idx=avbd_idx,
             support_top=support_top, support_length=support_length,
             support_width=support_width, kind=kind)
-    raise ValueError(f"unknown solver {solver!r} (avbd | xpbd)")
+    raise ValueError(f"unknown solver {solver!r} (avbd | xpbd | impulse)")
 
 
 def build_fem_rigid_cargo(**kwargs) -> FEMRigidCargoHandle:

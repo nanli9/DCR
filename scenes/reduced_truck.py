@@ -57,7 +57,7 @@ def build_reduced_truck(
     world = AVBDDCRWorld(
         h=h, device=device,
         avbd_iterations=int(iterations), avbd_substeps=int(avbd_substeps),
-        solver_kind="xpbd" if solver == "xpbd" else "avbd",
+        solver_kind=solver if solver in ("xpbd", "impulse") else "avbd",
     )
     world.add_floor(floor_y=support_top, friction=0.6, name="road")
 

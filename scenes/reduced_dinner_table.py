@@ -110,7 +110,7 @@ def build_reduced_dinner_table(
     world = AVBDDCRWorld(
         h=h, device=device,
         avbd_iterations=int(iterations), avbd_substeps=int(avbd_substeps),
-        solver_kind="xpbd" if solver == "xpbd" else "avbd",
+        solver_kind=solver if solver in ("xpbd", "impulse") else "avbd",
     )
     # Table-as-floor: AVBD's floor is +y up; objects rest at y = table_top.
     world.add_floor(floor_y=table_top, friction=0.5, name="table")
@@ -249,8 +249,8 @@ def build_reduced_dinner_table(
             tracked.append(int(desc.avbd_body.index))
     rs.probe_body_indices = list(tracked)
 
-    if solver not in ("avbd", "native", "xpbd"):
-        raise ValueError(f"unknown solver {solver!r} (avbd | xpbd)")
+    if solver not in ("avbd", "native", "xpbd", "impulse"):
+        raise ValueError(f"unknown solver {solver!r} (avbd | xpbd | impulse)")
     # Native dynamic two-way modal constraint (two_band_coupling.html): q is a
     # solver DOF, NO coupler. The World's solver_kind ("xpbd"|"avbd") routes this
     # native wiring to SolverXPBD or SolverAVBD; deformable cargo (M2) joins via

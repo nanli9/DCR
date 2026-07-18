@@ -433,11 +433,13 @@ class AVBDDCRWorld:
         # Rayleigh). q/q̇ carry over from the support's current state.
         s.set_modal_support(rs.Mq, rs.Kq, rs.Dq, q0=rs.q, qdot0=rs.qdot)
 
-        if self.solver_kind == "xpbd":
-            # XPBD-native: the standalone solver has no AVBD row pool to retype.
-            # Instead, swap each tracked body's floor registration for
+        if self.solver_kind in ("xpbd", "impulse"):
+            # Standalone-native (XPBD / velocity-impulse): no AVBD row pool to
+            # retype. Instead, swap each tracked body's floor registration for
             # support-contact rows on its bottom corners, each reading the live
             # surface y_rest + U_y·q (two_band_coupling.html). No coupler.
+            # SolverImpulse mirrors SolverXPBD's host state (_floors/_he/_X/_Q)
+            # by design, so ONE branch serves both backends.
             from ._solver.solver_xpbd import _quat_to_R as _xR
             s._ensure_arrays()
             tracked = set(int(i) for i in tracked_body_indices)
@@ -537,8 +539,8 @@ class AVBDDCRWorld:
         cb = np.asarray(cargo_body.corner_body, dtype=np.float64)
         support_rows: list[tuple[int, int]] = []
 
-        if self.solver_kind == "xpbd":
-            # XPBD-native: match the cube's rest corners to this body's
+        if self.solver_kind in ("xpbd", "impulse"):
+            # Standalone-native: match the cube's rest corners to this body's
             # support-contact rows (by offset) → (slot, pid), then add_cargo.
             for slot, sc in enumerate(s._support):
                 if sc.bi != int(body_avbd_idx):
@@ -550,7 +552,7 @@ class AVBDDCRWorld:
                     f"add_native_cargo: no support-contact rows for body "
                     f"{body_avbd_idx} (call enable_reduced_modal_support first, "
                     f"or pass allow_stacked=True for a stacked cube). NOTE: the "
-                    f"box-box modal network is AVBD-only for now (XPBD is N5).")
+                    f"box-box modal network is AVBD+impulse (XPBD is N5).")
             s.add_cargo(int(body_avbd_idx), cargo_body, support_rows)
             return
 
@@ -733,6 +735,11 @@ class AVBDDCRWorld:
             # Clear any cached CUDA-graph: the captured launches reference
             # array allocations that may have shifted on the next _flush.
             sol._graph = None
+        elif hasattr(sol, "restore_from_descs"):
+            # CPU-native backend (SolverImpulse): no warp arrays; write the
+            # snapshot back through the solver's own restore hook (also rewinds
+            # modal q/q̇ and cargo a/ȧ to rest and clears the warm-start cache).
+            sol.restore_from_descs(self._descs)
         # 4. World-level state.
         self.time = float(snap["time"])
         self._prev_contact_keys = set()

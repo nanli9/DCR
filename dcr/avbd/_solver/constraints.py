@@ -239,7 +239,7 @@ class Solver(Protocol):
 # Solver selection
 # ---------------------------------------------------------------------------
 
-_SOLVER_KINDS = ("avbd", "xpbd")
+_SOLVER_KINDS = ("avbd", "xpbd", "impulse")
 
 
 def make_solver(kind: str, /, **kwargs) -> Solver:
@@ -260,6 +260,10 @@ def make_solver(kind: str, /, **kwargs) -> Solver:
         from .solver_xpbd import SolverXPBD
 
         return SolverXPBD(**kwargs)
+    if k == "impulse":
+        from .solver_impulse import SolverImpulse
+
+        return SolverImpulse(**kwargs)
     raise ValueError(
         f"unknown solver kind {kind!r} (expected one of {_SOLVER_KINDS})"
     )
