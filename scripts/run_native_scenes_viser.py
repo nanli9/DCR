@@ -11,7 +11,12 @@ One viewer over the full matrix (native dual-solver build):
                plates, forks, cones, lumber, boulders — is a box-shaped modal
                cargo on the box-box network, with its real (hx,hy,hz) modal
                shapes (not a min-extent cube). `--no-all-cargo` restores the
-               old single-deformable-impactor mode.
+               old single-deformable-impactor mode. | payload — the mass-loading
+               A/B: the SAME soft plate + resting payload + impactor built twice
+               side by side; the LEFT plate carries the payload in its contact
+               rows (two-way: sag, rattle, detuned+damped ring), the RIGHT plate
+               never sees it (one-way: flat, frozen payload, free ring). ~5 Hz
+               fundamental — visible at TRUE SCALE, keep both exag sliders at 1.
   * solver   — avbd (SolverAVBD, Augmented-Lagrangian) | xpbd (SolverXPBD,
                compliant Gauss–Seidel). BOTH are genuinely independent NATIVE
                solvers: each solves rigid + box-box/floor + the reduced-modal
@@ -68,6 +73,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scenes.reduced_cargo_network import build_cargo_network_scene
+from scenes.payload_plate import build_payload_plate_scene
 from scenes.reduced_truck import build_reduced_truck
 from scenes.reduced_ledge import build_reduced_ledge
 from scenes.reduced_shelf import build_reduced_shelf
@@ -87,9 +93,14 @@ def _kind_has_model(kind: str) -> bool:
 N_GRID_X, N_GRID_Z = 21, 11
 KINDS = ("rigid", "fem_rigid", "abd", "fem")
 SOLVERS = ("avbd", "xpbd")
-SCENES = ("cargo", "truck", "ledge", "shelf", "dinner")
+SCENES = ("cargo", "payload", "truck", "ledge", "shelf", "dinner")
 _PROD = {"truck": build_reduced_truck, "ledge": build_reduced_ledge,
          "shelf": build_reduced_shelf, "dinner": build_reduced_dinner_table}
+
+# What each scene's deformable support IS (log lines only — the audio slab is
+# keyed by geometry+material, not by this name).
+_SUPPORT_LABEL = {"cargo": "slab", "truck": "road", "ledge": "ledge",
+                  "shelf": "board", "dinner": "table"}
 # "rigid" (k=0) is the plain 6-DOF rigid cube — the no-deformation baseline; a
 # neutral gray distinguishes it from the deformable materials.
 _CUBE_COLOR = {"rigid": (150, 155, 165), "fem_rigid": (77, 140, 217),
@@ -139,6 +150,11 @@ SCENE_SPEC = {
     "cargo":  dict(label="impactor", thickness=0.020, mass=None, mass_rng=(0.1, 5.0),
                    drop=0.22, drop_rng=(0.0, 0.8), v0=0.0,  iters=12, subs=4,
                    material="wood"),
+    # payload mass-loading A/B: soft plate (~5 Hz, mm–cm ring) so the two-way
+    # vs one-way difference is visible at TRUE SCALE (exaggeration 1).
+    "payload": dict(label="impactor", thickness=0.020, mass=1.0, mass_rng=(0.2, 5.0),
+                    drop=0.30, drop_rng=(0.0, 1.0), v0=0.0, iters=12, subs=4,
+                    material="soft"),
     "truck":  dict(label="crate",   thickness=0.060, mass=40.0, mass_rng=(1.0, 120.0),
                    drop=0.70, drop_rng=(0.0, 2.0), v0=0.0,  iters=8, subs=4,
                    material="wood"),
@@ -347,7 +363,7 @@ class UnifiedViser:
         cargo scene's own rules — the BE cargo path (the network lives in the
         augmented q-block), so the symplectic toggle declines while cargo is
         live, exactly as on the cargo scene."""
-        return (self.all_cargo and self.scene != "cargo"
+        return (self.all_cargo and self.scene not in ("cargo", "payload")
                 and not bool(getattr(self.args, "no_cargo", False)))
 
     # ---- scene + render setup ---------------------------------------
@@ -357,9 +373,11 @@ class UnifiedViser:
         # is the documented abd → AVBD fallback (abd's stiff nonlinear V⊥ is the
         # XPBD caveat; _effective_solver handles it).
         eff = _effective_solver(self.solver, self.kind)
-        if self.scene == "cargo" or self._all_cargo_on():
-            # the box-box modal network is AVBD-native (XPBD = N5)
+        if self.scene in ("cargo", "payload") or self._all_cargo_on():
+            # the box-box modal network is AVBD-native (XPBD = N5); the payload
+            # A/B pins AVBD so both worlds run the demo-tuned path
             eff = "avbd"
+        self._handle_off = None          # payload A/B: set by its branch below
         self._eff_solver = eff
         rd = self.device.startswith("cuda")
         mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
@@ -379,7 +397,7 @@ class UnifiedViser:
         else:
             cargo_kind = None if (self.no_cargo or self.symplectic) else self.kind
         cand = dict(
-            device=self.device, solver=eff, cargo_material=cargo_kind,
+            device=self.device, solver="avbd", cargo_material=cargo_kind,
             cargo_all=self._all_cargo_on(),
             cargo_n_elastic=3,               # per-body k (the cargo-scene value)
             iterations=int(self.knob_iters), avbd_substeps=int(self.knob_subs),
@@ -420,6 +438,26 @@ class UnifiedViser:
                 support_youngs=float(mat.youngs),
                 support_density=float(mat.density),
                 impactor_drop=float(self.knob_drop), device_resident=rd)
+        elif self.scene == "payload":
+            # Payload mass-loading A/B: the SAME scene built twice — the left
+            # plate carries the payload's rows (two-way, native), the right
+            # plate leaves the payload OFF `tracked_body_indices` (the one-way
+            # picture: it rests on the rigid floor while the plate rings under
+            # it — no sag, no rattle, no detune). Only the payload differs;
+            # the impactor is tracked on both. The "soft" material puts the
+            # ring at ~5 Hz / mm–cm, visible at TRUE SCALE (exaggeration 1).
+            pkw = dict(
+                device=self.device, solver="avbd",
+                iterations=int(self.knob_iters),
+                substeps=int(self.knob_subs),
+                support_thickness=float(self.knob_thickness),
+                support_youngs=float(mat.youngs),
+                support_density=float(mat.density),
+                impactor_mass=float(self.knob_mass
+                                    if self.knob_mass is not None else 1.0),
+                impactor_drop=float(self.knob_drop), device_resident=rd)
+            self.handle = build_payload_plate_scene(coupled=True, **pkw)
+            self._handle_off = build_payload_plate_scene(coupled=False, **pkw)
         else:
             builder = _PROD[self.scene]
             params = inspect.signature(builder).parameters
@@ -466,6 +504,8 @@ class UnifiedViser:
         legacy mode has one (the impactor) + rigid bystanders."""
         self._boxes = []      # (avbd_idx, half, color_u8, render_kind)
         self._deforms = []    # list of {name, cube, idx, col, half}
+        if self.scene == "payload":
+            return            # the A/B pair has its own mesh path
         if self.scene == "cargo":
             # colour the two STACKED (box-box-only) cubes warm (the eye tracks
             # the ring climbing the tower), the slab-resting cubes by material.
@@ -519,7 +559,57 @@ class UnifiedViser:
                         (int(desc.avbd_body.index), b.half_extents, col,
                          b.render_kind))
 
+    # payload A/B: render-only z offsets of the two plates (side by side; the
+    # two worlds both simulate around the origin).
+    _PAYLOAD_Z = {"L": -0.35, "R": +0.35}
+
+    def _make_payload_meshes(self):
+        """Side-by-side meshes for the payload A/B: two plates, two payloads,
+        two impactors, two labels. Everything true-scale; the only render
+        transform is the constant z offset separating the pair."""
+        mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
+        self._pay = {}
+        self._payload_names = []
+        for tag, handle in (("L", self.handle), ("R", self._handle_off)):
+            off = np.array([0.0, 0.0, self._PAYLOAD_Z[tag]])
+            self._pay[f"off_{tag}"] = off
+            nm = f"/pay_support_{tag}"
+            v = _slab_verts(handle.rs, handle.rs.q, self.support_exag,
+                            self.render_thick)
+            self._pay[f"slab_{tag}"] = self.server.scene.add_mesh_simple(
+                nm, vertices=(v + off).astype(np.float32),
+                faces=self._slab_faces, color=_mat_color_u8(self.material),
+                flat_shading=mat.flat, side="double")
+            self._payload_names.append(nm)
+            P = handle.world._solver.positions()
+            Q = handle.world._solver.orientations()
+            for bname, col, half in (
+                    ("payload", (72, 112, 185), handle.payload_half),
+                    ("impactor", (235, 130, 30), handle.impactor_half)):
+                bn = f"/pay_{bname}_{tag}"
+                i = handle.avbd_idx[bname]
+                self._pay[f"{bname}_{tag}"] = self.server.scene.add_mesh_simple(
+                    bn, vertices=_box_verts((half,) * 3, P[i] + off, Q[i]),
+                    faces=_BOX_FACES, color=col, flat_shading=True,
+                    side="double")
+                self._payload_names.append(bn)
+            ln = f"/pay_label_{tag}"
+            self._pay[f"label_{tag}"] = self.server.scene.add_label(
+                ln,
+                ("two-way — payload IS in the contact rows" if tag == "L" else
+                 "one-way — plate never sees the payload"),
+                position=(-(handle.support_length / 2.0 + 0.06), 0.18,
+                          float(off[2])))
+            self._payload_names.append(ln)
+        # generic per-frame loop safety (skipped for payload, but keep empty)
+        self._box_groups = []
+        self._deform_meshes = []
+        self._tet_deforms = []
+
     def _make_meshes(self):
+        if self.scene == "payload":
+            self._make_payload_meshes()
+            return
         # Skin the slab to the selected support material (color + flat/smooth
         # shading), so steel looks like steel and wood like wood.
         mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
@@ -606,18 +696,44 @@ class UnifiedViser:
         return cube.deformed_surface(z, self.cube_exag).astype(np.float32)
 
     # ---- Tier 1 live sound (Stage E6 demo; dcr/sound/live.py) --------
-    # Per-material AUDIO table damping: the scene's Rayleigh α is a wood-scale
-    # sim fit that would make every material thud; constant-ζ render override
-    # (audio_basis DEVIATION note). None = keep the sim's Rayleigh law (wood).
-    _AUDIO_TABLE_ZETA = {"wood": None, "steel": 3.0e-4,
-                         "plastic": 8.0e-3, "soft": 2.5e-2}
+    # Per-material AUDIO damping for the SUPPORT slab: the scene's Rayleigh α
+    # is a wood-scale sim fit that would make every material thud; constant-ζ
+    # render override (audio_basis DEVIATION note). None = keep the sim's
+    # Rayleigh law (the wood / DCR-table default).
+    _AUDIO_SUPPORT_ZETA = {
+        "steel": 3.0e-4, "titanium": 3.0e-4,        # long metallic ring
+        "glass": 2.0e-4, "aluminum": 2.0e-4,        # brightest, least damped
+        "concrete": 1.2e-2,                         # dense, dull
+        "wood": None, "dcr_table": None,            # the sim's Rayleigh law
+        "plastic": 8.0e-3, "soft": 2.5e-2, "rubber": 8.0e-2,   # → dead
+    }
+
+    def _support_geometry(self) -> tuple[float, float]:
+        """(length, width) of THIS scene's support slab, read from its builder's
+        signature — the viewer never overrides them, so the default IS the
+        geometry the sim used (thickness comes from the live knob). Keeps the
+        audio slab the instrument the sim actually rang, with no per-scene
+        constants duplicated here."""
+        builder = (build_cargo_network_scene if self.scene == "cargo"
+                   else _PROD[self.scene])
+        p = inspect.signature(builder).parameters
+
+        def default(*names):
+            for n in names:                 # dinner names them table_*
+                q = p.get(n)
+                if q is not None and q.default is not inspect.Parameter.empty:
+                    return float(q.default)
+            raise KeyError(f"{self.scene}: no support extent among {names}")
+
+        return (default("support_length", "table_length"),
+                default("support_width", "table_width"))
 
     def _attach_sound(self):
-        """Dinner + AVBD-native host path only; failures never break the
-        viewer (audio is a demo layer, the sim owes it nothing)."""
+        """Any scene, on the AVBD-native path; failures never break the viewer
+        (audio is a demo layer, the sim owes it nothing)."""
         a = self.args
-        if self.scene != "dinner":
-            self._sound_note = f"off (scene={self.scene}; dinner only)"
+        if self.scene == "payload":
+            self._sound_note = "off (payload A/B demo)"
             print(f"[sound] {self._sound_note}")
             return
         if self._eff_solver != "avbd":
@@ -629,25 +745,29 @@ class UnifiedViser:
         source = "ring" if self.device.startswith("cuda") else "hook"
         try:
             from dcr.sound.live import attach_live_sound
-            from scripts.sound_voices import build_dinner_audio
+            from scripts.sound_voices import build_scene_audio
             mat = _MATERIAL.get(self.material, _MATERIAL["wood"])
-            da = build_dinner_audio(
+            length, width = self._support_geometry()
+            da = build_scene_audio(
                 self.handle, self.world, fs=float(a.sound_fs),
-                table_thickness=float(self.knob_thickness),
+                support_length=length, support_width=width,
+                support_thickness=float(self.knob_thickness),
                 youngs=float(mat.youngs), density=float(mat.density),
-                table_zeta_const=self._AUDIO_TABLE_ZETA.get(self.material),
+                support_fmin=float(a.sound_support_fmin),
+                support_zeta_const=self._AUDIO_SUPPORT_ZETA.get(self.material),
+                support_label=_SUPPORT_LABEL[self.scene],
                 cache_dir="data/audio_basis")
             self._sound = attach_live_sound(
-                self.world, table_basis=da.table_basis,
+                self.world, support_basis=da.support_basis,
                 body_bases=da.body_bases,
                 tau_ref_per_body=da.tau_ref_per_body,
                 eta_audio=float(a.sound_eta), fs=float(a.sound_fs),
                 blocksize=int(a.sound_block), gain=float(a.sound_gain),
                 zeta_contact=(float(a.sound_zeta_contact)
                               if a.sound_zeta_contact > 0 else None),
-                source=source)
-            self._sound_note = (f"live ({len(da.body_bases) + 1} voices, "
-                                f"{source} tap)")
+                noise_frac=float(a.sound_noise), source=source)
+            n_voices = len(da.body_bases) + (da.support_basis is not None)
+            self._sound_note = f"live ({n_voices} voices, {source} tap)"
             print(f"[sound] {self._sound_note}  gain={a.sound_gain}  "
                   f"block={a.sound_block} (~{1e3 * int(a.sound_block) / float(a.sound_fs):.1f} ms)")
         except Exception as e:                       # pragma: no cover
@@ -667,12 +787,14 @@ class UnifiedViser:
         self._detach_sound()
         names = (["/support"]
                  + [f"/deform_{k}" for k in range(len(self._deforms))]
-                 + [f"/body_{g['kind']}" for g in getattr(self, "_box_groups", [])])
+                 + [f"/body_{g['kind']}" for g in getattr(self, "_box_groups", [])]
+                 + list(getattr(self, "_payload_names", [])))
         for n in names:
             try:
                 self.server.scene.remove_by_name(n)
             except Exception:
                 pass
+        self._payload_names = []
         self._build()
         if bool(getattr(self.args, "sound", False)):
             self._attach_sound()
@@ -873,14 +995,24 @@ class UnifiedViser:
         `_support_block_relax`. Nulls the captured CUDA graph so the change
         takes effect on the next step (the relax scalar is otherwise baked in
         at capture time)."""
-        sol = self.world._solver
-        if hasattr(sol, "_modal_relax"):
-            sol._modal_relax = float(val)
-        if hasattr(sol, "modal_relax"):
-            sol.modal_relax = float(val)
-        if hasattr(sol, "_support_block_relax"):
-            sol._support_block_relax = float(val)
-        sol._graph = None                         # force CUDA-graph recapture
+        for sol in self._knob_solvers():
+            if hasattr(sol, "_modal_relax"):
+                sol._modal_relax = float(val)
+            if hasattr(sol, "modal_relax"):
+                sol.modal_relax = float(val)
+            if hasattr(sol, "_support_block_relax"):
+                sol._support_block_relax = float(val)
+            sol._graph = None                     # force CUDA-graph recapture
+
+    def _knob_solvers(self):
+        """Solvers a live knob must reach: the main world, plus the payload
+        A/B's uncoupled twin — the two worlds must stay setting-identical or
+        the comparison stops being an A/B."""
+        sols = [self.world._solver]
+        off = getattr(self, "_handle_off", None)
+        if self.scene == "payload" and off is not None:
+            sols.append(off.world._solver)
+        return sols
 
     def _modal_relax_changed(self, _evt):
         self.knob_modal_relax = float(self.gui_modal_relax.value)
@@ -896,14 +1028,14 @@ class UnifiedViser:
         takes effect next step. Cargo scenes are rebuilt non-cargo by the caller
         (`cargo_kind` honors `self.symplectic`), so this only runs once the path
         supports it; it still declines if cargo is somehow live."""
-        sol = self.world._solver
-        if val and self._solver_has_cargo(sol):
+        if val and self._solver_has_cargo(self.world._solver):
             return                                 # rebuild (non-cargo) is pending
-        if val and hasattr(sol, "_modal_device_resident"):
-            sol._modal_device_resident = False     # AVBD: force host q-block
-        if hasattr(sol, "_modal_symplectic"):
-            sol._modal_symplectic = bool(val)
-        sol._graph = None                          # force CUDA-graph recapture
+        for sol in self._knob_solvers():
+            if val and hasattr(sol, "_modal_device_resident"):
+                sol._modal_device_resident = False  # AVBD: force host q-block
+            if hasattr(sol, "_modal_symplectic"):
+                sol._modal_symplectic = bool(val)
+            sol._graph = None                       # force CUDA-graph recapture
 
     @staticmethod
     def _solver_has_cargo(sol) -> bool:
@@ -943,26 +1075,26 @@ class UnifiedViser:
           AVBD monitor-capable): the clamp is symplectic-path only, so enforcement
           FOLLOWS the checkbox — OFF shows the raw (blown-up on XPBD) ring, ON
           clamps it. This is the genuine blow-up→normal demo (--inject-xpbd)."""
-        sol = self.world._solver
-        if not hasattr(sol, "_enforce_modal_passivity"):
-            return
-        # any scene with live cargo blocks (the cargo scene, or a production
-        # scene in all-cargo mode) uses the cargo-path wiring
-        cargo = bool(getattr(sol, "_cargo_enabled", False))
-        support = (bool(getattr(sol, "_modal_enabled", False))
-                   and bool(getattr(sol, "_modal_symplectic", False))
-                   and not cargo)
-        if cargo:
-            sol._enforce_modal_passivity = True
-            sol._psv_monitor_only = not self.passivity   # ledger always records
-        elif support:
-            sol._enforce_modal_passivity = bool(self.passivity)  # OFF ⇒ blow-up
-            if hasattr(sol, "_psv_monitor_only"):
-                sol._psv_monitor_only = False            # active when on
-        else:
-            sol._enforce_modal_passivity = False
-        sol._psv_ledger = None                           # fresh ledger
-        sol._graph = None
+        for sol in self._knob_solvers():
+            if not hasattr(sol, "_enforce_modal_passivity"):
+                continue
+            # any scene with live cargo blocks (the cargo scene, or a production
+            # scene in all-cargo mode) uses the cargo-path wiring
+            cargo = bool(getattr(sol, "_cargo_enabled", False))
+            support = (bool(getattr(sol, "_modal_enabled", False))
+                       and bool(getattr(sol, "_modal_symplectic", False))
+                       and not cargo)
+            if cargo:
+                sol._enforce_modal_passivity = True
+                sol._psv_monitor_only = not self.passivity  # ledger always records
+            elif support:
+                sol._enforce_modal_passivity = bool(self.passivity)  # OFF ⇒ blow-up
+                if hasattr(sol, "_psv_monitor_only"):
+                    sol._psv_monitor_only = False           # active when on
+            else:
+                sol._enforce_modal_passivity = False
+            sol._psv_ledger = None                          # fresh ledger
+            sol._graph = None
 
     def _passivity_changed(self, _evt):
         """Toggle the passivity clamp live. Re-applies the wiring so the cargo
@@ -1028,6 +1160,49 @@ class UnifiedViser:
         self.knob_modal_relax = None
         self.render_thick = sp["thickness"]
 
+    # ---- payload A/B per-frame tick -----------------------------------
+    def _tick_payload(self):
+        """Step BOTH payload worlds in lockstep and refresh the side-by-side
+        meshes. The pair differs only in whether the payload's rows carry the
+        plate's modal columns; the HUD prints the payload-point deflection of
+        each so the sag/detune contrast is readable as numbers too."""
+        t0 = time.perf_counter()
+        for handle in (self.handle, self._handle_off):
+            handle.world.step()
+            mq = handle.world._solver.modal_q
+            if mq is not None:
+                handle.rs.q[:] = mq
+        ms = (time.perf_counter() - t0) * 1e3
+        for tag, handle in (("L", self.handle), ("R", self._handle_off)):
+            off = self._pay[f"off_{tag}"]
+            v = _slab_verts(handle.rs, handle.rs.q, self.support_exag,
+                            self.render_thick)
+            self._pay[f"slab_{tag}"].vertices = (v + off).astype(np.float32)
+            P = handle.world._solver.positions()
+            Q = handle.world._solver.orientations()
+            for bname, half in (("payload", handle.payload_half),
+                                ("impactor", handle.impactor_half)):
+                i = handle.avbd_idx[bname]
+                self._pay[f"{bname}_{tag}"].vertices = _box_verts(
+                    (half,) * 3, P[i] + off, Q[i])
+        d_two = float(self.handle.rs.probe_U[0, 1, :]
+                      @ self.handle.rs.q) * 1e3
+        d_one = float(self._handle_off.rs.probe_U[0, 1, :]
+                      @ self._handle_off.rs.q) * 1e3
+        self.hud_eff.value = self._eff_solver
+        self.hud_ms.value = f"{ms:.2f} (both worlds)"
+        self.hud_back.value = self.device
+        self.hud_q.value = f"{np.linalg.norm(self.handle.rs.q):.3e}"
+        self.hud_defl.value = f"{abs(d_two):.2f}"
+        self.hud_cube.value = "rigid payload (A/B)"
+        self.hud_supp.value = (
+            f"{getattr(self.world._solver, 'last_modal_KE', 0.0):.3e}")
+        self.hud_pen.value = "—"
+        self.hud_psv.value = (f"payload-pt defl  two-way {d_two:+.2f} mm  |  "
+                              f"one-way {d_one:+.2f} mm")
+        self.hud_clamp.value = "A/B: only difference = payload in the rows"
+        self.hud_sound.value = self._sound_note
+
     # ---- loop --------------------------------------------------------
     def run(self):
         print(f"\n  unified viser: http://localhost:{self.args.port}")
@@ -1054,6 +1229,10 @@ class UnifiedViser:
                 else:
                     self._apply_knobs_from_gui()
                     self._rebuild()
+            if not self.paused and self.scene == "payload":
+                self._tick_payload()
+                time.sleep(max(0.0, (1.0 / 120.0) / max(self.speed, 1e-3)))
+                continue
             if not self.paused:
                 t0 = time.perf_counter()
                 self.world.step()
@@ -1222,12 +1401,13 @@ def main():
                     help="initial slab-deflection render exaggeration (1 = true scale)")
     ap.add_argument("--port", type=int, default=8192)
     ap.add_argument("--sound", action="store_true",
-                    help="Tier 1 LIVE E6 audio (dinner scene, --solver avbd; "
+                    help="Tier 1 LIVE E6 audio (ANY scene, --solver avbd; "
                          "cpu = per-substep hook tap, cuda = device staging "
                          "ring drained per frame). Impact sound streamed "
                          "from the native contact multipliers under the "
                          "§15-form energy budget (dcr/sound/live.py). "
-                         "Speakers on.")
+                         "Voices: the scene's support slab + every body with "
+                         "a scripts/sound_voices.KIND_SPEC entry. Speakers on.")
     ap.add_argument("--sound-gain", type=float, default=0.35,
                     help="master gain into the soft limiter (0.05 quiet … 1 loud)")
     ap.add_argument("--sound-fs", type=float, default=44100.0)
@@ -1236,10 +1416,20 @@ def main():
                          "(comfortable callback headroom; 256 is snappier)")
     ap.add_argument("--sound-eta", type=float, default=1.0,
                     help="η_audio in the E6 budget ΔE_audio ≤ η·ΔE_rigid_loss")
+    ap.add_argument("--sound-noise", type=float, default=0.35,
+                    help="contact-noise transient level: noise:modal "
+                         "loudness ratio, charged to the E6 ledger as "
+                         "noise²·e_kick (shaping.py DEVIATION; 0 disables)")
     ap.add_argument("--sound-zeta-contact", type=float, default=0.08,
                     help="choked modal ζ for body voices while they carry "
                          "support load (contact-damping choke, "
                          "dcr/sound/live.py DEVIATION; 0 disables)")
+    ap.add_argument("--sound-support-fmin", type=float, default=150.0,
+                    help="band-split crossover [Hz] for the support voice: "
+                         "modes below it belong to the co-solved sim band "
+                         "(and radiate poorly) and are dropped from the audio "
+                         "bank. Lower it to voice a big/soft slab whose plate "
+                         "modes all sit low (docs/stageE6)")
     UnifiedViser(ap.parse_args()).run()
 
 
