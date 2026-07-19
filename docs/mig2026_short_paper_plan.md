@@ -19,9 +19,11 @@ Thesis (Codex's "defensible today" form, tightened):
 > We show that the classical two-way rigid–modal contact row exhibits sharply
 > solver-dependent energy behavior under fixed local iteration budgets.
 > Projection-based XPBD amplifies modal energy by up to 1.2×10⁵ relative to
-> incident rigid kinetic energy in an adversarial budget sweep, while an
-> augmented-Lagrangian (AVBD) and an implicit sequential-impulse realization
-> remain within the measured supply bound in the same sweep. We introduce a
+> incident rigid kinetic energy in an adversarial budget sweep; an
+> augmented-Lagrangian (AVBD) realization exceeds the supply bound only
+> marginally and only in the most starved cells (worst 1.7×), while an implicit
+> sequential-impulse realization stays within it in every cell of the same
+> sweep. We introduce a
 > cumulative, source-referenced modal-storage projection that bounds XPBD's
 > gain across all tested budgets, and validate the reduced modal response
 > against a matched full-FEM operator. A separate GPU-resident AVBD path
@@ -71,8 +73,15 @@ Contribution bullets (3 max, short-paper discipline):
 ### Already in hand (cite/condense, no new runs)
 - XPBD 24-cell adversarial matrix: injects in 12/24 (5.5e4–9.2e6 J; peak
   119,534× incident KE); clamp bounds all cells; inert at high budget.
+  **SUPERSEDED on this branch by E-S1b (2026-07-18): 8/24, peak 1.19534e5
+  reproduced exactly. The four lost cells are dinner — the dinner scene was
+  materially redefined on this branch (DCR §5.1 duplication), so the paper's
+  dinner worst case 5.1e3 belongs to the superseded scene. See
+  `docs/mig2026_results_ledger.md` §E-S1b.**
 - AVBD: 20/20 cells passive without clamp (host); device 20/20 + 18/18
-  (N-sweep) with read-only ledger.
+  (N-sweep) with read-only ledger. **CONTRADICTED on the 24-cell matrix
+  (E-S1b): AVBD injects in 2/24 cells (dinner 4×1, worst 1.7003). The §1
+  thesis sentence was rewritten accordingly on 2026-07-18.**
 - Activation demo: `--inject` preset (2×1 budget) ~20× injection → clamp
   flips it passive.
 - η sweep, zero-pending matrix, stress N=16→512 (~√N, 8×1 real-time ∀N).
