@@ -76,10 +76,9 @@ reference shrinks by six orders of magnitude. Because the converged regime is
 unaffordable at interactive budgets, we add a cumulative modal-storage bound
 funded by that measured gross rigid-side loss, enforced by a reservoir ledger
 and a projection of the realized modal state, which holds in all 72 measured cells
-($60$ distinct configurations). We also measure what that projection costs contact validity,
-and find worst-case post-projection penetration of $21.6$~mm --- $72\%$ of the
-supporting board's thickness --- with corrective impulses up to $8.7\times$
-steady state.
+($60$ distinct configurations). We also measure what that projection costs
+contact validity, and find worst-case post-projection penetration of
+$21.6$~mm --- $72\%$ of the supporting board's thickness.
 \end{abstract}
 
 \begin{CCSXML}
@@ -116,7 +115,8 @@ established treatment resolves rigid and modal unknowns together through a
 shared contact multiplier at the velocity level~\citep{zheng2011}. The one-way
 alternative --- driving a separate modal filter from contact events without
 back-reaction --- is the real-time precedent~\citep{james2002dyrt,
-coevoet2020distant}.
+coevoet2020distant}. Interactive modal deformation subject to collision and
+contact constraints predates both~\citep{hauser2003}.
 
 We take that coupled row as given. Written at position level it is one
 linearization step from the velocity-level law: for gap function $C$,
@@ -132,7 +132,9 @@ small number of local iterations per substep, and it is known that
 finite-iteration coupling across a partition boundary can inject spurious
 energy even when every subsystem is individually
 passive~\citep{wei2026earlyterm}. \emph{That observation is not ours either.}
-What is missing is a quantitative answer for this specific case --- unilateral
+Velocity-level frictional contact spanning rigid and reduced deformable bodies,
+with the energy artifacts of iterative solvers named, goes back at least
+to~\citet{kaufman2008}. What is missing is a quantitative answer for this specific case --- unilateral
 contact-to-modal transfer --- and a mitigation that fits inside an interactive
 budget.
 
@@ -175,7 +177,10 @@ multiplier.
 transplants an established control idea rather than inventing one. Time-domain
 passivity control~\citep{hannaford2002} damps once an energy observer goes
 negative; energy-tank formulations~\citep{franken2011} give that observer
-explicit state, so a controller spends only what its tank holds. We keep that
+explicit state, so a controller spends only what its tank holds;
+\citet{rath2008} enforces exact per-interface energy stability for contacting
+modal objects at audio rate, where we cap a scene-level scalar reservoir. We
+keep that
 structure and change two things: the tank is funded by \emph{measured gross
 rigid-side loss} --- energy the solve removed elsewhere --- rather than by
 the port it regulates, and the actuator scales realized \emph{state} rather than
