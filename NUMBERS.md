@@ -220,7 +220,20 @@ Ledger 0.06–1.9%, ripple ±2.72→±1.48 N, ring 1.1e-5/0 ←
 | dinner avbd 125.6±0.6 / 144.7 / +1.5 / 8.0 | 125.57±0.56, 144.68, +1.48±0.62 | same |
 | stack (matrix cell) 78.5 ms, 12.7 steps/s | 78.536±0.643, worst 85.93, clamp +1.67±0.85 | `x5_perf/out/perf_reps_summary.csv` (default cargo modal path — symplectic is host non-cargo only) |
 | AVBD 1.2–3.6× XPBD | 65.2/53.8=1.21; 110.6/51.6=2.14; 451.6/125.6=3.60 | derived |
-| ledger cost +0.8–2.9 ms/step (§4.5) | clamp column range over the six symplectic rows | perf_reps_server.log |
+| ledger cost +0.8–2.9 ms/step (§4.5) | clamp column range over the six symplectic rows | perf_reps_server.log — **⚠ DEFECTIVE, see below** |
+
+> **⚠ 2026-07-19 (short-paper R7): do not reuse the +0.8–2.9 ms range.** Two
+> defects were found while re-deriving it. (a) **Wrong machine**: it comes from
+> the x86 server, not the Apple M4 the papers declare as the CPU host — the row
+> immediately below records that host as 3.5–4.6× faster. (b) **The upper bound
+> is not statistically resolved**: the 2.9 ms is `dinner xpbd clamp +2.89±2.76`,
+> a standard deviation 95% of the mean over 10 reps. Re-measured on the M4
+> (`x5_perf/out/perf_reps_summary.csv`, commit `bc56cf7`): **+0.23–0.41 ms,
+> 0.9–3.4% of baseline**, on the four shelf/ledge configurations where it
+> resolves; unresolved on the table scene in both hosts (+1.35±2.08, +0.04±1.43)
+> and reported bounded by ~1.4 ms. The **percentage is the portable quantity** —
+> it agrees to within 0.02 points across the two machines. The long paper's §4.5
+> should adopt the percentage form; frozen in `docs/mig2026_results_ledger.md` §R7.
 | Mac cross-check 3.5–4.6× (M-series laptop core, same protocol) | shelf avbd 12.59±0.62; ledge avbd 11.24±0.04; dinner avbd 34.12±0.27; ledge xpbd 31.40±0.20; dinner xpbd 125.36±0.90 → factors 4.28/4.59/3.68/3.52/3.60 | local run 2026-07-10 (10 reps × 100 frames); rerun `run_perf_reps.py` locally to regenerate |
 
 ## §4.8 impact-sound render demo (E6, 2026-07-11; native-dynamic-constraint branch)
