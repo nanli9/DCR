@@ -1352,3 +1352,59 @@ signed gap, which this probe does not measure. Not claimed.
 
 **No paper text changes from this.** The findings support the sentence already
 committed at `a74dfa6`; the numbers stay in this ledger.
+
+### R8 addendum — the two variants trade OFF, and the plan's premise is wrong
+
+Same probe, reading the penetration proxy (how far the projection lifts the
+support *into* the resting body) rather than the unsigned excursion. This is
+the visible quantity and it reverses the ranking above.
+
+| cell | present p50 / max [mm] | band-selective p50 / max | deviation-ref p50 / max |
+|---|---:|---:|---:|
+| shelf 4×1 r0.7 | 1.19 / **15.46** | 0.25 / **1.04** | −0.15 / 13.96 |
+| shelf 4×1 r1.0 | 1.78 / **22.03** | 0.44 / **1.63** | −0.22 / 19.89 |
+| shelf 8×2 r0.7 | 0.31 / 5.98 | 0.01 / **0.25** | −0.66 / 4.89 |
+| ledge 4×1 r0.7 | 0.03 / 14.39 | 0.00 / **0.07** | −0.01 / 14.29 |
+
+**Band-selective collapses the worst case by 13–200×** (15.5→1.0, 22.0→1.6,
+14.4→0.07 mm). **Deviation-referencing barely moves it** (15.5→14.0,
+22.0→19.9, 14.4→14.3 mm).
+
+**This contradicts plan §6.10 directly.** It asserts of the two variants:
+"Either preserves load-bearing sag and should collapse the 21.6 mm worst case."
+Measured: only the band-selective one collapses it. Deviation-referencing does
+preserve the sag — but the *resting* sag is a small part of the surface during
+impact, and the dynamic bending that dominates the excursion sits in the
+deviation, which is scaled away just as the present projection scales it. The
+negative medians are that same effect: with `q_eq` preserved and the deviation
+shrunk, the surface can move *away* from the body rather than into it.
+
+### The resulting trade-off — the effective variant is the unenforceable one
+
+| | Eq. (2) enforceable | fixes the 21.6 mm case |
+|---|---|---|
+| band-selective | **NO** — infeasible up to 37.8% of clamp substeps | **YES** — worst case ÷13–200 |
+| deviation-referenced | yes — 0–1.2% (thin, proxy-dependent) | **NO** — worst case ÷1.1 |
+
+So R8 is not one mechanism with a caveat; it is two mechanisms that fail in
+opposite ways. A GO would have to either recover enforceability for the
+band-selective form (a fallback for infeasible substeps, which reintroduces the
+whole-state scale it was meant to avoid) or accept that deviation-referencing
+does not deliver the benefit R8 exists to obtain.
+
+### Visibility
+
+Per-substep, at governed states: the median frame differs by ~0.25–1.3 mm
+between present and band-selective — sub-pixel at any normal render scale, so
+typical frames look identical. The **worst** moments do not: 15–22 mm of
+interpenetration on a 30 mm board is the "visible interpenetration, not a
+sub-millimetre artifact" the paper already calls out, and that is exactly what
+band-selective removes.
+
+**Caveat that limits all of the above**: this is a per-substep counterfactual
+evaluated on the *current* governor's trajectory. A real run under either
+variant diverges, and this repo has documented that differences far smaller
+than 1 mm produce visibly different outcomes on chaotic contact stacks
+(the ARM/x86 divergence). "Sub-millimetre per substep" therefore does **not**
+imply "the video looks the same". Only a full run would settle that, which is
+what a GO costs.
