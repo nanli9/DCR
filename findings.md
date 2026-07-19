@@ -874,3 +874,80 @@ Use `directional energy-budgeted` rather than broad `passivity-bounded` unless t
   the time the excess is observable. That second point is the same structural
   fact that R5.1c shows prevents a band-selective fix, so the related-work
   framing and the limitation now derive from one cause.
+
+### R7 (plan §6.9) — the cost number was wrong twice, and I only found it by re-deriving it
+
+- **The paper attributed an x86-server number to the Apple M4.** §3 states that
+  every solver-behaviour number except the device timing was produced on the M4;
+  the "+0.8–2.9 ms/step ... on the CPU host" came from
+  `x5_perf/out/perf_reps_server.log`. `paper/NUMBERS.md` even carried a "Mac
+  cross-check 3.5–4.6×" directly beneath it, so the contradiction was sitting in
+  plain sight in our own provenance file. Undisclosed second machines are exactly
+  what §3's opening sentence promises do not exist.
+- **The headline upper bound was noise.** The 2.9 ms is `dinner xpbd: clamp
+  +2.89 ± 2.76` — σ is 95% of μ over 10 repetitions. Re-measured on the M4 the
+  same cell gives +1.35 ± 2.08: unresolved on both machines. We were quoting a
+  measurement's error bar as its value. **Report σ next to μ, or an effect that
+  does not exist will get a headline.**
+- **The percentage is the portable quantity, and that is now demonstrated, not
+  assumed.** Absolute step times differ 3.5–4.6× between the machines while the
+  overhead percentages agree to within 0.02 points wherever both resolve (shelf
+  xpbd 1.25% vs 1.23%; ledge xpbd 0.86% vs 0.84%). Plan §6.9 asked for a
+  percentage; this is why that was the right request.
+- **CPU baselines are 1.3–15× short of 120 Hz**, which reframes §3.5 honestly:
+  host-side enforcement is not an interactive path at all, so the device
+  paragraph is the motivation for the section rather than a competing claim.
+- The defect is flagged in `paper/NUMBERS.md` because the **long** paper's §4.5
+  inherits the same number.
+
+### D9 red-team re-read against the five panel blockers (2026-07-19)
+
+Required by the boot prompt's "done means". Verdict per blocker, after R0–R7.
+
+1. **"The metric is not the invariant" (the central attack).** ANSWERED, and
+   with the panel's own framing turned into a result. Eq. (2) is now measured
+   un-governed on all three hosts (R1), R is explicitly demoted to a severity
+   diagnostic in both §3.1 and the Fig. 2 caption, and the case where the two
+   genuinely disagree — AVBD, 23/24 vs 2/24 — is reported as the finding rather
+   than smoothed over. The abstract's "AVBD exceeds the supply bound (1.7×)",
+   which had NO supporting measurement when the panel read it, now does.
+   *Residual risk*: a reviewer may object that we report joules rather than a
+   normalized quantity. Pre-empted in the caption, which states why every
+   candidate denominator misleads.
+2. **"The ledger is under-defined."** ANSWERED (R2): every term of Eq. (2) is
+   stated in-paper with its code anchor in the ledger, and §2 now discloses that
+   the implementation's own test is *weaker* than the printed inequality by one
+   substep's largest deposit (7–389 J). We report the stricter reading for both
+   columns. *Residual risk*: low — this is the item where we volunteered a
+   discrepancy a reviewer would probably never have found.
+3. **"Not apples-to-apples."** ANSWERED (R3): Table 1 sources every differing
+   entry from the implementation, the two entries most open to a fairness
+   challenge (inert relaxation on the impulse host, differing warm start) are
+   called out in prose, and work is accounted in row evaluations rather than
+   "iterations × substeps". *Residual risk*: the substep sweep moved to the
+   supplement for space, so the equal-work claim now rests on one printed pair
+   plus a pointer. Acceptable; the ladder is frozen in the ledger.
+4. **"Truncation is asserted, not proven."** ANSWERED, and the answer is
+   partly negative (R4): the residual is a fixed point, not a tail, and the
+   paper says so. This is stronger than the original claim precisely because a
+   reviewer running K=500 would have found the plateau themselves.
+   *Residual risk*: low, and inverted — the risk was in the previous wording.
+5. **"Is the governed result useful?"** ANSWERED (R5), and this is the one
+   whose answer is least flattering: the energy error falls ~50× while the
+   trajectory error doubles. We report both, name the mechanism (a scalar γ
+   cannot deconcentrate energy sitting 200× above the substep rate), and point
+   at the band-selective projection we did not build. *Residual risk*: a
+   reviewer may read "worse trajectory" as fatal. Mitigation in text: the
+   claim was never accuracy — it is boundedness for budgets that otherwise
+   diverge, and §3.2 already concedes convergence is the better cure when
+   affordable.
+
+**Two blockers are answered with results that cut against us** (4 and 5). That
+is the correct posture for a venue with no rebuttal: a reviewer who probes
+either one finds we got there first and said so.
+
+**What remains genuinely open**, and is stated as such in the paper: no
+device-resident enforced γ; no validation of the *governed* path against
+full-FEM; the reservoir is scalar, not per-interface, so the recycling exposure
+(102–118% on AVBD) is bounded rather than eliminated; and the R8 mechanism
+(deviation-referenced projection) is named as future work, not attempted.

@@ -2,6 +2,13 @@
 
 ## 2026-07-18 MIG Short-Paper Panel Review
 
+- Reopened the panel review because `paper/main_short.pdf` was regenerated after the preserved audit: current SHA-256 is `8d4b83f9663ded4b91f337577d9aef2f511a561086c1134d3bbdc37b676baa15`, 6 pages, generated 23:06 PDT. The earlier 4-page verdict is stale pending re-audit.
+- Detected concurrent source edits at 23:24 that are not compiled into the requested 23:06 PDF; locked the assessment to the PDF hash and excluded source-only evidence.
+- Completed the fresh five-lens calibration for the 23:06 PDF: scores 3, 2, 3, 2, 4 (mean 2.8, median 3), overall borderline with a weak-reject lean. The diagnostic/negative result is publishable in principle; gross-loss attribution, update ordering, prior-art positioning, and governed usefulness remain the main acceptance risks.
+- Final artifact check found a newly compiled 23:26 PDF (`fd78290...`); reopened the assessment for a delta review so the delivered panel matches the user's latest file.
+- Extracted the latest 7-page build. It now includes AVBD contact-validity rows and governed accuracy/spectral evidence; these repair evaluation completeness while confirming that the projection improves scalar energy but worsens the state trajectory.
+- Visually audited pages 5–7 and recalibrated the panel to 3, 2, 3, 3, 4 (mean/median 3). Body text spills onto page 7 alongside references, creating a likely six-content-page compliance issue.
+- Diffed the final 23:28 build (`e959b15...`): only wording/layout changed. The conclusion overflow is reduced to three lines on page 7; the panel score remains unchanged.
 - Started a fresh five-reviewer MIG-style assessment of `paper/main_short.pdf` under a short-paper bar.
 - Preserved existing workspace planning state and added a scoped review section rather than replacing earlier plans.
 - Verified the supplied artifact is a current 4-page anonymous MIG-formatted PDF and extracted its text for claim/evidence reconstruction.
@@ -265,3 +272,33 @@
   these windows. Energy/peak/L∞ are stable to 4 s.f. across both windows. The
   paper says so and points at the resolved full-FEM ring (78.0 vs 78.3 Hz).
 - Builds clean: 6 pages, 0 undefined refs, 0 LaTeX warnings.
+
+## 2026-07-19 — R5, R6, R7 complete (plan §6.7–6.9)
+
+| item | code | paper |
+|---|---|---|
+| R5 usefulness | `65d5908` | `b359d0b` |
+| R6 prior art | (no code) | `b359d0b` |
+| R7 CPU cost | `bc56cf7` | `b359d0b`, `64a486c` (NUMBERS.md) |
+
+Two new harnesses: `run_governed_accuracy.py`, `run_projection_validity_avbd.py`.
+CPU timings re-measured on the M4 with the existing `run_perf_reps.py`.
+
+Headlines:
+- R5.1: energy error 196.5x -> 3.696x (oracle), 189.2x -> 3.558x (XPBD fixed
+  point). Frozen cell reproduced EXACTLY (|diff| = 0).
+- R5.1b: the governed trajectory is WORSE — Linf 33% -> 71% of reference peak.
+- R5.1c: 99.6% of ungoverned energy sits ~200x above the substep rate; a scalar
+  gamma fixes the amount, not the spectrum.
+- R5.2: AVBD's projection is an order of magnitude gentler (1.4/3.1 mm vs 21.6).
+- R5.4: 21.6 mm = 1.05-1.08x the peak deflection the board ever reaches.
+- R6: 3 refs positioned; 2 were already in the bib and uncited; franken2011 added
+  and DOI-verified.
+- R7: the printed 0.8-2.9 ms was from the WRONG MACHINE and its upper bound was
+  noise (sigma 95% of mu). Now 0.9-3.4% of baseline on the declared host.
+
+Paper: 6 pages of body (references alone on p7), 0 undefined refs, 0 overfull
+boxes. Substep sweep demoted to supplement per §6.12.
+
+OPEN: R5.3 triptych — blocked on an interactive browser capture session (no
+offscreen render path; same blocker as the video). R8 remains NO-GO.
