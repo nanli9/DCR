@@ -106,6 +106,16 @@ Single run; E7 re-measures with repetitions + R/D baselines.
 | dinner/AVBD ~34 ms (cited in §4.3) | 33.73 | same |
 ## §4.7 runtime — device-resident co-solved path (E7 device arm / G3a; RTX 4090)
 
+> **RE-VERIFIED 2026-07-19 (R7b).** Re-run at the current submission commit on a
+> **re-provisioned** compshare pod (`cpod-1t0b3cmcyn8f`, driver 595.80, CUDA
+> 12.9, warp 1.15.0). All four scenes came out 3–11% FASTER; the band moves
+> 5.6–9.2 → **5.0–8.9 ms** and the road/truck scene crossed the 120 Hz line on
+> the mean (rt 1.012) though **not** on its worst step (9.31 ms). Because the
+> pod was re-provisioned, machine/driver is confounded with commit and the
+> speedup must NOT be read as a code improvement. Full record, with the
+> corrected real-time sentence, in **`docs/mig2026_device_ledger.md`**. The
+> rows below are the superseded 2026-07-08 reference, kept for the diff.
+
 Measured 2026-07-08 on the compshare RTX 4090 (warp 1.15, numpy 2.2.6), native
 branch commit `f94c850` (warp modal solve + full-substep CUDA-graph capture).
 GPU timing: `wp.synchronize_device` brackets every step; 10 warm-up steps; 200
@@ -212,3 +222,19 @@ Ledger 0.06–1.9%, ripple ±2.72→±1.48 N, ring 1.1e-5/0 ←
 | AVBD 1.2–3.6× XPBD | 65.2/53.8=1.21; 110.6/51.6=2.14; 451.6/125.6=3.60 | derived |
 | ledger cost +0.8–2.9 ms/step (§4.5) | clamp column range over the six symplectic rows | perf_reps_server.log |
 | Mac cross-check 3.5–4.6× (M-series laptop core, same protocol) | shelf avbd 12.59±0.62; ledge avbd 11.24±0.04; dinner avbd 34.12±0.27; ledge xpbd 31.40±0.20; dinner xpbd 125.36±0.90 → factors 4.28/4.59/3.68/3.52/3.60 | local run 2026-07-10 (10 reps × 100 frames); rerun `run_perf_reps.py` locally to regenerate |
+
+## §4.8 impact-sound render demo (E6, 2026-07-11; native-dynamic-constraint branch)
+
+| printed | value | source |
+|---|---|---|
+| 11.5 J ≤ 25.7 J budget, cap never binds 0/1036 | 11.5 / 25.69 / 0 of 1036 events capped | `docs/stageE6/sound_render.md` (dinner offline render; commit 29689ef + working-tree update) |
+| live = offline, 0 underruns | 932 blocks, 1,930 kicks, 0 underruns, 0 clipped; ledger bit-identical to offline | same doc, live (`dcr/sound/live.py`, PortAudio) section |
+| AVBD co-solve variant (not printed) | 11.49 ≤ 25.69, 0/814 capped, γ=1 | same doc — kept as backup provenance |
+
+## §4.1 E-R1 modes-off topple control (2026-07-13; repositioning pass)
+
+| printed | value | source |
+|---|---|---|
+| topple = knife-edge scene dressing; frozen-ring control leaves all pillars standing; coupled arm on ARM also topples none | ARM host (Apple M-series), paper config 16×4 relax 0.7 symplectic, 480 steps: native max\|q̇\|=0.768, frozen 0.0; all 3 pillars tilt 0.00°/max 0.09–0.10°, y-drop 2.1 mm (static sag) both arms | `benchmarks/paper_eval/er1_topple_control/out/topple_control.csv` (code repo) |
+| knocked-off pillar of the §4.1 ledger paragraph (x86 EPYC run 2026-07-10) is platform-FP-sensitive | x86 run: pillar_2 gone, pillar_0/1 leaning (+8.0/7.8% joints); ARM re-run at identical config/commit: all standing | `x1_passivity/out/static_ledger.csv` vs the E-R1 CSV; cf. ARM-vs-x86 chaotic-scene note (3 contact tests, platform FP) |
+| frozen-ring control on the x86 host | PENDING — compshare pod unreachable 2026-07-13; rerun `er1_topple_control/run_topple_control.py` there before any topple-causation claim | — |

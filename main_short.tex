@@ -391,12 +391,13 @@ we claim nothing beyond it.
 The ledger adds $0.8$--$2.9$~ms/step at the evaluated configuration on the CPU
 host. A separate device-resident path (NVIDIA RTX 4090), which carries the
 ledger read-only as a monitor rather than enforcing it, reaches
-$5.6$--$9.2$~ms/step at $16{\times}4$ across four scenes --- the two above plus
-a $2.5\times1.5$~m road slab under a dropped crate and the table scene: the
-shelf and ledge scenes meet a $120$~Hz budget there, the road ($8.87$~ms) and
-table ($9.20$~ms) scenes do not, and all scenes meet it at $16{\times}2$ or
-below. We make no unqualified real-time claim, and the governor is not enforced
-on that path.
+$5.0$--$8.9$~ms/step at $16{\times}4$ across four scenes --- the two above plus
+a $2.5\times1.5$~m road slab under a dropped crate and the table scene. The
+shelf and ledge scenes meet a $120$~Hz budget there with margin
+($1.7\times$ and $1.3\times$); the road scene sits at the boundary
+($1.01\times$ on the mean, with a $9.3$~ms worst step); the table scene does
+not ($0.94\times$). All four meet it at $16{\times}2$ or below. We make no
+unqualified real-time claim, and the governor is not enforced on that path.
 
 % =====================================================================
 \section{Limitations}
