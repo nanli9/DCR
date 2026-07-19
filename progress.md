@@ -217,3 +217,29 @@
   corrected entry: `e_modal_0` IS rebased by two device-arm harnesses, so the
   device passivity rows use a more lenient baseline than the paper states.
 - Builds clean: 5 pages, 0 undefined refs, 0 LaTeX warnings.
+
+## 2026-07-19 — R3 complete
+
+- **R3 DONE** (plan §6.5), all four items.
+  - **T2 table** (paper Table 1, ~0.4 pp): per-formulation update level, contact
+    treatment, modal weight, iteration structure, warm start and relaxation
+    above the rule; h, substep semantics, modal rank (24/28/24), Rayleigh
+    damping, stepper, η and machine held identical below it. Every entry read
+    from code; the full anchor table is in the results ledger.
+  - **Row-evaluation accounting**: K·S = 4/16/64/256 per frame — each rung
+    quadruples the work, ×64 across the axis.
+  - **Substep-only sweep** (NEW RUN, `out/substep_sweep.csv`): K=4 pinned,
+    S∈{1,2,4,8}, shelf, all three hosts, both relaxes. XPBD violates 8/8,
+    AVBD 7/8 (≤0.023 J), impulse 0/8.
+  - **Complementarity residual vs K** (NEW harness
+    `probe_complementarity_residual.py`, `out/complementarity_residual.csv`):
+    2.79e-2 → 3.56e-6 over K=1..128, bottoms out by K=64.
+  - Headline: **the equal-work comparison**. 32 row-evals as iterations →
+    R=0.300, Eq. (2) holds; as substeps → R=3.13, +481 J. Iterations and
+    substeps are not interchangeable.
+- Paper is now **6 pages** (was 5) — still inside the CFP's 4–6 excluding
+  references, but the headroom the plan assumed is largely spent. If R4/R5 need
+  space, plan §6.12 says demote the substep sweep first, then the triptych.
+- Builds clean: 0 undefined refs, 0 LaTeX warnings, no overfull boxes.
+- Cross-platform test suite run on both machines at the user's request; the one
+  failure is pre-existing on ARM too. No paper number comes from the x86 host.

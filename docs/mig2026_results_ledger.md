@@ -736,3 +736,120 @@ of the bound.
   "funded by measured contact dissipation").
 - **Limitations carries the recycling caveat with a measured bound attached.**
 - Builds clean: 5 pages, 0 undefined refs, 0 LaTeX warnings.
+
+---
+
+## R3 — making the comparison controlled (2026-07-19)
+
+Plan §6.5. Answers the panel's "apples-to-apples" blocker. Machine: Apple M4,
+CPU only, CPython 3.12. Commit `29ed217` + working tree.
+
+### R3.1 — T2 solver/parameter table (paper Table 1)
+
+Every entry read from the implementation. Anchors:
+
+| table row | code |
+|---|---|
+| unknown solved for | position (`solver_xpbd._substep_cpu`), position+multiplier (`solver_6dof`), velocity (`solver_impulse._substep`) |
+| XPBD compliant projection $\tilde\alpha=\alpha/h^2$, $\alpha=0$ ⇒ rigid | `solver_xpbd.py:243` (`contact_compliance=0.0` default), `:1137-1138` |
+| AVBD penalty + dual update, $\alpha=0.99$, $\beta=10^5$ | `solver_6dof.py:188-189`, `:289-290` |
+| impulse Schur $A=\frac{\mathrm{cfm}}{h^2}I+JM^{-1}J^\top+\hat G W\hat G^\top$ | `solver_impulse.py:22` (module docstring), PGS at `:892-912` |
+| impulse implicit modal weight $W=(M+hD+h^2K)^{-1}$ | `solver_impulse.py:30-38`, `:781-783` |
+| XPBD per-mode elastic compliance $1/(H_{ii}h^2-1)$ | `solver_xpbd.py:1113-1114` (`_alpha_e`) |
+| iteration structure | XPBD GS sweeps w/ gap re-evaluation `solver_xpbd.py:1130-1136`; AVBD coloured primal GS + q-block; impulse PGS `solver_impulse.py:902` |
+| warm start: XPBD NONE ($\lambda\leftarrow0$/substep) | `solver_xpbd.py:1119-1120` (`sc.lam = 0.0`, `_lam_q` zeroed) |
+| warm start: impulse $\lambda$ cache keyed per row | `solver_impulse.py:278`, `:893-894`, `:911-912` |
+| warm start: AVBD $\lambda$ + penalty carried | `solver_6dof.py:297`, `:1478-1486`, `:2001` |
+| relaxation 0.7 both; **inert on impulse** | `paper_config.py:45` (`relax=0.7`); `solver_impulse.py:290-292` (`modal_relax=1.0`, never read) |
+| $h=1/120$, substep $h/S$ | `paper_config.py` `h`; `solver_xpbd.py:563-564` |
+| modal rank $r$ = 24 / 28 / 24 | `reduced_shelf.py:40-41` (10+14), `reduced_ledge.py:42-43` (12+16), `reduced_dinner_table.py:87-88` (10+14) |
+| Rayleigh $D=\alpha_0M+\alpha_1K$, $\alpha_0\in\{2,3\}$, $\alpha_1=10^{-5}$ | `reduced_shelf.py:46-47` ($\alpha_0{=}3$), `reduced_ledge.py:48-49` / `reduced_dinner_table.py:95-96` ($\alpha_0{=}2$) |
+| implicit-midpoint stepper; $\eta=1$ | `paper_config.py:45` `stepper="symplectic"`; `apply_passivity(eta=1.0)` |
+
+### R3.2 — row-evaluation accounting
+
+A cell costs $K\cdot S$ row evaluations per frame: 4, 16, 64, 256 across the
+budget axis. So each rung **quadruples** the work and the axis spans **×64**
+end to end — steeper than the $4{\times}1\to32{\times}8$ labelling suggests.
+(Plan §6.5 called it "a ×4 work ladder"; ×4 is the per-rung factor, ×64 the
+span. The paper now states the four counts explicitly to avoid the ambiguity.)
+
+### R3.3 — substep-only sweep (NEW RUN)
+
+Companion to E-S2, which pins $S=1$ and sweeps $K$. Here $K=4$ is pinned and
+$S\in\{1,2,4,8\}$ swept, shelf drop, all three hosts, both relaxations,
+governor OFF.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_eq2_utilization.py \
+    --scenes shelf --budgets 4x1,4x2,4x4,4x8 --relaxes 0.7,1.0 --out substep_sweep
+```
+Data: `benchmarks/paper_eval/x1_passivity/out/substep_sweep.csv`
+
+XPBD, relax 0.7 (R / Eq.-(2) margin J):
+
+| S | 1 | 2 | 4 | 8 |
+|---|---:|---:|---:|---:|
+| R | 6333 | 213.9 | 68.05 | **3.129** |
+| margin [J] | +1.738×10⁵ | +1.429×10⁴ | +1944 | **+480.9** |
+
+relax 1.0: R = 1.096×10⁴ / 1431 / 244.7 / **29.19**; margin +3.008×10⁵ /
++4.139×10⁴ / +7059 / **+813**.
+AVBD violates 7/8 (worst margin +0.0225 J); impulse 0/8 (worst −5.7×10⁻⁴ J).
+
+**THE EQUAL-WORK RESULT** — same scene (shelf), same relax (0.7), same machine,
+same governor state as E-S2, so the two ladders overlay exactly:
+
+| row-evals/frame | as iterations ($S{=}1$, E-S2) | as substeps ($K{=}4$, this run) |
+|---:|---:|---:|
+| 4 | K=4: R = 6333 | S=1: R = 6333 (same cell) |
+| 8 | K=8: R = **265.7** | S=2: R = **213.9** |
+| 16 | K=16: R = **9.58** | S=4: R = **68.05** |
+| 32 | K=32: R = **0.300**, Eq.(2) HOLDS | S=8: R = **3.13**, margin **+481 J** |
+
+Iterations and substeps are NOT interchangeable at equal work. The ordering is
+not uniform — at 8 row-evals substeps are marginally ahead — but iterations pull
+away as the budget grows, and **within this ladder only the iteration axis
+reaches the regime where Eq. (2) holds.** Stated in the paper as "Equal work,
+unequal outcome"; honest about the non-uniform ordering rather than claiming a
+clean sweep.
+
+### R3.4 — complementarity residual vs K (NEW RUN)
+
+`res = ‖min(C, λ)‖∞` over support rows at end of substep. Harness
+`benchmarks/paper_eval/x1_passivity/probe_complementarity_residual.py`
+(measurement-only: wraps `_substep_cpu`, returns unchanged; `passivity_gamma`
+forced to 1.0). Same scene/relax/substeps as E-S2 so the curves overlay.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_complementarity_residual.py
+```
+Data: `out/complementarity_residual.csv`
+
+| K | 1 | 2 | 4 | 8 | 16 | 24 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| max | 2.79×10⁻² | 1.51×10⁻² | 6.16×10⁻³ | 1.85×10⁻³ | 1.59×10⁻⁴ | 2.99×10⁻⁵ | 1.07×10⁻⁵ | 3.559×10⁻⁶ | 3.559×10⁻⁶ |
+| median | 9.22×10⁻⁴ | 3.95×10⁻⁴ | 2.65×10⁻⁴ | 1.33×10⁻⁴ | 1.52×10⁻⁵ | 2.26×10⁻⁶ | 3.57×10⁻⁷ | 1.068×10⁻⁷ | 1.068×10⁻⁷ |
+
+Monotone, falls **7850×** over K=1..128, and **bottoms out by K=64** (K=128
+agrees to 7 significant figures — the floor is the solve, not the budget).
+
+**Why this matters**: it closes the "one scalar could shrink by coincidence"
+objection. The E-S2 energy crossing at K≈24 coincides with the residual passing
+~3×10⁻⁵, so the amplification disappears exactly as the complementarity
+conditions begin to hold. The energy decay IS constraint convergence.
+
+**Scope, stated in the paper**: XPBD only. AVBD's AL multiplier is not the same
+object, and the impulse host is converged at K=2 (E-S2), so its curve is flat by
+construction. Reporting one number per host would be the apples-to-oranges
+comparison R3 exists to remove.
+
+### Cross-platform test-suite check (not a paper number)
+
+User-requested. Full `pytest tests/` on both the ARM M4 and the x86 pod, for
+correctness only — **no solver-behaviour number may come from the x86 host**
+(plan hard rule; chaotic contact stacks diverge between architectures under
+floating-point reassociation, as the paper states). `tests/avbd/
+test_adapter_smoke.py::test_box_falls_and_settles` fails on BOTH machines
+(box never leaves y=0.5), so it is a pre-existing failure, not an x86 artifact
+and not caused by this session — which touched no solver source.

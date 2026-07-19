@@ -684,3 +684,43 @@ Use `directional energy-budgeted` rather than broad `passivity-bounded` unless t
   upper envelope on genuinely dissipated energy rather than a measurement of it.
   Limitations says so, and attributes it to the same rigid-side energy creation
   as the impulse box–box rectification rather than to the bound.
+
+### R3 (plan §6.5) — controlled comparison
+
+- **Iterations and substeps are NOT interchangeable at equal work.** This is
+  the sharpest new result of R3 and it was not anticipated by the plan. At a
+  fixed 32 row-evaluations per frame on the shelf drop (same scene, relax and
+  machine as E-S2, so the ladders overlay exactly): spent as iterations
+  (K=32, S=1) the ratio is **0.300 and Eq. (2) holds**; spent as substeps
+  (K=4, S=8) it is **3.13 with a +481 J overdraw**. Substep refinement alone
+  does not buy convergence of the contact row.
+  - Honest caveat, kept in the paper: the ordering is NOT uniform. At 8
+    row-evals substeps are marginally ahead (213.9 vs 265.7); iterations only
+    pull away from 16 upward (9.58 vs 68.05). Claiming a clean sweep would
+    have been overreach.
+- **The budget axis is steeper than its label.** K·S = 4, 16, 64, 256 — each
+  rung QUADRUPLES the work and the axis spans ×64, not ×8. I first wrote "×8"
+  in the paper and corrected it; plan §6.5's "×4 work ladder" is the per-rung
+  factor, not the span. The paper now prints all four counts so the ambiguity
+  cannot recur.
+- **The energy decay really is constraint convergence.** The complementarity
+  residual ‖min(C,λ)‖∞ falls monotonically 2.79e-2 → 3.56e-6 over K=1..128
+  (7850×) and bottoms out by K=64 (K=128 agrees to 7 s.f., so the floor is the
+  solve, not the budget). The E-S2 energy crossing at K≈24 coincides with the
+  residual passing ~3e-5. This closes the "one scalar could shrink by
+  coincidence" objection, which the K-convergence figure alone could not.
+  - Measured on XPBD only, and the paper says so: AVBD's AL multiplier is not
+    the same object and the impulse host is converged at K=2, so a per-host
+    residual comparison would be the apples-to-oranges the item exists to fix.
+- **Warm start differs between hosts and is intrinsic, not a knob.** XPBD zeroes
+  λ every substep (`solver_xpbd.py:1119-1120`); AVBD carries λ AND its penalty
+  across; impulse keeps a per-row λ cache. Worth flagging in T2 because a
+  reviewer could otherwise read it as an unfair configuration choice.
+- **Cross-platform test check (user-requested, NOT a paper number).**
+  `test_box_falls_and_settles` fails identically on the ARM M4 and the x86 pod
+  (box never leaves y=0.5), so it is PRE-EXISTING and not an x86 artifact —
+  which also confirms the server environment is sound, and therefore that the
+  R7b device timings are trustworthy. It cannot have been caused by this
+  session: no solver source was touched. Distinct from the known ARM/x86
+  chaotic-stack divergence, which produces small numerical differences rather
+  than a body that never moves.
