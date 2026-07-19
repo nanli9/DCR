@@ -473,3 +473,45 @@ oracle over six orders of magnitude. Per the 2026-07-18 addendum this must still
 be phrased as *our quantitative measurement on unilateral contact→modal
 transfer*, never as the novel identification of under-convergence injection
 (arXiv 2603.16424 states that observation plainly, 2026).
+
+---
+
+## R0 — derived quantities entering `main_short.tex` (2026-07-18)
+
+Plan §6.2. These are **derivations from already-frozen numbers and scene
+constants**, not new measurements — no run was performed. Source anchors given
+so each is recomputable. Code commit at time of derivation: `753479f`
+(`impulse-native-constraint`).
+
+| quantity | value | derivation | anchor |
+|---|---|---|---|
+| impulse worst ratio (conclusion) | **0.53** | E-S1b impulse column, worst over 24 cells = 0.531421 | this ledger, E-S1b results table |
+| AVBD worst ratio | **1.70** | E-S1b AVBD worst = 1.70032 (dinner 4×1, relax 1.0) | same |
+| AVBD table-scene pair | **1.18 / 1.70** | dinner 4×1 relax 0.7 = 1.1789, relax 1.0 = 1.7003 | E-S1b claim-impact note |
+| XPBD table-scene worst | **0.37** | dinner column worst = 0.372141 (does not inject) | E-S1b results table |
+| distinct configurations | **60** | 24 (XPBD) + 24 (AVBD) + 12 (impulse: relax axis inert, 12 bit-identical pairs) | E-S1b caveat 2 |
+| shelf board thickness | **0.03 m** | `support_thickness` default | `scenes/reduced_shelf.py:35` |
+| shelf board span | **0.8 m** | `support_length` default | `scenes/reduced_shelf.py:33` |
+| 21.6 mm as % thickness | **72%** | 0.0216 / 0.03 | E-S3 (a) + the two rows above |
+| 21.6 mm as % span | **2.7%** | 0.0216 / 0.8 | same |
+| road/truck slab | **2.5 × 1.5 m** | scene docstring + support defaults | `scenes/reduced_truck.py:1-30` |
+| device hardware | **NVIDIA RTX 4090** (warp 1.15) | device timing arm | `paper/NUMBERS.md` §4.7 device |
+
+### R0 items deferred (not text-only)
+
+- **R0.10 static-sag normalization.** Plan §6.2 item 10 asks for 21.6 mm
+  normalized by slab geometry *and* by "the unclamped static sag of the same
+  cell". The geometry half is done above. **The static-sag half is not frozen
+  anywhere** and requires an instrumented run, so it is out of R0's text-only
+  scope; plan §6.7 already assigns the normalized-penetration presentation to
+  **R5**. Deferred there deliberately, not dropped.
+
+### R0 acceptance
+
+- Grep audit over `main_short.tex` clean: zero hits for "supply bound",
+  "injection threshold", "contact reviewer", "truck"; "72"/"M4"/"orders of
+  magnitude" all scoped as intended.
+- `latexmk -pdf main_short.tex` → 5 pages, 0 undefined references, 0 LaTeX
+  warnings, worst overfull 1.98 pt.
+- `paper/NUMBERS.md` cross-check: no conflict (that file indexes the *long*
+  paper's §4.x; short-paper numbers are frozen in this file).
