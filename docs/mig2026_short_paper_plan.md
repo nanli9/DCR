@@ -24,8 +24,8 @@ Thesis (Codex's "defensible today" form, tightened):
 > marginally and only in the most starved cells (worst 1.7×), while an implicit
 > sequential-impulse realization stays within it in every cell of the same
 > sweep. We introduce a
-> cumulative, source-referenced modal-storage projection that bounds XPBD's
-> gain across all tested budgets, and validate the reduced modal response
+> cumulative modal-storage projection, funded by *measured gross rigid-side
+> loss*, that bounds XPBD's gain across all tested budgets, and validate the reduced modal response
 > against a matched full-FEM operator. A separate GPU-resident AVBD path
 > reaches interactive rates for selected scene/budget configurations while
 > monitoring, rather than actively enforcing, the bound.
@@ -37,8 +37,10 @@ Contribution bullets (3 max, short-paper discipline):
    (→ 0 at the converged reference).
 2. **The invariant + projection**: cumulative directional storage bound,
    E_m^n − E_m^0 ≤ η·Σ_k max(ΔE_rigid-loss^k, 0), enforced by a reservoir
-   ledger + γ-projection of realized modal state; funding is source-referenced
-   (contact dissipation only, gravity-work-compensated).
+   ledger + γ-projection of realized modal state; funding is *measured gross
+   rigid-side loss* (scene-wide, gravity-corrected, gross kinetic-energy loss
+   of the rigid subsystem — an envelope on contact dissipation, not a
+   measurement of it).
 3. **Validation & cost**: reduced response vs matched full-FEM operator;
    activation demo (ungoverned injecting run → governed bounded run);
    CPU/GPU timings with honest qualification.
@@ -53,6 +55,12 @@ Contribution bullets (3 max, short-paper discipline):
 - 10⁵× always defined: **peak modal energy / incident rigid kinetic energy**,
   adversarial low-budget cells, not production settings.
 - Invariant always in cumulative notation (above), never the per-step form.
+- The supply is **"measured gross rigid-side loss"**, verbatim, in every
+  headline site (C2, 2026-07-19). Never "contact dissipation" / "rigid-side
+  dissipation" / "source-referenced" — Eq. (3) is a gravity-corrected KE
+  balance that also counts rigid→modal transfer and unrelated rigid–rigid
+  losses. "Dissipation" survives only in negations, third-party method
+  descriptions, and the Limitations recycling paragraph.
 - Real-time always qualified: at 16×4, shelf/ledge meet 8.33 ms; truck
   (8.87 ms) and dinner (9.20 ms) do not; all scenes meet it at ≤16×2
   (dinner 4.65 ms → 1.79×). GPU path = read-only ledger (monitored).
@@ -462,3 +470,325 @@ sentence names it as the identified next mechanism.
 | Residual probe perturbs the solve | E-S3 pattern: wrappers return values unchanged; clamp-count cross-check must reproduce |
 | Page overflow > 6 | Demote first the substep sweep, then the triptych, to supplement |
 | R8 tempts a late mechanism change | The gate is binding: no re-freeze capacity ⇒ NO-GO, limitation sentence instead |
+
+---
+
+## 7. Second review-response round — codex panel (planned 2026-07-19)
+
+A second simulated five-reviewer panel (codex) reviewed `main_short.pdf` built
+2026-07-18 **23:28** — i.e. the WIP state between R4 (`e9e3c2d`, 23:07) and
+R5–R7 (`b359d0b`, 23:54). Verdict: 3/5, borderline leaning weak reject.
+Its read: the strongest contribution is the cross-formulation measurement +
+negative result; the governor is convincing as an *audited emergency brake*,
+not as a practical method. It returned eight "highest-impact revisions",
+mapped 1:1 to items C1–C8 below.
+
+**Verification pass (2026-07-19 session) — this plan is calibrated by it:**
+
+- Every checkable number/quote in the review matches the build it saw.
+- All five suggested references are REAL and accurately characterized
+  (agent-verified against the actual PDFs, not just the URLs). No
+  hallucinated citations. Details under C7.
+- MIG CFP re-verified at `mig.siggraph.org/2026/papers.htm` — **this
+  discharges §2 A0's format re-check**: short papers **4–6 pages excluding
+  references**; submission window 25 Jul – 7 Aug 2026 23:59 AoE; notification
+  24 Sep; camera-ready 8 Oct; double-blind, EasyChair. Criteria: originality,
+  technical quality, clarity, significance, reproducibility where applicable,
+  relevance.
+- The review's ordering suspicion (#3) is **CONFIRMED IN CODE**: the paper's
+  Enforcement sentence ("credited … *before* the contact solve",
+  `main_short.tex` ¶Enforcement) matches NO host. All three hosts measure the
+  loss AFTER the velocity solve and credit it in the SAME substep, then
+  γ-test, project, debit: `dcr/avbd/_solver/solver_xpbd.py:1241`,
+  `solver_impulse.py:998`, `solver_6dof.py:2630`. C3 fixes the sentence, not
+  the code.
+- Already fixed before this round (stale review items — **do not redo**):
+  page spill (#1: current `a74dfa6` build ends the body on p. 6 with refs
+  alone on p. 7; a clean rebuild of `e9e3c2d` is 6 pp total); TDPA /
+  energy-tank / FEPR citations (#7, the governor-ancestry half — landed in
+  R6/`b359d0b`, and the FEPR sentence already draws the equality-manifold vs
+  one-sided distinction correctly); CPU baseline + % overhead (#part of R4's
+  list — landed in R7/`b359d0b`).
+- Panel misses worth remembering: "seven references" was actually six;
+  "warm starting is ordinarily a solver-policy choice" is only fully true for
+  the impulse host (λ←0 per substep IS published XPBD; carried duals+penalty
+  ARE constitutive of AVBD) — C5 words this precisely rather than conceding
+  it wholesale.
+
+Binding constraints: unchanged from §6 — no solver behavior changes; ARM M4
+only for solver-behaviour numbers; every new number frozen in
+`docs/mig2026_results_ledger.md` (command + commit + machine) BEFORE it
+enters the tex; body ≤ 6 pages excluding references (the C1 gate). The C5-G
+ablations are the only gated exception, same gate discipline as R8. R7b
+(device re-verification) remains blocked on the user's pod and is not part of
+this round.
+
+### 7.1 Priorities
+
+| ID | Review ask | Work | Cost |
+|---|---|---|---|
+| C1 | #1 page limit | already satisfied — becomes a standing per-commit gate | 0 |
+| C2 | #2 energy terminology | define ONE term at Eq. (3); sweep ~9 sites | 0.5 d |
+| C3 | #3 exact ledger pseudocode | fix the wrong ordering sentence + compact algorithm block | 0.5 d |
+| C4 | #4 reframe as measurement | audit-level only: scope the conclusion's truncation claim | 0.1 d |
+| C5 | #5 comparison language | heading + warm-start precision; ablations GATED (C5-G) | 0.25 d |
+| C6 | #6 deployed budgets 1×8, 2×4 | NEW numbers: 18-cell deployed-budget table T3 | 1–1.5 d |
+| C7 | #7 related work | cite hauser2003 + rath2008 (already in bib); add kaufman2008 | 0.25 d |
+| C8 | #8 visual + video | governed/un-governed sequence figure + supplementary video | 1–1.5 d |
+
+Execution order: C2 → C3 (+C4) as one text pass; C6 harness launched the same
+day (overnight runs); then C7; C5; C8. C1 gates every paper-worktree commit.
+
+### 7.2 C1 — page budget (standing gate, no work item)
+
+Already compliant: body ends on p. 6, references start p. 7 (refs excluded
+per CFP). The gate: after every tex commit in this round, rebuild and check
+(a) the last body line is on p. 6 or earlier, (b) References opens no earlier
+than the body's final page. C3's algorithm block, C6's table T3, and C8's
+figure all ADD content — the space ledger in 7.9 pre-identifies the cuts that
+pay for them. If the build overflows: demote in this order — T3 detail rows →
+supplement; C8 figure → supplement; C3 float → enumerated lines in-paragraph.
+
+### 7.3 C2 — energy-terminology sweep (the load-bearing text fix)
+
+The review's sharpest point, still true of the current build: headline
+phrases say "contact dissipation" while Eq. (3) computes **scene-wide,
+gravity-corrected, gross rigid-side kinetic-energy loss** — which includes
+legitimate rigid→modal transfer (loss, not dissipation), losses at unrelated
+rigid–rigid contacts, and recycling (§Limitations' own 0.4–32% / 102–118%
+numbers prove the point). The §2 "Every term, exactly" and "What is
+guaranteed" paragraphs are already precise; the fix is making every headline
+agree with them.
+
+- Coin the term ONCE, at Eq. (3): "…we call this the **measured gross
+  rigid-side loss**" (long form on first use: scene-wide, gravity-corrected,
+  gross kinetic-energy loss of the rigid subsystem). Then use that term
+  verbatim everywhere.
+- Sites to rewrite (phrase-anchored; grep confirms the full list):
+  1. Abstract: "Measured against the energy contact actually dissipated".
+  2. Abstract: "funded by measured contact dissipation".
+  3. Teaser caption: "measured rigid-side contact dissipation, not a tuned
+     constant" → "measured gross rigid-side loss, not a tuned constant".
+  4. Contribution 2: "funded by measured rigid-side dissipation".
+  5. ¶Relation-to-concurrent: same phrase.
+  6. ¶Relation-to-passivity: "funded by measured gross rigid-side
+     dissipation — energy the solve removed elsewhere" (closest to correct;
+     align the noun).
+  7. §2 ¶The-invariant: "never exceed what contact has actually dissipated
+     on the rigid side".
+  8. §2 ¶What-is-guaranteed: "source-referenced supply: … measured
+     rigid-side contact dissipation" — replace "source-referenced" with
+     "measured, not prescribed" and the noun with the coined term.
+  9. Conclusion: "funded by measured contact dissipation".
+- KEEP: "not contact-port passivity" (a negation/disclaimer — the review
+  endorses it); the Limitations recycling paragraph (already exact); the
+  word "dissipated" wherever it names genuine dissipation.
+- Also update THIS plan's §1 frozen thesis + contribution bullet 2
+  ("source-referenced … contact dissipation only") to the same wording, per
+  the D5 rule that plan and paper never disagree.
+
+Acceptance: `grep -n 'dissipat\|source-referenced\|actually' main_short.tex`
+— every surviving hit individually justified (genuine dissipation, negation,
+or Limitations); `paper/NUMBERS.md` phrasing cross-checked; rebuild clean;
+C1 gate passes.
+
+### 7.4 C3 — ledger pseudocode + fix the ordering sentence
+
+Two parts; the first corrects an actual error.
+
+(a) **The Enforcement paragraph misdescribes the algorithm.** It says the
+reservoir is credited "before the contact solve"; all three hosts credit
+AFTER the velocity solve, in the same substep, from that substep's measured
+loss (anchors above; record them in the results ledger per the R2/§6.4
+pattern). Rewrite to the true ordering, and connect it explicitly to the
+one-largest-deposit forgiveness: same-substep credit is exactly why modal PE
+can rise in the substep that funds it, which is the artifact the forgiveness
+absorbs. The two paragraphs currently read as unrelated; after C3 they
+explain each other.
+
+(b) **Compact per-substep algorithm block** (review #3's list, verified
+against `solver_xpbd.py` — identical structure in the other two hosts):
+
+    1  snapshot  E_rig⁻ (pure KE, all bodies), E_mod⁻, positions x⁻
+    2  predict (gravity); generate contacts at the predicted pose
+    3  position solve (K iterations); velocity solve      # the contact solve
+    4  E_rig⁺;  ΔE_rig = (E_rig⁻ − E_rig⁺) + W_g          # Eq. (3), post-solve
+    5  B ← B + η·max(ΔE_rig, 0)                           # credit, same substep
+    6  E_mod⁺;  if E_mod⁺ > E_mod⁻ + B:
+    7      γ = √((E_mod⁻+B)/E_mod⁺);  (q, q̇) ← γ(q, q̇)   # Eq. (4)
+    8  B ← max(B − max(ΔE_mod, 0), 0)                     # debit realized gain
+    —  contact is NOT re-solved (the §3.3 cost)
+
+Format: a small algorithm float if the C1 gate allows; else numbered lines
+inside ¶Enforcement. State "contact is not re-solved" in the block itself —
+the review asked for that bit explicitly.
+
+Acceptance: the printed ordering matches all three hosts (re-read the three
+call sites, anchors frozen in the results ledger); zero grep hits for
+"before the contact solve"; a reader can recompute the reservoir from the
+paper alone (§6.4's criterion, now actually true of the executable order).
+
+### 7.5 C4 — measurement-first framing (audit only)
+
+Mostly done in the current build (title, contribution order, "safety
+envelope, not an accuracy device" verbatim twice) — the panel reviewed an
+older state. Remaining:
+
+- Conclusion: "The amplification is a truncation artifact convergence
+  removes" → scope it to the position-based host. §3.2 already concedes the
+  K-sweep demonstrates truncation for XPBD only; AVBD's pervasive small
+  Eq.-(2) overdraft is measured but untraced. The conclusion sentence must
+  not outrun §3.2.
+- Same check on the abstract's "A budget sweep shows the amplification is a
+  truncation artifact" — acceptable if the sentence's antecedent is clearly
+  the position-based catastrophe; adjust only if ambiguous.
+- No further reframing: do not re-litigate R1/aae0c2c's prose re-base.
+
+Acceptance: grep audit of "truncation" sites; each claim's scope matches the
+section that demonstrates it.
+
+### 7.6 C5 — comparison-language precision (+ gated ablations C5-G)
+
+- Heading "Equal work, unequal outcome" → "**Equal row evaluations, unequal
+  outcome**" (the body already says row evaluations; K×S does not equalize
+  total work — substeps repeat integration and contact generation, which
+  Table T2's "contacts regenerated per substep" row already implies).
+- Warm-start sentence: replace "intrinsic to the formulation rather than a
+  knob we chose" with the precise version — λ←0 each substep is the
+  position-based host's published form; carried duals and penalty are
+  constitutive of the augmented-Lagrangian method; the impulse host's per-row
+  λ cache is a customary policy default, the one host where it is genuinely a
+  choice. As-published defaults, stated as such.
+- **C5-G (GATED, default NO-GO — R8 discipline):** (i) warm-start ablation:
+  impulse host with the λ cache disabled (config if a flag exists; a code
+  change puts it out of scope), and/or XPBD with λ carried (code change —
+  out of scope this round); (ii) compliance-matching ablation: one scene,
+  α = cfm/h² = 1/β pinned physically equal across hosts. GO only if C1–C8
+  are frozen with ≥4 buffer days before Aug 7 AoE. NO-GO fallback: one
+  clause in §3.1 or the T2 caption acknowledging that warm start and contact
+  regularization follow each formulation as published, unmatched — a
+  deliberate as-deployed comparison, not an oversight.
+
+Acceptance: both wording edits in; gate decision recorded here (date +
+GO/NO-GO) before Week-3 polish begins.
+
+### 7.7 C6 — measure the deployed budgets 1×8 and 2×4 (the new experiment)
+
+The paper motivates with "interactive position-based solvers ship budgets
+near 1×8 to 2×4" (K×S) but the sweep starts at 4×1 — the panel is right, and
+our own equal-32 probe (K32·S1: R=0.300, holds; K4·S8: R=3.13, overdraws
+481 J) predicts the substep-heavy deployed points are WORSE. Measuring them
+most likely strengthens the motivation; if they come out benign, the
+motivation falls back on the K-ladder and we report it honestly. Either
+outcome publishes.
+
+- Cells: (K,S) ∈ {(1,8), (2,4)} × 3 scenes × 3 hosts, relaxation at the
+  follow-solver default (0.7 position-based/augmented-Lagrangian; inert on
+  impulse) = 18 cells, run governor OFF (R, signed Eq.-(2) margin, recycling
+  channel) and ON (realized ratio, clamp-active counts, margin) = 36 runs.
+  Extend the §6.3 harness's budget list; reuse its offline accounting
+  unchanged (already cross-validated vs the impulse live monitor).
+- Validity + accuracy at the deployed points: E-S3-pattern wrappers on the
+  ON runs (gap violation, corrective impulse, λ variance — Table-1 metrics),
+  plus ONE governed-accuracy cell (shelf 1×8, relax 0.7, vs the converged
+  reference) mirroring §6.7's 8×2 cell, plus wall-clock per §6.9's method
+  (10 × 100 frames): together these are the five metrics the review asked
+  for (energy, trajectory error, max gap violation, clamp frequency,
+  wall-clock).
+- Report as a compact **table T3**, separate from the frozen 24-cell matrix
+  — Fig. 1 and every frozen §E-S1b number stay untouched. Hook: the §3.2
+  "ship budgets near 1×8 to 2×4" sentence gains its measured continuation.
+- Count phrasing: "all 72 measured cells" (abstract, contribution 2, §3.1)
+  must either be scoped to the matrix sweep or extended to name the T3 cells
+  — decide once T3's final cell count is frozen; grep all three sites.
+- Freeze first: new results-ledger entry **E-C6** (commands + commit + ARM
+  M4) before any number enters the tex; `paper/NUMBERS.md` synced.
+
+Acceptance: 18/18 OFF and 18/18 ON cells finite and frozen; governed cells
+all satisfy Eq. (2); T3 builds inside the C1 gate; the motivation sentence
+cites measured numbers; no frozen §E-S1b value changed.
+
+### 7.8 C7 — remaining related work (three citations)
+
+All three verified real and correctly characterized (2026-07-19 agent pass
+against the PDFs). The TDPA/tank/FEPR half of the ask is DONE (R6) — do not
+re-add.
+
+- **hauser2003** — already in `references.bib`, uncited by the short paper.
+  "Interactive Deformation Using Modal Analysis with Constraints", Hauser,
+  Shen, O'Brien, Graphics Interface 2003. Cite in §1 ¶1 beside the
+  established-treatment / one-way-precedent sentences: interactive modal
+  deformation with collision/contact constraints predates everything here.
+- **rath2008** — already in `references.bib`, uncited. "Energy-Stable
+  Modelling of Contacting Modal Objects with Piece-wise Linear Interaction
+  Force", Matthias Rath, DAFx-08. Cite in the passivity paragraph beside
+  hannaford2002: exact per-interface energy-stable modal contact at audio
+  rate — contrast with our scene-level budgeted cap.
+- **kaufman2008** — NEW bib entry. "Staggered Projections for Frictional
+  Contact in Multibody Systems", Kaufman, Sueda, James, Pai, ACM TOG 27(5)
+  (SIGGRAPH Asia 2008), DOI 10.1145/1409060.1409117 (fill pages from the
+  DOI, do not guess). Cite in §1 ¶2 beside the finite-iteration-injection
+  observation: velocity-level contact for rigid AND reduced deformable
+  bodies, with iterative-solver energy artifacts named — it reinforces both
+  "the row is not ours" and "the observation is not ours".
+- One framing sentence each, respecting the §1 never-claim list. References
+  are page-free per the CFP.
+
+Acceptance: 13 references render; each new sentence attributes, never
+claims; C1 gate unaffected (refs excluded).
+
+### 7.9 C8 — one visual + the supplementary video
+
+The current build has three figures, all plots — no scene image, no
+governed/un-governed visual, no video. For a graphics venue this is the
+weakest presentational point and the panel's #8.
+
+- **In-paper figure (F-C8):** governed vs un-governed vs converged-reference
+  deflection sequence — 3 timestamps × 3 arms — at the §6.7 accuracy cell
+  (shelf 8×2, relax 0.7), where every trace already exists
+  (`governed_accuracy` outputs + the self-convergence traces). First check
+  whether §6.7's planned triptych pipeline was ever rendered (it is not in
+  the current tex — resurrect it if the shot-list script exists, else render
+  from the logged traces directly). A ledger/row schematic is the fallback
+  only — C3's algorithm block already explains the mechanism, so the
+  sequence figure carries more information per cm².
+- **Space ledger** (C1 gate): F-C8 ≈ 0.25 pp + C3 block ≈ 0.12 pp + T3 ≈
+  0.15 pp ⇒ ~0.5 pp of cuts, pre-identified: teaser-caption trim, §3.1's
+  candidate-denominator sentence, §2 forgiveness-paragraph compression, §3.3
+  prose that the figure will now show instead of tell. Cut only AFTER C2/C3
+  land (their rewrites shorten some of the same paragraphs).
+- **Supplementary video** (60–90 s, page-free): per §3.5's shot list —
+  un-governed explosion vs governed bounded at the same starved budget
+  (activation A/B), one matrix-cell montage, one GT overlay. Viser capture
+  pipeline exists. Check the portal's video/format specs when the EasyChair
+  form opens (A0 leftover). Anonymized — the build is `review,anonymous`;
+  the video must match.
+
+Acceptance: figure renders from frozen traces (no new solver runs); body
+still ends ≤ p. 6; video plays, anonymous, within spec; both referenced from
+the text.
+
+### 7.10 Timeline (executes BEFORE the submission window opens Jul 25)
+
+- **D-a (Jul 19):** C2 + C3 + C4 as one tex pass (single build/audit); C6
+  harness extension written and launched overnight.
+- **D-b (Jul 20):** C6 freeze (E-C6 ledger entry) + T3 + motivation-sentence
+  update; C7 citations.
+- **D-c (Jul 21):** C5 wording; C8 figure; first full C1 space
+  reconciliation.
+- **D-d (Jul 22):** C8 video capture + cut; final build audit.
+- **D-e (Jul 23):** red-team re-read against BOTH panels' blockers (the §6
+  five-lens set and this round's eight), written into `findings.md`; hand to
+  PI. Week-3 (§4) unchanged; C5-G gate call no earlier than Jul 31.
+
+### 7.11 Risk additions
+
+| Risk | Response |
+|---|---|
+| C6: deployed budgets come out benign | Motivation falls back on the K-ladder; report the numbers honestly — the negative result is still a result |
+| C6: T3 tempts a matrix re-freeze | T3 stays a separate table; frozen §E-S1b numbers are immutable this round |
+| C2 sweep collides with frozen phrasing in NUMBERS.md | Grep both files together; NUMBERS.md is wording-synced in the same commit |
+| C3 float overflows the C1 gate | Enumerated lines inside ¶Enforcement; content identical |
+| C8 triptych pipeline missing/bitrotten | Render from logged traces directly; schematic is the last resort |
+| Video specs unknown until portal opens | Produce 1080p H.264 ≤100 MB as the safe default; re-check at submission |
+| C5-G temptation late | Binding gate, mirror of R8: no buffer ⇒ NO-GO, one as-published clause instead |
