@@ -1086,3 +1086,43 @@ hard-coded 8×2 constants. Running it at 1×8 (a C6 deliverable) therefore
 *looks* like a failed measurement and is not. If that harness gains more cells,
 the guard should take the expected values per cell rather than as module
 constants.
+
+### D-e red-team re-read against BOTH panels (2026-07-19)
+
+Re-read the built PDF against the §6 five-lens set (R0–R8) and this round's
+eight (C1–C8). Every blocker from both is answered in-paper **except** the
+codex panel's #8 video, which is blocked on interactive capture.
+
+Two gaps the re-read found, and what happened to each:
+
+- **The abstract's "90 measured cells" was not reconstructable from the
+  abstract.** It introduced the 24-cell sweep (72 cells over three hosts) and
+  then claimed 90 without ever mentioning the 18 deployed cells, which first
+  appear in §3.2. Fixed: the abstract now names the 1×8 / 2×4 budgets at the
+  point the claim is made.
+- **C6's deployed-budget ledger cost is measured but not in the paper.** §3.5
+  reports only the 16×4 overhead. The deployed figures (6.6–34.3%, and negative
+  beyond spread on the table scene) did not fit the page gate; the sentence was
+  written, failed the rebuild, and was reverted rather than forced. It stays in
+  E-C6 and belongs to the supplement. A reviewer asking "what does the governor
+  cost at the budgets you motivate with?" gets a partial answer in-paper — a
+  known, deliberate omission, not an oversight.
+
+Residual exposure a reviewer can still press, all of it already conceded
+in-text rather than hidden:
+
+1. **AVBD's pervasive overdraft is measured but untraced.** The K-sweep
+   demonstrates truncation for the position-based host only. C4 scoped every
+   headline to match; the conclusion now says the augmented-Lagrangian
+   overdraft "we measure but do not trace". Honest, but it is a hole.
+2. **The governed trajectory is wrong, and the paper leads with that.** After
+   C8 it is the first figure: governed sag 5.9 mm against the reference's 20.0.
+   A reviewer who wants an accuracy method will reject on this. The paper's
+   position is that it is a safety envelope, stated four times.
+3. **The supply is an envelope, not a dissipation measurement.** C2 made every
+   headline say so, and the recycling numbers (0.4–32%, and 102–118% on AVBD)
+   are in Limitations. The AVBD case — gross gain exceeding gross loss in every
+   cell — is the weakest point of the funding model and is stated as such.
+4. **One machine, three scenes, one contact regime.** Unchanged, and named.
+
+Nothing found in this pass contradicts a frozen number.
