@@ -151,3 +151,39 @@
   cross-check shows no conflict. Derived quantities + anchors frozen in
   `docs/mig2026_results_ledger.md` (new R0 section).
 - No solver, benchmark, or scene code was touched. Text + ledger only.
+
+## 2026-07-19 — R7b + R1 complete
+
+- **R7b DONE** (out of order, user-approved: the pod was up and billing).
+  Device timing re-verified on the re-provisioned compshare RTX 4090
+  (`cpod-1t0b3cmcyn8f`, driver 595.80, CUDA 12.9, warp 1.15.0). Band
+  5.6–9.2 → **5.0–8.9 ms** @16×4, all four scenes 3–11% faster. The road scene
+  crossed 120 Hz on the mean (1.012×) but NOT on its worst step (9.31 ms), so
+  §3.5 now calls it "at the boundary" rather than real-time. Frozen in the new
+  `docs/mig2026_device_ledger.md` (separate file so the results ledger keeps
+  its ARM-M4-only header). Machine/driver is confounded with commit — the pod
+  was re-provisioned — and the ledger says so. Commits `250b45d` / `50d881d`.
+- **R1 DONE.** New harness `run_eq2_utilization.py` measures Eq. (2) itself,
+  un-governed, on all three backends. Measurement-only BY CONSTRUCTION: the
+  solver's own ledger runs live while `passivity_gamma` is forced to 1.0, and
+  every state write in each enforcement path is guarded by `if gamma < 1.0`,
+  so the trajectory is bit-identical to a clamp-OFF run.
+  - Result (strict reading, Eq. (2) as printed): XPBD violates **8/24**
+    (margin up to +4.436×10⁷ J), AVBD **23/24** (but ≤ +15.08 J, and ≤0.15 J in
+    21 of them), impulse **0/24** (worst −5.7×10⁻⁴ J).
+  - **The two metrics diverge on AVBD**: R flags 2 cells, Eq. (2) is violated in
+    23. That is the panel's blocker demonstrated rather than argued, and it is
+    now the §3.1 "The ratio is not the invariant" paragraph.
+  - Acceptance, all three pass: non-perturbation (11/11 frozen values reproduced
+    exactly), impulse cross-validation (**0.00e+00** relative over 24 cells —
+    bit-exact, since it is the same accounting not a replica), and a new
+    bracket-contiguity probe (`probe_dErig_bracket.py`, sum|gap| = 0 J on all
+    three backends).
+  - Figure `fig_s1_solver_matrix` is now two rows: R on top, the signed Eq.-(2)
+    margin in JOULES below (symmetric-log). Joules, not a second ratio —
+    every candidate denominator misleads (see findings.md).
+  - Prose re-based: abstract, §3.1 (new paragraph), Fig. 2 caption. "Injects"
+    is now reserved for R (`exceeds R=1`), "violates" for Eq. (2).
+- A metric I wrote was WRONG and is retracted in findings.md + the ledger: the
+  plan's literal running-denominator U inflated sub-joule leads into "U = 20".
+  Two matrix re-runs lost. The verdict is now absolute joules.

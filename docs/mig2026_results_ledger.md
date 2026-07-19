@@ -515,3 +515,135 @@ so each is recomputable. Code commit at time of derivation: `753479f`
   warnings, worst overfull 1.98 pt.
 - `paper/NUMBERS.md` cross-check: no conflict (that file indexes the *long*
   paper's §4.x; short-paper numbers are frozen in this file).
+
+---
+
+## R1 — Eq.-(2) utilization with the governor OFF (2026-07-19)
+
+Plan §6.3, the load-bearing fix. Closes E-S1b caveat 1: with the clamp OFF the
+Eq.-(2) accounting previously existed only on the impulse backend (XPBD's was
+vacuous, AVBD had no ledger object), so the abstract's "AVBD exceeds the supply
+bound (1.7×)" had **no supporting measurement** — 1.7 was R.
+
+Harness: `benchmarks/paper_eval/x1_passivity/run_eq2_utilization.py`
+Data: `out/eq2_utilization.csv`; figure `benchmarks/paper_fig/fig_s1_solver_matrix.py`
+Machine: Apple M4, CPU only, CPython 3.12. Commit `250b45d` + working tree.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_eq2_utilization.py --check-frozen
+```
+
+### Method — measurement-only by CONSTRUCTION
+
+The plan proposed replicating the ΔE_rig formula offline. We do **not**: a
+replica can drift from the real formula silently. Instead the solver's OWN
+ledger runs live (`_enforce_modal_passivity = True`) while its actuator is
+neutered — the module-level `passivity_gamma` is forced to return 1.0. In all
+three backends every state write in the ledger block sits inside
+`if gamma < 1.0` (`solver_xpbd.py:1244`, `solver_6dof.py:2639`,
+`solver_impulse.py:1003`), so that branch is DEAD and the trajectory is
+bit-identical to a clamp-OFF run. `passivity_gamma` is imported
+function-locally in all three, so one module patch reaches them all.
+
+**AVBD needs its ledger pre-constructed.** It builds `PassivityLedger` lazily on
+the first substep (`solver_6dof.py:2449`, `:3057`), unlike XPBD which builds it
+at `set_modal_support`. A harness reading `sol._psv_ledger` at setup finds
+`None` and silently measures nothing — this is the whole of E-S1b caveat 1's
+"AVBD has no ledger object at all". The lazy init is guarded
+`if self._psv_ledger is None`, so pre-constructing the same object with the
+same η makes the solver adopt it. **Anyone re-deriving these numbers must do
+this.**
+
+### Verdict definition — the printed inequality, not the enforced one
+
+**These are two different inequalities and they disagree.** Reported here:
+
+    margin_J = max_n [ E_mod^n − E_mod^0 − η·Σ_{k≤n} max(ΔE_rig^k, 0) ]
+    violation ⟺ margin_J > 0                       (Eq. 2 EXACTLY AS PRINTED)
+
+The implementation's own `passive()` (`passivity.py:287-293`) instead forgives
+up to one substep's largest deposit, `max_net_excess ≤ max_deposit + tol`,
+because modal PE can spike in the same substep the rigid body is still
+delivering KE. **That allowance is worth 7–389 J in these scenes**, so:
+
+| reading | XPBD | AVBD | impulse |
+|---|---:|---:|---:|
+| Eq. (2) as printed (strict) | 8/24 | **23/24** | 0/24 |
+| implementation `passive()` (allowance) | 8/24 | **1/24** | 0/24 |
+| implementation `holds()` (gross-gain form) | 9/24 | 2/24 | 0/24 |
+
+The strict reading is reported (user decision 2026-07-19) because it is what
+the paper prints AND because the **governed** runs satisfy it too — worst
+`max_net_excess_on` is +1.14×10⁻¹³ J (XPBD), +2.43×10⁻¹⁷ (AVBD), −5.7×10⁻⁴
+(impulse), from the committed `solver_matrix.csv`. So both columns are
+adjudicated by one inequality. **R2 must document the discrepancy in-paper.**
+
+Cell counts alone mislead in the opposite direction, so the joules always
+travel with them: XPBD overdraws by up to 4.4×10⁷ J, AVBD by ≤ 15.08 J.
+
+### Results (governor OFF, η = 1)
+
+| solver | Eq.(2) violated | margin range [J] | worst R | return channel |
+|---|---:|---:|---:|---:|
+| XPBD | **8/24** | −0.0398 … **+4.436×10⁷** | 1.19534×10⁵ | 3.39–32.15% |
+| AVBD | **23/24** | −0.00205 … **+15.083** | 1.70032 | 101.99–118.17% |
+| impulse | **0/24** | −0.1806 … −5.743×10⁻⁴ | 0.531421 | 0.41–27.09% |
+
+XPBD's violating cells (identical to its R > 1 set):
+
+| scene | relax | budget | R | margin [J] | supply [J] |
+|---|---:|---:|---:|---:|---:|
+| shelf | 0.7 | 4×1 | 6333.22 | +1.738×10⁵ | 38.06 |
+| shelf | 0.7 | 8×2 | 53.7307 | +1823.91 | 39.76 |
+| shelf | 1.0 | 4×1 | 10962.1 | +3.008×10⁵ | 39.94 |
+| shelf | 1.0 | 8×2 | 123.656 | +3549.07 | 40.94 |
+| ledge | 0.7 | 4×1 | 56266.2 | +2.0817×10⁷ | 422.67 |
+| ledge | 0.7 | 8×2 | 47.453 | +1.941×10⁵ | 406.26 |
+| ledge | 1.0 | 4×1 | 119534 | **+4.4355×10⁷** | 454.92 |
+| ledge | 1.0 | 8×2 | 167.723 | +4.0546×10⁵ | 414.33 |
+
+AVBD: violates in 23/24, but every margin except two is ≤ 0.14 J. The two real
+ones are the table-scene starved cells that R also flagged:
+dinner 0.7 4×1 (R 1.17891, margin **+5.353 J**) and
+dinner 1.0 4×1 (R 1.70032, margin **+15.083 J**). Its single satisfying cell
+is shelf 0.7 4×1 (margin −0.00205 J).
+
+### THE TWO METRICS DIVERGE — this is the panel's blocker, demonstrated
+
+R and Eq. (2) agree on XPBD (8/24 both) and impulse (0/24 both). On AVBD they
+do not: **R flags 2 cells, Eq. (2) is violated in 23.** R is a severity
+diagnostic and understates pervasiveness; the invariant is the claim. Reported
+as measured, not argued.
+
+### Acceptance — all three checks pass
+
+1. **Non-perturbation**: all 8 frozen E-S1b XPBD cells and all 3 per-solver
+   worst-over-cells values reproduce EXACTLY (`--check-frozen`).
+2. **Impulse cross-validation**: `cum_rigid_loss` vs E-S1b's live OFF-run
+   monitor over 24 cells — **worst relative difference 0.00e+00** (bit-exact,
+   not merely round-off, because it is the same accounting, not a replica).
+3. **Bracket contiguity** (`probe_dErig_bracket.py`): E_rig_post^k ==
+   E_rig_pre^{k+1} with sum|gap| = **0 J exactly** on all three backends, so
+   the per-substep ΔE_rig brackets tile the timeline and no rigid energy change
+   escapes the accounting.
+
+### Return channel (feeds R2)
+
+Σ max(−ΔE_rig, 0) / Σ max(+ΔE_rig, 0), the bound on gross-sum recycling:
+XPBD 3.39–32.15%, impulse 0.41–27.09%, **AVBD 101.99–118.17%**. Plan §6.4
+expected "≲1%"; it is one to two orders of magnitude larger, and on AVBD the
+gross rigid *gain* exceeds the gross loss in every cell. The Limitations
+recycling caveat must stand on these numbers, and the AVBD >100% needs its own
+sentence (same family as the impulse box–box rectification already named).
+
+### A metric that was WRONG and is retracted
+
+The first implementation used the plan's literal formula with a RUNNING
+denominator, maximised over n. That denominator accumulates from ~0, so a
+sub-joule in-transit lead inflated without bound: it reported "AVBD violates in
+23/24 with U up to 22" for overdrafts of 0.01–0.15 J (AVBD shelf 0.7 32×8: raw
+U = 20.3 for 0.13 J). Caught because a cell reported U = 21.9 while its peak
+modal energy, 4.98 J, was five times SMALLER than its supply, 25.3 J. The
+count 23/24 later turned out to be right for an unrelated reason (the strict
+reading), but the U values were not. **A ratio whose denominator accumulates
+from zero is not a verdict — check the absolute joules first.**

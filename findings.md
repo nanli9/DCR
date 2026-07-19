@@ -580,6 +580,76 @@ Use `directional energy-budgeted` rather than broad `passivity-bounded` unless t
 - **The compshare pod is fresh, not merely restarted.** `~/DCR` and
   `~/dcr-venv` are both gone, so the 2026-07-13/07-18 "pod unreachable" note in
   plan §6.9 and `paper/NUMBERS.md` should become "pod re-provisioned; env
-  rebuild required". R7b's cost is no longer "one command" — it is clone + venv
-  + warp install + one command, and it needs the branch pushed to GitHub first
-  (an outward-facing action not yet taken).
+  rebuild required". R7b's cost is no longer "one command" — it is transfer +
+  venv + warp install + one command, and the pod link runs ~200 kB/s, so the
+  transfer dominates.
+- **Transfer gotcha (cost me a wasted cycle):** `tar --exclude='benchmark/'`
+  intended to drop the 254 MB top-level `benchmark/` also silently dropped
+  **`dcr/benchmark/`** (4 files), because the pattern is matched against every
+  path component, not anchored at the archive root. The device run then failed
+  on an unrelated-looking import. Use `--exclude='./benchmark'` to anchor it.
+  I initially misread the symptom as a truncated stream; it was an over-broad
+  exclude. Verify transfers by diffing file LISTS, not counts — the counts
+  differed for two independent reasons at once and masked each other.
+- The repo is PUBLIC on GitHub while the submission is double-blind, so R7b's
+  "push the branch to origin" step (plan §6.9 R7b.1) was replaced, with user
+  approval, by a direct tar/scp to the pod. The plan step should be amended.
+
+### R1 (plan §6.3) — measuring Eq. (2) itself
+
+- **Design choice: run the solver's OWN ledger, don't replicate it.** The plan
+  says "measurement-only wrappers ... that log per-substep rigid mechanical
+  energy ... with the ledger's own formula replicated offline". Replicating it
+  offline risks silent drift from the real formula. Instead the harness sets
+  `_enforce_modal_passivity = True` (so `deposit()`/`commit()` run live) and
+  patches the module-level `passivity_gamma` to return 1.0. In all three
+  backends every state write in the ledger block is inside `if gamma < 1.0`
+  (`solver_xpbd.py:1244`, `solver_6dof.py:2639`, `solver_impulse.py:1003`), so
+  that branch is DEAD and the trajectory is bit-identical to clamp-OFF while
+  the accounting is fully live. Non-perturbation is then structural, not
+  argued — and it is confirmed empirically: all 8 frozen E-S1b XPBD cells and
+  all 3 per-solver worst-over-cells values reproduce EXACTLY.
+- **E-S1b caveat 1's "AVBD has no ledger object at all" is a lazy-init
+  artifact, not an absence.** AVBD constructs its `PassivityLedger` on the
+  first substep (`solver_6dof.py:2449` and `:3057`), whereas XPBD builds it at
+  `set_modal_support`. Any harness that grabs `sol._psv_ledger` at setup time
+  therefore finds `None` on AVBD and silently measures nothing. Because the
+  lazy init is guarded `if self._psv_ledger is None`, pre-constructing the same
+  object with the same η makes the solver adopt it. **This is why the AVBD
+  Eq.-(2) column was missing, and it was fixable without touching solver
+  source.** Anyone re-deriving these numbers must pre-construct the ledger.
+- **RETRACTED AND CORRECTED — a bug in MY metric, not in the solver.** My
+  first U definition was the plan's literal formula with a RUNNING denominator,
+  `(E_mod^n − E_mod^0) / (η·Σ_{k≤n} max(ΔE_rig,0))`, maximised over n. In the
+  opening substeps that denominator is ~0 while modal energy has already built,
+  so a sub-joule in-transit lead inflates without bound. It reported "AVBD
+  violates Eq. (2) in 23/24 cells, U up to 22" — for absolute overdrafts of
+  0.01–0.15 J. AVBD shelf 0.7 32×8: raw running U = 20.3 for a 0.13 J overdraw.
+  **That would have been a false and easily-destroyed claim.** Caught by
+  noticing U = 21.9 in a cell whose peak modal energy (4.98 J) was FIVE TIMES
+  SMALLER than its supply (25.3 J) — arithmetically impossible for a real
+  overdraw. Two fixes:
+    1. **Verdict** is now the ledger's own criterion, in absolute joules:
+       `max_net_excess > max_deposit + tol` (passivity.py:287-293). The
+       `max_deposit` allowance exists precisely because modal PE can spike in
+       the same substep the rigid body is still delivering KE. It is also the
+       test behind the paper's governed-run "all 72 cells satisfy Eq. (2)"
+       claim, so the un-governed column is now adjudicated identically.
+    2. **U** is now peak net modal storage over the run divided by the run's
+       TOTAL funded supply — a stable denominator that the opening transient
+       cannot inflate.
+  Corrected result: AVBD violates in **2/24** cells (dinner 4×1, both relaxes),
+  with **U = 1.18 / 1.68** against R = 1.18 / 1.70. So the abstract's original
+  "exceeds ... marginally (1.7×)" turns out to be SUPPORTED once Eq. (2) is
+  actually measured — the plan's "U > 1 branch". R and U agree closely here.
+  **Lesson: a ratio whose denominator accumulates from zero is not a verdict.
+  Sanity-check every ratio against the absolute joules before believing it.**
+- **The return channel is far larger than the ≲1% plan §6.4 expected.**
+  Σ max(−ΔE_rig, 0) / Σ max(+ΔE_rig, 0) measures 3.4–32.2% (XPBD) and
+  0.4–27.1% (impulse) across cells, and **exceeds 100% on the AVBD dinner
+  cells (109–111%)**, i.e. the gross rigid-energy *gain* there exceeds the
+  gross loss. The recycling caveat cannot be waved off as negligible; R2 must
+  report these ranges honestly. The AVBD >100% figure needs its own sentence —
+  in that scene the rigid subsystem is not monotonically dissipating, which is
+  the same family as the impulse box--box rectification already named in
+  Limitations.
