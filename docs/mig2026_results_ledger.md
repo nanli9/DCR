@@ -1210,3 +1210,39 @@ paper now says this rather than leaving it inferable.
 Baseline next to overhead as a percentage, per scene and host, on the declared
 CPU machine; device paragraph names the GPU, keeps "monitor-only" explicit, and
 states the absent enforced-γ path. Done.
+
+---
+
+## Post-R7 integrity check (2026-07-19)
+
+Run after R0–R7 were all committed, to confirm the evidence chain still holds
+end to end. Commit `581e9b9`.
+
+1. **R1 re-run reproduces exactly.** All 8 frozen E-S1b XPBD cells and all 3
+   per-solver worst-over-cells values match (`--check-frozen`), and the full
+   72-cell CSV is **bit-identical in every physical column** — the only diff
+   against the committed file is the `wall_s` timing field. Determinism on a
+   fixed machine and interpreter is therefore measured, not assumed.
+2. **R5 re-run reproduces exactly** — 53.73070660394743 and 1.0106758619142793,
+   |diff| = 0.
+3. **`verify_paper_numbers.py`: 34/34 pass.** Every R5/R7 number printed in
+   `main_short.tex` is tied mechanically to its frozen CSV. Two of the checks
+   guard reasoning rather than values: the 10 kHz spectral cut must still sit
+   inside the real 2.03→20.7 kHz gap (so it cannot become a tuned knob), and the
+   table-scene ledger overhead must STAY unresolved (σ > μ), because the paper
+   reports it as unresolved.
+4. **All 12 cited CSVs verified present** and enumerated in the supplementary
+   manifest, including `substep_sweep.csv`, which §3.1's "full ladder in the
+   supplement" now depends on after the §6.12 demotion.
+
+### Status of the review-response plan
+
+| item | state |
+|---|---|
+| R0–R7 | **complete, frozen, committed** |
+| R5.3 triptych | **BLOCKED** — needs an interactive browser capture session (no offscreen render path); also §6.12's second demotion target |
+| video.mp4 | **BLOCKED** — same capture limitation |
+| R8 | **NO-GO** by default (§6.10); its gate (R0–R7 frozen, ≥5 buffer days) is now *satisfiable*, so it is a live decision at the ~Jul 27 go/no-go, not an automatic skip |
+
+Paper: 6 pages of body, references alone on p7, 0 undefined refs, 0 overfull
+boxes. Deadline 2026-08-07 23:59 AoE; submission window opens Jul 25.
