@@ -171,17 +171,16 @@ multiplier.
 
 \paragraph*{Relation to passivity control and energy projection.} The governor
 transplants an established control idea rather than inventing one. Time-domain
-passivity control~\citep{hannaford2002} observes the energy an interface has
-produced and damps once the observer goes negative; energy-tank
-formulations~\citep{franken2011} give that observer explicit state, so a
-controller spends only what its tank holds. We keep that structure and change
-two things: the tank is funded by \emph{measured gross rigid-side dissipation}
---- energy the solve removed elsewhere --- rather than by the port it regulates,
-and the actuator scales realized \emph{state} rather than modulating a force,
-because a fixed-budget solver has committed its multipliers before the excess is
-observable. FEPR~\citep{dinev2018fepr} also projects state post-solve, but onto
-conservation of \emph{total} energy; ours is one-sided, caps what one subsystem
-may store, and never restores energy the solver lost.
+passivity control~\citep{hannaford2002} damps once an energy observer goes
+negative; energy-tank formulations~\citep{franken2011} give that observer
+explicit state, so a controller spends only what its tank holds. We keep that
+structure and change two things: the tank is funded by \emph{measured gross
+rigid-side dissipation} --- energy the solve removed elsewhere --- rather than by
+the port it regulates, and the actuator scales realized \emph{state} rather than
+modulating a force, because a fixed-budget solver commits its multipliers before
+the excess is observable. FEPR~\citep{dinev2018fepr} also projects state
+post-solve, but onto conservation of \emph{total} energy; ours is one-sided and
+never restores energy the solver lost.
 
 % =====================================================================
 \section{The row and the cumulative bound}
@@ -526,13 +525,11 @@ The reason also explains how a $196\times$ energy error coexists with a peak
 deflection only $1.2\times$ too large. The excess is not kinetic ($0.3\%$) and
 not low-frequency: this scene's spectrum is bimodal (ten bending modes at
 $20.3$~Hz--$2.03$~kHz, then six stiff ones at $20.7$--$24.7$~kHz), and $99.6\%$
-of the ungoverned energy sits in the stiff cluster --- ${\sim}200\times$ above
-the $240$~Hz substep rate --- against $0.0\%$ for both converged references.
-Being one scalar, $\gamma$ cannot redistribute across the spectrum: it fixes the
-\emph{amount} ($1555.6\to29.3$~J), leaves the character intact
-($99.6\to97.7\%$), and scales the legitimate sag down with the noise
-($24.1\to5.9$~mm against a reference $20.0$). A band-selective projection is the
-obvious next mechanism; we have not built it.
+of the ungoverned energy sits in the stiff cluster, ${\sim}200\times$ above the
+$240$~Hz substep rate, against $0.0\%$ for both references. Being one scalar,
+$\gamma$ cannot redistribute across the spectrum: it fixes the \emph{amount}
+($1555.6\to29.3$~J), leaves the character intact ($99.6\to97.7\%$), and scales
+the legitimate sag down with the noise ($24.1\to5.9$~mm against $20.0$).
 
 \paragraph*{Contact validity.}
 
@@ -567,10 +564,9 @@ substeps rather than nearly all, $\gamma$ bottoming at $0.60$, worst-case
 violations of $1.4$ and $3.1$~mm against $21.6$, and corrective impulse and
 multiplier variance within $1.4\times$ of steady state where the position-based
 host reaches $8.7\times$ and $58\times$. This is what \S\ref{sec:matrix}
-predicts --- its overdrafts are at most $15$~J, so $\gamma$ has little to remove
---- while the \emph{relative} effect is comparable ($3.1$ and $5.5\times$ against
-$3.5$--$12.6\times$). The hosts differ in the scale of the correction, not its
-character.
+predicts --- its overdrafts are at most $15$~J --- while the \emph{relative}
+effect is comparable ($3.1$ and $5.5\times$ against $3.5$--$12.6\times$). The
+hosts differ in the scale of the correction, not its character.
 
 \subsection{The reduced response against a full-FEM reference}
 \label{sec:gt}
@@ -628,12 +624,18 @@ toward it ($L_\infty$ $33\to71\%$ of reference peak against an energy error
 falling $196{\times}\to3.7{\times}$), for the structural reason given in
 \S\ref{sec:validity}. The result is bounded and non-diverging, not faithful; the
 honest use of the bound is as a safety envelope for budgets that would otherwise
-diverge.
+diverge. The identified next mechanism is to scale deviations about the
+quasi-static equilibrium, $(\mathbf{q},\dot{\mathbf{q}})\!\leftarrow\!
+(\mathbf{q}_{\mathrm{eq}}{+}\gamma(\mathbf{q}{-}\mathbf{q}_{\mathrm{eq}}),
+\gamma\dot{\mathbf{q}})$, preserving the load-bearing sag. It is not a free
+substitution --- the equilibrium term does not scale with $\gamma$, so
+\eqref{eq:invariant} would hold only while the reservoir exceeds the sag's own
+strain energy, where the present projection enforces it by construction --- and
+we have not built it.
 
-\textbf{Convergence is the better cure where affordable.}
-Section~\ref{sec:kconv} shows the pathology disappears with iteration count and
-never appears in the implicit realization, whose timing here is a CPU reference
-implementation and not the cost of that formulation class.
+\textbf{Convergence is the better cure where affordable}
+(\S\ref{sec:kconv}); our implicit backend's timing is a CPU reference
+implementation, not the cost of that formulation class.
 
 \textbf{Scope of the row.} Normal rows only --- friction is body-local, so
 scraping and rolling transfer are outside this coupling --- and the
@@ -670,13 +672,12 @@ sweep, not a theorem.
 \section{Conclusion}
 % =====================================================================
 Transcribing an established rigid--modal contact law into fixed-budget solvers
-is not energy-safe, and how unsafe depends strongly on the formulation: we
-measure worst-case modal-to-incident energy ratios of $1.2\times10^{5}$, $1.70$
-and $0.53$ across position-based, augmented-Lagrangian and implicit hosts on the
-same 24 cells. The amplification is a truncation artifact convergence removes;
-where convergence is unaffordable, a cumulative storage bound funded by measured
-contact dissipation holds in every measured cell --- at a contact-accuracy cost
-we quantify rather than omit.
+is not energy-safe, and how unsafe depends strongly on the formulation:
+worst-case modal-to-incident ratios are $1.2\times10^{5}$, $1.70$ and $0.53$
+across the three hosts on the same 24 cells. The amplification is a truncation
+artifact convergence removes; where it is unaffordable, a cumulative storage
+bound funded by measured contact dissipation holds in every measured cell, at a
+contact-accuracy cost we quantify rather than omit.
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}
