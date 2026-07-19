@@ -1551,3 +1551,42 @@ and one of them was always the strongest:
 **Verdict unchanged: NO-GO.** But the honest reason is prior art and scope, not
 infeasibility — and the long-paper note should carry the corrected numbers, not
 the 37.8%.
+
+---
+
+## C-round — codex-panel response (2026-07-19), plan §7
+
+### C3 — enforcement ORDERING, verified in code (no measurement)
+
+The paper's ¶Enforcement said the reservoir is credited "before the contact
+solve". **That matches no host.** All three credit AFTER the velocity solve, in
+the SAME substep, from that substep's measured loss. Read at commit `ef25f21`,
+branch `impulse-native-constraint`:
+
+| step | position-based (XPBD) | augmented-Lagrangian (AVBD) | seq. impulse |
+|---|---|---|---|
+| snapshot `E_rig⁻`, `E_mod⁻`, `x_prev` (before predict) | `solver_xpbd.py:1056`, `:1072-1077` | `solver_6dof.py` `_psv_x_pre`/`_E_rig_pre` | `solver_impulse.py` `E_rig_pre`/`E_modal_pre` args |
+| predict; generate contacts at predicted pose | `:1079-1085`, `_collect_contacts` | — | `:836` `_collect_rows(h)` |
+| position solve (K iters); velocity solve | `:1130-1136`, `:1205-1211` | coloured primal GS + q-block | PGS `:902` |
+| `E_rig⁺`; `ΔE_rig = (E_rig⁻−E_rig⁺) + W_g` | `:1223-1237` | `:2617-2627` | `:987-996` |
+| **credit** `B ← B + η·max(ΔE_rig,0)` | **`:1241`** | **`:2630`** | **`:998`** |
+| `E_mod⁺`; `γ` test | `:1238-1243` | `:2628-2632` | `:997`, `:1001` |
+| project `(q,q̇) ← γ(q,q̇)` if `γ<1` | `:1244-1250` | `:2638-2647` | `:1003-1009` |
+| **debit** `B ← max(B − max(ΔE_mod,0), 0)` | `:1252` (`commit`) | `:2648` (`commit`) | `_psv_commit` tail |
+| contact is NOT re-solved afterwards | — the clamp is the last act of the substep in all three — | | |
+
+Ledger primitives: `passivity.py:257-263` (`deposit`, credit) and
+`passivity.py:265-285` (`commit`, debit `max(realized_gain,0)`, floored at 0).
+
+Call-site placement (proof that "post-solve" is structural, not incidental):
+`_psv_commit` is invoked immediately after `_commit_free` writes the post-solve
+velocities — `solver_impulse.py:842` (no-rows early return) and `:943` (normal
+path); the XPBD and AVBD blocks are inline at the end of the substep body.
+
+**Consequence for the paper, and why the two paragraphs now explain each
+other:** same-substep credit is exactly why modal PE can rise in the substep
+that funds it, which is the artifact the "one largest deposit" forgiveness
+(¶The-enforced-inequality) absorbs. Before C3 those paragraphs read as
+unrelated.
+
+No solver behaviour was changed; this entry corrects prose only.
