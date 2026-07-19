@@ -67,17 +67,34 @@ from benchmarks.paper_eval.paper_config import (                 # noqa: E402
     apply_relax, apply_passivity, write_manifest)
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
-F_SPLIT = 1.0e4      # Hz; inside the shelf spectrum's 2.03k..20.7k gap (R5.1c)
 
 
 def _bands(sol):
-    """(low, high) boolean masks over modes, split at F_SPLIT."""
+    """(low, high) boolean masks over modes, split at the scene's own spectral
+    gap.
+
+    FIXED 2026-07-19. This was a hard-coded 1e4 Hz, documented as "inside the
+    shelf spectrum's gap". That is true for the shelf ONLY. Every scene has a
+    decade-wide gap, but its location moves by two orders of magnitude:
+    469 Hz (table), 2.03 kHz (shelf), 17.0 kHz (ledge). The fixed cut therefore
+    put three genuine bending modes into the scaled band on the ledge -- which
+    is where the over-stated "37.8% infeasible" in the first R8 write-up came
+    from -- and sat above the table's entire spectrum, making the split a no-op
+    there. We now locate the largest MULTIPLICATIVE gap per scene and cut at its
+    geometric middle. See the R8 sections of docs/mig2026_results_ledger.md;
+    probe_band_split_sweep.py supersedes this by sweeping the split instead of
+    picking one."""
     kq = np.asarray(sol._kq, dtype=np.float64)
     mq = getattr(sol, "_mq", None)
     mqv = (np.ones_like(kq) if mq is None
            else np.asarray(mq, dtype=np.float64))
     f = np.sqrt(np.maximum(kq / np.where(mqv > 0, mqv, 1.0), 0.0)) / (2 * np.pi)
-    return f <= F_SPLIT, f > F_SPLIT, f
+    fs = np.sort(f)
+    if fs.size < 2:
+        return np.ones_like(f, bool), np.zeros_like(f, bool), f
+    i = int(np.argmax(fs[1:] / np.maximum(fs[:-1], 1e-30)))
+    f_split = float(np.sqrt(fs[i] * fs[i + 1]))          # geometric middle
+    return f <= f_split, f > f_split, f
 
 
 def _defl(sol, q):
@@ -203,8 +220,8 @@ def main():
     os.makedirs(OUT, exist_ok=True)
 
     print(f"### R8 feasibility probe ({platform.machine()}) ###")
-    print(f"split at {F_SPLIT:.0f} Hz; 'infeasible' = no gamma in [0,1] "
-          f"satisfies Eq. (2)\n", flush=True)
+    print("split at each scene's own spectral gap; 'infeasible' = no gamma in "
+          "[0,1] satisfies Eq. (2)\n", flush=True)
 
     rows, per_sub = [], []
     qeq_cache = {}

@@ -1513,6 +1513,15 @@ So keeping only **2–4 low modes** gives a **4–6× penetration reduction at
 "37.8% infeasible on ledge" was an artifact of the mis-placed 10 kHz cut
 (keep-9), not a property of band-selective projection.
 
+**Probe fixed 2026-07-19**: `probe_r8_feasibility.py` now locates each scene's
+own largest multiplicative gap and cuts at its geometric middle, instead of the
+hard-coded 1e4 Hz. Re-run, the gap-split figures are shelf 7.5% (unchanged, the
+cut was already correct there) and **ledge 56.1%** — worse than the 37.8% first
+reported, because the true gap preserves 12 modes where the mis-placed cut
+preserved 9. The two probes now agree. **The corrected gap-split numbers are
+7.5% / 56.1%; the low-mode-split numbers (0-7%) remain the ones that matter,
+since the gap is the wrong place to cut.**
+
 #### CORRECTION to the gate rationale
 
 **Ground 2 of the NO-GO is materially weakened.** I wrote that the effective
