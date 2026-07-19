@@ -724,3 +724,34 @@ Use `directional energy-budgeted` rather than broad `passivity-bounded` unless t
   session: no solver source was touched. Distinct from the known ARM/x86
   chaotic-stack divergence, which produces small numerical differences rather
   than a body that never moves.
+
+### R4 (plan §6.6) — the acceptance criterion FAILED, and that is the result
+
+- **XPBD self-converges to a DIFFERENT fixed point than the oracle.** Plan §6.6
+  expected |XPBD(500) − oracle| ≪ the K=32 gap of 2.7e-2. Measured improvement:
+  **1.026×**. The ratio plateaus by K≈64 (0.3003 → 0.2996 over K=32..500) at a
+  value 9.6% away from the oracle's 0.2735. It is a fixed point, not a tail.
+- **The state metrics say the same thing, more strongly.** Peak deflection
+  agrees to 2.4%, but the L∞ difference of the deflection trajectory is 6.8 mm
+  = **34% of the oracle's own peak**, and flat from K=32 onward. So the two
+  hosts agree on scale and disagree on shape/phase.
+- **This is expected physics, not a bug, and it improves the paper.** The two
+  hosts discretize the same continuous law differently — §1 already says the
+  position-level row is one linearization step and an e=0 choice away from the
+  velocity-level one. The sweep therefore separates two effects the original
+  text conflated: a truncation pathology convergence REMOVES (2.96e4 → 0.30),
+  sitting on a formulation difference convergence does NOT (residual 9.6%).
+  §3.2 changed from "cured by convergence" to "largely cured ... removes the
+  pathology outright", plus a new paragraph stating the plateau.
+  A reviewer who ran K=500 themselves would have found this; better that we
+  report it.
+- **My ring-frequency metric was unreliable and is NOT reported.** The dominant
+  FFT peak moved with window length (XPBD 15.6 Hz at 100 frames → 11.2 Hz at
+  300). Cause: over these windows the deflection trace is dominated by the
+  quasi-static sag, so the spectral peak is the settling envelope, not the
+  elastic ring. Caught by re-running at 300 frames specifically to test window
+  sensitivity — energy/peak/L∞ were identical to 4 s.f., the ring was not.
+  The paper says why it is omitted and points at the resolved full-FEM ring
+  comparison (78.0 vs 78.3 Hz) instead. **Lesson, same family as the R1 metric
+  bug: verify a derived quantity is stable under a parameter it should not
+  depend on, before reporting it.**

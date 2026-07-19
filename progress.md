@@ -243,3 +243,25 @@
 - Builds clean: 0 undefined refs, 0 LaTeX warnings, no overfull boxes.
 - Cross-platform test suite run on both machines at the user's request; the one
   failure is pre-existing on ARM too. No paper number comes from the x86 host.
+
+## 2026-07-19 — R4 complete (negative result)
+
+- **R4 DONE** (plan §6.6). New harness `run_selfconvergence.py`; XPBD extended
+  to K ∈ {64,128,256,500} against the impulse oracle at K=500, plus
+  state-level agreement on the deflection trajectory d_i = U_y[i]·q.
+- **The plan's acceptance criterion is NOT met, and that is the finding.**
+  |XPBD(500) − oracle| improves only 1.026× over the K=32 gap. XPBD plateaus
+  by K≈64 at ratio 0.2996 vs the oracle's 0.2735 — a fixed point 9.6% away.
+  State: peak deflection agrees to 2.4%, but trajectory L∞ is 34% of the
+  oracle's peak, also flat from K=32.
+- Interpretation, now in §3.2: the sweep separates a truncation pathology that
+  convergence removes from a formulation difference that it does not. The two
+  hosts discretize the same continuous law differently (position-level
+  linearization, e=0, vs velocity-level implicit), so different converged
+  solutions are expected. §3.2 reworded from "cured by convergence" to
+  "largely cured ... removes the pathology outright".
+- Ring frequency measured but NOT reported: window-dependent (15.6 Hz at 100
+  frames vs 11.2 Hz at 300) because the deflection trace is sag-dominated over
+  these windows. Energy/peak/L∞ are stable to 4 s.f. across both windows. The
+  paper says so and points at the resolved full-FEM ring (78.0 vs 78.3 Hz).
+- Builds clean: 6 pages, 0 undefined refs, 0 LaTeX warnings.

@@ -853,3 +853,76 @@ floating-point reassociation, as the paper states). `tests/avbd/
 test_adapter_smoke.py::test_box_falls_and_settles` fails on BOTH machines
 (box never leaves y=0.5), so it is a pre-existing failure, not an x86 artifact
 and not caused by this session — which touched no solver source.
+
+---
+
+## R4 — XPBD self-convergence to K=500 + state agreement (2026-07-19)
+
+Plan §6.6. **THE ACCEPTANCE CRITERION IS NOT MET, and the negative result is
+the finding.** Machine: Apple M4, CPU only. Commit `14983e0` + working tree.
+
+Harness: `benchmarks/paper_eval/x1_passivity/run_selfconvergence.py` (NEW).
+Data: `out/selfconvergence.csv` (100 frames), `out/selfconvergence_long.csv`
+(300 frames, robustness check), `out/selfconvergence_traces.npz`.
+Same scene/relax/substeps as E-S2 (shelf, 0.7, S=1) so the column overlays it.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_selfconvergence.py
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_selfconvergence.py \
+    --nframes 300 --out selfconvergence_long          # robustness
+```
+
+### Energy: XPBD self-converges, but NOT to the oracle
+
+Oracle = implicit sequential-impulse host at K=500: **ratio 0.2734809**.
+
+| K | 16 | 24 | 32 | 64 | 128 | 256 | 500 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| XPBD ratio | 9.579983 | 0.4863771 | 0.3003054 | 0.2999081 | 0.2996861 | 0.2996276 | **0.2996131** |
+| gap to oracle | 9.307 | 0.2129 | 0.02682 | 0.02643 | 0.02621 | 0.02615 | **0.02613** |
+
+**Plan §6.6 acceptance was "|XPBD(500) − oracle| ≪ the K=32 gap (2.7×10⁻²)".
+Measured improvement: 1.026×.** The gap is a FIXED POINT, not a tail — XPBD
+plateaus by K≈64 at 0.2996, which differs from the oracle by 9.6% relative.
+
+### State: peak agrees, trajectory does not
+
+Deflection trajectory `d_i(t) = U_y[i]·q(t)` [m] — the same expression the
+contact row uses, so it is the surface the coupling actually sees.
+
+| metric | XPBD K=500 vs oracle |
+|---|---|
+| peak deflection | 0.0204817 m vs 0.0200003 m = **1.0241×** (2.4% high) |
+| L∞ of trace difference | **6.804×10⁻³ m = 34.02% of the oracle's peak** |
+| both flat from K=32 | peak 1.0248→1.0241, L∞ 34.00%→34.02% |
+
+So amplitudes agree to 2.4% while the trajectories differ by a third of peak —
+i.e. the disagreement is in phase/shape, not scale.
+
+### Ring frequency: NOT REPORTED, measurement unreliable
+
+The dominant FFT peak of the deflection trace moved with window length
+(XPBD 15.6 Hz at 100 frames → 11.2 Hz at 300; oracle 6 Hz in both). Over these
+windows the trace is dominated by the quasi-static sag, not the elastic ring,
+so the dominant peak is the settling envelope. **Do not quote these numbers.**
+The resolved ring comparison is the full-FEM one already in the paper
+(78.0 vs 78.3 Hz, §3.4), from a purpose-built harness. Energy, peak and L∞ are
+stable to 4 s.f. across BOTH window lengths, so those are the reportable ones.
+
+### Interpretation (now in paper §3.2)
+
+The two hosts converge to **different discrete solutions**. That is expected
+rather than alarming: they discretize the same continuous law differently — the
+paper's own §1 says the position-level row is one linearization step from the
+velocity-level law and takes e=0. The consequence for the paper's argument is
+that the sweep separates two effects that are easy to conflate:
+
+1. a **truncation pathology** (ratio 2.96×10⁴ → 0.2996) that convergence removes;
+2. a **formulation difference** (residual 9.6% energy, 34%-of-peak trajectory)
+   that convergence does NOT remove.
+
+The §3.2 wording changed from "cured by convergence" to "largely cured by
+convergence ... removes the pathology outright", and a new paragraph
+"Self-convergence stops short of the reference" states the plateau and the
+state metrics explicitly. This is more defensible than the original claim: a
+reviewer running K=500 themselves would have found the plateau.
