@@ -647,3 +647,92 @@ modal energy, 4.98 J, was five times SMALLER than its supply, 25.3 J. The
 count 23/24 later turned out to be right for an unrelated reason (the strict
 reading), but the U values were not. **A ratio whose denominator accumulates
 from zero is not a verdict — check the absolute joules first.**
+
+---
+
+## R2 — the ledger pinned down in-paper (2026-07-19)
+
+Plan §6.4. No new runs: this item states in the paper what the code already
+does, so every quantity in Eq. (2) is recomputable by a reader. The measured
+half (the return channel) comes from the R1 run above. Commit `73c95c5`.
+
+### Code anchors for every term now stated in §2
+
+| paper term | code | anchor |
+|---|---|---|
+| $E_{\mathrm{mod}} = \frac12\dot q^\top M_q\dot q + \frac12 q^\top K_q q$ | `modal_mech_energy(qdot,q,Mq,Kq)` | `dcr/avbd/_solver/passivity.py:183-191` |
+| $E_{\mathrm{mod}}^0 = 0$ | `PassivityLedger.e_modal_0` default `0.0`; **no solver ever assigns it** (grep-verified), and scenes start undeformed and at rest, so it stays 0 on every CPU number in this paper | `passivity.py:249` |
+| $E_{\mathrm{rig}}$ = purely kinetic, translational + rotational, ALL dynamic bodies | `rigid_mechanical_energy(V,W,Q,mass,invIl)` called **without** `X`/`gravity`, so the gravitational-PE branch is not taken; `m<=0` (static) skipped; $\omega_{\mathrm{local}}=R^\top\omega$ | `passivity.py:91-145`; call sites `solver_xpbd.py:1072`, `:1223`, `solver_6dof.py:2617`, `solver_impulse.py:987` |
+| $W_g^k=\sum_b m_b\,g\cdot(x_b^{k,+}-x_b^{k,-})$ | explicit loop over dynamic bodies | `solver_xpbd.py:1231-1236`, `solver_6dof.py:2621-2626`, `solver_impulse.py:990-995` |
+| $\Delta E_{\mathrm{rig}}^k=(E^{k,-}-E^{k,+})+W_g^k$ | `rigid_loss = (E_rig_pre - E_rig_post) + grav_work` | `solver_xpbd.py:1237`, `solver_6dof.py:2627`, `solver_impulse.py:996` |
+| reservoir credit $B \mathrel{+}= \eta\max(\Delta E_{\mathrm{rig}},0)$ | `PassivityLedger.deposit()` | `passivity.py:257-263` |
+| reservoir debit $B \leftarrow \max(B-\max(\Delta E_{\mathrm{mod}},0),0)$ | `PassivityLedger.commit()` | `passivity.py:265-285` |
+| $\gamma=\min\bigl(1,\sqrt{(E_{\mathrm{mod}}^-+B)/E_{\mathrm{mod}}^+}\bigr)$ | `passivity_gamma()`; quadratic in $\gamma$ because BOTH terms of $E_{\mathrm{mod}}$ are quadratic, so it bounds KE *and* PE (unlike the velocity-only `passivity_alpha`, retained only for a unit test) | `passivity.py:211-230`; alpha at `:194-208` |
+| $\eta = 1$ in every experiment | `apply_passivity(..., eta=1.0)` | `benchmarks/paper_eval/paper_config.py:85-97` |
+| endpoints tile the timeline | measured, not assumed: `sum|E_post^k - E_pre^{k+1}| = 0 J` exactly on all three backends | `probe_dErig_bracket.py` (R1) |
+
+### CAVEAT on $E_{\mathrm{mod}}^0$ — two harnesses use a DIFFERENT baseline
+
+`e_modal_0` is never written by solver code, but **two device-arm benchmark
+harnesses rebase it** to the modal energy measured after the first step:
+`benchmarks/paper_eval/x5_perf/probe_device_passivity.py:97` and
+`x5_perf/run_stress_device.py:136`. That is a different convention from the
+$E_{\mathrm{mod}}^0=0$ the paper states: it excludes the settling transient from
+the numerator instead of funding it.
+
+- **No CPU number in this paper is affected.** R1, E-S1/E-S1b and E-S3 all leave
+  the default in place, so their $E_{\mathrm{mod}}^0$ is genuinely 0.
+- **The device-path passivity claims ARE on the rebased convention** — the
+  `paper/NUMBERS.md` §4.7 "device path passive in 20/20 cells" and §4.8
+  "18/18 passive" rows come from those two harnesses. They are *more* lenient
+  than the paper's stated baseline, so they must not be quoted as evidence for
+  Eq. (2) as printed without saying so. The short paper does not currently make
+  that claim (§3.5 says the device path carries the ledger read-only as a
+  monitor, and claims no verdict), so nothing needs changing today — but this
+  is a trap for the long paper.
+
+### The printed inequality is NOT the enforced one — now disclosed in §2
+
+| | test | code |
+|---|---|---|
+| **as printed / as reported** | $\max_n[E_{\mathrm{mod}}^n-E_{\mathrm{mod}}^0-\eta\sum_{k\le n}\max(\Delta E_{\mathrm{rig}},0)]>0$ | (R1 `margin_J`) |
+| implementation `passive()` | same, but forgiven up to `max_deposit` = one substep's largest deposit | `passivity.py:287-293` |
+| implementation `holds()` | gross-gain form: $\sum\max(\Delta E_{\mathrm{mod}},0)\le\eta\sum\max(\Delta E_{\mathrm{rig}},0)$ | `passivity.py:295-297` |
+
+The allowance is worth **7–389 J** in these scenes and is the entire difference
+between AVBD 23/24 and 1/24. §2 now states this, states that the stricter
+reading is used for BOTH columns, and gives the governed worst margin
+(1.1×10⁻¹³ J) that makes doing so possible.
+
+### Recycling caveat — the measured bound (Limitations)
+
+$\sum_k\max(-\Delta E_{\mathrm{rig}}^k,0)\,/\,\sum_k\max(+\Delta E_{\mathrm{rig}}^k,0)$,
+from the R1 instrumented runs (`eq2_utilization.csv : return_frac`):
+
+| solver | range | reading |
+|---|---:|---|
+| impulse | 0.41–27.09% | |
+| XPBD | 3.39–32.15% | |
+| AVBD | **101.99–118.17%** | gross rigid GAIN exceeds gross loss in every cell |
+
+Plan §6.4 expected ≲1%. It is one to two orders larger, so the caveat now
+stands on data. The AVBD >100% is called out separately in Limitations as the
+same phenomenon as the impulse box–box rectification (rigid-side energy
+creation, which the scalar reservoir is blind to by design), not as a property
+of the bound.
+
+### Acceptance
+
+- **Recomputable from the paper alone**: §2 now gives $E_{\mathrm{mod}}$,
+  $E_{\mathrm{mod}}^0=0$, the exact $\Delta E_{\mathrm{rig}}$ with its gravity-work
+  term and the pure-KE endpoint definition, the reservoir credit/debit rules,
+  the closed-form $\gamma$, and $\eta=1$. Checked term-by-term against the
+  anchor table above.
+- **Guarantee named**: "cumulative, gross-loss-funded storage ceiling on the
+  modal subsystem"; explicitly NOT contact-port passivity and NOT a signed
+  per-interface transfer bound.
+- **"source-referenced" now appears exactly once**, adjacent to its definition
+  (was 3 loose uses in abstract / contribution 2 / conclusion, all replaced with
+  "funded by measured contact dissipation").
+- **Limitations carries the recycling caveat with a measured bound attached.**
+- Builds clean: 5 pages, 0 undefined refs, 0 LaTeX warnings.

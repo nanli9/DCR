@@ -187,3 +187,33 @@
 - A metric I wrote was WRONG and is retracted in findings.md + the ledger: the
   plan's literal running-denominator U inflated sub-joule leads into "U = 20".
   Two matrix re-runs lost. The verdict is now absolute joules.
+
+## 2026-07-19 — R2 complete
+
+- **R2 DONE** (plan §6.4), text + ledger only, no new runs; the measured half
+  reuses the R1 instrumented runs.
+- §2 now states every term of Eq. (2) so a reader can recompute the reservoir
+  unaided: E_mod = ½q̇ᵀM_q q̇ + ½qᵀK_q q; E_mod⁰ = 0 (scenes start undeformed
+  and at rest, so the settling transient must be funded like anything else);
+  the exact ΔE_rig = (E_rig⁻ − E_rig⁺) + W_g with W_g = Σ m_b g·Δx_b; E_rig
+  purely kinetic, translational + rotational, over ALL dynamic bodies; the
+  reservoir credit/debit rules; the closed-form γ = min(1, √((E⁻+B)/E⁺)) and
+  why it is closed (E_mod is quadratic, so γ bounds KE and PE, unlike the
+  velocity-only α); and η = 1 throughout.
+- Guarantee named precisely: a **cumulative, gross-loss-funded storage ceiling
+  on the modal subsystem** — explicitly NOT contact-port passivity and NOT a
+  signed per-interface transfer bound.
+- **New disclosure**: the printed inequality is stricter than the enforced one
+  (the `passive()` one-substep allowance, 7–389 J here). §2 states it, states
+  that the strict reading is used for both columns, and gives the governed
+  worst margin (1.1×10⁻¹³ J) that makes that possible.
+- Limitations gains the recycling caveat WITH its measured bound: return
+  channel 0.4–27% (impulse), 3–32% (XPBD), 102–118% (AVBD), against the ≲1%
+  plan §6.4 expected. The AVBD >100% is attributed to rigid-side energy
+  creation (same family as the box–box rectification), not to the bound.
+- "source-referenced" reduced from 3 loose uses to exactly 1, adjacent to its
+  definition, per plan §6.4.
+- All anchors recorded in `docs/mig2026_results_ledger.md`, including a
+  corrected entry: `e_modal_0` IS rebased by two device-arm harnesses, so the
+  device passivity rows use a more lenient baseline than the paper states.
+- Builds clean: 5 pages, 0 undefined refs, 0 LaTeX warnings.

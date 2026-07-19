@@ -653,3 +653,34 @@ Use `directional energy-budgeted` rather than broad `passivity-bounded` unless t
   in that scene the rigid subsystem is not monotonically dissipating, which is
   the same family as the impulse box--box rectification already named in
   Limitations.
+
+### R2 (plan §6.4) — pinning the ledger down
+
+- **The paper printed one inequality and the code enforced another.** Eq. (2) as
+  written is a strict cumulative net bound. The implementation's `passive()`
+  additionally forgives one substep's largest deposit (`max_deposit`,
+  `passivity.py:287-293`), which in these scenes is worth **7–389 J**. That is
+  not a rounding tolerance; it is the entire difference between AVBD violating
+  23/24 cells and 1/24. §2 now discloses it, and both the governed and
+  un-governed columns are adjudicated by the strict reading (possible because
+  the governed runs satisfy it with a 1.1e-13 J worst margin). This is panel
+  blocker #2 in its sharpest form, and plan §6.4 had scoped R2 only to
+  "state the ΔE_rig formula and η" — the real gap was larger.
+- **`E_mod^0` has two conventions in this repo.** No solver assigns
+  `e_modal_0`, so it stays 0 for every CPU number here, matching the paper.
+  But two device-arm harnesses REBASE it to the post-first-step modal energy
+  (`x5_perf/probe_device_passivity.py:97`, `x5_perf/run_stress_device.py:136`),
+  which excludes the settling transient from the numerator instead of funding
+  it — a strictly more lenient baseline. The device passivity rows in
+  `paper/NUMBERS.md` §4.7/§4.8 ride on that convention. The short paper is
+  safe (it claims only monitor-only on the device path, no verdict), but the
+  long paper must not quote those rows as evidence for Eq. (2) as printed.
+  Found while grep-verifying an anchor I had already written into the ledger;
+  the ledger entry was corrected rather than left imprecise.
+- **The recycling caveat now stands on data, and the data is worse than
+  assumed.** Plan §6.4 guessed ≲1% for the modal→rigid return channel. Measured:
+  0.4–27% (impulse), 3–32% (XPBD), **102–118% (AVBD)**. On AVBD the gross rigid
+  *gain* exceeds gross loss in every cell, so the supply figure there is an
+  upper envelope on genuinely dissipated energy rather than a measurement of it.
+  Limitations says so, and attributes it to the same rigid-side energy creation
+  as the impulse box–box rectification rather than to the bound.
