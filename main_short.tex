@@ -69,7 +69,8 @@ cells --- the augmented-Lagrangian host overdraws in $23$ of $24$ cells but by
 at most $15$~J, and the implicit realization never overdraws at all. Pervasive
 but negligible and rare but catastrophic are different pathologies, and the
 customary ratio-to-incident-energy diagnostic does not separate them. A budget
-sweep shows the amplification is a truncation artifact: it decays monotonically
+sweep shows the position-based amplification is a truncation artifact: it decays
+monotonically
 toward a converged reference computed in the same code path, and the gap to that
 reference shrinks by six orders of magnitude. Because the converged regime is
 unaffordable at interactive budgets, we add a cumulative modal-storage bound
@@ -140,7 +141,7 @@ budget.
 \item \textbf{Measurement.} One contact row, three fixed-budget solver
   formulations, one identical 24-cell adversarial sweep, one machine
   (\S\ref{sec:matrix}); plus an iteration-budget sweep against a converged
-  reference showing the injection is a truncation artifact
+  reference showing the position-based injection is a truncation artifact
   (\S\ref{sec:kconv}).
 \item \textbf{A cumulative storage bound.} A one-directional bound on energy
   entering modal storage, funded by measured gross rigid-side loss and
@@ -220,8 +221,7 @@ provided the running total stays inside the budget, which is what lets a
 legitimate ring persist across substeps.
 
 \paragraph*{Every term, exactly.} Modal storage is the mechanical energy of the
-reduced state, $\Emod=\tfrac12\dot{\mathbf{q}}^{\!\top}\mathbf{M}_q\dot{\mathbf{q}}
-+\tfrac12\mathbf{q}^{\!\top}\mathbf{K}_q\mathbf{q}$, and $\Emod^{\,0}=0$: every
+reduced state as written above, and $\Emod^{\,0}=0$: every
 scene starts from an undeformed, resting support, so the run's own settling
 transient must be funded like anything else. The supply is
 \begin{equation}
@@ -279,9 +279,8 @@ fresh supply. We measure the second effect in \S\ref{sec:limits}.
 8 & $B \leftarrow \max(B-\max(\Delta\Emod,0),\,0)$
     \hfill\emph{debit realized gain}\\
 \midrule
-\multicolumn{2}{@{}p{0.955\columnwidth}@{}}{Contact is \textbf{not} re-solved
-after step~7 --- the projection moves the surface of \eqref{eq:row} and the
-substep ends (\S\ref{sec:validity} measures the cost).}\\
+\multicolumn{2}{@{}l@{}}{contact is \textbf{not} re-solved after step~7
+(\S\ref{sec:validity})}\\
 \bottomrule
 \end{tabular}
 \caption{One substep of the governed loop, identical in all three hosts. The
@@ -343,7 +342,7 @@ diverge between architectures under floating-point reassociation.
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=\textwidth]{fig_s1_solver_matrix.pdf}
+\includegraphics[width=0.92\textwidth]{fig_s1_solver_matrix.pdf}
 \caption{The same contact row in three fixed-budget solver formulations over an
 identical 24-cell sweep (3 scenes $\times$ modal relaxation
 $\{0.7,1.0\}$ $\times$ budget), governor OFF. \textbf{Top:} the ratio $R$ =
@@ -351,9 +350,8 @@ peak modal energy / peak incident rigid kinetic energy, log scale diverging at
 $1$ --- a severity diagnostic. XPBD exceeds $1$ in $8/24$ cells, AVBD in
 $2/24$, the implicit realization in $0/24$. \textbf{Bottom:} the invariant
 itself --- the signed margin of \eqref{eq:invariant} in joules, symmetric-log,
-diverging at $0$; positive violates. The rows disagree on AVBD, which violates
-in $23/24$ cells that $R$ mostly reports as benign, though by at most $15$~J
-against XPBD's $4.4\times10^{7}$~J. Hatched rows mark the relaxation axis, which
+diverging at $0$; positive violates. The two rows disagree on AVBD.
+Hatched rows mark the relaxation axis, which
 that formulation does not consume; those rows are bit-identical by construction
 and shown for grid symmetry, not as independent measurements. We report joules
 rather than a second ratio because every candidate denominator misleads:
@@ -396,8 +394,7 @@ layouts of \citet{coevoet2020distant} --- and sweep modal relaxation and the
 local budget (iterations $\times$ substeps) over
 $\{4{\times}1, 8{\times}2, 16{\times}4, 32{\times}8\}$.
 Table~\ref{tab:solvers} lists what the hosts do differently and what is pinned
-identical. Two entries deserve emphasis, being the ones a controlled comparison
-could be accused of getting wrong. The relaxation axis is \emph{inert} on the
+identical. Two entries deserve emphasis. The relaxation axis is \emph{inert} on the
 impulse host --- its implicit modal weight needs no under-relaxation and the
 attribute is never read --- so its two relaxation rows are bit-identical by
 construction, not coincidence. And warm start differs, which is intrinsic to the
@@ -406,8 +403,8 @@ multipliers every substep, the other two carry them across.
 
 \paragraph*{Equal work, unequal outcome.} A cell costs $K\!\cdot\!S$ row
 evaluations per frame, so the budget axis quadruples the work at every rung
-($4, 16, 64, 256$) and spans $\times64$ --- steeper than its labelling suggests
---- and it conflates two refinements that are not interchangeable. At a fixed
+($4, 16, 64, 256$), spans $\times64$ --- steeper than its labelling suggests ---
+and conflates two refinements that are not interchangeable. At a fixed
 $32$ row evaluations on the shelf drop, spent as iterations ($K{=}32$, $S{=}1$)
 the ratio is $0.300$ and \eqref{eq:invariant} holds; spent as substeps
 ($K{=}4$, $S{=}8$) it is $3.13$, overdrawing by $481$~J. Substep refinement
@@ -437,9 +434,9 @@ in joules; positive violates. The two metrics agree on the position-based host
 ($8/24$ either way) and on the implicit one ($0/24$, margin at worst
 $-5.7\times10^{-4}$~J), but they part company on the augmented-Lagrangian host,
 which violates \eqref{eq:invariant} in $23$ of $24$ cells while $R$ flags only
-$2$. The magnitudes are what separate the two failures: the position-based host
-overdraws by up to $4.4\times10^{7}$~J, the augmented-Lagrangian host by at most
-$15.1$~J, and in $21$ of its $23$ cells by under $0.15$~J. Pervasive but
+$2$. The magnitudes separate the two failures: in $21$ of its $23$ cells the
+augmented-Lagrangian overdraw is under $0.15$~J (worst $15.1$~J), against the
+position-based host's $4.4\times10^{7}$~J. Pervasive but
 negligible overdraw and rare but catastrophic overdraw are different
 pathologies, and only the invariant distinguishes them.
 
@@ -452,7 +449,7 @@ $0.87$ (AVBD), and the projection never activates in any impulse cell. At the we
 position-based host at relaxation $0.7$: it is inert exactly where the solve is
 already within budget.
 
-\subsection{The amplification is a truncation artifact}
+\subsection{The position-based amplification is a truncation artifact}
 \label{sec:kconv}
 
 \begin{figure}[t]
@@ -552,9 +549,9 @@ table ($1.0$) & $4{\times}1$ & 25/108 & 0.02 / 3.11 & $1.39\times$ & $1.38\times
 beats the unbounded one. At a moderate injecting cell (shelf, $8{\times}2$,
 relaxation $0.7$), peak modal energy is $1555.6$~J ungoverned and $29.26$~J
 governed against the converged reference's $7.92$~J: the energy error falls
-$196{\times}\to3.7{\times}$, or $+1548\to+21$~J. Against the position-based
-host's own fixed point ($8.22$~J) it is $189{\times}\to3.6{\times}$, so the
-result does not depend on which reference is chosen. The trajectory, however,
+$196{\times}\to3.7{\times}$, or $+1548\to+21$~J. Against the host's own fixed
+point ($8.22$~J) it is $189{\times}\to3.6{\times}$: the result does not depend
+on the reference chosen. The trajectory, however,
 gets \emph{worse}: $\|d-d^{\text{ref}}\|_\infty$ is $6.5$~mm ungoverned and
 $14.3$~mm governed, $33\%$ and $71\%$ of the reference's peak. The governor
 improves the energy error ${\sim}50\times$ while doubling the state error --- the
@@ -562,8 +559,8 @@ sharpest form of the claim that it is a safety envelope, not an accuracy device.
 
 The reason also explains how a $196\times$ energy error coexists with a peak
 deflection only $1.2\times$ too large. The excess is not kinetic ($0.3\%$) and
-not low-frequency: this scene's spectrum is bimodal (ten bending modes at
-$20.3$~Hz--$2.03$~kHz, then six stiff ones at $20.7$--$24.7$~kHz), and $99.6\%$
+not low-frequency: this scene's spectrum is bimodal (ten bending modes below
+$2.1$~kHz, six stiff ones above $20$~kHz), and $99.6\%$
 of the ungoverned energy sits in the stiff cluster, ${\sim}200\times$ above the
 $240$~Hz substep rate, against $0.0\%$ for both references. Being one scalar,
 $\gamma$ cannot redistribute across the spectrum: it fixes the \emph{amount}
@@ -579,16 +576,15 @@ runtime wrappers that leave the solve unperturbed (clamp counts reproduce the
 independent sweep exactly).
 
 Median post-projection penetration is $0.07$--$1.25$~mm, but the worst case
-reaches $21.6$~mm --- a $3.5$--$12.6\times$ increase over its pre-scale value.
-It should be read against both the supporting geometry and the deflection it
-destroys. The shelf board is $30$~mm thick and spans $0.8$~m, so $21.6$~mm is
-$72\%$ of its thickness. Against the unclamped scene at a converged budget
-(resting sag $1.7$--$2.4$~mm, peak dynamic deflection $20.0$--$20.5$~mm) it is
-$9$--$13\times$ the sag and $1.05$--$1.08\times$ the peak the board ever
-reaches: at its worst substep the projection removes essentially the entire
-deflection. It is a visible interpenetration, not a sub-millimetre artifact, and
-it occurs where the projection is most load-bearing. Contact recovers --- the violation is corrected in the
-next substep rather than accumulating --- but that correction costs a normal
+reaches $21.6$~mm, a $3.5$--$12.6\times$ increase over its pre-scale value. The
+shelf board is $30$~mm thick, so that is $72\%$ of its thickness; against the
+unclamped scene at a converged budget (resting sag $1.7$--$2.4$~mm, peak dynamic
+deflection $20.0$--$20.5$~mm) it is $9$--$13\times$ the sag and
+$1.05$--$1.08\times$ the peak the board ever reaches. At its worst substep the
+projection removes essentially the entire deflection --- a visible
+interpenetration, not a sub-millimetre artifact, and it occurs where the
+projection is most load-bearing. Contact recovers in the next substep rather
+than accumulating, but that correction costs a normal
 impulse up to $8.7\times$ the steady-state value, with multiplier variance up to
 $58\times$ higher. Net rigid linear momentum is unchanged across the projection
 to exactly zero in every clamp-active substep of every cell, necessarily so
@@ -638,8 +634,8 @@ enforcement is not an interactive path.
 
 A separate device-resident path (NVIDIA RTX 4090), which carries the
 ledger read-only as a monitor rather than enforcing it, reaches
-$5.0$--$8.9$~ms/step at $16{\times}4$ across four scenes --- the two above plus
-a $2.5\times1.5$~m road slab under a dropped crate and the table scene. The
+$5.0$--$8.9$~ms/step at $16{\times}4$ across four scenes (the two above, a
+$2.5\times1.5$~m road slab under a dropped crate, and the table). The
 shelf and ledge scenes meet a $120$~Hz budget there with margin
 ($1.7\times$ and $1.3\times$); the road scene sits at the boundary
 ($1.01\times$ on the mean, with a $9.3$~ms worst step); the table scene does
@@ -658,12 +654,10 @@ converged reference even as it moves the energy toward it, for the structural
 reason given in \S\ref{sec:validity}. The result is bounded and non-diverging,
 not faithful; the honest use of the bound is as a safety envelope for budgets
 that would otherwise diverge. The identified next mechanism is to scale
-deviations about the quasi-static equilibrium
-$\mathbf{q}_{\mathrm{eq}}$ rather than the whole state, preserving the
-load-bearing sag. It is not a free substitution --- the unscaled equilibrium
-term would leave \eqref{eq:invariant} holding only while the reservoir exceeds
-the sag's own strain energy, where the present projection enforces it by
-construction --- and we have not built it.
+deviations about the quasi-static equilibrium rather than the whole state,
+preserving the load-bearing sag; we have not built it, and its unscaled
+equilibrium term would leave \eqref{eq:invariant} holding only while the
+reservoir exceeds the sag's own strain energy.
 
 \textbf{Convergence is the better cure where affordable} (\S\ref{sec:kconv}).
 
@@ -704,9 +698,11 @@ sweep, not a theorem.
 Transcribing an established rigid--modal contact law into fixed-budget solvers
 is not energy-safe, and how unsafe depends strongly on the formulation:
 worst-case modal-to-incident ratios are $1.2\times10^{5}$, $1.70$ and $0.53$
-across the three hosts on the same 24 cells. The amplification is a truncation
-artifact convergence removes; where it is unaffordable, a cumulative storage
-bound funded by measured gross rigid-side loss holds in every measured cell, at a
+across the three hosts on the same 24 cells. The position-based amplification is
+a truncation artifact convergence removes; the
+augmented-Lagrangian overdraft we measure but do not trace. Where convergence is
+unaffordable, a cumulative storage bound funded by
+measured gross rigid-side loss holds in every measured cell, at a
 contact-accuracy cost we quantify rather than omit.
 
 \bibliographystyle{ACM-Reference-Format}
