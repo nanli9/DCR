@@ -951,3 +951,47 @@ device-resident enforced γ; no validation of the *governed* path against
 full-FEM; the reservoir is scalar, not per-interface, so the recycling exposure
 (102–118% on AVBD) is bounded rather than eliminated; and the R8 mechanism
 (deviation-referenced projection) is named as future work, not attempted.
+
+### R8 pre-gate probe — I had the risk attributed to the wrong mechanism
+
+- **The analytical caveat was right that a floor exists, and wrong about where
+  it hurts.** I reasoned the γ-independent constant `c` was a risk for the
+  panel's deviation-referenced proposal. Measured, it is a much larger risk for
+  the **band-selective** variant that §3.3 originally named: infeasible in up to
+  **37.8%** of clamp-active substeps (ledge 4×1) versus **0–1.2%** for
+  deviation-referencing. Reasoning identified the right mechanism and the wrong
+  magnitude; only measurement separated them.
+- **The two floors are different physical objects, which is the whole story.**
+  The deviation floor is the *settled* sag's strain energy (0.050–0.074 J). The
+  band floor is the entire bending band *including its dynamic oscillation*
+  (0.91–0.95 J) — 12–20× larger for the same scene. Once stated that way it is
+  obvious; it was not obvious from the algebra, because both appear in
+  `E(γ) = aγ² + bγ + c` as an undistinguished `c`.
+- **The generalizable insight, and the one worth carrying forward**: the floor
+  binds *not because the preserved energy is large but because the reservoir is
+  nearly empty exactly where the governor matters*. Per-substep budget is
+  0.020–0.167 J against modal energies of 137–1030 J. E_low is 0.03–1.0% of the
+  modal energy and still exceeds the ceiling up to 38% of the time. **Any**
+  floor-bearing projection is therefore most likely to fail in precisely the
+  starved cells that justify having a governor.
+- **R8a's safety margin is thin and rests on a proxy.** `q_eq` is the *resting*
+  equilibrium (tail median of a converged run); a real implementation would use
+  the *loaded* one, which is larger during impact, and `c ∝ q_eq²`. The critical
+  factor s* = √(ceiling/c) has median **1.74** on shelf 8×2 — a merely 2× larger
+  loaded equilibrium puts **60%** of substeps out of reach. So 0–1.2% is a lower
+  bound on the true infeasibility rate, not an estimate of it. I only found this
+  by asking what the estimate's own sensitivity was, which is now the third time
+  this session that habit changed a conclusion.
+- **The benefit is visible but I did not claim it.** Preserving a band retains
+  most of the excursion the present γ destroys (1.44 → 0.25 mm under the current
+  projection, 1.15 mm under band-selective). But the probe measures
+  `max_i |U_y·q|`, an *unsigned* excursion, so it cannot tell "sag preserved"
+  from "surface displaced the other way" — and the deviation-referenced number
+  exceeding the pre-scale value hints at cancellation between `q_eq` and the
+  scaled deviation. The claim needs the signed gap. Left unclaimed.
+- **Net effect on the paper: none, and that is the useful outcome.** The
+  Limitations sentence committed at `a74dfa6` names deviation-referencing (the
+  safer variant) and states the floor caveat; both are now measurement-backed
+  rather than argued. Had I written the §3.3 band-selective version into
+  Limitations instead, the paper would be recommending the variant that breaks
+  the guarantee a third of the time.

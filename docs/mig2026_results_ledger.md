@@ -1246,3 +1246,109 @@ end to end. Commit `581e9b9`.
 
 Paper: 6 pages of body, references alone on p7, 0 undefined refs, 0 overfull
 boxes. Deadline 2026-08-07 23:59 AoE; submission window opens Jul 25.
+
+---
+
+## R8 pre-gate investigation — is a floor-bearing projection enforceable? (2026-07-19)
+
+Plan §6.10 go/no-go evidence. **Not a paper number** — R8 is NO-GO and nothing
+here enters `main_short.tex`. This exists so the ~Jul 27 gate is decided on
+measurement rather than on the analytical hand-wave that prompted it.
+
+Harness: `benchmarks/paper_eval/x1_passivity/probe_r8_feasibility.py` (NEW).
+Machine: Apple M4, CPU only. Commit `a74dfa6` + working tree.
+Data: `out/r8_feasibility.csv`, `out/r8_feasibility_substeps.csv`.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_r8_feasibility.py
+```
+
+### The question
+
+The present projection scales the WHOLE modal state, so
+E(γ) = γ²·E_new and γ→0 always reaches zero: Eq. (2) is enforceable **by
+construction**. Both proposed successors preserve part of the state, leaving a
+γ-independent constant:
+
+    E(γ) = a γ² + b γ + c,     c = energy locked in the preserved part
+
+so a feasible γ exists only when `ceiling = E_mod⁻ + B ≥ c`. Measured at the
+real decision points of a real governed run (the actual `passivity_gamma` call
+sites), with the energy split reconstructed exactly — **worst relative
+reconstruction error 4.2×10⁻¹⁶** against the solver's own `e_modal_new`.
+
+### Result — the risk is REAL, and it lands on the OTHER variant
+
+| cell | clamped | **R8b band-selective** infeasible | **R8a deviation-ref** infeasible | E_low share of E_mod |
+|---|---:|---:|---:|---:|
+| shelf 4×1 r0.7 | 107/108 | **8 (7.5%)** | 0 (0.0%) | 0.087% |
+| shelf 4×1 r1.0 | 107/108 | **23 (21.5%)** | 1 (0.9%) | 0.030% |
+| shelf 8×2 r0.7 | 162/216 | 1 (0.6%) | 2 (1.2%) | 1.005% |
+| ledge 4×1 r0.7 | 98/108 | **37 (37.8%)** | 0 (0.0%) | 0.687% |
+
+**I had the attribution backwards.** The caveat was reasoned about
+deviation-referencing (R8a, the panel's proposal) but it bites hardest on the
+**band-selective** variant — the one §3.3 originally named as "the obvious next
+mechanism". Band-selective would fail to enforce Eq. (2) in up to **37.8%** of
+clamp-active substeps. That is not a corner case; it is a routine breakage of
+the guarantee.
+
+Why: the two floors are different objects. The deviation floor is the
+**settled** sag's strain energy (median 0.050–0.074 J); the band floor is the
+whole bending band including its dynamic oscillation (median 0.91–0.95 J), a
+**12–20× larger** floor for the same scene.
+
+### R8a's apparent safety is thin, and rests on a proxy
+
+`q_eq` here is the tail-median modal state of a converged unclamped run — the
+**resting** equilibrium. A real R8a would recompute q_eq per substep from the
+live contact load, which during impact is larger. Since c ∝ q_eq², the critical
+factor is s* = √(ceiling/c):
+
+| cell | s* median | s* p10 | s* min | infeasible if q_eq is 2× | 4× |
+|---|---:|---:|---:|---:|---:|
+| shelf 4×1 r0.7 | 24.7 | 2.59 | 1.33 | 4% | 32% |
+| shelf 4×1 r1.0 | 18.3 | 1.95 | 0.97 | 11% | 34% |
+| **shelf 8×2 r0.7** | **1.74** | 1.19 | 0.96 | **60%** | 75% |
+| ledge 4×1 r0.7 | 30.2 | 5.24 | 2.30 | 0% | 5% |
+
+So on shelf 8×2 the median substep is already only 1.74× from infeasible, and a
+merely 2× larger loaded equilibrium puts 60% of substeps out of reach. **R8a's
+0–1.2% is a floor on the true infeasibility rate, not an estimate of it.**
+
+### The generalizable insight
+
+The floor binds **not because the preserved energy is large but because the
+reservoir is nearly empty exactly where the governor matters.** In these cells
+the per-substep budget is 0.020–0.167 J against a modal energy of 137–1030 J —
+E_low is 0.03–1.0% of the modal energy and still exceeds the ceiling up to 38%
+of the time. Any floor-bearing projection is therefore most likely to fail in
+precisely the starved cells that motivate having a governor at all.
+
+### Benefit, and why we do not claim it
+
+Median surface excursion on clamp-active substeps [mm], shelf 4×1 r0.7:
+pre-scale 1.443 → present projection **0.252** → band-selective 1.153 →
+deviation-referenced 1.650. So preserving a band does retain most of the
+excursion the present γ destroys, which is the mechanism's stated purpose.
+**But the probe measures max_i |U_y·q|, an unsigned excursion**, so it cannot
+distinguish "sag preserved" from "surface displaced the other way" — the
+deviation-referenced figure exceeding the pre-scale value hints at partial
+cancellation between q_eq and the scaled deviation. A benefit claim needs the
+signed gap, which this probe does not measure. Not claimed.
+
+### Bearing on the gate
+
+- The panel's proposal (R8a) is the **better** of the two successors, and the
+  paper's Limitations sentence already names that one rather than the
+  band-selective variant. That choice is now measurement-backed.
+- The Limitations caveat as printed ("would hold only while the reservoir
+  exceeds the sag's own strain energy") is **confirmed as a live constraint**,
+  not a theoretical one — s* median reaches 1.74.
+- A GO would therefore need q_eq computed from the live load (not the resting
+  proxy), a fallback for infeasible substeps, and re-freezing the 72-cell
+  matrix under a bound that is no longer enforceable by construction. That is
+  substantially more than "swap the projection".
+
+**No paper text changes from this.** The findings support the sentence already
+committed at `a74dfa6`; the numbers stay in this ledger.
