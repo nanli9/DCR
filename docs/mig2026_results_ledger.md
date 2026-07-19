@@ -94,7 +94,73 @@ separately stating that the branch harness supports five.
 
 ## E-S1 — Impulse 24-Cell Matrix
 
-Pending.
+Source commit: `c779b689299c22b7a3900a979e8c2a4995eab12c`.
+
+Generating command:
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_impulse_robustness.py
+```
+
+Validation commands:
+
+```sh
+.venv/bin/python -m pytest tests/avbd_native/test_solver_impulse.py -q
+.venv/bin/python -c '<24-row CSV invariant assertions; see session log>'
+```
+
+Configuration ported from benchmark branch `benchmark` at `0b999f4`:
+
+- Scenes: shelf, ledge, dinner.
+- Budgets: 4×1, 8×2, 16×4, 32×8 (iterations × substeps).
+- Legacy relaxation axis: 0.7 and 1.0.
+- Warm-up: 8 frames; measured window: 100 frames; rigid step: 1/120 s.
+- Metric: peak total modal mechanical energy / peak incident impactor rigid KE.
+- Ledger verdicts: `passive()` for the cumulative net-storage inequality and
+  `holds()` for the cumulative positive-gain reservoir inequality.
+- Important symmetry qualification: `SolverImpulse` does not consume the
+  XPBD/AVBD relaxation axis; it always uses its full implicit modal weight. The
+  two axis values are fresh deterministic runs and are exactly identical, so
+  this is 24 executions but 12 unique impulse solver settings.
+
+Results below apply independently at **both** legacy-axis values, 0.7 and 1.0:
+
+| scene | budget | peak modal E (J) | incident rigid KE (J) | ratio | net-storage verdict | positive-gain verdict |
+|---|---:|---:|---:|---:|:---:|:---:|
+| shelf | 4×1 | 7.9179997405 | 28.9510267500 | 0.2734963360 | pass | pass |
+| shelf | 8×2 | 13.7070414141 | 28.9510267500 | 0.4734561414 | pass | pass |
+| shelf | 16×4 | 13.5832845752 | 28.9510267500 | 0.4691814454 | pass | pass |
+| shelf | 32×8 | 15.3851864088 | 28.9510267500 | 0.5314210975 | pass | pass |
+| ledge | 4×1 | 11.6066251734 | 384.9444000000 | 0.0301514327 | pass | pass |
+| ledge | 8×2 | 43.3569238336 | 384.9444000000 | 0.1126316523 | pass | pass |
+| ledge | 16×4 | 68.6718195267 | 384.9444000000 | 0.1783941253 | pass | pass |
+| ledge | 32×8 | 55.8431063743 | 384.9444000000 | 0.1450679796 | pass | pass |
+| dinner | 4×1 | 3.0348059069 | 24.1258556250 | 0.1257906022 | pass | pass |
+| dinner | 8×2 | 4.3998420457 | 24.1258556250 | 0.1823704044 | pass | pass |
+| dinner | 16×4 | 3.6201612286 | 24.1258556250 | 0.1500531747 | pass | pass |
+| dinner | 32×8 | 4.3726149472 | 24.1258556250 | 0.1812418600 | pass | pass |
+
+Freeze summary:
+
+- Raw energy-ratio cells greater than one: **0/24**.
+- Raw net-storage ledger failures: **0/24**.
+- Raw positive-gain ledger failures: **0/24**.
+- Non-finite cells: **0/24**.
+- Governor reruns required: **0/24**; consequently no bounded-rerun number is
+  reported and the impulse governor was not activated by this matrix.
+- Ratio range: **0.0301514327–0.5314210975**. Per-scene maxima are shelf
+  **0.5314210975**, ledge **0.1783941253**, and dinner **0.1823704044**.
+- Dedicated impulse tests: **6 passed in 14.40 s**.
+
+Canonical exact per-execution values, including cumulative loss/gain and
+maximum ledger slack, are frozen in
+`benchmarks/paper_eval/x1_passivity/out/impulse_robustness.csv`; provenance and
+the non-consumed relaxation-axis caveat are in the adjacent JSON manifest.
+
+Claim audit: this result supports, and does not contradict, the frozen §1
+statement that the implicit sequential-impulse realization remains within the
+measured cumulative supply bound in this sweep. It does **not** establish a
+universal passivity guarantee for the impulse solver.
 
 ## E-S2 — Iteration-Budget Convergence
 
@@ -103,4 +169,3 @@ Pending.
 ## E-S3 — Post-Projection Contact Validity
 
 Pending.
-
