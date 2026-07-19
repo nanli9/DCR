@@ -71,10 +71,10 @@ customary ratio-to-incident-energy diagnostic does not separate them. A budget
 sweep shows the amplification is a truncation artifact: it decays monotonically
 toward a converged reference computed in the same code path, and the gap to that
 reference shrinks by six orders of magnitude. Because the converged regime is
-unaffordable at interactive budgets, we add a cumulative, source-referenced
-modal-storage bound, enforced by a reservoir ledger and a projection of the
-realized modal state, which holds in all 72 measured cells ($60$ distinct
-configurations). We also measure what that projection costs contact validity,
+unaffordable at interactive budgets, we add a cumulative modal-storage bound
+funded by measured contact dissipation, enforced by a reservoir ledger and a
+projection of the realized modal state, which holds in all 72 measured cells
+($60$ distinct configurations). We also measure what that projection costs contact validity,
 and find worst-case post-projection penetration of $21.6$~mm --- $72\%$ of the
 supporting board's thickness --- with corrective impulses up to $8.7\times$
 steady state.
@@ -141,9 +141,10 @@ budget.
   (\S\ref{sec:matrix}); plus an iteration-budget sweep against a converged
   reference showing the injection is a truncation artifact
   (\S\ref{sec:kconv}).
-\item \textbf{A cumulative storage bound.} A one-directional, source-referenced
-  bound on energy entering modal storage, enforced by a reservoir ledger and a
-  projection of the realized modal state (\S\ref{sec:bound}); it satisfies the
+\item \textbf{A cumulative storage bound.} A one-directional bound on energy
+  entering modal storage, funded by measured rigid-side dissipation and
+  enforced by a reservoir ledger and a projection of the realized modal
+  state (\S\ref{sec:bound}); it satisfies the
   prescribed inequality in all $72$ measured cells ($60$ distinct
   configurations).
 \item \textbf{The cost of enforcement.} Post-projection contact validity ---
@@ -198,29 +199,82 @@ side, cumulatively over the run:
 \qquad \eta\in(0,1],
 \label{eq:invariant}
 \end{equation}
-where $\dErig^{\,k}$ is the rigid kinetic energy lost in substep $k$, gravity
-work removed so that free fall cannot fund the modes. The transfer efficiency
-$\eta$ sets how much of the measured loss may be spent; \emph{every experiment
-in this paper runs $\eta=1$}, the least restrictive admissible value, so no
-result below depends on tuning it. The bound is \emph{cumulative}, not per-step:
-a substep may deposit more than it earns provided the running total stays inside
-the budget, which is what lets a legitimate ring persist across substeps.
+The transfer efficiency $\eta$ sets how much of the measured loss may be spent;
+\emph{every experiment in this paper runs $\eta=1$}, the least restrictive
+admissible value, so no result below depends on tuning it. The bound is
+\emph{cumulative}, not per-step: a substep may deposit more than it earns
+provided the running total stays inside the budget, which is what lets a
+legitimate ring persist across substeps.
 
-\paragraph*{Enforcement.} A reservoir accumulates $\eta\max(\dErig,0)$ each
-substep. After the contact solve, if the realized modal energy would overdraw
-the reservoir, the realized state is projected onto the admissible set by a
-single scalar,
+\paragraph*{Every term, exactly.} The bound is only as meaningful as its two
+sides, so we give both in full. Modal storage is the mechanical energy of the
+reduced state, $\Emod=\tfrac12\dot{\mathbf{q}}^{\!\top}\mathbf{M}_q\dot{\mathbf{q}}
++\tfrac12\mathbf{q}^{\!\top}\mathbf{K}_q\mathbf{q}$, and $\Emod^{\,0}=0$: every
+scene starts from an undeformed, resting support, so the run's own settling
+transient must be funded like anything else. The supply is
+\begin{equation}
+\dErig^{\,k} \;=\; \bigl(E_{\mathrm{rig}}^{k,-} - E_{\mathrm{rig}}^{k,+}\bigr)
+                 \;+\; W_g^{\,k},
+\qquad
+W_g^{\,k}=\sum_b m_b\,\mathbf{g}\!\cdot\!\bigl(\mathbf{x}_b^{k,+}-\mathbf{x}_b^{k,-}\bigr),
+\label{eq:derig}
+\end{equation}
+where $E_{\mathrm{rig}}=\sum_b\bigl[\tfrac12 m_b\|\mathbf{v}_b\|^2
++\tfrac12\boldsymbol{\omega}_b^{\!\top}\mathbf{I}_b\boldsymbol{\omega}_b\bigr]$
+is \emph{purely kinetic} --- translational and rotational, summed over all
+dynamic bodies in the scene, not merely those in contact --- and $\pm$ denote
+the values at the two ends of substep $k$. Gravity enters only through the work
+term $W_g$, which is what makes free ballistic motion register zero supply: a
+falling body's kinetic gain exactly equals the gravity work, so the two terms
+cancel and nothing is credited. Only an inelastic velocity change credits the
+reservoir. The endpoints are captured at the substep boundaries and tile the
+timeline exactly, so no rigid energy change escapes the accounting.
+
+\paragraph*{What is guaranteed, and what is not.} Equation~\eqref{eq:invariant}
+is a \emph{cumulative, gross-loss-funded storage ceiling on the modal
+subsystem}. Its supply is \emph{source-referenced}: the right-hand side is
+measured rigid-side contact dissipation, never a tuned constant or a fraction of
+incident energy. It is not contact-port passivity, and it is not a signed
+per-interface transfer bound: it constrains a scalar reservoir, not a port. Two
+consequences of the \emph{gross} sum $\sum\max(\dErig,0)$ are worth stating
+plainly. It ignores substeps in which the rigid subsystem \emph{gains} energy,
+so those cannot cancel earlier credits; and energy returned from the modes to
+the rigid bodies, then dissipated again, is counted as fresh supply the second
+time. We measure the size of that second effect in \S\ref{sec:limits}.
+
+\paragraph*{The enforced inequality is slightly weaker than the stated one.}
+Reported violations use \eqref{eq:invariant} exactly as printed. The
+implementation's own test additionally forgives one substep's largest deposit,
+$\max_k \eta\max(\dErig^{\,k},0)$, because modal potential energy can rise in
+the same substep in which the rigid body is still delivering kinetic energy ---
+an artifact of measuring a continuous exchange at substep granularity. In these
+scenes that allowance is worth $7$--$389$~J, which is immaterial where the
+overdraw is $10^{5}$~J or more but decides the verdict where it is not: under it
+the augmented-Lagrangian host would be recorded as violating $1$ of $24$ cells
+rather than $23$. We report the stricter reading throughout, for both the
+governed and un-governed columns, so that one inequality adjudicates both; the
+governed runs satisfy it with a worst margin of $1.1\times10^{-13}$~J.
+
+\paragraph*{Enforcement.} A reservoir $B$ accumulates the supply and is debited
+by realized storage: each substep $B \leftarrow B + \eta\max(\dErig,0)$ before
+the contact solve, and $B \leftarrow \max(B - \max(\Delta\Emod,0),\,0)$ after
+it. If the realized modal energy would overdraw $B$, the realized state is
+projected onto the admissible set by a single scalar,
 \begin{equation}
 (\mathbf{q},\dot{\mathbf{q}}) \;\leftarrow\; \gamma\,(\mathbf{q},\dot{\mathbf{q}}),
-\qquad \gamma\in(0,1],
+\qquad
+\gamma \;=\; \min\!\left(1,\;
+  \sqrt{\frac{\Emod^{-} + B}{\Emod^{+}}}\right),
 \label{eq:gamma}
 \end{equation}
-chosen so that \eqref{eq:invariant} holds with equality at worst. Two
-consequences matter and are measured below: $\gamma$ scales energy
-quadratically, so the projection is inert whenever the solve is already within
-budget ($\gamma=1$, bitwise-identical trajectories); and it acts on state
-\emph{after} the contact solve, so it moves the deformed surface of
-\eqref{eq:row} without re-solving contact --- the cost quantified in
+with $\Emod^{\mp}$ the modal energy before and after the solve. The form is
+closed because $\Emod$ is quadratic in the state: scaling $\mathbf{q}$ and
+$\dot{\mathbf{q}}$ together scales both the kinetic and the elastic term by
+$\gamma^2$, so $\gamma$ bounds the total rather than only the velocity. Two
+consequences matter and are measured below. The projection is inert whenever the
+solve is already within budget ($\gamma=1$, bitwise-identical trajectories);
+and it acts on state \emph{after} the contact solve, so it moves the deformed
+surface of \eqref{eq:row} without re-solving contact --- the cost quantified in
 \S\ref{sec:validity}.
 
 % =====================================================================
@@ -424,6 +478,7 @@ unqualified real-time claim, and the governor is not enforced on that path.
 
 % =====================================================================
 \section{Limitations}
+\label{sec:limits}
 % =====================================================================
 \textbf{Stable is not accurate.} When the projection is load-bearing it damps
 the modal response toward the budget, and \S\ref{sec:validity} shows it opens
@@ -447,6 +502,21 @@ modal subsystem, not energy created spuriously in rigid degrees of freedom. In
 the impulse realization we observe box--box rows rectifying a support ring into
 net rigid motion; the ledger is blind to this by design.
 
+\textbf{The supply is a gross sum, so it can be recycled.} Because the
+reservoir is funded by $\sum_k\max(\dErig^{\,k},0)$, energy that flows from the
+modes back to the rigid bodies and is subsequently dissipated is credited a
+second time. We bound the exposure by accumulating the opposite channel,
+$\sum_k\max(-\dErig^{\,k},0)$, as a fraction of the supply: it is
+$0.4$--$27\%$ (implicit) and $3$--$32\%$ (position-based) across the sweep ---
+not the ${\lesssim}1\%$ we expected, so the caveat stands on measurement rather
+than on assertion. On the augmented-Lagrangian host it reaches
+$102$--$118\%$: there the rigid subsystem's gross energy \emph{gain} exceeds its
+gross loss in every cell, which is the same phenomenon as the box--box
+rectification above rather than a property of the bound. Where that holds, the
+supply figure should be read as an upper envelope on genuinely dissipated
+energy, and a signed or per-interface accounting --- which this scalar reservoir
+deliberately is not --- would be needed to tighten it.
+
 \textbf{Enforcement is host-side}, single-machine, and single-precision-free
 (CPU float64). A device-resident governor and a validation of the
 \emph{governed} path against a full-FEM reference remain future work.
@@ -465,8 +535,9 @@ on the solver formulation: we measure $1.2\times10^{5}$, $1.70$, and $0.53$ as
 the worst-case ratios of modal energy to incident rigid kinetic energy across
 position-based, augmented-Lagrangian, and implicit sequential-impulse hosts on
 the same 24 cells. The amplification is a truncation artifact that convergence
-removes. Where convergence is unaffordable, a cumulative, source-referenced
-storage bound enforced by state projection holds in every measured cell --- at a
+removes. Where convergence is unaffordable, a cumulative storage bound funded by
+measured contact dissipation and enforced by state projection holds in every
+measured cell --- at a
 contact-accuracy cost we quantify rather than omit.
 
 \bibliographystyle{ACM-Reference-Format}
