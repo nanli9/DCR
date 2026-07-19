@@ -1454,3 +1454,91 @@ caveat. No further paper change is required.
 research direction, and the band/deviation trade-off measured here — effective
 but unenforceable versus enforceable but ineffective — is the finding that
 makes it interesting rather than a patch.
+
+### R8 follow-up — the split sweep, and a CORRECTION to the gate rationale
+
+`probe_band_split_sweep.py` (NEW). Records per-mode modal state at every clamp
+decision and sweeps the split offline. Commit `ace55fe` + working tree.
+Data: `out/band_split_sweep.csv`, `out/band_split_spectra.npz`.
+
+#### The bimodal structure is universal; its LOCATION is not
+
+| scene | modes | spectral gap | ratio |
+|---|---:|---|---:|
+| shelf | 16 | 2.03 kHz → 20.7 kHz | 10.2× |
+| ledge | 16 | 17.0 kHz → 170.1 kHz | 10.0× |
+| table | 24 | 469 Hz → 4.70 kHz | 10.0× |
+
+Every scene has a decade-wide gap — that part generalizes. But the gap sits at
+469 Hz in one scene and 170 kHz in another, **two orders of magnitude apart**.
+
+#### MY 10 kHz THRESHOLD WAS WRONG ON TWO OF THREE SCENES
+
+`probe_r8_feasibility.py` hard-codes `F_SPLIT = 1e4`, documented as "inside the
+shelf spectrum's gap" — true for the shelf, and I applied it to the ledge
+anyway:
+
+- **shelf** — 10 kHz is inside the 2.03k→20.7k gap. Correct.
+- **ledge** — 10 kHz is *below* the bending band's top (17.0 kHz), so three
+  genuine bending modes (11.8k, 14.3k, 17.0k) were put in the scaled band.
+- **table** — 10 kHz is *above* the entire spectrum (max 5.2 kHz), so
+  `E_high = 0` and band-selective is a no-op. (Not hit: XPBD never clamps on
+  that scene, worst R = 0.37.)
+
+#### The gap is NOT the right place to split; a low-mode cut is much better
+
+Penetration proxy vs feasibility, sweeping the split (present = whole-state γ):
+
+**shelf 4×1 r0.7** (present: 0% infeasible, pen_max 15.46 mm)
+
+| split | modes kept | infeasible | pen_max [mm] |
+|---|---:|---:|---:|
+| substep Nyquist (60 Hz) | 1 | **0.0%** | 7.54 |
+| m2 (122 Hz) | 2 | **0.0%** | **3.67** |
+| m3 (244 Hz) | 3 | 0.9% | 2.74 |
+| m5 (610 Hz) | 5 | 3.7% | 1.60 |
+| **gap (6.5 kHz)** | **10** | **7.5%** | 1.04 |
+
+**ledge 4×1 r0.7** (present: 0% infeasible, pen_max 14.39 mm)
+
+| split | modes kept | infeasible | pen_max [mm] |
+|---|---:|---:|---:|
+| substep Nyquist (60 Hz) | 0 | 0.0% | 14.39 (degenerate: keeps nothing) |
+| m2 (709 Hz) | 2 | **2.0%** | **2.46** |
+| m4 (2.36 kHz) | 4 | 7.1% | 0.18 |
+| **gap (53.8 kHz)** | **12** | **56.1%** | 0.00 |
+
+So keeping only **2–4 low modes** gives a **4–6× penetration reduction at
+0–7% infeasibility**, where splitting at the gap costs 7.5–56%. The earlier
+"37.8% infeasible on ledge" was an artifact of the mis-placed 10 kHz cut
+(keep-9), not a property of band-selective projection.
+
+#### CORRECTION to the gate rationale
+
+**Ground 2 of the NO-GO is materially weakened.** I wrote that the effective
+variant "leaves no feasible γ in up to 37.8% of clamp-active substeps". With a
+properly placed split that figure is **0–2%**, and the benefit largely survives.
+Band-selective projection is *not* inherently unenforceable — my measurement
+said so because my threshold was wrong on the scene that produced the number.
+
+**The gate outcome does not change**, because the other grounds are untouched
+and one of them was always the strongest:
+
+- **Ground 3 (not novel) stands, and now carries the decision.** Rayleigh
+  damping `D = α₀M + α₁K` is in Table 1 of our own paper and already dissipates
+  mode *i* in proportion to ω_i². Frequency-selective energy removal is in the
+  solver and in print.
+- **Ground 1 stands**: deviation-referencing, the option §6.10 actually names,
+  does not collapse the 21.6 mm case (22.03 → 19.89 mm).
+- **Ground 5 stands**: solver behaviour change, full re-freeze, window opens
+  Jul 25.
+- **NEW ground**: the split must be chosen per scene. The gap moves by two
+  orders of magnitude across three scenes, and the substep Nyquist degenerates
+  on the ledge (its lowest mode, 118 Hz, is already above the 60 Hz Nyquist at
+  4×1, so nothing is preserved). A mechanism requiring a per-scene tuned
+  threshold is harder to defend than the parameter-free whole-state γ it would
+  replace.
+
+**Verdict unchanged: NO-GO.** But the honest reason is prior art and scope, not
+infeasibility — and the long-paper note should carry the corrected numbers, not
+the 37.8%.
