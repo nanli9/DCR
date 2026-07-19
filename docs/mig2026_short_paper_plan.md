@@ -76,9 +76,9 @@ Contribution bullets (3 max, short-paper discipline):
 - Activation demo: `--inject` preset (2×1 budget) ~20× injection → clamp
   flips it passive.
 - η sweep, zero-pending matrix, stress N=16→512 (~√N, 8×1 real-time ∀N).
-- FEM ground-truth validation (**verify the scene count**: harness memory says
-  5 scenes, Codex counted 3 in the paper — the short paper states whatever
-  number the results section actually shows; action A0 below).
+- FEM ground-truth validation: **3 scenes reported in the paper** (slab, ledge,
+  dinner); the branch harness supports 5 (truck, ledge, shelf, dinner, cargo),
+  which is repository coverage rather than five reported accuracy scenes.
 - Impulse backend (branch `impulse-native-constraint`): 6 scenes ledger-
   passive, statics ledger exact (m·g/3m·g/2m·g/m·g ≤3%), ON/OFF causality,
   payload pre-sag; 14.9–32.4 ms/step numpy CPU.
@@ -116,8 +116,8 @@ surface without re-solving contact.
 **A0 — verifications (half day)**
 - Count the FEM-GT scenes actually in the results section; reconcile with the
   5-scene harness; state the real number.
-- Pull and read Sheth-Lu-Yu-Fedkiw SCA 2015 full text (the one unresolved
-  scoop risk from the 2026-07-18 sweep) before freezing related work.
+- Sheth-Lu-Yu-Fedkiw SCA 2015 full text remains **pending** for the user to
+  fetch; do not freeze a resolved novelty verdict about it in Week 1.
 - Confirm MIG format: page limit, acmart template variant, double-blind,
   video specs, EasyChair link.
 
