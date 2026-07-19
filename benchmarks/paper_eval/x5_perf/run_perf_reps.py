@@ -59,8 +59,11 @@ CONFIGS = [
 ]
 
 
-def _time_run(build_fn, solver, *, frames, clamp, symplectic):
-    it, su = PAPER_CONFIG["iterations"], PAPER_CONFIG["substeps"]
+def _time_run(build_fn, solver, *, frames, clamp, symplectic, budget=None):
+    # budget=None keeps PAPER_CONFIG's 16x4 (every frozen number in the ledger
+    # was produced that way). C6 passes (K, S) to time the deployed budgets
+    # 1x8 / 2x4; nothing else about the run changes.
+    it, su = budget or (PAPER_CONFIG["iterations"], PAPER_CONFIG["substeps"])
     H = build_fn(device="cpu", iterations=it, avbd_substeps=su, solver=solver)
     sol = H.world._solver
     apply_relax(sol, solver)
@@ -115,9 +118,16 @@ def main():
     ap.add_argument("--reps", type=int, default=10)
     ap.add_argument("--only", default=None,
                     help="comma list of scenes to run (default all)")
+    ap.add_argument("--budget", default=None,
+                    help="KxS override, e.g. 1x8 (default: PAPER_CONFIG 16x4)")
+    ap.add_argument("--out-prefix", default="perf_reps",
+                    help="output basename; C6 writes to a separate file so the "
+                         "frozen 16x4 perf_reps.csv is never appended to")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
     only = set(args.only.split(",")) if args.only else None
+    budget = (tuple(int(v) for v in args.budget.lower().split("x"))
+              if args.budget else None)
     mi = machine_info()
     print(f"### X5b perf reps ({args.reps} reps x {args.frames} frames, "
           f"{mi['chip'] or mi['platform']}) ###", flush=True)
@@ -128,16 +138,16 @@ def main():
         means, worsts, clamps = [], [], []
         for rep in range(args.reps):
             m, wst = _time_run(fn, solver, frames=args.frames, clamp=False,
-                               symplectic=sym)
+                               symplectic=sym, budget=budget)
             mc, _ = _time_run(fn, solver, frames=args.frames, clamp=True,
-                              symplectic=sym)
+                              symplectic=sym, budget=budget)
             means.append(m); worsts.append(wst); clamps.append(mc - m)
-            _append("perf_reps.csv", dict(scene=scene, solver=solver, rep=rep,
-                                          mean_ms=m, worst_ms=wst,
-                                          clamp_ms=mc - m))
+            _append(f"{args.out_prefix}.csv",
+                    dict(scene=scene, solver=solver, rep=rep,
+                         mean_ms=m, worst_ms=wst, clamp_ms=mc - m))
         mu, sd = float(np.mean(means)), float(np.std(means))
         cmu, csd = float(np.mean(clamps)), float(np.std(clamps))
-        _append("perf_reps_summary.csv",
+        _append(f"{args.out_prefix}_summary.csv",
                 dict(scene=scene, solver=solver, mean_ms=mu, std_ms=sd,
                      worst_ms=float(np.max(worsts)),
                      clamp_ms=cmu, clamp_std_ms=csd,
@@ -147,10 +157,11 @@ def main():
               f"worst {np.max(worsts):7.2f}  clamp {cmu:+5.2f} ± {csd:4.2f}  "
               f"{1000.0 / mu:6.1f} steps/s", flush=True)
 
-    write_manifest(OUT, "perf_reps.csv",
+    write_manifest(OUT, f"{args.out_prefix}.csv",
                    scenes=sorted({c[0] for c in CONFIGS}),
                    solvers=["xpbd", "avbd"], machine=mi,
-                   note=f"{args.reps} reps x {args.frames} frames, fresh build "
+                   note=f"budget={args.budget or 'PAPER_CONFIG 16x4'}; "
+                        f"{args.reps} reps x {args.frames} frames, fresh build "
                         f"per rep; clamp_ms = clamped mean - unclamped mean; "
                         f"stack runs the default cargo modal path (symplectic "
                         f"is host non-cargo only)")

@@ -1590,3 +1590,170 @@ that funds it, which is the artifact the "one largest deposit" forgiveness
 unrelated.
 
 No solver behaviour was changed; this entry corrects prose only.
+
+---
+
+### E-C6 — the DEPLOYED budgets 1×8 and 2×4 (plan §7.7)
+
+**Machine:** Apple M4, CPU only, CPython 3.12 (the ARM-M4-only header above).
+**Commit:** `7f7450a` working tree, plus the `run_perf_reps.py`
+`--budget` / `--out-prefix` patch committed as the C6 commit. No solver source
+was touched; both new flags are additive and default to the frozen behaviour
+(`--budget` unset ⇒ PAPER_CONFIG 16×4; `--out-prefix` unset ⇒ `perf_reps`, so
+the frozen `perf_reps.csv` is never appended to — verified untouched).
+
+**Why:** the paper motivates with "interactive position-based solvers ship
+budgets near 1×8 to 2×4" but the sweep starts at 4×1. The panel was right that
+this was unmeasured. It is now measured, and it strengthens the motivation.
+
+Cells: (K,S) ∈ {(1,8), (2,4)} × 3 scenes × 3 hosts, relaxation 0.7 (the
+follow-solver default; inert on impulse) = **18 cells**, run OFF and ON.
+
+#### Commands
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_eq2_utilization.py \
+    --budgets 1x8,2x4 --relaxes 0.7 --out eq2_deployed
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_solver_matrix.py \
+    --budgets 1x8,2x4 --relaxes 0.7 --out solver_matrix_deployed
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_projection_validity.py \
+    --scenes shelf,ledge --budgets 1x8,2x4 --relax 0.7 \
+    --out projection_validity_deployed
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_governed_accuracy.py \
+    --scene shelf --cell 1x8 --relax 0.7 --out governed_accuracy_1x8
+.venv/bin/python benchmarks/paper_eval/x5_perf/run_perf_reps.py \
+    --budget 1x8 --only shelf,ledge,dinner --out-prefix perf_reps_1x8
+.venv/bin/python benchmarks/paper_eval/x5_perf/run_perf_reps.py \
+    --budget 2x4 --only shelf,ledge,dinner --out-prefix perf_reps_2x4
+```
+
+The two perf commands were run **serially** — a first attempt overlapped them
+and the overlapping rows were deleted and re-measured, because concurrent runs
+contend for CPU and invalidate wall-clock. (Only timing is affected this way;
+the energy sweeps are deterministic.)
+
+#### (1) Governor OFF — Eq. (2) at the deployed budgets (`eq2_deployed.csv`)
+
+| host | Eq. (2) violated | R > 1 | worst R | worst margin [J] | return channel |
+|---|---|---|---|---|---|
+| position-based | **6/6** | **6/6** | 2282 | **+1.135×10⁶** | 15.1–52.0% |
+| augmented-Lagr. | 5/6 | 0/6 | 0.141 | +0.158 | 100.8–105.6% |
+| seq. impulse | 0/6 | 0/6 | 0.533 | −5.74×10⁻⁴ | 5.1–27.1% |
+
+Per-cell R (OFF), position-based: shelf 772.1 / 444.5, ledge 925.4 / 2282,
+dinner 4.05 / 5.25 at 1×8 / 2×4.
+
+**This is the strong outcome, not the benign one the risk table hedged for.**
+In the frozen 24-cell matrix the position-based host exceeds R = 1 in 8/24
+cells; at the two budgets the paper says are actually deployed it exceeds it in
+**6 of 6**, in every scene. The deployed points carry 8 row evaluations —
+*more* than the 4×1 corner's 4 — and still inject universally, which is the
+equal-32 probe's substep-vs-iteration finding (K32·S1 holds; K4·S8 overdraws
+481 J) reproduced at the deployed operating point.
+
+The three-host ordering of the matrix is preserved exactly: catastrophic /
+pervasive-but-negligible / never.
+
+#### (2) Governor ON (`solver_matrix_deployed.csv`)
+
+**18/18 cells satisfy Eq. (2).** Worst governed ratio **1.0221** (position-based,
+shelf 2×4); worst net excess +2.27×10⁻¹³ J. Clamp activity per cell:
+
+| host | shelf 1×8 | shelf 2×4 | ledge 1×8 | ledge 2×4 | dinner 1×8 | dinner 2×4 |
+|---|---|---|---|---|---|---|
+| position-based | 704/864 | 402/432 | 783/864 | 361/432 | 78/864 | 26/432 |
+| augmented-Lagr. | 202/864 | 136/432 | 343/864 | 159/432 | 276/864 | 123/432 |
+| seq. impulse | **0**/864 | **0**/432 | **0**/864 | **0**/432 | **0**/864 | **0**/432 |
+
+The projection never fires on the impulse host at any deployed budget — the
+same result as the matrix.
+
+#### (3) Post-projection validity, position-based (`projection_validity_deployed.csv`)
+
+| cell | clamped | min γ | gap viol. med / worst [mm] | pre-scale worst [mm] | impulse ratio |
+|---|---|---|---|---|---|
+| shelf 1×8 | 704/864 | 0.0113 | 0.063 / 7.78 | 3.11 | — (no steady state) |
+| shelf 2×4 | 402/432 | 0.0121 | 0.127 / 9.48 | 3.08 | — (no steady state) |
+| ledge 1×8 | 783/864 | 0.0101 | 0.016 / 8.26 | 2.79 | 1.19× |
+| ledge 2×4 | 361/432 | 0.0092 | 0.020 / 9.75 | 2.98 | 1.02× |
+
+`|ΔP|` across the projection is **exactly zero** in every clamp-active substep
+of every cell, as at 4×1.
+
+**The projection is markedly GENTLER at the deployed budgets than at the 4×1
+corner Table 2 reports:** worst gap violation 7.8–9.8 mm against 21.6 mm, and
+the corrective impulse 1.02–1.19× steady state against 8.7×. The headline
+21.6 mm number is an adversarial-corner figure, and T3 says so.
+
+#### (4) Governed accuracy, shelf 1×8 relax 0.7 (`governed_accuracy_1x8.csv`)
+
+Converged reference (oracle, impulse K=500): ratio 0.2734809, peak modal
+energy 7.9176 J.
+
+- energy error **2823× → 3.725×** (+2.234×10⁴ J → **+21.57 J**)
+- ungoverned ratio 772.06 → governed **1.01870**
+- deflection L∞ **21.54 mm → 19.20 mm** = 107.7% → **96.0%** of reference peak
+- against the position-based host's own fixed point (0.2996, 8.2236 J):
+  2718× → 3.586×; L∞ 24.31 → 19.68 mm (118.7% → 96.1%)
+
+**The 8×2 trajectory trade-off does NOT reproduce here, and the honest reading
+is narrow.** At the frozen 8×2 cell the governor improved energy ~50× while
+*doubling* state error (33% → 71% of reference peak). At the deployed 1×8 cell
+it improves both, because the un-governed trajectory is already worse than the
+governed one (107.7% vs 96.0%). It does **not** follow that the governor is
+accurate at deployed budgets: 96% of the reference peak is still a wrong
+trajectory. What reverses is only the *direction of the trade*, and §Limitations'
+"stable is not accurate" stands unchanged.
+
+Note: `run_governed_accuracy.py` prints an acceptance block comparing against
+the hard-coded **8×2** frozen constants (53.73 / 1.0107), so it reports
+"MISMATCH / FAIL" on any other cell. That is the guard doing its job on a cell
+it was not written for, **not** a failed measurement. The frozen 8×2 numbers
+are untouched.
+
+#### (5) Wall-clock, 10 reps × 100 frames (`perf_reps_{1x8,2x4}_summary.csv`)
+
+| cell | host | baseline [ms] | ledger [ms] | % |
+|---|---|---|---|---|
+| shelf 1×8 | position-based | 4.61 ± 0.05 | +0.30 ± 0.07 | +6.6% |
+| shelf 1×8 | augmented-Lagr. | 3.23 ± 0.03 | +0.67 ± 0.09 | +20.9% |
+| ledge 1×8 | position-based | 9.06 ± 0.17 | +2.22 ± 0.18 | +24.4% |
+| ledge 1×8 | augmented-Lagr. | 3.19 ± 0.03 | +0.64 ± 0.08 | +20.0% |
+| dinner 1×8 | position-based | 36.19 ± 0.38 | **−4.40 ± 0.50** | −12.2% |
+| dinner 1×8 | augmented-Lagr. | 6.80 ± 0.06 | +0.85 ± 0.12 | +12.6% |
+| shelf 2×4 | position-based | 3.33 ± 0.08 | +1.14 ± 0.07 | +34.3% |
+| shelf 2×4 | augmented-Lagr. | 2.32 ± 0.02 | +0.35 ± 0.04 | +15.0% |
+| ledge 2×4 | position-based | 6.80 ± 0.11 | +1.26 ± 0.17 | +18.5% |
+| ledge 2×4 | augmented-Lagr. | 2.29 ± 0.07 | +0.30 ± 0.06 | +13.3% |
+| dinner 2×4 | position-based | 25.76 ± 0.37 | **−1.72 ± 0.56** | −6.7% |
+| dinner 2×4 | augmented-Lagr. | 5.38 ± 0.10 | +0.47 ± 0.10 | +8.7% |
+
+Two things here are NOT what §3.5's 16×4 paragraph says, and both must be
+stated as T3 rows rather than folded into it:
+
+1. **The percentage overhead is much larger at deployed budgets** (6.6–34.3%
+   vs 0.9–3.4% at 16×4). Expected: the ledger's per-substep cost is fixed
+   while the baseline shrinks with the budget. The absolute cost is comparable
+   (0.30–2.22 ms vs 0.23–0.41 ms).
+2. **The table-scene overhead is NEGATIVE and outside noise** (−4.40 ± 0.50 and
+   −1.72 ± 0.56 ms): the governed run is genuinely *faster*. Reading: the
+   projection suppresses the divergent modal deflection, so the substep
+   generates less contact work. This is a behaviour difference (the governed
+   and un-governed trajectories differ), not a measurement artifact — unlike
+   the 16×4 table cell, where the spread exceeded the mean and we declined to
+   quote a figure. Report as measured, with the mechanism named as a
+   conjecture we did not isolate.
+
+Also worth stating: at 2×4 the position-based shelf (3.33 + 1.14 = 4.47 ms) and
+ledge (6.80 + 1.26 = 8.06 ms) both fit a 120 Hz budget **with** the governor on
+CPU, and shelf does at 1×8 too (4.91 ms). §3.5's "1.3–15× short of a 120 Hz
+budget" is a 16×4 statement and stays scoped to 16×4.
+
+#### Cell-count phrasing (plan §7.7's grep item)
+
+Matrix: 72 cells, 60 distinct (impulse's 12 relax pairs are bit-identical).
+T3: 18 cells, all distinct (single relax axis). Combined **90 measured cells,
+78 distinct configurations** — the three sites that said "72 / 60" are updated
+to "90 / 78" in the C6 commit.
+
+**Nothing in §E-S1b changed.** T3 is a separate table; Fig. 1 is untouched.
