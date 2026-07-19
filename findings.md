@@ -1,5 +1,41 @@
 # Literature Gap Audit Findings
 
+## 2026-07-19 MIG Teaser / Visual-Demo Design
+
+- Existing paper evidence separates two kinds of failure that should not be conflated visually. The current shelf `8x2` paper cell is a strong **energy/spectrum** failure (1555.6 J OFF vs 29.26 J ON), but 99.6% of the OFF energy sits in 20.7–24.7 kHz modes that barely affect surface height; it may not look like a dramatic geometric explosion.
+- `paper/NUMBERS.md` records older production-budget XPBD blow-up cells at `1x16`, `2x4`, and `1x8`: roughly 5.5e4, 9.2e6, and 3.0e6 J OFF versus 40.8, 36.0, and 42.3 J ON. These are promising visible-demo candidates, but their frozen CSV/config and current-code reproducibility must be checked before recommending one; they cannot be used merely because the scalar energy is large.
+- The repository already has an activation-trace benchmark and paper plot but no obvious current OFF/ON scene capture. The current plan/progress explicitly says the R5.3 triptych is blocked on interactive browser capture because there is no offscreen render path.
+- A scientifically honest teaser must use identical OFF/ON camera, state, solver budget, timestep, and visualization scale. Deformation magnification is acceptable only if labeled and paired with a true-scale view; rigid trajectories should never be render-exaggerated.
+- The short-paper plan already selects the defensible paper comparison: synchronized shelf `8x2`, relax `0.7` frames for ungoverned XPBD, governed XPBD, and the converged reference. A 60--90 s supplementary video was planned around the same-budget OFF/ON contrast plus a reference overlay.
+- The legacy production-budget logs make `2x4` the first video-only candidate to inspect (9.24 MJ OFF vs 36.0 J ON and lower logged overhead than `1x8`/`1x16`), but its generalized displacement is only about 4.1 mm. It is not yet evidence of objects visibly flying apart.
+- Avoid the worst `4x1` projection cell as the hero visual: the cap bounds energy but permits roughly 21.6 mm penetration, about 72% of the board thickness, so the governed panel would visually advertise the method's largest contact-validity cost.
+- The repository contains a purpose-built interactive preset in `scripts/run_native_scenes_viser.py`: `--inject-xpbd` selects the shelf/steel-board scene, symplectic XPBD, and the production `1 iter x 16 substeps` budget. Its own help text identifies this as the genuine ~55 kJ runaway in a ~1 J scene, with violent board ringing OFF and a physical ring ON. This is the best current *visual-demo* lead because it was designed to expose the same frozen `1x16` result, rather than relying on an arbitrary high-energy table cell.
+- The nearby `--inject` preset is explicitly an AVBD ledger violation that remains visually stable; it is useful as a selectivity/monitoring secondary clip, not as the XPBD teaser hero.
+- In the canonical shelf trace, the ungoverned `8x2`, relax `0.7` energy peak occurs at frame 34 / `t=0.283 s` (1555.56 J); the governed peak is frame 30 / `t=0.250 s` (29.26 J). A synchronized paper frame should therefore use approximately `0.283 s`, with a cursor on the energy plot, rather than independently cherry-picking each arm's maximum.
+- The saved governed-accuracy artifact contains 100-frame deflection fields at 48 support sample rows for all four arms (`ungoverned`, `governed`, `xpbd_converged`, `oracle`), so a synchronized OFF/ON/reference surface render can be produced from frozen states without rerunning physics once a small mesh adapter is wired.
+- For geometry, frame 31 / `t=0.258 s` is the stronger synchronized still: ungoverned reaches 24.12 mm peak support displacement, versus 5.93 mm governed, 20.48 mm converged XPBD, and 20.00 mm oracle (the latter three peak at frames 31--32). At this same frame the energy trace already separates clearly: 791.9 J OFF versus 28.7 J ON under a 29.6 J budget. Frame 34 is the scalar-energy maximum but the OFF displacement has already crossed near a smaller 2.56 mm magnitude, illustrating why independently choosing the energy peak would make a weak teaser.
+- This visible comparison also exposes the method's cost: the governed surface is much flatter than either reference. The caption must say “bounds runaway energy” rather than implying that the cap restores the correct motion.
+- The live MIG 2026 CFP does **not** require a teaser image or qualitative figure. It permits 4--6 content pages for short papers (references excluded) and “strongly encourage[s]” supplementary material such as video, up to 200 MB. Therefore an image is a review-communication choice, while a video is strongly recommended but not formally mandatory under the current 2026 wording.
+- The 2026 review criteria explicitly include originality, technical quality, clarity, significance, reproducibility where applicable, and relevance. For this graphics/animation paper, synchronized visual evidence directly helps clarity and significance even though the format rules do not mandate it.
+- The current short paper already labels the single-column activation-energy plot as `fig:teaser`; it is not missing a quantitative teaser, but it is missing a *scene-level visual*. The strongest revision is therefore to turn Figure 1 into a compact composite (synchronized OFF/ON/reference frames above, existing energy trace below), not to add an unrelated fourth figure.
+- The current PDF is seven physical pages with the body ending on page 6 and references on page 7. A new full-width 3x3 image sequence would compete with an exactly full six-page body; the space-efficient paper choice is one synchronized timestamp across three columns, while the time sequence belongs in the supplementary video.
+- Page 1 confirms that Figure 1 occupies a compact single-column block beside the abstract. The energy plot is readable, but the reader sees no shelf, impactor, contact state, or deformation. A replacement composite must fit essentially the same footprint: a shallow three-panel frame strip plus a shorter log-energy sparkline, with the caption shortened rather than expanded.
+- The Viser demo exposes the needed live toggles and diagnostics (cap checkbox, true/render-only slab-deflection scale, full/static/ring-only view, modal energy, deflection, penetration, and clamp count), but it has no scripted camera or screenshot/recording path. Reproducible capture therefore requires manually locking one client camera or adding a small capture adapter; camera drift between OFF/ON runs would invalidate the comparison.
+- The shelf scene is visually legible: a 0.8 x 0.3 x 0.03 m cantilever-like board, five upright books near the fixed side, and a heavy closed book dropped at the free end. The best camera is a locked low three-quarter side view that preserves the board profile and shows whether the standing books launch/topple; a top view would hide the displacement, and an extreme side view would obscure contact layout.
+- Existing shelf artifacts are diagnostic plots only; no repository image already provides the required scene-level OFF/ON comparison.
+- The dramatic `1x16` preset is not one of the current short paper's plotted 24 matrix cells; the paper only mentions `1x8`/`2x4` as representative production budgets. Therefore `1x16` is excellent for the supplementary video if its configuration/result is disclosed there, but using it as the paper's sole teaser would disconnect Figure 1 from the evaluated `8x2` evidence unless the caption or supplement explicitly bridges that provenance.
+- The `--inject-xpbd` preset also changes the shelf material to steel (`E=200 GPa`, `rho=7850`) and relaxation to `1.0`, whereas the canonical paper shelf uses its default soft-board material and the main comparison uses relaxation `0.7`. This materially reinforces the rule: treat `1x16` steel as a separately specified stress/demo case, never as a visual rendering of the paper's `8x2` curve.
+- For the paper reference panel, prefer the converged XPBD fixed point (`500x1`) rather than the implicit oracle. That keeps the visual comparison within the same formulation and isolates truncation/governing; the oracle can remain a numerical secondary reference in text/supplement.
+- A fresh current-code reproduction of the exact `--inject-xpbd` physics (steel shelf, XPBD `1x16`, relax `1.0`, 100 logged frames) does **not** reproduce the stale help/CSV magnitude exactly: OFF peaks at 17,982 J and ON at 2.13 J. More importantly, true-scale peak support deflection is only 0.642 mm OFF versus 0.0115 mm ON on a 30 mm-thick, 0.8 m-long board. The energy failure is genuine, but the board itself is not a strong true-scale “explosion” still; the help text's “rings violently” likely depends on motion/video, downstream rigid-body response, or render magnification.
+- Consequently, any `1x16` stress-case video must first inspect the books' rigid motion. If they do not launch/topple clearly, present this as high-frequency energy runaway using a fixed vibration/velocity color field and a labeled deformation inset, not as a geometric explosion.
+- That downstream check succeeds decisively on current code. In the steel `1x16` run, all five resting books launch by 33.4--46.2 mm and move laterally by up to 12.3 mm with the cap OFF, peaking around simulation steps 48--50 (`0.41--0.43 s`). With the cap ON, their upward lift is 0.0 mm (only ~1.0 mm settling, <=0.018 mm horizontal drift). Thus the scientifically legible true-scale event is **spurious launch of the resting books**, not large board bending. Frame the demo around that causal downstream motion.
+- The dropped book follows nearly the same 0.5 m descent in both arms, so it supplies a useful visual control: identical incident motion, radically different bystander response. This makes the case much stronger than coloring the board alone.
+- The canonical paper `8x2`, relax `0.7` case is also visible downstream: resting-book lift is 15.3--22.9 mm OFF versus 1.6--8.2 mm ON. However, the converged same-host XPBD reference produces 7.7--30.9 mm lift depending on book, while its modal peak is only 8.22 J. This confirms the paper's negative accuracy result in visual terms: the cap suppresses the runaway, but it also suppresses legitimate low-frequency motion and does **not** reconstruct the reference trajectory.
+- Therefore a two-panel paper image “OFF explodes / ON correct” would be misleading. The paper teaser should include the converged-reference third panel and use the takeaway “bounded emergency response” rather than “restored physics.” The stress-case video can still use OFF/ON as the dramatic opening, followed immediately by a reference panel/caveat.
+- Recommended paper composite, within the current Figure 1 footprint: top strip = synchronized true-scale shelf frames at logged frame 42 / `t=0.350 s` (`XPBD 8x2 OFF`, `XPBD 8x2 + cap`, `XPBD 500x1 reference`), with faint initial-pose ghosts and one locked low three-quarter camera; bottom strip = the existing log-energy trace with a vertical cursor at the same time. At that cursor the trace reads 1102.7 J OFF versus 8.62 J ON under a 30.16 J running budget. Use orange/blue/gray consistently and label “same state, camera, time; true scale.”
+- Recommended video opening: the separately labeled steel `1x16`, relax `1.0` stress case, split-screen OFF/ON from independently reset identical initial states. Freeze near `0.42 s`, when the OFF bystanders have launched 33--46 mm and ON remains grounded; then transition to the canonical `8x2` OFF/ON/reference comparison to disclose over-damping. Do not toggle the cap midway through one trajectory and present it as the paired experiment.
+- Terminology: call the event “runaway modal energy causing spurious bystander launch” or “finite-budget instability,” not a numerical “explosion,” because the reproduced state remains finite and the support displacement itself is sub-millimeter in the steel case.
+
 ## 2026-07-18 MIG Short-Paper Panel Review
 
 - **Supersession notice:** the bullets below were produced from a 4-page build generated at 19:37 PDT. The user-supplied path now resolves to a regenerated 6-page build generated at 23:06 PDT with SHA-256 `8d4b83f9663ded4b91f337577d9aef2f511a561086c1134d3bbdc37b676baa15`. Do not reuse the earlier score until the current artifact is re-audited.
@@ -995,3 +1031,58 @@ full-FEM; the reservoir is scalar, not per-interface, so the recycling exposure
   rather than argued. Had I written the §3.3 band-selective version into
   Limitations instead, the paper would be recommending the variant that breaks
   the guarantee a third of the time.
+
+## 2026-07-19 — codex round 2 (C2–C7): four things worth remembering
+
+**1. `grep` silently fails on the LaTeX log in this sandbox, and it made the
+previous session's build claim false.** `grep -c Overfull build/main_short.log`
+returns *nothing* — not "0", nothing — while `grep` on the same file for other
+patterns also returns nothing and exits 1. The previous session recorded "0
+overfull boxes" on that basis. Rebuilding `a74dfa6` proved otherwise: two
+overfull hboxes (4.08 pt in T1's modal-weight cell, 1.98 pt in Limitations)
+were present all along and are only now fixed. **Read the log with Python, not
+grep.** Every gate check in this round used
+`re.finditer(r'Overfull[^\n]*', open(log).read())`.
+
+**2. The page budget is bound by float AREA, not word count — and prose cuts
+get silently reabsorbed.** Five successive prose cuts (~12 column-lines) left
+the overflow at *exactly* 2 lines each time. The mechanism: freeing text lets a
+deferred float migrate up a page and consume precisely the space just freed, so
+cutting words below the granularity of a float move accomplishes nothing
+measurable. What actually moved the page break was reducing float area —
+first `fig_s1_solver_matrix` to 0.92\textwidth, then removing two floats
+outright (T3's table → prose, C3's algorithm block → an enumerate). Corollary
+for the next round: **budget in floats, not words.** Seven floats in a six-page
+body was already one per page-column, and the C3 addition alone displaced
+Fig. 3 onto its own page.
+
+**3. C6 measured two results that contradict sentences we had already
+written** — the deployed budgets did not merely add data, they corrected the
+paper:
+- §3.5 concluded "host-side enforcement is not an interactive path" from 16×4
+  timings. At 2×4, shelf (4.47 ms) and ledge (8.06 ms) fit a 120 Hz budget
+  *with the governor on*. The general claim was false; it is now scoped.
+- The ledger overhead is **negative and outside noise** on the table scene
+  (−4.40 ± 0.50 ms at 1×8): the governed run is genuinely faster, because the
+  projection suppresses the divergent deflection that was generating extra
+  contact work. Reported as measured, with the mechanism named as a conjecture
+  we did not isolate. This is a different phenomenon from the 16×4 table cell,
+  where the spread merely exceeded the mean.
+- Also: the projection is markedly *gentler* at deployed budgets (worst
+  penetration 7.8–9.8 mm vs 21.6, corrective impulse 1.02–1.19× vs 8.7×). The
+  headline 21.6 mm is an adversarial-corner number and the paper now says so.
+
+**4. Concurrent benchmark runs corrupt wall-clock, and I nearly shipped it.**
+I launched the 2×4 timing sweep while 1×8 was still measuring `dinner avbd`.
+Both were killed, the partial CSVs deleted, and both re-run serially. Energy
+sweeps are deterministic and unaffected; only timing is. The re-measured
+`dinner xpbd` clamp figure (−4.40 ± 0.50) matched the contaminated run's
+(−4.65 ± 0.38) closely enough to confirm the negative overhead is real rather
+than contention — but that was luck, not method.
+
+**Also worth flagging:** `run_governed_accuracy.py` prints "MISMATCH / FAIL"
+for any cell other than 8×2, because its acceptance block compares against
+hard-coded 8×2 constants. Running it at 1×8 (a C6 deliverable) therefore
+*looks* like a failed measurement and is not. If that harness gains more cells,
+the guard should take the expected values per cell rather than as module
+constants.

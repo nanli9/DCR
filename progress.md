@@ -1,5 +1,24 @@
 # Literature Gap Audit Progress
 
+## 2026-07-19 MIG Teaser / Visual-Demo Design
+
+- Began an advisory audit of existing XPBD governor-OFF/ON artifacts and current MIG supplementary-material expectations.
+- Key starting distinction: a high modal-energy ratio is not automatically a visually exploding object; the current shelf 8x2 case stores 99.6% of the error in very stiff modes and can look only modestly displaced despite a 196x energy error.
+- Ranked preliminary cases: shelf `8x2` is the paper-safe comparison because it has a converged reference; legacy `2x4` is only a possible video hero pending true-scale rendering; penetration-heavy `4x1` should not lead the visual story.
+- Found the intended true visual-failure runner: `run_native_scenes_viser.py --inject-xpbd`, a shelf/steel-board XPBD `1x16` preset tied to the frozen ~55 kJ OFF / 40.8 J ON production-budget result. This supersedes `2x4` as the first case to capture.
+- Located two canonical times: frame 31 (`0.258 s`) is the best synchronized deformation still (24.12/5.93/20.48/20.00 mm peak across OFF/ON/converged-XPBD/oracle), while frame 34 (`0.283 s`) is the OFF energy maximum. Frozen 48-row surface-deflection traces support an honest static render.
+- Rechecked the live MIG 2026 CFP: no teaser/paper image is required; supplementary materials such as videos are strongly encouraged up to 200 MB.
+- Confirmed that Figure 1 is already the OFF/ON activation-energy plot and labeled as the teaser. The likely edit is a compact qualitative-plus-trace composite, not an extra standalone figure, because the body already fills all six allowed content pages.
+- Visually audited page 1: the existing single-column Figure 1 has enough footprint for a shallow OFF/ON/reference strip above a compressed energy trace without adding a new float.
+- Audited the live viewer controls: all scientific overlays exist, but capture and camera are manual, matching the ledger's current “interactive capture” blocker.
+- Confirmed the hero scene composition and camera need: board profile + five upright books + free-end falling book, shown from one locked low three-quarter view.
+- Flagged a provenance constraint: the visual `1x16` preset is legacy/production evidence outside the current 24-cell matrix, so the paper teaser should remain anchored to `8x2`; `1x16` is best used as a clearly labeled video demonstration.
+- Found an additional provenance difference: the demo preset uses a 200 GPa steel support and relax `1.0`, unlike the paper's `8x2`, relax `0.7` shelf. It must be labeled as a separate stress case.
+- Reproduced that current stress case: 17.98 kJ OFF vs 2.13 J ON, but only 0.642 mm vs 0.0115 mm true-scale board deflection. The next validation target is downstream book launch/topple; otherwise the demo should visualize vibration energy rather than call it a visible explosion.
+- Measured the downstream response: OFF launches the five resting books 33--46 mm; ON launches none. The `1x16` stress case is therefore visually strong at true scale when the camera emphasizes the bystanders, despite sub-millimeter board motion.
+- Measured canonical `8x2` and converged-reference rigid motion: OFF lifts books 15--23 mm, ON 2--8 mm, but the reference spans 8--31 mm. This rules out a simplistic “ON = correct” teaser and makes the third reference panel essential.
+- Finalized the recommendation: replace the current plot-only Figure 1 with a same-footprint three-frame `8x2` OFF/ON/reference strip plus the compressed activation trace; use the steel `1x16` bystander-launch case as the labeled supplementary-video opener, followed by the canonical reference comparison.
+
 ## 2026-07-18 MIG Short-Paper Panel Review
 
 - Reopened the panel review because `paper/main_short.pdf` was regenerated after the preserved audit: current SHA-256 is `8d4b83f9663ded4b91f337577d9aef2f511a561086c1134d3bbdc37b676baa15`, 6 pages, generated 23:06 PDT. The earlier 4-page verdict is stale pending re-audit.
@@ -302,3 +321,45 @@ boxes. Substep sweep demoted to supplement per §6.12.
 
 OPEN: R5.3 triptych — blocked on an interactive browser capture session (no
 offscreen render path; same blocker as the video). R8 remains NO-GO.
+
+## 2026-07-19 — codex round 2: C2–C7 complete, C8 open (plan §7)
+
+| item | code branch | paper worktree |
+|---|---|---|
+| C2 terminology | `f9b8d6f` | `20409c5` |
+| C3 ordering + ledger block | `7f7450a` | `5c79918` |
+| C4 truncation scope | (none) | `6c57e2d` |
+| C6 deployed budgets | `7ca41b9` (E-C6) | `c1ab0d6` |
+| C7 citations | (none) | `2c2183f` |
+| C5 wording + gate | `<plan §7.6>` | `1555d37` |
+
+Every commit rebuilt and gate-checked: body ends p. 6, References alone on
+p. 7, 0 undefined refs, **0 overfull boxes**.
+
+Headlines:
+- **C3 found a real error, as the review suspected.** The paper said the
+  reservoir is credited "before the contact solve"; all three hosts credit
+  AFTER the velocity solve in the same substep. Sentence fixed, code untouched,
+  anchors frozen in the ledger. The 7-step loop is now printed in-paper.
+- **C6 is the strong outcome, not the benign one the risk table hedged for.**
+  At the deployed budgets (1×8, 2×4) the position-based host violates Eq. (2)
+  in **6/6** cells, worst R = 2282 — on 8 row evaluations, *twice* the 4×1
+  corner's 4. Governed: 18/18 hold. The motivation sentence is now measured.
+- **C6 also corrected two of our own overreaching sentences.** §3.5's "host-side
+  enforcement is not an interactive path" was a 16×4 conclusion stated
+  generally — at 2×4 shelf and ledge fit 120 Hz *with* the governor. And
+  Limitations characterised an Eq.-(2) result using R, the diagnostic this
+  paper argues is misleading.
+- **C5-G gate: NO-GO** (recorded in plan §7.6 with the reason). Fallback clause
+  landed in §3.1, not merely planned.
+- **C7**: 13 references render. kaufman2008's ACM article number is NOT guessed
+  — dl.acm.org 403s automated fetches, so articleno/pages are omitted with a
+  camera-ready note.
+
+OPEN — **C8**, the only unfinished item:
+- *Video* (60–90 s): still blocked on an interactive browser capture session.
+  No offscreen render path exists; same blocker as R5.3.
+- *Figure F-C8*: NOT blocked after all. `governed_accuracy*_traces.npz` holds
+  (100 frames × 48 support rows) deflection fields for all four arms, so the
+  deflection sequence can be rendered offline from frozen traces per §7.9's
+  fallback. What it lacks is **page space** — see findings.md.
