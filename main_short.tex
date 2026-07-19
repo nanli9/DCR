@@ -381,11 +381,14 @@ Table~\ref{tab:solvers} lists what the hosts do differently and what is pinned
 identical. Two entries deserve emphasis. The relaxation axis is \emph{inert} on the
 impulse host --- its implicit modal weight needs no under-relaxation and the
 attribute is never read --- so its two relaxation rows are bit-identical by
-construction, not coincidence. And warm start differs, which is intrinsic to the
-formulation rather than a knob we chose: the position-based host zeroes its
-multipliers every substep, the other two carry them across.
+construction, not coincidence. And warm start differs. We run each host as
+published: $\lambda\!\leftarrow\!0$ every substep is the position-based host's
+own form, and carried duals with a growing penalty are constitutive of the
+augmented-Lagrangian method, so neither is a knob we chose; the impulse host's
+per-row $\lambda$ cache is the one genuine policy default among the three. The
+comparison is therefore as-deployed, not compliance-matched.
 
-\paragraph*{Equal work, unequal outcome.} A cell costs $K\!\cdot\!S$ row
+\paragraph*{Equal row evaluations, unequal outcome.} A cell costs $K\!\cdot\!S$ row
 evaluations per frame, so the budget axis spans $\times64$ --- steeper than its
 labelling suggests --- and conflates two refinements that are not
 interchangeable. At a fixed
