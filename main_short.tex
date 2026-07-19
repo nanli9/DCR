@@ -61,13 +61,15 @@ Running one transcribed contact row through three fixed-budget solver
 formulations --- position-based (XPBD), augmented-Lagrangian (AVBD), and an
 implicit sequential-impulse realization --- over an identical 24-cell
 scene\,$\times$\,relaxation\,$\times$\,budget sweep, we find sharply
-formulation-dependent behaviour: the position-based host amplifies modal energy
-to $1.2\times10^{5}$ times the incident rigid kinetic energy in the most starved
-cells, the augmented-Lagrangian host exceeds that incident-energy benchmark only
-marginally ($1.7\times$) and only at the starved corner of one scene, and the
-implicit realization stays below it in every cell (worst $0.53$). A budget sweep
-shows the amplification is a truncation artifact: it decays monotonically toward
-a converged reference computed in the same code path, and the gap to that
+formulation-dependent behaviour. Measured against the energy contact actually
+dissipated, the position-based host overdraws by up to $4.4\times10^{7}$~J ---
+$1.2\times10^{5}$ times the incident rigid kinetic energy in the most starved
+cells --- the augmented-Lagrangian host overdraws in $23$ of $24$ cells but by
+at most $15$~J, and the implicit realization never overdraws at all. Pervasive
+but negligible and rare but catastrophic are different pathologies, and the
+customary ratio-to-incident-energy diagnostic does not separate them. A budget
+sweep shows the amplification is a truncation artifact: it decays monotonically
+toward a converged reference computed in the same code path, and the gap to that
 reference shrinks by six orders of magnitude. Because the converged regime is
 unaffordable at interactive budgets, we add a cumulative, source-referenced
 modal-storage bound, enforced by a reservoir ledger and a projection of the
@@ -239,14 +241,21 @@ contact stacks diverge between architectures under floating-point reassociation.
 \includegraphics[width=\textwidth]{fig_s1_solver_matrix.pdf}
 \caption{The same contact row in three fixed-budget solver formulations over an
 identical 24-cell sweep (3 scenes $\times$ modal relaxation
-$\{0.7,1.0\}$ $\times$ budget), governor OFF. Colour is peak modal energy
-divided by peak incident rigid kinetic energy, log scale diverging at the
-incident-energy threshold $1$ (white). XPBD injects in $8/24$ cells, AVBD in $2/24$,
-the implicit sequential-impulse realization in $0/24$. Hatched rows on the
-right panel mark the relaxation axis, which that formulation does not consume
-(its implicit modal weight requires no under-relaxation); those rows are
-bit-identical by construction and are shown for grid symmetry, not as an
-independent measurement.}
+$\{0.7,1.0\}$ $\times$ budget), governor OFF. \textbf{Top:} the ratio $R$ =
+peak modal energy / peak incident rigid kinetic energy, log scale diverging at
+$1$ --- a severity diagnostic. XPBD exceeds $1$ in $8/24$ cells, AVBD in
+$2/24$, the implicit realization in $0/24$. \textbf{Bottom:} the invariant
+itself --- the signed margin of \eqref{eq:invariant} in joules, symmetric-log,
+diverging at $0$; positive violates. The rows disagree on AVBD, which violates
+in $23/24$ cells that $R$ mostly reports as benign, though by at most $15$~J
+against XPBD's $4.4\times10^{7}$~J. We report joules rather than a second ratio
+because every candidate denominator misleads: dividing by the supply accrued so
+far explodes in the opening substeps, and dividing by the run total hides
+violations that peak early. Hatched rows on the right panels mark the
+relaxation axis, which that formulation does not consume (its implicit modal
+weight requires no under-relaxation); those rows are bit-identical by
+construction and are shown for grid symmetry, not as an independent
+measurement.}
 \label{fig:matrix}
 \end{figure*}
 
@@ -258,23 +267,37 @@ $\{4{\times}1, 8{\times}2, 16{\times}4, 32{\times}8\}$. The reported ratio is
 peak modal mechanical energy over peak incident rigid kinetic energy of the
 impactor: an intensity diagnostic, not the enforced invariant.
 
-Figure~\ref{fig:matrix} shows the outcome. The position-based host injects in
-$8$ of $24$ cells, worst case $1.19534\times10^{5}$ (ledge, relaxation $1.0$,
+Figure~\ref{fig:matrix} shows the outcome. The position-based host exceeds
+$R=1$ in $8$ of $24$ cells, worst case $1.19534\times10^{5}$ (ledge, relaxation $1.0$,
 $4{\times}1$: peak modal energy $4.44\times10^{7}$~J against an incident
-$371$~J). The augmented-Lagrangian host injects in $2$ of $24$ --- both at the
-starved $4{\times}1$ corner of the table scene, worst $1.70$ --- so it is
-\emph{not} unconditionally benign. The ordering between the two hosts, however,
+$371$~J). The augmented-Lagrangian host exceeds $R=1$ in $2$ of $24$ --- both at
+the starved $4{\times}1$ corner of the table scene, worst $1.70$ --- so it is
+\emph{not} unconditionally benign by this measure either. The ordering between the two hosts, however,
 is scene-dependent, and it inverts: taken worst-over-scenes at $4{\times}1$ the
 position-based host is some five orders of magnitude more energetic
 ($1.2\times10^{5}$ vs $1.70$), but \emph{on the table scene itself} the
 augmented-Lagrangian host is the worse of the two ($1.18$ and $1.70$ against a
-position-based worst of $0.37$, which does not inject there at all). Neither
-host dominates the other across scenes; what the sweep establishes is that both
-are budget-sensitive and the implicit realization is not. That realization stays
-below the incident-energy threshold in every cell (worst $0.53$), and its ledger
-accounting, which runs as a monitor even with enforcement disabled, confirms the
-cumulative inequality of \eqref{eq:invariant} in all $24$ --- the only one of the
-three hosts for which an un-governed \eqref{eq:invariant} verdict exists.
+position-based worst of $0.37$, which never reaches $1$ there). Neither
+host dominates the other across scenes.
+
+\paragraph*{The ratio is not the invariant.} $R$ is a severity diagnostic: the
+incident kinetic energy of one impactor is not the supply
+\eqref{eq:invariant} budgets against. We therefore measure
+\eqref{eq:invariant} directly, un-governed, on all three hosts, by running the
+reservoir accounting live while forcing $\gamma\equiv1$ so the projection is
+inert --- every state write in the enforcement path is guarded by $\gamma<1$,
+so the trajectory is bit-identical to an un-governed run (the ratios above
+reproduce the independent sweep exactly). We report the signed margin
+$\max_{n}\bigl[\Emod^{\,n}-\Emod^{\,0}-\eta\sum_{k\le n}\max(\dErig^{\,k},0)\bigr]$
+in joules; positive violates. The two metrics agree on the position-based host
+($8/24$ either way) and on the implicit one ($0/24$, margin at worst
+$-5.7\times10^{-4}$~J), but they part company on the augmented-Lagrangian host,
+which violates \eqref{eq:invariant} in $23$ of $24$ cells while $R$ flags only
+$2$. The magnitudes are what separate the two failures: the position-based host
+overdraws by up to $4.4\times10^{7}$~J, the augmented-Lagrangian host by at most
+$15.1$~J, and in $21$ of its $23$ cells by under $0.15$~J. Pervasive but
+negligible overdraw and rare but catastrophic overdraw are different
+pathologies, and only the invariant distinguishes them.
 
 With enforcement enabled, all $72$ cells satisfy \eqref{eq:invariant} --- $60$ of
 them distinct configurations, since the implicit host does not consume the
