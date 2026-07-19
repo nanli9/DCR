@@ -1133,3 +1133,80 @@ subsystem's storage, and never returns energy the solver lost.
 
 This answers the panel's "a simple energy clamp without prior-art positioning"
 directly, and joins rather than replaces the four must-cite adversaries of §1.
+
+---
+
+## R7 — enforcement cost, honestly (2026-07-19)
+
+Plan §6.9. The device half (R7b) is already frozen in
+`docs/mig2026_device_ledger.md`. This is the **CPU half**, and it corrects the
+number the paper was printing.
+
+Harness: `benchmarks/paper_eval/x5_perf/run_perf_reps.py` (existing, unmodified).
+Machine: **Apple M4, CPU only, CPython 3.12** — the paper's declared CPU host.
+Commit `65d5908` + working tree. 10 reps × 100 frames, warm-up 5, fresh scene
+build per rep; overhead = (clamped mean − unclamped mean) per repetition.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x5_perf/run_perf_reps.py \
+    --only shelf,ledge,dinner --reps 10 --frames 100
+```
+Data: `x5_perf/out/perf_reps_summary.csv`, `perf_reps.csv`, `perf_reps_m4.log`.
+The prior server artifacts are preserved as `perf_reps_{,summary_}server_ref.csv`.
+
+### TWO DEFECTS IN THE PRINTED NUMBER, both found here
+
+The paper said: *"The ledger adds 0.8–2.9 ms/step at the evaluated configuration
+on the CPU host."*
+
+1. **It was measured on the wrong machine.** That range comes from
+   `x5_perf/out/perf_reps_server.log` — an **x86 server** — while §3 of the paper
+   states that every solver-behaviour number except the device timing was
+   produced on the Apple M4. `paper/NUMBERS.md` even records a "Mac cross-check
+   3.5–4.6×", i.e. the declared host is 3.5–4.6× faster than the machine the
+   number came from. This was an undisclosed second machine.
+2. **The upper bound was never statistically resolved.** The 2.9 ms that sets it
+   is the server's `dinner xpbd: clamp +2.89 ± 2.76` — the standard deviation
+   over 10 repetitions is 95% of the mean. The headline range was quoting noise.
+
+### Measured on the declared host (Apple M4)
+
+| scene | solver | baseline [ms] | worst [ms] | ledger [ms] | % of baseline | resolved? |
+|---|---|---:|---:|---:|---:|---|
+| shelf | xpbd | 18.45 ± 0.08 | 29.55 | +0.23 ± 0.14 | 1.25% | marginal |
+| shelf | avbd | 12.14 ± 0.06 | 14.32 | +0.41 ± 0.10 | **3.35%** | yes |
+| ledge | xpbd | 30.68 ± 0.12 | 51.63 | +0.27 ± 0.19 | 0.86% | marginal |
+| ledge | avbd | 10.99 ± 0.09 | 11.86 | +0.35 ± 0.09 | 3.22% | yes |
+| table | xpbd | 125.63 ± 5.68 | 194.59 | +1.35 ± 2.08 | 1.08% | **NO** (σ > μ) |
+| table | avbd | 37.47 ± 1.13 | 48.76 | +0.04 ± 1.43 | 0.09% | **NO** (σ ≫ μ) |
+
+**Reportable claim**: the ledger costs **0.23–0.41 ms/step, 0.9–3.4% of
+baseline**, on the four shelf/ledge configurations where it resolves above
+run-to-run variance. On the table scene the per-repetition spread exceeds the
+effect in both hosts, so it is reported as unresolved (bounded by ~1.4 ms,
+consistent with the resolved rows) rather than quoted as a mean. This is
+strictly more defensible than "0.8–2.9 ms" and it is on the right machine.
+
+**The percentage is the portable quantity.** Absolute times differ 3.5–4.6×
+between the two machines, but the percentages agree closely where both resolve
+(shelf xpbd 1.25% M4 vs 1.23% server; ledge xpbd 0.86% vs 0.84%). That is why
+plan §6.9 asked for a percentage, and it is the form the paper now prints.
+
+**CPU baselines are far from interactive**: 11.0–125.6 ms/step at 16×4, i.e.
+1.3–15× short of a 120 Hz budget. The host-side governor is not an interactive
+path and the paper should not imply otherwise; this is the motivation for the
+separate device measurement, not a competitor to it.
+
+### Device half — scope, stated in the paper
+
+R7b (frozen separately) gives 5.0–8.9 ms/step at 16×4 on an RTX 4090, ledger
+carried **read-only as a monitor**. Plan §6.9 requires stating plainly that a
+device-resident *enforced* γ **does not exist** — it is the long-paper unlock —
+so the panel's "device-side governed timing" ask is out of scope by design. The
+paper now says this rather than leaving it inferable.
+
+### Acceptance (plan §6.9)
+
+Baseline next to overhead as a percentage, per scene and host, on the declared
+CPU machine; device paragraph names the GPU, keeps "monitor-only" explicit, and
+states the absent enforced-γ path. Done.

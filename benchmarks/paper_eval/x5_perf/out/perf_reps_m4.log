@@ -1,0 +1,16 @@
+### X5b perf reps (10 reps x 100 frames, macOS-15.2-arm64-arm-64bit) ###
+  shelf  xpbd:   18.45 ±  0.08 ms  worst   29.55  clamp +0.23 ± 0.14    54.2 steps/s
+Warp 1.13.0 initialized:
+   CUDA not enabled in this build
+   Devices:
+     "cpu"      : "arm"
+   Kernel cache:
+     /Users/nan/Library/Caches/warp/1.13.0
+Module dcr.avbd._solver.kernels_6dof dcb8251 load on device 'cpu' took 10.24 ms  (cached)
+  shelf  avbd:   12.14 ±  0.06 ms  worst   14.32  clamp +0.41 ± 0.10    82.3 steps/s
+  ledge  xpbd:   30.68 ±  0.12 ms  worst   51.63  clamp +0.27 ± 0.19    32.6 steps/s
+  ledge  avbd:   10.99 ±  0.09 ms  worst   11.86  clamp +0.35 ± 0.09    91.0 steps/s
+  dinner xpbd:  125.63 ±  5.68 ms  worst  194.59  clamp +1.35 ± 2.08     8.0 steps/s
+  dinner avbd:   37.47 ±  1.13 ms  worst   48.76  clamp +0.04 ± 1.43    26.7 steps/s
+
+wrote perf_reps.csv, perf_reps_summary.csv to /Users/nan/Desktop/DCR/benchmarks/paper_eval/x5_perf/out/

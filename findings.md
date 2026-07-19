@@ -2,6 +2,35 @@
 
 ## 2026-07-18 MIG Short-Paper Panel Review
 
+- **Supersession notice:** the bullets below were produced from a 4-page build generated at 19:37 PDT. The user-supplied path now resolves to a regenerated 6-page build generated at 23:06 PDT with SHA-256 `8d4b83f9663ded4b91f337577d9aef2f511a561086c1134d3bbdc37b676baa15`. Do not reuse the earlier score until the current artifact is re-audited.
+- **Current 6-page rebuild, first text pass:** the manuscript now directly repairs several earlier blockers. It sets `eta=1`; defines modal storage and scene-wide translational/rotational rigid-energy accounting including gravity work; explicitly calls Eq. (2) a cumulative gross-loss-funded storage ceiling rather than contact-port passivity; separates the incident-KE diagnostic from the invariant and plots both; gives a formulation table; reports an equal-work iteration-vs-substep comparison; uses a same-code-path high-iteration impulse reference; corrects the implicit worst ratio to 0.53; and discloses governed contact error, FEM comparison, runtime limits, and scope limitations.
+- The revised central result is stronger and more nuanced: XPBD violates the ledger in 8/24 cells, AVBD in 23/24 but usually by under 0.15 J (worst 15.1 J), and implicit impulse in 0/24; enforcement satisfies the printed inequality in all 72 cells, while the paper candidly reports up to 21.6 mm penetration and 8.7x corrective impulse.
+- New/remaining technical concern: the text says Eq. (2) is the invariant, then discloses that the implementation's own test forgives one largest substep deposit, while reported violations use the stricter printed Eq. (2). The relationship between the reservoir update/projection and the exact cumulative inequality must be checked carefully; an enforcement mechanism that satisfies the inequality by radial scaling is a certificate by construction, so scientific value rests on physical usefulness, attribution of the gross-loss supply, and comparison with simpler/local alternatives.
+- New/remaining evidence concern: the useful response/FEM evidence is for a selected ledge case, whereas the worst governed XPBD cell has visible 21.6 mm penetration. The device path remains monitor-only, and no unqualified real-time claim is made. This is acceptable candor but limits deployability and significance.
+- The revised convergence section is materially stronger than the stale audit: it reports XPBD complementarity residual decay, shows self-convergence to a formulation-specific fixed point, and explicitly states that XPBD and the implicit oracle converge to different discrete solutions (including a 6.8 mm trajectory discrepancy). This supports a truncation-pathology claim without falsely claiming cross-formulation equality.
+- The supply-recycling limitation is now measured rather than merely acknowledged: opposite-channel rigid gains are 0.4–27% for impulse, 3–32% for XPBD, and 102–118% for AVBD. Especially for AVBD, this makes the scalar gross-loss budget a loose upper envelope rather than a clean measure of contact-dissipated source energy; the abstract's phrase “measured against the energy contact actually dissipated” is therefore stronger than the paper's own §4 caveat supports.
+- Eq. (2) enforcement remains CPU float64 only; the RTX 4090 path monitors rather than governs, and governed-vs-full-FEM validation remains future work. The manuscript accurately discloses this, but the core mitigation is not demonstrated in the performance regime or against the physical reference.
+- **Current 6-page visual audit:** Figures 1–3 are clean and generally readable; the heatmap and convergence plot communicate the diagnostic well. The paper is nevertheless visually text-heavy for MIG: no scene image, contact-row schematic, governed/un-governed deformation sequence, or full-FEM overlay is shown. Page 2 is nearly all prose/equations, and Table 1 on page 3 is cramped enough that several mathematical entries and wrapped words are hard to parse at normal zoom.
+- The title occupies three lines and the abstract is unusually long/dense. Figure captions are also near-paragraph length. Page 6 leaves ample unused space after only seven references, so the manuscript could trade some defensive prose for a small method/scene schematic and a more credible related-work treatment without exceeding the current length.
+- The bibliography is notably thin for the breadth of the claim: seven entries, only one direct classic modal-contact reference and two 2026 energy-control preprints. A skeptical numerical-simulation reviewer is likely to ask about reduced/rigid contact formulations, energy-stable modal contact, passivity observers/energy tanks, and contact-consistent projection/optimization alternatives.
+- Official MIG 2026 materials checked on 2026-07-18 confirm that the venue invites long and short papers for interactive systems and animation, with the official homepage listing the August 7 deadline. The paper is strongly in scope; acceptance should be calibrated primarily on originality, technical quality, clarity, significance, and reproducibility, not on venue mismatch.
+- The official CFP says short papers are 4–6 pages **excluding references**, strongly encourages supplementary video, and names technical quality, novelty, significance, clarity, originality/reproducibility, and relevance as review criteria. The current PDF places references within page 6, so it is not actually using the full allowed content budget; moving references to page 7 would create room for a schematic/qualitative result and fuller definitions.
+- Primary-source spot check confirms important omitted neighbors. Hauser–Shen–O'Brien (GI 2003) already demonstrates interactive modal deformation with collision/contact constraints; Kaufman et al. (TOG 2008) gives discrete velocity-level contact for rigid and reduced deformables, discusses iterative-solver energy gain and fixed-budget degradation; Rath (DAFx 2008) specifically targets energy-stable contact of modal objects; classic time-domain passivity-observer/controller work uses monitored energy budgets to stabilize contact. None of these obviously duplicates the exact cross-host measurement plus gross-loss-funded modal-storage ceiling, but omitting them makes the novelty context look selectively narrow.
+- **Fresh technical-review issues on the 6-page build:** (i) §2 says the reservoir receives `Delta E_rig` “before the contact solve,” although Eq. (3) requires the substep's post-solve endpoint; the executable update order is therefore impossible or at least misstated and needs pseudocode; (ii) calling cross-substep warm starting “intrinsic to the formulation” is not defensible—reset/carry is a solver-policy choice and may materially drive the XPBD comparison; (iii) `K*S` equalizes row evaluations, not total work, because substeps regenerate contact and repeat integration; (iv) contact compliance/regularization is not matched across the XPBD-rigid, AVBD-penalty, and impulse-CFM rows.
+- The paper proves truncation removal only for the position-based host. It does not show an AVBD iteration/convergence curve for the Eq. (2) margin, even though AVBD violates that margin in 23/24 cells. Abstract/conclusion wording that “the amplification is a truncation artifact” should be scoped to the measured XPBD catastrophe unless AVBD is also tested.
+- The application argument cites typical deployed budgets near `1x8` or `2x4`, but the main sweep uses `4x1, 8x2, 16x4, 32x8`, and the performance paragraph uses 16x4. The exact claimed target regimes are not evaluated. This is a high-impact reviewer question because the safeguard must be useful, accurate, and affordable precisely where it is supposed to ship.
+- The FEM section validates an ungoverned reduced response in one ledge regime, while §4 explicitly leaves governed-vs-FEM validation for future work. The claimed residual 10% mode-truncation error is not supported by a modal-rank sweep in the PDF. The mitigation's accuracy therefore remains the main evidence gap.
+- Contribution (3) says “momentum” broadly, but §3.3 measures only instantaneous **rigid linear** momentum across a projection that writes no rigid state, making the zero change true by construction; total/generalized or angular momentum and contact-law satisfaction are not established.
+- **Artifact lock:** `paper/main_short.tex` was modified at 23:24:56, after `paper/main_short.pdf` was generated at 23:06:36. The source now contains AVBD contact-validity rows and a governed-vs-converged accuracy analysis that are absent from the reviewed PDF. The panel review must not credit those source-only repairs; final output should name the reviewed PDF SHA-256 and warn the user to recompile before any follow-up review.
+- **Fresh five-lens score calibration for the 23:06 PDF:** generalist/fit 3/5 (confidence 4), numerical soundness 2/5 (4), novelty/positioning 3/5 (4), evaluation/reproducibility 2/5 (4), practitioner/short-paper value 4/5 (3). Mean 2.8, median 3. Overall: borderline, leaning weak reject for the PDF as supplied; strong venue fit and a plausible short-paper contribution, but not yet a safely auditable or demonstrably useful mitigation.
+- **Final 23:28 compiled build:** 7 physical pages, SHA-256 `e959b15d39d71546c2693bd30b03f104ed4ca7754340202936583bb32d1668cf`. It compiles the source-only repairs: AVBD clamp validity, governed-vs-converged energy/trajectory accuracy, spectral diagnosis of the XPBD high-frequency energy, and a more explicit statement that the projection is a safety envelope rather than an accuracy device. A delta against the 23:27 build is editorial/layout only.
+- The new accuracy result is scientifically valuable but adverse to the method: on shelf `8x2`, the governor reduces energy error from 196x to 3.7x while increasing trajectory `L_inf` error from 33% to 71% of the reference peak. It removes the total energy but leaves 97.7% of the remaining energy above 10 kHz and reduces legitimate low-frequency sag. This strengthens the negative/diagnostic-paper framing and weakens any production-cure framing.
+- New AVBD rows close the previous selectivity gap: its two `R>1` cells have only 1.4–3.1 mm worst gap violation and <=1.4x impulse/variance effects, materially gentler than XPBD. Governed-vs-full-FEM validation is still explicitly future work, and the claimed actual deployment budgets remain untested.
+- **Latest visual/submission check:** page 5 is very dense but readable; page 6 is full; after compression, only the final three lines of the Conclusion spill onto page 7 before the references. Because the official six-page allowance excludes references but not body text, this remains a plausible format-compliance problem. End the complete body on page 6 and start references on page 7.
+- The new build still uses only seven references and has no method/scene schematic or qualitative frame. The nearly empty lower 80% of page 7 can hold a much fuller bibliography, but body prose must first be shortened/moved so it remains within six content pages.
+- **Recalibrated latest-build panel:** generalist/fit 3/5 (confidence 4), numerical soundness 2/5 (4), novelty/positioning 3/5 (4), evaluation/reproducibility 3/5 (4), practitioner/short-paper value 4/5 (3). Mean 3.0, median 3. Overall remains borderline with a slight weak-reject lean: the new evidence raises evaluation by one point but confirms the governor is an inaccurate emergency brake, while ledger attribution, algorithm ordering, comparison fairness, prior art, and page compliance remain unresolved.
+- The most defensible paper identity is the **empirical/negative result**: identical-looking fixed-budget modal-contact rows can exhibit formulation-dependent energy pathologies, and incident-KE ratios can miss pervasive small ledger violations. The projection should be presented as a deliberately crude safety envelope whose contact/accuracy cost is itself part of the result, not as an accurate production cure.
+- Acceptance-impact order: (1) correct gross-loss/contact-dissipation terminology and executable ledger ordering; (2) add the missing modal-contact/passivity/energy-projection ancestors; (3) test the actually claimed `1x8`/`2x4` deployment budgets and include governed-vs-reference state/contact error; (4) ablate warm-start/contact matching and rename `K*S` as equal row evaluations; (5) add a scene/row schematic and supplementary video; (6) report total CPU runtime/relative overhead and either enforce on device or keep the deployment claim explicitly monitor-only.
 - Review artifact: `paper/main_short.pdf`.
 - The review will use only evidence visible in that PDF; existing regular-paper and novelty-audit notes are background checks, not evidence credited to the submission.
 - Artifact metadata: 4 pages, letter size, generated 2026-07-18 19:37 PDT; title is “How Much Energy Does a Modal Contact Row Inject? A Cross-Formulation Measurement and a Cumulative Storage Bound.”
@@ -755,3 +784,93 @@ Use `directional energy-budgeted` rather than broad `passivity-bounded` unless t
   comparison (78.0 vs 78.3 Hz) instead. **Lesson, same family as the R1 metric
   bug: verify a derived quantity is stable under a parameter it should not
   depend on, before reporting it.**
+
+### R5 (plan §6.7) — the governed result is bounded, not accurate, and now we know why
+
+- **The plan's headline arithmetic survived a real threat.** R4 had made "the
+  converged reference" ambiguous (XPBD self-converges to 0.2996, the oracle sits
+  at 0.2735), so R5's predicted "~200× → ~3.7×" could have collapsed. Measured:
+  196.5× → 3.696× against the oracle and 189.2× → 3.558× against the
+  position-based host's own fixed point. The claim survives under either
+  denominator, which is a stronger position than the plan assumed — and the
+  boot prompt was right to demand the re-derivation rather than trusting it.
+- **THE GOVERNOR MAKES THE TRAJECTORY WORSE. Not anticipated anywhere.**
+  Deflection L∞ against the reference goes from 6.5 mm (33% of reference peak)
+  ungoverned to 14.3 mm (71%) governed, while the energy error falls ~50×. The
+  plan expected a deflection "counterpart" to the energy improvement; it is a
+  degradation. Reported as measured. This is the strongest available support for
+  "safety envelope, not accuracy device" precisely because it cuts against us.
+- **The mechanism, and it resolves an apparent contradiction.** A reviewer would
+  immediately ask how the ungoverned run holds 196× the reference energy while
+  its peak deflection is only 1.2× too large. Answer, measured at the
+  peak-energy frame: the excess is not kinetic (0.3% of the total) and not
+  low-frequency. The shelf spectrum is bimodal — ten bending modes at
+  20.3 Hz…2.03 kHz, then six stiff modes at 20.7…24.7 kHz — and **99.6% of the
+  ungoverned energy sits in the stiff cluster** (centroid 24.1 kHz) against
+  **0.0%** for both converged references (centroids 25 and 30 Hz). The substep
+  rate is 240 Hz, so that cluster is ~200× above what integrates it. Energy is
+  quadratic in frequency; those modes barely move U_yᵀq. So an energy metric and
+  a deflection metric measure genuinely different things — which retroactively
+  explains R4's split verdict (peak agrees to 2.4%, L∞ differs by 34%).
+  - I chose the 10 kHz threshold only after checking the spectrum is bimodal
+    with a decade-wide gap (2033 → 20685 Hz), so any cut in 3–20 kHz gives the
+    same number. Stated in the paper so it cannot read as a tuned knob. This is
+    the third time this session a derived quantity needed a robustness check
+    before I would report it, and the discipline paid again.
+- **γ is a scalar, so it cannot fix the spectrum — only the total.** It takes
+  1555.6 J → 29.26 J while leaving the character untouched (99.6% → 97.7% above
+  10 kHz), scaling the legitimate low-frequency sag down along with the noise
+  (peak deflection 24.1 → 5.9 mm against a reference 20.0 mm). That is the
+  mechanism behind the L∞ degradation above, and it names the next mechanism
+  (band-selective projection) without our having built it.
+- **R5.4 reframes the penetration more starkly than the geometry did.** The
+  21.6 mm worst case is 9–13× the unclamped resting sag (1.7–2.4 mm) and
+  **1.05–1.08× the peak dynamic deflection the board ever reaches** (20.0–20.5
+  mm). At its worst substep the projection does not reduce the sag, it removes
+  all of it. "Resting sag" is defined as a late-window tail median so the
+  definition is auditable; the impact transient is excluded deliberately.
+- **AVBD's projection is an order of magnitude gentler**, consistent with R1:
+  its overdrafts are ≤15 J, so γ bottoms out at 0.60–0.73 and fires on a quarter
+  of substeps. Worst violation 1.4/3.1 mm against XPBD's 21.6; corrective
+  impulse and multiplier variance within 1.4× against 8.7×/58×. The *relative*
+  effect is comparable (3.1/5.5× against 3.5–12.6×), so the hosts differ in the
+  scale of the correction, not its character.
+- **FOUR silent porting traps** moving E-S3 to the AVBD host, all logged in the
+  ledger. The two worth repeating: `sol._q` on that host is the list of body
+  QUATERNIONS, not the modal coordinate (E-S3's helper would have computed a gap
+  from a quaternion); and **`c_lambda` is a FORCE in newtons**, validated by X1d
+  against m·g, so the impulse is λ·h and not the λ/h of the position-based
+  probe. I caught the latter by noticing a "steady impulse" of 5052 N·s — four
+  orders of magnitude off. The reported quantity is a ratio and was therefore
+  never wrong, but the absolute column would have been mislabelled in the CSV.
+  **Unit conventions do not survive a port between hosts; re-derive them.**
+- **R5.3 (triptych) is BLOCKED, not skipped.** It needs the same interactive
+  browser session as the video: `docs/mig2026_submission_package.md` records
+  that the viser scripts have no offscreen render path ("Video capture —
+  requires an interactive browser session"). Plan §6.12 independently names the
+  triptych as the second thing to demote to supplementary on page overflow, and
+  the paper is over budget, so both the capability and the page budget point the
+  same way. Recorded as a user-interactive TODO rather than quietly dropped.
+
+### R6 (plan §6.8) — the governor's prior art was already half-cited
+
+- **Two of the three works were already in `references.bib` and never cited.**
+  `hannaford2002` (time-domain passivity control) and `dinev2018fepr` (FEPR)
+  were sitting in the file unused, which means the "simple energy clamp without
+  prior-art positioning" criticism was partly a citation-hygiene failure rather
+  than a knowledge gap. Only the energy-tank line (`franken2011`) was genuinely
+  missing.
+- **The new reference was verified, not recalled.** Franken, Stramigioli, Misra,
+  Secchi, Macchelli, IEEE T-RO 27(4):741–756, 2011, doi 10.1109/TRO.2011.2142430
+  — checked against the University of Twente research record and the publisher
+  DOI before it entered the bib. Given this repo's rule about verified
+  references, citing a canonical paper from memory would have been the easy
+  mistake.
+- **The positioning that makes the transplant defensible** is two specific
+  deviations, not a general resemblance: the tank is funded by measured gross
+  rigid-side dissipation (energy removed *elsewhere*) rather than by the port it
+  regulates, and the actuator scales realized *state* rather than modulating a
+  force — because a fixed-budget solver has already committed its multipliers by
+  the time the excess is observable. That second point is the same structural
+  fact that R5.1c shows prevents a band-selective fix, so the related-work
+  framing and the limitation now derive from one cause.
