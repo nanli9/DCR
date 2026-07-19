@@ -672,6 +672,27 @@ section that demonstrates it.
 Acceptance: both wording edits in; gate decision recorded here (date +
 GO/NO-GO) before Week-3 polish begins.
 
+**C5-G GATE DECISION — NO-GO, 2026-07-19.** The gate condition ("GO only if
+C1–C8 are frozen with ≥4 buffer days before Aug 7 AoE") is **not met and
+cannot be met today**: C8 is blocked on an interactive browser capture session
+(no offscreen render path — the same blocker recorded against R5.3 in
+`progress.md`), so C1–C8 are not frozen. Both ablations also carry the
+disqualifiers §7.6 already names — the XPBD-carries-λ arm is a code change
+(out of scope this round), and the compliance-matching arm would change solver
+behaviour and force a re-freeze of numbers that are now cited in three
+sections.
+
+The NO-GO fallback is **landed, not merely planned**: §3.1's warm-start
+sentence now states that each host runs as published (λ←0 is the
+position-based host's own form; carried duals + growing penalty are
+constitutive of the augmented-Lagrangian method; only the impulse host's λ
+cache is a genuine policy default) and closes with "The comparison is
+therefore as-deployed, not compliance-matched." The panel's "warm starting is
+ordinarily a solver-policy choice" is thereby answered precisely rather than
+conceded wholesale — which was the §7 preamble's instruction.
+
+Revisit only if C8 unblocks AND ≥4 buffer days remain.
+
 ### 7.7 C6 — measure the deployed budgets 1×8 and 2×4 (the new experiment)
 
 The paper motivates with "interactive position-based solvers ship budgets
