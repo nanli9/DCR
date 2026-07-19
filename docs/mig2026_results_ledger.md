@@ -926,3 +926,210 @@ convergence ... removes the pathology outright", and a new paragraph
 "Self-convergence stops short of the reference" states the plateau and the
 state metrics explicitly. This is more defensible than the original claim: a
 reviewer running K=500 themselves would have found the plateau.
+
+---
+
+## R5 — usefulness of the governed result (2026-07-19)
+
+Plan §6.7. Machine: Apple M4, CPU only, CPython 3.12. Commit `b639c16` +
+working tree.
+
+Harnesses (both NEW):
+- `benchmarks/paper_eval/x1_passivity/run_governed_accuracy.py` (R5.1 + R5.4)
+- `benchmarks/paper_eval/x1_passivity/run_projection_validity_avbd.py` (R5.2)
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_governed_accuracy.py
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_projection_validity_avbd.py
+```
+Data: `out/governed_accuracy.csv`, `out/governed_accuracy_traces.npz`,
+`out/projection_validity_avbd.csv`.
+
+### R5.1 — accuracy at the shelf 8×2, relax 0.7 cell
+
+Four arms on one axis. Reference arms are measurement-only (`passivity_gamma`
+forced to 1.0, so the enforcement branch is dead); the governed arm is the arm
+under test, with `_psv_monitor_only=False` so the projection is ACTIVE.
+
+| arm | budget | ratio | E_mod peak [J] | peak \|d\| [mm] | resting sag [mm] |
+|---|---|---:|---:|---:|---:|
+| ungoverned | xpbd 8×2 | 53.7307066 | 1555.6 | 24.116 | 1.403 |
+| governed | xpbd 8×2 | 1.01067586 | 29.26 | 5.929 | 0.453 |
+| xpbd converged | xpbd 500×1 | 0.2996131 | 8.2236 | 20.482 | 1.714 |
+| oracle | impulse 500×1 | 0.2734809 | 7.9176 | 20.000 | 2.377 |
+
+**The plan's arithmetic SURVIVES, and it survives under both references.** R4
+made "the reference" ambiguous (the position-based host self-converges to
+0.2996, not the oracle's 0.2735), so both are reported:
+
+| reference | energy error ungoverned → governed | in joules |
+|---|---|---|
+| oracle (0.2734809) | **196.5× → 3.696×** | +1548 J → +21.34 J |
+| xpbd converged (0.2996131) | **189.2× → 3.558×** | +1547 J → +21.04 J |
+
+Plan §6.7 predicted "~200× → ~3.7×" from 53.7/0.2735 and 1.011/0.2735. Verified:
+196.5 and 3.696. The choice of reference moves the numbers by <5%, so the claim
+does not rest on it. **Paper reports the oracle-referenced pair and names the
+other.**
+
+### R5.1b — THE GOVERNOR MAKES THE TRAJECTORY WORSE, NOT BETTER
+
+Not anticipated by the plan, and it is the sharpest result of R5.
+
+| reference | deflection L∞ ungoverned → governed |
+|---|---|
+| oracle | 6.505 mm (32.5% of ref peak) → **14.28 mm (71.4%)** |
+| xpbd converged | 7.988 mm (39.0%) → **14.77 mm (72.1%)** |
+
+Energy error improves ~53×; trajectory error **doubles**. The governor is a
+safety envelope, not an accuracy device — now demonstrated rather than asserted.
+
+### R5.1c — the mechanism, measured (why 196× energy is only 1.2× deflection)
+
+A reviewer will ask how the ungoverned run can hold 196× the reference energy
+while its peak deflection is only 24.1 mm against 20.0. Answer: the excess is
+neither kinetic nor low-frequency. Measured at the peak-energy frame:
+
+| arm | KE fraction | spectral centroid | energy above 10 kHz |
+|---|---:|---:|---:|
+| ungoverned | 0.3% | 24130.5 Hz | **99.626%** |
+| governed | 1.0% | 23350.5 Hz | **97.670%** |
+| xpbd converged | 15.0% | 29.7 Hz | 0.000% |
+| oracle | 6.6% | 25.2 Hz | 0.000% |
+
+The shelf spectrum is sharply BIMODAL — ten bending modes at 20.34 Hz … 2.033
+kHz, then a stiff cluster of six at 20.685 … 24.708 kHz. Any threshold inside
+that decade-wide gap gives the same number, so the 10 kHz cut is not a tuned
+knob (verified: the gap is 2033 → 20685 Hz). The substep rate at 8×2 is 240 Hz,
+so the stiff cluster sits ~200× above its Nyquist and is unrepresentable —
+this is the documented stiff-row injection mode.
+
+**Two consequences, both honest and both new:**
+1. The spurious energy lives in modes that barely move the support surface, so
+   an energy metric and a deflection metric measure genuinely different things.
+   This retroactively explains R4's split verdict (peak agrees to 2.4%, L∞
+   differs by 34%).
+2. **The γ-projection is a single scalar, so it cannot redistribute energy
+   across the spectrum.** It removes the right AMOUNT (1555.6 → 29.26 J) and
+   leaves the spectral character intact (99.6% → 97.7% above 10 kHz), while
+   scaling down the legitimate low-frequency sag along with the noise (peak
+   deflection 24.1 → 5.9 mm against a reference 20.0). That is precisely why
+   R5.1b's L∞ degrades, and it is a mechanism, not a guess.
+
+### R5.2 — AVBD post-projection contact validity (Table 2 completion)
+
+E-S3 ported to the augmented-Lagrangian host on its two R>1 cells (table scene,
+4×1, both relaxations — R = 1.179 / 1.700, Eq.-(2) margins +5.35 / +15.08 J).
+
+| scene | relax | clamped | γ min | gap viol. med / max [mm] | pre-scale max [mm] | impulse | λ var. |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| table | 0.7 | 27/108 | 0.729174 | 0.011 / **1.429** | 0.4646 | 1.169× | 0.41× |
+| table | 1.0 | 25/108 | 0.601613 | 0.023 / **3.108** | 0.5645 | 1.392× | 1.38× |
+
+Momentum change across the projection is **0.000e+00 kg·m/s exactly** in every
+clamp-active substep (same as XPBD, and necessarily so: the scale writes only
+modal state). `holds()` and `passive()` both True in both cells.
+
+**The projection is an order of magnitude gentler on this host** than on the
+position-based one (XPBD: 44–99% of substeps clamped, worst violation 21.6 mm,
+corrective impulse to 8.7×, λ variance to 58×). Consistent with R1: AVBD's
+overdrafts are ≤15 J, so γ barely has to bite (min 0.60–0.73). The
+pre→post multiplier is comparable (3.1× and 5.5×, against XPBD's 3.5–12.6×);
+what differs is the absolute scale.
+
+### FOUR PORTING TRAPS — the E-S3 wrappers do NOT transfer unchanged
+
+Anyone re-deriving these must handle all four; each one silently produces wrong
+numbers rather than an error.
+
+1. **`sol._q` on AVBD is the list of body QUATERNIONS (xyzw)**
+   (`solver_6dof.py:311`), not the modal coordinate — that is `_q_modal_host`.
+   E-S3's `_gaps()` reads `sol._q` and would compute a gap from a quaternion.
+2. **Support rows are parallel lists**, not objects: `_support_row_cidx` (index
+   into `_rows`, giving `body_a`/`off_a`), `_support_U_y_rows`,
+   `_support_y_rest`.
+3. **The ledger must be PRE-CONSTRUCTED** (`solver_6dof.py:2449` builds it
+   lazily on the first substep). The R1 trap, hit again here.
+4. **UNITS: `c_lambda` is a FORCE in newtons** — X1d (`run_static_ledger.py`)
+   validates Σ|λ_N| = m·g per resting body against the analytic weight. So the
+   impulse is λ·h_sub, NOT the λ/h_sub of the position-based probe, whose
+   multiplier is a different object. Caught by noticing a "steady impulse" of
+   5052 N·s; corrected to 0.300 N·s. **The reported ratio is invariant to the
+   factor** (1.169 / 1.392 either way), so no conclusion changed — but the
+   absolute column would have been mislabelled by 4 orders of magnitude.
+   The paper reports only the ratio, on both hosts.
+
+Clamp site asserted at runtime, not assumed: the table scene is built without
+native cargo, so the support-only clamp (`_modal_commit`, `:2637`) fires and
+the augmented (q_support, a_cargo) clamp at `:3303` does not.
+
+### R5.4 — normalized penetration (completes R0 item 10)
+
+E-S3's worst-case post-projection penetration is 21.6 mm (shelf 4×1). R0 put
+the geometry half in the paper (72% of the 30 mm board thickness, 2.7% of the
+0.8 m span); the missing half was the sag the projection destroys, which needed
+an instrumented run. "Resting sag" is defined as the tail median of
+max_i |d_i(t)| over the last half of the window, governor OFF, at a converged
+budget — so it is the scene's own equilibrium, not a truncation artifact.
+
+| unclamped reference | resting sag | peak dynamic deflection | 21.6 mm is |
+|---|---:|---:|---|
+| xpbd converged 500×1 | 1.714 mm | 20.482 mm | 12.60× the sag, **1.05×** the peak |
+| oracle impulse 500×1 | 2.377 mm | 20.000 mm | 9.09× the sag, **1.08×** the peak |
+
+**The sharp statement: the worst-case penetration is the board's entire dynamic
+deflection.** At the worst substep the projection does not merely reduce the
+sag, it removes all of it and then some (1.05–1.08× the peak the unclamped
+scene ever reaches, 9–13× its resting sag). This is a starker framing than
+either the thickness fraction or the bare millimetres, and it is the honest one.
+
+### Acceptance (plan §6.7)
+
+1. **Non-perturbation, exact**: the ungoverned and governed arms reproduce the
+   frozen `solver_matrix.csv` cell to the last digit — 53.73070660394743 and
+   1.0106758619142793, |diff| = 0 (`--check-frozen`).
+2. Table 2 now covers AVBD's problem cells (2 new rows).
+3. Numbers frozen here with command + commit + machine before entering the tex.
+4. Triptych: see the page-budget decision below.
+
+---
+
+## R6 — prior-art positioning of the governor (2026-07-19)
+
+Plan §6.8. No compute: a related-work item. Commit `b639c16` + working tree.
+
+Three lines of prior art now cited, with the positioning stated rather than
+implied. Two were already in `references.bib` but **uncited**; one was added.
+
+| work | status | framing in §1 |
+|---|---|---|
+| Hannaford & Ryu 2002, time-domain passivity control | in bib, was uncited | the observer: watch produced energy, damp when it goes negative |
+| Franken et al. 2011, two-layer passivity / energy tanks | **ADDED** | gives the observer explicit state — spend only what the tank holds |
+| Dinev et al. 2018, FEPR | in bib, was uncited | also projects state post-solve, but onto conservation of TOTAL energy |
+
+**Verification of the new entry** (the repo's rule is that references are
+verified, not recalled): Franken, Stramigioli, Misra, Secchi, Macchelli,
+"Bilateral Telemanipulation With Time Delays: A Two-Layer Approach Combining
+Passivity and Transparency", *IEEE Transactions on Robotics* **27**(4),
+741–756, Aug 2011, doi `10.1109/TRO.2011.2142430`. Confirmed 2026-07-19 against
+the University of Twente research record and the publisher DOI; the two-layer
+energy-tank architecture is this paper's contribution.
+
+### The positioning, in two claims
+
+1. **The reservoir is a passivity observer with a transplanted supply.** It
+   keeps the observer-plus-storage structure and changes the funding: the tank
+   is fed by measured gross rigid-side dissipation — energy the contact solve
+   demonstrably removed *elsewhere* — rather than by the port it regulates.
+2. **The actuator is state-space, not force-space.** Classical passivity
+   control modulates a damping force; a fixed-budget solver has already
+   committed its multipliers by the time the excess is observable, so the only
+   remaining actuator is a scale on realized state. This is also why the
+   projection cannot be band-selective (R5.1c).
+
+Against FEPR the difference is directional: FEPR projects onto *total*-energy
+conservation and can therefore restore energy; ours is one-sided, caps a single
+subsystem's storage, and never returns energy the solver lost.
+
+This answers the panel's "a simple energy clamp without prior-art positioning"
+directly, and joins rather than replaces the four must-cite adversaries of §1.

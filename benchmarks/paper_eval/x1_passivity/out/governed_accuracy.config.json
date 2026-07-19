@@ -1,0 +1,28 @@
+{
+  "figure": "governed_accuracy.csv",
+  "stage": "X0",
+  "git_sha": "b639c16",
+  "generated_utc": "2026-07-19T06:20:07+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "shelf"
+  ],
+  "solvers": [
+    "xpbd",
+    "impulse"
+  ],
+  "note": "R5 (plan \u00a76.7 items 1,4): governed-vs-ungoverned accuracy at the shelf 8x2 relax 0.7 cell against TWO references (the implicit oracle at K=500 and the position-based host self-converged at K=500 -- R4 showed these differ by 9.6%), in ratio, in joules, and in deflection Linf; plus the unclamped steady-state sag used to normalize the E-S3 21.6 mm worst-case post-projection penetration. Reference arms are measurement-only (passivity_gamma forced to 1.0); the governed arm is the arm under test."
+}
