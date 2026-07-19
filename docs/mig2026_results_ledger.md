@@ -1408,3 +1408,49 @@ than 1 mm produce visibly different outcomes on chaotic contact stacks
 (the ARM/x86 divergence). "Sub-millimetre per substep" therefore does **not**
 imply "the video looks the same". Only a full run would settle that, which is
 what a GO costs.
+
+### R8 GATE DECISION — **NO-GO**, decided 2026-07-19 (user-requested, early)
+
+Plan §6.10 set the go/no-go at ~Jul 27 with default NO-GO. Called early because
+the probe above settles it on evidence rather than schedule. Five grounds, in
+order of weight:
+
+1. **The premise is measurably false for the option the plan actually names.**
+   §6.10 asserts "Either preserves load-bearing sag and should collapse the
+   21.6 mm worst case." Deviation-referencing does **not**: worst-case
+   penetration goes 22.03 → 19.89 mm (÷1.1). The item's stated benefit is not
+   delivered by the mechanism it proposes.
+2. **The variant that does deliver is not enforceable.** Band-selective
+   collapses the worst case (22.03 → 1.63 mm, ÷13–200×) but leaves no feasible
+   γ in up to **37.8%** of clamp-active substeps, because the reservoir is
+   nearly empty in exactly the starved cells the governor exists for. It would
+   trade a bound that holds by construction for one that holds sometimes.
+3. **Not novel, and the paper's own Table 1 proves it.** Frequency-selective
+   energy removal is already in this solver: Rayleigh damping
+   D = α₀M + α₁K, with the α₁K term dissipating mode i in proportion to ω_i².
+   That is printed in Table 1. Beyond that, discarding numerically-dominated
+   high-frequency modes is textbook modal truncation, and frequency-separated
+   passivity control already exists in haptics (FS-VSPC). Making the
+   frequency-selectivity a *budget* rather than a *coefficient* is a modest
+   variation, not a contribution — and §14's claim discipline would not permit
+   claiming it.
+4. **The third option was never in scope of what was tested, and is not free.**
+   §6.10's option (b), re-solve contact once after projection, is untested. It
+   is structurally the most promising (it leaves the whole-state γ intact, so
+   Eq. (2) stays enforceable by construction, and fixes contact separately) but
+   a corrective solve does work on the bodies *after* the ledger has committed,
+   so it can inject energy from the other end and may need an iterated
+   ledger — its own research question, not a patch.
+5. **Cost is unchanged and the calendar has not improved.** It remains a solver
+   behaviour change requiring re-freezing the 72-cell matrix, E-S3 and the
+   teaser, with the submission window opening Jul 25 and the deadline Aug 7.
+
+**NO-GO condition is already satisfied**: §6.10 requires "one Limitations
+sentence names it as the identified next mechanism" — committed at `a74dfa6`,
+naming deviation-referencing (the safer of the two) with its enforceability
+caveat. No further paper change is required.
+
+**Carried to the long paper** (not this submission): option (b) is the live
+research direction, and the band/deviation trade-off measured here — effective
+but unenforceable versus enforceable but ineffective — is the finding that
+makes it interesting rather than a patch.
