@@ -313,6 +313,34 @@ measurement.}
 \label{fig:matrix}
 \end{figure*}
 
+\begin{table}[t]
+\centering\footnotesize
+\setlength{\tabcolsep}{3.2pt}
+\caption{What differs between the three hosts, and what does not. Everything
+below the rule is held identical; everything above it is intrinsic to the
+formulation. Entries are read from the implementation, with source anchors in
+the supplemental ledger.}
+\label{tab:solvers}
+\begin{tabular}{@{}lp{1.62cm}p{1.62cm}p{1.62cm}@{}}
+\toprule
+ & position-based & augmented-Lagr. & seq.\ impulse \\
+\midrule
+unknown solved for & position & position + multiplier & velocity \\[1pt]
+contact treatment & compliant projection, $\tilde\alpha=\alpha/h^{2}$ ($\alpha{=}0$: rigid) & penalty + dual update, $\alpha{=}0.99$, $\beta{=}10^{5}$ & Schur system, $\mathbf{A}=\tfrac{\mathrm{cfm}}{h^{2}}\mathbf{I}+\mathbf{J}\mathbf{M}^{-1}\mathbf{J}^{\!\top}+\hat{\mathbf{G}}\mathbf{W}\hat{\mathbf{G}}^{\!\top}$ \\[1pt]
+modal weight & explicit; per-mode compliance $1/(H_{ii}h^{2}{-}1)$ & block-GS, full Newton step on $\mathbf{q}$ & \emph{implicit}, $\mathbf{W}=(\mathbf{M}{+}h\mathbf{D}{+}h^{2}\mathbf{K})^{-1}$ \\[1pt]
+iteration & GS sweeps, gap re-evaluated each sweep & coloured primal GS + $\mathbf{q}$-block & PGS over rows \\[1pt]
+warm start & none ($\lambda{\leftarrow}0$ each substep) & $\lambda$ and penalty carried over & $\lambda$ cache keyed per row \\[1pt]
+relaxation & $0.7$ on $\mathbf{q}$ and the support block & $0.7$ on the $\mathbf{q}$-block Newton step & \emph{inert}: never read \\
+\midrule
+$h$; substep & \multicolumn{3}{c}{$1/120$~s; $h/S$, contacts regenerated per substep} \\
+modal rank $r$ & \multicolumn{3}{c}{$24$ (shelf), $28$ (ledge), $24$ (table)} \\
+modal damping & \multicolumn{3}{c}{Rayleigh $\mathbf{D}=\alpha_0\mathbf{M}+\alpha_1\mathbf{K}$, $\alpha_0{\in}\{2,3\}$, $\alpha_1{=}10^{-5}$} \\
+stepper; $\eta$ & \multicolumn{3}{c}{implicit midpoint; $\eta=1$} \\
+machine & \multicolumn{3}{c}{Apple M4, CPU only, CPython 3.12} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
 We drive an impactor into a modally-reduced support in three scenes --- a shelf
 board, a ledge slab, and a $2.2\times1.1$~m table, the last two following the
 layouts of \citet{coevoet2020distant} --- and sweep modal relaxation and the
@@ -320,6 +348,29 @@ local budget (iterations $\times$ substeps) over
 $\{4{\times}1, 8{\times}2, 16{\times}4, 32{\times}8\}$. The reported ratio is
 peak modal mechanical energy over peak incident rigid kinetic energy of the
 impactor: an intensity diagnostic, not the enforced invariant.
+Table~\ref{tab:solvers} lists what the three hosts do differently and what is
+pinned identical across them. Two entries deserve emphasis because they are
+the ones a controlled comparison could be accused of getting wrong. The
+relaxation axis is \emph{inert} on the impulse host --- its implicit modal
+weight needs no under-relaxation, and the attribute is never read --- so its
+two relaxation rows are bit-identical by construction rather than by
+coincidence. And the hosts differ in warm start, which is intrinsic to the
+formulation rather than a knob we chose: the position-based host zeroes its
+multipliers every substep, while the other two carry them across.
+
+\paragraph*{Equal work, unequal outcome.} A cell costs $K\!\cdot\!S$ row
+evaluations per frame, so the budget axis quadruples the work at every rung
+($4, 16, 64, 256$) and spans $\times64$ end to end --- steeper than the
+$4{\times}1\to32{\times}8$ labelling suggests. It also conflates two different refinements, and they
+are not interchangeable. Holding the budget fixed at $32$ row evaluations per
+frame on the shelf drop and spending it entirely on iterations ($K{=}32$,
+$S{=}1$) gives $R=0.300$ and satisfies \eqref{eq:invariant}; spending the same
+$32$ on substeps ($K{=}4$, $S{=}8$) gives $R=3.13$ and overdraws by
+$481$~J. The ordering is not uniform --- at $8$ row evaluations substeps are
+marginally ahead ($213.9$ vs $265.7$) --- but iterations pull away as the
+budget grows ($9.58$ vs $68.05$ at $16$), and within this ladder only the
+iteration axis reaches the regime where the invariant holds. Substep
+refinement alone does not buy convergence of the contact row.
 
 Figure~\ref{fig:matrix} shows the outcome. The position-based host exceeds
 $R=1$ in $8$ of $24$ cells, worst case $1.19534\times10^{5}$ (ledge, relaxation $1.0$,
@@ -386,6 +437,19 @@ $K{=}32$, approaching the converged reference $0.2735$; the gap
 $|\text{XPBD}-\text{reference}|$ shrinks from $2.96\times10^{4}$ to
 $2.7\times10^{-2}$. The implicit realization moves only in the fourth decimal
 across $K=2\ldots500$ (spread $4.9\times10^{-4}$).
+
+That the energy ratio falls with $K$ does not by itself show the \emph{row} is
+converging --- it could be one scalar coincidentally shrinking. Measuring the
+constraint directly settles it: the end-of-substep complementarity residual
+$\|\min(C,\lambda)\|_\infty$ on the same sweep falls monotonically from
+$2.79\times10^{-2}$ at $K{=}1$ to $3.56\times10^{-6}$ by $K{=}64$, where it
+bottoms out ($K{=}128$ moves it in the seventh significant figure). The energy
+crossing at $K\approx24$ coincides with the residual passing ${\sim}3\times
+10^{-5}$; the amplification disappears exactly as the complementarity
+conditions start to hold. We report this for the position-based host only: the
+augmented-Lagrangian multiplier is not the same object, and the implicit
+realization is already converged at $K{=}2$, so neither yields a comparable
+curve.
 
 This is the central diagnostic result, and it cuts both ways. It confirms that
 the amplification is created by truncation and cured by convergence --- but it
