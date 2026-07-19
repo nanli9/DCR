@@ -451,10 +451,32 @@ augmented-Lagrangian multiplier is not the same object, and the implicit
 realization is already converged at $K{=}2$, so neither yields a comparable
 curve.
 
+\paragraph*{Self-convergence stops short of the reference.} Pushing the
+position-based host to $K\!=\!500$ against itself does \emph{not} close the
+remaining gap. Its ratio plateaus by $K\approx64$ --- $0.3003$, $0.2999$,
+$0.2997$, $0.2996$, $0.2996$ at $K=32,64,128,256,500$ --- so the residual
+$2.6\times10^{-2}$ against the oracle's $0.2735$ is a fixed point, not a tail:
+between $K{=}32$ and $K{=}500$ the gap improves by $1.03\times$. The state
+agrees no better. Comparing the deflection trajectory
+$d_i(t)=\mathbf{U}_y[i]^{\!\top}\mathbf{q}(t)$ against the oracle's, peak
+deflection matches to $2.4\%$ ($1.0241\times$) but the trajectories differ by
+$\|d^{500}-d^{\text{oracle}}\|_\infty = 6.8$~mm, $34\%$ of the oracle's own
+peak, and that figure is likewise flat from $K{=}32$ onward. So the two hosts
+converge to \emph{different} discrete solutions. This is expected rather than
+alarming --- they discretize the same continuous law differently, the
+position-level row being one linearization step and an $e{=}0$ choice away from
+the velocity-level one --- but it means the sweep separates two effects that are
+easily conflated: a truncation pathology that convergence removes, sitting on
+top of a formulation difference that it does not. (We do not report a ring
+frequency here: over these windows the deflection trace is dominated by the
+quasi-static sag rather than the elastic ring, and the dominant spectral peak
+moves with window length. The ring comparison that \emph{is} resolved,
+$78.0$ vs $78.3$~Hz, is the full-FEM one in \S\ref{sec:gt}.)
+
 This is the central diagnostic result, and it cuts both ways. It confirms that
-the amplification is created by truncation and cured by convergence --- but it
-equally says that iterating harder, or adopting the implicit formulation, would
-remove the problem outright. The bound of \S\ref{sec:bound} is therefore not
+the amplification is created by truncation and largely cured by convergence ---
+but it equally says that iterating harder, or adopting the implicit formulation,
+would remove the pathology outright. The bound of \S\ref{sec:bound} is therefore not
 offered as a substitute for convergence. It is offered for the regime where
 neither escape is available: interactive position-based solvers ship budgets in
 the neighbourhood of $1{\times}8$ to $2{\times}4$, well below the $K\!\ge\!24$
