@@ -1628,3 +1628,37 @@ no longer absorb a display equation without losing prose that carries
 argument.** The P-round already recorded "further P-items would cost evidence,
 not words"; the Q-round confirms it — the two sentences cut here were the last
 two that were genuinely redundant with the body.
+
+### Q5: the fast path is unavailable, and the reason is structural
+
+§9.7's fast path needs frozen body poses for the cell that prints 21.6 mm.
+That cell is **shelf 4×1** (Q0's incidental finding). Inventory of every trace
+in the tree:
+
+| trace | scene / budget | body poses? |
+|---|---|---|
+| `teaser_canonical.npz` | shelf 8×2 | **yes** (off/on/ref) |
+| `teaser_deployed.npz` | shelf 1×8 | **yes** (off/on/ref) |
+| `teaser_steel.npz` | shelf 1×8, steel | **yes** (off/on/ref) |
+| `governed_accuracy_traces.npz`, `governed_accuracy_1x8_traces.npz` | shelf 8×2 / 1×8 | no — deflection fields only |
+| `selfconvergence_traces.npz`, `selfconvergence_long_traces.npz` | shelf, K ladder | no — deflection fields only |
+
+**No trace carries 4×1 poses at all.** §9.7 anticipated half of this (it knew
+`governed_accuracy_1x8_traces.npz` was fields-only); the other half is that the
+three pose-carrying traces are all deployed-or-canonical budgets, because the
+teaser was built to show a *production-like* cell, not the adversarial corner.
+The 4×1 corner is the one the paper uses precisely because it is not
+production-like, so the artifact that would visualize it was never recorded.
+
+The boot prompt scopes this session to "Q5 fast path only", so Q5 ships nothing
+and the round ships the Q3-relabelled 44.8 s cut — which §9.7 explicitly
+permits and the panel already scored positively.
+
+**One feasible alternative, for the user to decide at hand-off, not built
+here.** The deployed 1×8 trace has poses, and the paper prints a worst
+penetration of **9.8 mm** at the deployed budgets (§3.2). A close-up there
+would be scientifically honest and matched to a printed number — it simply is
+not the 21.6 mm headline, so the on-screen figure would be 9.8 mm. Building it
+needs no new physics. Getting the 21.6 mm cell itself needs the §9.7 slow path:
+one serial ARM replay of shelf 4×1 with pose capture, frozen as E-C11, whose
+non-perturbation check is that it reproduces 21.6 mm to printed precision.

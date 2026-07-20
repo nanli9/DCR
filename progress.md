@@ -470,7 +470,9 @@ Q5 fast path → Q8. Q6 deferred by advisor ruling (§9.8). Q9 gates every commi
 | item | code branch | paper worktree |
 |---|---|---|
 | Q0 baseline + panel log | `5aa9b96`, `06c0911` | — (verified, untouched) |
-| Q1 supplement v2 | `ea795b5`, `fa6e08c`, `ecf3861` | `36679a6` |
+| Q1 supplement v2 | `ea795b5`, `fa6e08c`, `ecf3861`, `326817a` | `36679a6` |
+| Q2+Q3+Q4 tex pass (Q7 dropped) | — | `96a6a71` |
+| Q3 figure + video relabel | `b8dc2e4` | `67cb5e1` |
 
 ## Q0 — adjudicate baseline + log the panel (§9.2) — DONE
 
@@ -536,3 +538,58 @@ Three things Q1 found that were not on its list (details in findings.md):
   slightly strengthens the sentence it appears in. New ledger entry **E-C9e**
   freezes the scene specification, which backed two printed Table 1/§2
   quantities with no ledger entry at all.
+
+## Q2 + Q3 + Q4 — one tex pass (§9.4–§9.6); Q7 dropped (§9.9) — DONE
+
+Audit tables for all three are in findings.md, every site adjudicated.
+
+- **Q2.** `eq:budgeted` is now equation (4): the one-deposit-relaxed bound has
+  its own number, Prop. 2.1 guarantees *that*, and the sketch points at it. The
+  vocabulary map is applied at the two claim sites the panel named — the
+  abstract's "enforced by a reservoir" and the contribution bullet — each now
+  splitting *guarantees* (the relaxed display) from *observed* (strict Eq. 2,
+  90 cells). Zero "enforced up to X" phrasings.
+- **Q3.** Every arm identity was derived from manifests and CSVs before any
+  rename. All three teaser manifests are `solver: xpbd, converged: 500x1` with
+  ref peak 8.223580660384274 J = `arm:xpbd_converged` to 16 digits, so Fig. 1's
+  reference is Term B and its caption was the panel's exact catch. The 7.92 J
+  site is `arm:oracle` = Term A and was already right. One site — "at a
+  converged budget" — named *no* arm and would have been renamed wrongly by a
+  blind sweep. "Converged" now survives at 2 sites, both backed by the checked
+  4.9e-4 spread.
+- **Q4.** `formulation` survives at 3 sites (title per plan §8.3, the abstract's
+  family list paired with "three tested implementations", and franken2011's
+  control formulations); 4 sites changed. The Limitations closer gains the
+  explicit "one implementation of each". The row-law convention needed no
+  change — P2 had already standardized it.
+- **Q7 DROPPED.** The future-work clause fits at neither full nor compressed
+  length. §9.9 makes it the first thing to drop when the gate is red and §9.13
+  ranks it below further cuts, so it was dropped rather than funded.
+
+Page budget: Q2's display cost a full page, recovered in §9.13's order —
+(iii)'s prose, the abstract/contribution sentences, then §8.2's named ladder
+rung (Fig. 2's candidate-denominator sentence) and the hatched-rows sentence
+that duplicated the body. **No frozen number touched.** Gate v2 green on every
+commit; `verify_paper_numbers.py` 38/38; the claim-index self-check still
+resolves every tex anchor after the edits.
+
+Video re-render (E-C9f) verified label-only: **1343 frames, 44.766667 s,
+1920×1080, yuv420p, 30/1 fps, 1 stream** — every property identical to the
+panel-reviewed render. Fig. 1's text extraction shows exactly one changed line.
+New sha `30a862fa…` supersedes `6dcd9042…` and is what the bundle now carries.
+
+## Q5 — fast path unavailable, nothing shipped (§9.7)
+
+The 21.6 mm cell is **shelf 4×1**, and **no frozen trace carries 4×1 body
+poses**: the three pose-carrying teaser traces are 8×2, 1×8 and 1×8, and the
+four other trace files hold deflection fields only. The teaser was built around
+a production-like cell, so the adversarial corner the paper leans on was never
+recorded with poses. The boot prompt scopes this session to the fast path, so
+Q5 ships nothing and the round ships the Q3-relabelled 44.8 s cut — which §9.7
+explicitly permits.
+
+Two options preserved for the PI, neither built (findings.md has the detail):
+a deployed-1×8 close-up at the printed **9.8 mm** (poses exist, no new physics),
+or the §9.7 slow path — one serial ARM replay of shelf 4×1 with pose capture,
+frozen as E-C11, reproducing 21.6 mm to printed precision as its
+non-perturbation check.
