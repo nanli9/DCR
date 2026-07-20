@@ -1387,3 +1387,40 @@ the paper:** per-K self-convergence plateau values, per-scene device real-time
 factors, and the AVBD post-projection validity rows. No claim and no frozen
 number was dropped from the argument — but this is the point at which further
 P-items would cost evidence, not words.
+
+## Q-round (plan §9) — 2026-07-20
+
+### Q0: "verify the paper worktree is clean" does not hold literally, and the
+### honest check is disjointness, not cleanliness
+
+§9.2 asks for a paper worktree "clean at the P-round head". It is not: nine
+files are modified there (`main.tex`, `sections/00`–`50`, and two figure PDFs
+`fig_x2_falloff`, `fig_x7_restitution`). None of it is Q-round dirt — it is the
+**long paper**, carrying the 2026-07-13 standalone-repositioning edits, which
+lives in the same worktree as a separate document and was deliberately left
+alone by the P-round too (progress.md, P-round headline 6).
+
+The check that actually matters is therefore disjointness, and it holds:
+`main_short.tex`, `NUMBERS.md`, `references.bib` and `latexmkrc` are unmodified,
+and the short paper `\includegraphics` exactly `fig_teaser.pdf`,
+`fig_s1_solver_matrix.pdf`, `fig_s2_kconvergence.pdf` — none of which is among
+the two modified figures. Rebuilding the short paper cannot pick up long-paper
+state. Corroboration: the forced full rebuild produced **730,379 bytes**, the
+byte count findings.md records for the reviewed PDF `627a14e…`.
+
+Consequence for the round: every later gate check must be read the same way —
+"clean" means *the short paper's inputs are unmodified*, and `git status` in the
+paper worktree will keep showing nine unrelated modified files. Do not "tidy"
+them; do not commit them on a Q-item commit. Check with
+`git status --short main_short.tex NUMBERS.md references.bib latexmkrc`.
+
+### Q0 incidental: the 21.6 mm penetration cell is shelf 4×1 (needed by Q5)
+
+Located while spot-checking frozen numbers, ahead of Q5's own search: the
+worst-case post-projection penetration the abstract and §4 print as 21.6 mm is
+the **shelf $4{\times}1$** row of Table 2 (`main_short.tex:547`), which pairs it
+with 107/108 clamped substeps and no corrective-impulse/variance entry; the
+8.69× corrective impulse and 58× multiplier variance are a *different* row,
+**ledge $8{\times}2$** (`:550`). Q5's overlay must not attach 8.69× to the
+21.6 mm cell — they are different cells, and the paper never claims otherwise
+(§4 prints them as separate worst-cases at `:85` and `:603`).

@@ -461,3 +461,35 @@ OPEN:
 - Reconciled the panel to a borderline/lean-weak-accept scientific recommendation under the short-paper bar, with a mandatory paper-ID fix and four high-impact scientific/reproducibility revisions before upload.
 - Prepared the self-contained six-reviewer table, area-chair verdict, supplement assessment, and ranked pre-submission actions; all review phases are complete.
 - The generic plan checker could not parse this repository's custom multi-project plan (`0/0 phases`); manual phase audit confirms current review phases 11–14 are complete.
+
+# 2026-07-20 Q-round (plan §9) — response to the 4.17/7 video panel
+
+Order: Q0 → Q1 → (Q2+Q3+Q4+Q7 as one tex pass) → full-audit rebuild →
+Q5 fast path → Q8. Q6 deferred by advisor ruling (§9.8). Q9 gates every commit.
+
+| item | code branch | paper worktree |
+|---|---|---|
+| Q0 baseline + panel log | `5aa9b96` | — (verified, untouched) |
+
+## Q0 — adjudicate baseline + log the panel (§9.2) — DONE
+
+- Diff-verified the three uncommitted workstream docs before committing: one
+  pure-append hunk each, no deletions — plan `+652` at line 816 (§8 P-round
+  work order, never committed + §9 Q-round + §10 parking lot), findings `+47`
+  at 1222 (the six-reviewer transcription), progress `+23` at 441 (the panel
+  round-log). Committed as `5aa9b96`. `prompts/` left untracked (house
+  convention); the sound-workstream WIP left alone.
+- Paper worktree: **not literally clean, but provably disjoint** — see the
+  findings note. `main_short.tex`, `NUMBERS.md`, `references.bib`, `latexmkrc`
+  and all three figures the short paper `\includegraphics` are unmodified at
+  the P-round head `0c0bb58`.
+- Clean rebuild (`latexmk -gg -pdf main_short.tex`): 7 pages, 730,379 bytes —
+  the same byte count as the reviewed PDF `627a14e…`, so the build is
+  reproducible modulo timestamps. Gate v2 **PASS**: body ends p. 6, 7 pages
+  total, 0 overfull.
+- Frozen-number spot-checks (3/3 pass): worst-cell ladder `8.5e5 → 0.165`
+  over K=1…32 (`main_short.tex:528` ← `k_convergence_ledge_worst.csv`,
+  846352 → 0.165324); penetration `21.6` mm + `8.69×` corrective impulse
+  (`:85,:547,:550` ← Table 2 rows); modal rank `16/16/24` (`:380` ←
+  `scene_spec.csv` REALIZED, the P7 correction) and the `1.1e-13` J worst
+  margin over 90 measured cells / 78 distinct (`:329,:82`).
