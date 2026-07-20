@@ -1505,3 +1505,126 @@ failure mode a mechanical index catches and a human read does not.
   manifest's sha/timestamp; every physical quantity was bit-identical. That is
   an unintentional reproducibility datum: the same measurement at a different
   commit reproduced exactly.
+
+### Q2 audit table — every `enforc|guarante|certif|observ` site adjudicated
+
+Vocabulary map (binding, §9.4): *guarantees / certifies* → the relaxed display
+`\eqref{eq:budgeted}` ONLY; *observed* → strict `\eqref{eq:invariant}`;
+*limits / contains / maintains* → safe descriptive language for the governor.
+Line numbers are post-edit. `certif` has zero hits in the source, before and
+after.
+
+| site | before | verdict | after |
+|---|---|---|---|
+| abstract (:81,:83) | "**enforced** by a reservoir ledger… It holds in all 90 measured cells" | **CHANGED** — the panel's named site; "enforced" read as a strict guarantee | "**maintained** by a reservoir ledger… The loop **guarantees** a one-deposit relaxation of that bound; the strict form is **observed** in all 90 measured cells" |
+| contribution bullet (:158,:161) | "**enforced** by a reservoir ledger… it satisfies the prescribed inequality in all 90" | **CHANGED** — same defect | "**maintained** by… guaranteeing `\eqref{eq:budgeted}`, a one-deposit relaxation; the strict form is *observed* in all 90" |
+| Prop. 2.1 (:327) | "maintains $B\ge0$ and **enforces** (iii)" | **CHANGED** — "(iii)" was a prose pointer; now a numbered object | "maintains $B\ge0$ and **guarantees** `\eqref{eq:budgeted}`" |
+| sketch (:336) | "exactly~(iii)" | **CHANGED** | "exactly~`\eqref{eq:budgeted}`" |
+| sketch (:337–339) | "Strict … is not implied; it is *observed*, in all 90 governed cells, worst margin 1.1e-13 J" | **KEEP** — already exactly the map's *observed* form | unchanged |
+| §2 item (ii) (:281) | "The **enforced** recursion" | **KEEP** — names the loop, claims nothing | unchanged |
+| §2 item (iii) (:282) | "The implementation's own test additionally forgives…" | **CHANGED** — reframed as the guaranteed object, formula promoted to eq. (4) | "The bound the loop actually **guarantees** relaxes `\eqref{eq:invariant}` by one substep's largest deposit" |
+| §1 contributions (:171) | "The cost of **enforcement**" | **KEEP** — names the measured cost | unchanged |
+| §1 related work (:184) | "**enforced** by scaling realized modal state" | **KEEP** — mechanism description of ours, in contrast to prior work | unchanged |
+| §1 related work (:177,:180) | wei2026 "**guarantee** discrete passivity" | **KEEP** — third party's claim, correctly attributed | unchanged |
+| §1 related work (:196) | rath2008 "**enforces** exact per-interface energy stability" | **KEEP** — third party | unchanged |
+| §1 related work (:193–194) | hannaford/franken "energy **observer**" | **KEEP** — the control-theory term of art | unchanged |
+| §3.1 (:437) | "every state write in the **enforcement** path is guarded by $\gamma<1$" | **KEEP** — mechanism | unchanged |
+| §3.1 (:450) | "With **enforcement** enabled, all 72 cells *of this sweep* satisfy" | **KEEP** — an observation, already scoped to the sweep | unchanged |
+| §3.3 head (:539) | "The cost of **enforcement**" | **KEEP** | unchanged |
+| §3.5 (:649,:653) | device path "carrying the ledger read-only rather than **enforcing** it"; "a device-resident **enforced** $\gamma$ does not exist in this work" | **KEEP** — both are scope disclosures, and the second is protected candor | unchanged |
+| abstract (:67), §1 (:143), §2 (:292), §3.1 (:433) | "we **observe** behaviour", "an **observation** that predates this work", "not **observable** until the velocity solve", "before the excess is **observable**" | **KEEP** — ordinary usage, no bound claimed | unchanged |
+
+**"Enforced up to X" phrasings: zero.** The relaxation is always named as an
+object (`eq:budgeted`, "a one-deposit relaxation") rather than as a qualifier
+on "enforced", which is what §9.4 warns reads as approximately-strict.
+
+### Q3 audit table — every `converg` site, arm identity derived from data
+
+Term A = **"implicit high-iteration reference (K=500)"**, handle *the implicit
+reference*. Term B = **"XPBD high-iteration self-reference (500×1)"**, handle
+*the XPBD self-reference*. "Converged" is RESERVED for statements a checked
+criterion backs.
+
+Arm identities, established before any rename — from the generating artifacts,
+never from prose:
+
+- `teaser_canonical.manifest.json`, `teaser_deployed.manifest.json`,
+  `teaser_steel.manifest.json` **all** record `"solver": "xpbd"`,
+  `"converged": "500x1"`, and `peaks.ref.e_mod_peak_J = 8.223580660384274`.
+- `governed_accuracy.csv` gives `arm:xpbd_converged → 8.223580660384274` and
+  `arm:oracle → 7.917553786483392`. The teaser's ref peak matches
+  `arm:xpbd_converged` to all 16 digits.
+- ⇒ **every teaser and video reference arm is Term B**, and the §3.3 site
+  printing 7.92 J is Term A while the one printing 8.22 J is Term B.
+
+| site | before | arm (source) | verdict |
+|---|---|---|---|
+| abstract (:77) | "a **converged reference** computed in the same code path" | **A** — "same code path" = the implicit realization | → "an implicit high-iteration reference" |
+| Fig. 1 caption (:111) | "the host's own **converged solution** ($K{=}500$)" | **B** — manifest `xpbd`/`500x1` | → "the host's own high-iteration self-reference ($500{\times}1$)" — **the panel's exact catch** |
+| contributions (:161) | "against a **converged reference**" | **A** | → "an implicit high-iteration reference" |
+| Fig. 3 caption (:468) | "decays monotonically toward the **converged reference**" | **A** — caption names it two lines later | → "the implicit reference" |
+| Fig. 3 caption (:472–474) | "the same code path run **to convergence**… already **converged** at $K{=}2$" | **A** | "to convergence" dropped as redundant; "already converged at $K{=}2$" **KEPT** — backed by the checked 4.9e-4 spread over K=2…500 |
+| §3.2 definition block (:479–482) | "*the converged reference* is the implicit realization…, *the host's own fixed point* is the position-based host run to $K{=}500$ against itself" | **A and B** | rewritten to define *the implicit reference* and *the XPBD self-reference*; the block was already correct, only the names change |
+| §3.2 (:484) | "approaching the **converged reference** $0.2735$" | **A** — `selfconvergence.csv` `impulse,500,is_oracle=True,0.27348…` | → "the implicit reference" |
+| §3.2 (:503) | "the implicit realization is **converged** at $K{=}2$" | **A** | **KEEP** — same checked criterion |
+| §3.3 (:567) | "against the **converged reference's** $7.92$~J" | **A** — `arm:oracle` = 7.9176 | → "the implicit reference's" — was already the right arm, now verified |
+| §3.3 (:569) | "against the **host's own fixed point** ($8.22$~J)" | **B** — `arm:xpbd_converged` = 8.2236 | → "the XPBD self-reference" (name standardized) |
+| §3.3 (:598) | "against the unclamped scene at a **converged budget**" | **neither** — the sag range 1.7–2.4 mm spans BOTH reference arms | → "at either reference". This site named no arm at all and would have been renamed wrongly by a blind sweep |
+| Limitations (:663) | "moves the trajectory away from the **converged reference**" | **A** — the 6.5→14.3 mm figures are `accuracy:oracle` | → "the implicit reference" |
+| §1 (:139), §3.1 (:422), §3.2 (:490,:498,:510,:512,:516,:518), Limits (:665), Concl. (:710,:711) | "solve to convergence", "does not converge the row", "**convergence** removes it", … | process, not an arm name | **KEEP** — 11 sites, unchanged |
+
+**Residual `converged` in the source: 2 sites, both Term A at $K{=}2$, both
+backed by the stated 4.9e-4 spread.** The two-meanings defect is gone by
+removing the word from arm names, not by relabelling one of them.
+
+Render scripts (label-text-only, the P0.2 precedent): `fig_teaser.py:54`
+`"converged reference"` → `"XPBD self-reference"`; `make_teaser_video.py:61`
+`"converged reference (K=500)"` → `"XPBD self-reference (500x1)"`, plus one
+beat message and one beat subtitle. Figure re-render verified by text
+extraction: **exactly one changed line**, `-converged reference` /
+`+XPBD self-reference`.
+
+### Q4 audit table — `formulation` and the row law
+
+Rule: `formulation` survives only where it introduces the three families paired
+with "one implementation each", or names a third party's object.
+
+| site | verdict |
+|---|---|
+| title (:54) "A Cross-**Formulation** Measurement" | **KEEP** — plan §8.3 P1 adjudicated this in the P-round ("Title stays"); it names what the comparison ranges over, not a causal claim, and the abstract scopes it two sentences later |
+| abstract (:64) "three fixed-budget solver **formulations** --- position-based (XPBD), augmented-Lagrangian (AVBD), and an implicit sequential-impulse realization" | **KEEP** — the family-introducing site, paired at :67–68 with "the three tested **implementations**" |
+| contributions (:159) | **CHANGED** → "implementations" |
+| §3.1 head (:351) "One row, three **formulations**" | **CHANGED** → "three implementations" |
+| Fig. 2 caption (:357) | **CHANGED** → "implementations" |
+| Limitations closer (:696) "Three **formulations**, three scenes" | **CHANGED** → "Three formulations, **one implementation of each**; three scenes" — the pairing made explicit at the coverage statement, which is where it does the most work |
+| §1 (:188) "energy-tank **formulations**~\citep{franken2011}" | **KEEP** — third party, different sense entirely |
+
+`row law` needed no change: **P2 already standardized it.** The source law is
+"a velocity-level complementarity law" (:60) and "an established rigid–modal
+contact law" (:708, prior work's object); ours is defined once as "one row
+*law*, instantiated at every support contact every substep" (:217) and is "the
+row" at every later mention (:422, :674). No second-mention drift exists to
+fix — recorded so a future round does not re-open it.
+
+### Q7: dropped, and the page budget is now genuinely exhausted
+
+Q2's display equation cost a full page. Recovered in plan §9.13's prescribed
+order — (iii)'s prose shrank as its formula moved out, the abstract and
+contribution sentences were tightened, then plan §8.2's named ladder rung
+(Fig. 2's candidate-denominator sentence, whose reasoning survives in §3.1's
+"the ratio is not the invariant" paragraph) and the hatched-rows sentence,
+which duplicated the body's own explanation.
+
+**Q7's clause then did not fit at either length**, full (28 words) or
+compressed (19). Per §9.9 it is the first thing to drop when the gate is red,
+and §9.13 ranks it *below* making further cuts, so it was dropped rather than
+funded. Logged as a decision, not an oversight: the paper already signals
+future work twice (the device-resident governor and governed-vs-FEM validation
+in Coverage; the deviation-scaling mechanism in "Stability is not accuracy"),
+so what is lost is a direction pointer, not a disclosure.
+
+The practical reading for Q8 and any later round: **at 6 pages this paper can
+no longer absorb a display equation without losing prose that carries
+argument.** The P-round already recorded "further P-items would cost evidence,
+not words"; the Q-round confirms it — the two sentences cut here were the last
+two that were genuinely redundant with the body.

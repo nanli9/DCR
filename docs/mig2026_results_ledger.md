@@ -2072,3 +2072,42 @@ contact zones, making the sum a request rather than a rank.
 **Independently re-derived 2026-07-20** from a live build outside the harness
 (`len(sol._kq)`, `len(sol._support)` on the shelf): rank 16, rows 48 — matching.
 The bundle's `smoke_test.py` asserts both on every clean unpack.
+
+### E-C9f — Q3 reference-arm relabel of Figure 1 and the video (2026-07-20)
+
+**Machine:** Apple M4 (arm64), CPython 3.12.12. **Label-text-only re-render**
+from frozen traces (`teaser_{canonical,deployed,steel}.npz`); no trace, no
+frame count, no cut and no numeric content changed. The P0.2 precedent.
+
+**Why.** The video panel found that Fig. 1 and the video called the XPBD
+`K=500` self-fixed point "the converged reference", the term §3.2's definition
+block reserves for the *implicit* realization at `K=500`. Verified before
+renaming, from the artifacts rather than the prose: all three teaser manifests
+record `"solver": "xpbd"`, `"converged": "500x1"`, and
+`peaks.ref.e_mod_peak_J = 8.223580660384274`, which equals
+`governed_accuracy.csv`'s `arm:xpbd_converged` to all 16 digits (the implicit
+arm, `arm:oracle`, is 7.917553786483392). The reference is therefore Term B,
+the XPBD high-iteration self-reference.
+
+#### Commands
+
+```sh
+.venv/bin/python benchmarks/paper_fig/fig_teaser.py
+.venv/bin/python benchmarks/paper_fig/make_teaser_video.py
+```
+
+#### Verification that the re-render is label-only
+
+| property | before | after |
+|---|---|---|
+| frames | 1343 | **1343** |
+| duration | 44.766667 s | **44.766667 s** |
+| resolution / pix_fmt | 1920x1080 yuv420p | **1920x1080 yuv420p** |
+| frame rate | 30/1 | **30/1** |
+| streams | 1 (video-only, no audio) | **1** |
+| Fig. 1 text extraction | — | exactly **one** changed line: `-converged reference` / `+XPBD self-reference` |
+
+**SHA-256 of the render to use everywhere** (bundle and submission):
+`30a862facd530dd31741e41ef1774582f2d46d42ad3043ce5bc56f5a267a5d54`
+It supersedes the panel-reviewed `6dcd9042f57bce0faf213d4e5e690bb7ef989a2d138bfa6c0ce107a60f51fd8a`,
+which differs only in the three label strings.
