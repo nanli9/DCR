@@ -1662,3 +1662,83 @@ not the 21.6 mm headline, so the on-screen figure would be 9.8 mm. Building it
 needs no new physics. Getting the 21.6 mm cell itself needs the §9.7 slow path:
 one serial ARM replay of shelf 4×1 with pose capture, frozen as E-C11, whose
 non-perturbation check is that it reproduces 21.6 mm to printed precision.
+
+### Q8 red-team re-read of the final build against this panel's six risks
+
+Read against the final PDF (clean rebuild, body p. 6, 0 overfull, 732,900 B)
+and the rebuilt bundle. Scored honestly: "closed" means a reviewer repeating
+the objection would now be wrong on the facts; "narrowed" means the objection
+survives but a weaker version of it; "open" means untouched.
+
+| # | panel risk | item | verdict |
+|---|---|---|---|
+| 1 | Prop. 2.1 guarantees only the one-deposit-relaxed bound; strict Eq. (2) is merely observed | Q2 | **narrowed, not closed** |
+| 2 | Supply is scene-wide / recyclable / schedule-dependent, not contact-port work | Q1 | **narrowed** |
+| 3 | Post-projection cost: 21.6 mm penetration, 8.7× impulse, worse trajectories | Q5 | **open, by decision** |
+| 4 | Three hosts are implementations, not formulation classes | Q4 | **narrowed** |
+| 5 | Ledger / commands / code / data absent from the supplement | Q1 | **closed** |
+| 6 | Fig. 1 and the video call the XPBD K=500 self-fixed point "the converged reference" | Q3 | **closed** |
+
+**1 — narrowed.** Every claim site now says which bound it means, and the
+guaranteed one is equation (4) rather than a prose pointer. What did *not*
+change is the underlying fact: the loop still guarantees only the relaxed
+bound, and the paper still headlines the strict one. A reviewer who wants
+strict Eq. (2) *proved* remains unsatisfied, and correctly so — that needs a
+different loop (§10). The defensible position is that the paper no longer
+anywhere implies otherwise, and it never did in §2; the defect was at the
+abstract and contribution bullet, and those are fixed.
+
+**2 — narrowed.** The partition and recycling measurements (E-C9c ≤ 7.7%
+rectified; E-C9d flat over a 10× horizon) are now in the bundle with their
+commands, so "you assert this without evidence" is no longer available. "This
+is the wrong quantity to budget against" still is, and the paper concedes it in
+§4 ("Tightening the envelope needs the signed or per-interface accounting this
+scalar reservoir avoids"). Packaging cannot close a conceptual objection.
+
+**3 — open, by decision.** No frozen trace carries poses for the 4×1 cell, so
+§9.7's fast path did not exist and the boot prompt barred the slow path. The
+cost remains disclosed in four places (abstract, §3.3, Table 2, Limitations) and
+the panel itself ranked the close-up "useful but secondary". This is the round's
+largest deliberate gap and the PI should know it is deliberate.
+
+**4 — narrowed.** Four sites changed and the Limitations coverage statement now
+carries the explicit pairing. The title keeps "Cross-Formulation" per plan §8.3
+P1, so a reviewer who reads only the title still meets the broader framing —
+a known, adjudicated residual, not an oversight.
+
+**5 — closed.** Runnable snapshot, claim index, pinned versions, smoke test,
+checksums, video, anonymized, verified from a clean unpack. The two things a
+reviewer still cannot re-derive (device timings, the full-FEM reference) are
+named in `CLAIMS_INDEX.md` with reasons rather than left to be discovered.
+
+**6 — closed.** Both arms have fixed names, "converged" survives only where a
+checked criterion backs it, and the figure and video were re-rendered
+label-only with the specs verified identical. One consequence to carry to
+submission: **the video the panel reviewed is not the video we ship** — same
+frames, same cut, three different label strings, new SHA-256 `30a862fa…`
+frozen as E-C9f.
+
+#### What this round introduced that a fresh reviewer might catch
+
+Adversarial pass over our own changes, not the panel's list:
+
+- **A vocabulary seam between the caption and §3.2.** Fig. 1's caption says
+  "the host's own high-iteration self-reference (500×1)" while §3.2's
+  definition block and the video legend say "the XPBD self-reference". Same
+  object, two surface forms, three pages apart. Judged acceptable: the caption
+  is self-explanatory standalone and deliberately avoids naming a host before
+  §3.1 introduces the three. Flagged rather than churned.
+- **Fig. 2's caption now points at its own section** ("bit-identical by
+  construction (§3.1)"). Slightly circular on the page where the float lands
+  with its text, useful when it floats away. Kept.
+- **The "why joules, not a second ratio" justification now lives only in the
+  body.** Cutting it from Fig. 2's caption was the plan's own named cut rung
+  and §3.1's "the ratio is not the invariant" paragraph carries the argument —
+  but a reviewer who reads figures first will now meet the joules axis before
+  the reason for it.
+- **`eq:budgeted` is cited before it is displayed.** The contribution bullet on
+  page 1 references equation (4), which appears on page 3. Standard practice
+  and hyperlinked, but it is a forward reference the P-round build did not have.
+
+Nothing found in this pass contradicts a frozen number, and
+`verify_paper_numbers.py` passes 38/38 against the final tex.

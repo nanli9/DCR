@@ -593,3 +593,59 @@ a deployed-1×8 close-up at the printed **9.8 mm** (poses exist, no new physics)
 or the §9.7 slow path — one serial ARM replay of shelf 4×1 with pose capture,
 frozen as E-C11, reproducing 21.6 mm to printed precision as its
 non-perturbation check.
+
+## Q8 — HANDOFF TO PI (§9.10)
+
+### Where each panel priority landed
+
+| panel priority | landing site | commits | status |
+|---|---|---|---|
+| (1) reconcile/prove or rename the exact invariant | `eq:budgeted` is now eq. (4); Prop. 2.1 guarantees *that*; abstract + contribution bullet split *guarantees* from *observed* | paper `96a6a71` | **narrowed** — the loop still guarantees only the relaxed bound; no site now implies otherwise |
+| (2) attach the ledger, commands, configs, plot data, hashes, code/data snapshot | `mig26_supplement.zip` — 26 data artifacts, 128-file runnable snapshot, CLAIMS_INDEX, smoke test, pinned versions, SHA256SUMS, video | code `ea795b5`, `fa6e08c`, `ecf3861` | **closed** |
+| (3a) "three tested implementations" / "row law" consistently | 4 `formulation` sites → implementations; explicit "one implementation of each" in Coverage; row law already standardized by P2 | paper `96a6a71` | **narrowed** — title keeps "Cross-Formulation" per plan §8.3 |
+| (3b) standardize reference names | Term A/B fixed; "converged" reserved for checked criteria; figure + video re-rendered label-only | paper `96a6a71`, `67cb5e1`; code `b8dc2e4` | **closed** |
+| (4) add the assigned EasyChair paper ID | `\acmSubmissionID{}` placeholder in place | — | **OPEN — user action, see below** |
+| (5) an isolated or physics-matched contact control | Q6, **deferred by advisor ruling** (§9.8); design preserved for the long paper | — | not attempted, by decision |
+| (bonus) video penetration close-up | Q5 — fast path structurally unavailable | — | **open by decision**, options below |
+
+### What is deliberately unaddressed, so a reviewer repeating it is no surprise
+
+Unchanged from §9.1's tail and still conceded in-text: governed-vs-FEM
+validation; n = 3 hosts, one implementation each; the AVBD overdraft mechanism
+(measured, unexplained); contact-consistency, which is the §10 long-paper track
+and carries R8's NO-GO evidence. The supply remains a scene-wide gross sum
+rather than contact-port work — now *measured* (partition ≤ 7.7%, recycling
+flat over 10×) but conceptually unchanged, and §4 says so.
+
+### Three actions before upload
+
+1. **EasyChair opens Jul 25** — register, put the assigned ID in
+   `\acmSubmissionID{}` (`paper/main_short.tex:41`), rebuild, re-run the gate,
+   and re-check the portal's video specs.
+2. **Re-run the assembler LAST**, after the final commit, so the snapshot and
+   sums reflect it:
+   `.venv/bin/python benchmarks/paper_eval/x1_passivity/make_supplement.py`
+3. **Decide Q5** (optional, the only open scientific choice): ship the
+   44.8 s cut as reviewed, or add a close-up — either a deployed-1×8 one at the
+   printed 9.8 mm from existing poses, or the 21.6 mm cell via one serial ARM
+   replay frozen as E-C11.
+
+### The one thing to carry in your head
+
+**The video we ship is not the video the panel reviewed.** Same 1343 frames,
+same 44.766667 s, same cut — three label strings changed, because the old ones
+called the XPBD self-reference "the converged reference". New SHA-256
+`30a862facd530dd31741e41ef1774582f2d46d42ad3043ce5bc56f5a267a5d54`, frozen as
+ledger E-C9f, and it is what the bundle carries.
+
+### Final state
+
+Gate v2 green on every tex commit of the round; final build body ends p. 6,
+7 pages, 0 overfull, 0 undefined, 732,900 B. Banned-term grep clean — every
+hit is the header comment listing them, plus `real-time` describing prior work
+and the explicit "we make no unqualified real-time claim" disclaimer.
+`verify_paper_numbers.py` 38/38. Clean-unpack acceptance of the bundle: 54/54
+checksums, smoke test exit 0 reproducing the frozen digits exactly, bundled
+verifier exit 0. Independent anonymity re-scan of the final zip: 0 deanon hits,
+0 commit-hash tokens over 179 text members. Deadline: submit ≥ 24 h before
+**2026-08-07 23:59 AoE**.
