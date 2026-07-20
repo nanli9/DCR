@@ -303,6 +303,19 @@ correct as printed — do not "fix" it.
 > gap side converges there; the multiplier side peaks at K=24 and clears at
 > K=64, so the composite is not monotone.
 
+### §3.3 — post-projection penetration RELATIVE range CORRECTED (Q1)
+
+| printed | value | source |
+|---|---|---|
+| worst penetration is a 3.1–12.6× increase over its pre-scale value | 3.12 (ledge 4×1) … 12.58 (shelf 8×2); shelf 4×1 3.48, ledge 8×2 4.82 | `projection_validity.csv : gap_viol_post_max_m / gap_viol_pre_max_m`, all four rows |
+| (superseded 3.5–12.6×) | E-S3's SHELF-ONLY range, later quoted as host-wide | ledger E-S3 (a) correction note, 2026-07-20 |
+
+Printed at two tex sites (§3.3 penetration sentence and the AVBD comparison).
+The correction does not weaken either: §3.3 calls the AVBD host's 3.1× and 5.5×
+"comparable" to the XPBD range, which a floor of 3.1 supports more strongly.
+Now mechanically checked by `verify_paper_numbers.py`, which asserts both the
+CSV range and that the tex prints it at exactly two sites.
+
 ### §4 Limitations — AVBD drift floor and partition dependence (P6)
 
 | printed | value | source |
