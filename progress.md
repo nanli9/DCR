@@ -363,3 +363,78 @@ OPEN — **C8**, the only unfinished item:
   (100 frames × 48 support rows) deflection fields for all four arms, so the
   deflection sequence can be rendered offline from frozen traces per §7.9's
   fallback. What it lacks is **page space** — see findings.md.
+# 2026-07-19 Six-Reviewer MIG Short-Paper Review
+
+- Started a new six-reviewer audit of the user-specified PDF.
+- Declared the reviewers as independent AI reviewer simulations and activated file-based planning for traceability.
+- Locked the current 05:23 PDT seven-page artifact by full SHA-256 and extracted all text.
+- Completed the first-pass claim/method/results/limitations reconstruction; visual inspection and current-rule verification remain in progress.
+- Rendered and visually audited all seven pages. The PDF is clean and readable; six pages are body content and page 7 is references only.
+- Verified the live official MIG 2026 call: length is compliant, scope fit is direct, and the rubric is now frozen for all six reviewers.
+- Launched the first three isolated reviewers (technical physics, contact numerics, novelty/significance) and independently spot-checked the closest cited energy/contact work using primary sources.
+- Received two isolated reviews: one weak reject (3/7) and one borderline/lean accept (4/7); launched evaluation and clarity reviewers as slots opened. Remaining reviewers have not seen these votes.
+- First wave complete: scores 3, 3, and 4 (mean 3.33/7), all at confidence 4/5. Launched the senior-PC sixth review after the numerics slot opened.
+- All six isolated reviews completed. Final scores are 3, 3, 4, 3, 3, and 5; vote split is four weak reject, one borderline/lean accept, one weak accept; every confidence is 4/5.
+- Reconciled the panel into a weak-reject-as-framed recommendation with two revision paths: diagnostic-paper reframing as the practical route, or contact-consistent governed enforcement as the stronger method route.
+- Prepared the final user-facing panel summary, format check, consensus strengths/blockers, and prioritized acceptance advice.
+- Detected that `paper/main_short.pdf` was regenerated at 17:43 PDT after the sealed panel. Reopened the task and invalidated the old scores for the current artifact.
+- Locked the replacement artifact (`103ac0e...`), extracted 7,075 words, rendered all seven pages, and began a fresh claim/method/evidence audit.
+- Completed the full text audit through references. The regenerated build materially strengthens the teaser and explains cross-host confounds, strict-vs-implemented invariants, spectral behavior, recycling, and runtime limitations; the core contact-validity and governed-validation weaknesses remain.
+- Visually inspected pages 1–4. No rendering defects found; the new hero figure and solver-matrix heatmap are clear, while the method/settings table remains compressed.
+- Finished the visual audit. Found a new submission-critical delta: four conclusion lines spill onto page 7 before the references, so the current build appears to exceed a six-content-page limit. Also found stale “injection threshold” wording inside Figure 3.
+- Began the live MIG 2026 rule check; located the official conference site after a domain-restricted search returned no results.
+- Verified the official 2026 CFP. The body overflow onto page 7 is a real six-page-limit violation, and the current anonymous review PDF also lacks the required unique paper ID. Froze the official six-criterion rubric for the fresh panel.
+- Confirmed all PDF fonts are embedded and no file attachments are present; recorded that `qpdf` is unavailable, while Poppler checks and rendering succeeded.
+- Received the first fresh isolated report: novelty/significance reviewer votes 5/7 weak accept at confidence 4/5, principally on the diagnostic study rather than the governor.
+- Received the physics/energy review: 3/7 weak reject at confidence 4/5. Scientific merit is near borderline if reframed as a diagnostic/emergency limiter, but current physical validity, validation, and format defects drive rejection.
+- Received the contact/numerics review: 3/7 weak reject at confidence 4/5. It independently flags supply partition dependence, the mismatch between Eq. (2) and the stricter ledger policy, and causal/per-row overinterpretation.
+- Received the evaluation/reproducibility review: 4/7 borderline at confidence 4/5, leaning scientifically positive under the short-paper bar but finding the current PDF administratively unready.
+- Received the clarity/practitioner review: 3/7 weak reject at confidence 4/5; without the format defects it would be near borderline/weak accept on the diagnostic result.
+- Received the senior-PC review: 3/7 weak reject at confidence 4/5, while judging the empirical diagnostic potentially publishable by itself.
+- Rechecked the frozen hash and reconciled the senior review's Eq. (1) complaint as a reviewer misread: the outer minus applies to the full parenthesized surface height, so the printed Jacobian sign is correct.
+- Completed meta-review calibration: scores `3,3,5,4,3,3` (mean 3.50/7, median 3), four weak rejects / one borderline / one weak accept, all confidence 4/5. Locked the recommendation to weak reject for the current PDF, with a credible acceptance path as a measurement-first diagnostic short paper.
+- Marked the current-artifact review phases complete and prepared the final user-facing verdict, reviewer table, consensus evidence, and prioritized revision advice.
+
+## P-round (plan §8) — executed 2026-07-19/20
+
+| item | code branch | paper worktree |
+|---|---|---|
+| baseline checkpoint | — | `f14a138` |
+| P0 spill + gate v2 + fig label | `dc440d2` | `1c1da83` |
+| P1+P2+P4+P5 tex pass | — | `9e82ddf` |
+| P7 / E-C9 ablation | `6f6e608` | — |
+| P3+P6+E-C9 in §3.2 | — | `b2b179a` |
+| P8 supplement | `412503a` | — |
+
+Gate v2 (`scripts/check_page_gate.py`) green on every tex commit: body ends
+p. 6, 0 overfull, 0 undefined, 18 references.
+
+Headlines:
+- **E-C9 took 6 seconds, not overnight.** 24/24 configurations still violate
+  Eq. (2) with R > 1 across h, compliance, rank and damping. Both base rows
+  reproduce the frozen E-S1b ratios EXACTLY (119534, 6333.22) — the
+  non-perturbation proof.
+- **The §8.4 rank contingency fired, in the good direction.** Excluding the
+  stiff cluster cuts R 286× (shelf) / 36× (ledge) but the violation survives
+  (+584 J, +1.24e6 J). Stiff-tail localization = sharpened diagnosis, exactly
+  as pre-registered — not a retraction.
+- **Two real errors found that neither panel caught.** Table 1's modal rank was
+  the REQUESTED mode count, not the delivered one (24/28 → 16/16; the paper
+  contradicted itself against §3.3). And §3.2's complementarity residual was
+  dimensionally mixed *and* numerically just penetration in metres, with an
+  unsupported "conditions begin to hold at K≈24". Both corrected.
+- **P6(a)'s anticipated 10²–10³× drift floor was wrong** (real: 2–274×).
+  Printed as measured, per D5.
+- **P8.c's offline route did not exist** (traces hold deflection fields only),
+  so the per-substep supply is now logged instead. Partition-dependence is real
+  but ≤7.7%; long-horizon recycling is flat over a 10× horizon.
+- **A large body of uncommitted prior work was found in both worktrees** and
+  committed unchanged as a labeled baseline (`f14a138`) so the P-item diffs
+  stay readable. The long-paper repositioning edits were left alone.
+
+OPEN:
+- **P8.d video** — blocked on the user's interactive capture session. Only
+  user-action item; slot and note are in the supplement README.
+- `\acmSubmissionID{}` — fill after EasyChair registration (window opens
+  Jul 25).
+- Submit ≥24 h before 2026-08-07 23:59 AoE.

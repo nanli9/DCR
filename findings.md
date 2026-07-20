@@ -1269,3 +1269,74 @@ Bearing on E-C9: the rank axis is defined against the realized basis. Shelf
 base is 16 = 10 global + 6 local, so "below the stiff cluster" is
 `n_modes_local=0` (rank 10) and "above" is `n_modes_global=16` (rank 22);
 ledge base is 16 = 12 + 4.
+
+### P-round red-team re-read against BOTH panels' blocker lists (2026-07-20)
+
+Build audited: `b2b179a` (paper worktree). Gate v2 green — body ends p. 6,
+7 pages total, 0 overfull, 0 undefined, 18 references. Every new number
+re-verified against its CSV (15/15) before this read.
+
+#### Blockers now closed
+
+| # | Blocker (panel) | Status in this build |
+|---|---|---|
+| 1 | Body spills to p. 7 — submission-critical (A+B) | **Closed.** P0; gate v2 is now scripted and per-commit. |
+| 2 | No `\acmSubmissionID` (B) | **Closed** as a placeholder; fill at EasyChair registration. |
+| 3 | Fig. 3 says "injection threshold" (A+B) | **Closed.** P0.2, re-rendered from the frozen CSV, verified label-text-only. |
+| 4 | Eq. (2) vs the stricter enforced policy — "one consistent definition and proof" (A+B) | **Closed.** P3: one block defining three objects + Proposition with induction sketch; strict Eq. (2) is stated as *observed*, not implied. |
+| 5 | Is the amplification a knife-edge artifact? (A+B) | **Closed.** P7/E-C9: 24/24 configurations still violate with R>1 across h, compliance, rank, damping. |
+| 6 | Reproducibility 2.5/5 — no scene spec, no bundle (B) | **Closed.** P8: scene spec generated from code, anonymized bundle with 20 artifacts + ledger excerpts. |
+| 7 | Supply depends on the substep partition (B numerics) | **Closed and quantified.** P6(b) + E-C9c: ratio 1.000–1.083, ≤7.7% rectified. Panel B was right; the effect is real and small. |
+| 8 | Causal / per-row overinterpretation (B numerics) | **Closed.** P1 scoping sweep; grep-audited, 6 survivors all axis labels or the disclaimer itself. |
+| 9 | XPBD/AVBD/sequential-impulse uncited (A) | **Closed.** P4, incl. a Catto citation verified against the author-hosted PDF. |
+| 10 | Abstract ends on the adversarial maximum alone (A+B) | **Closed.** P5: the deployed-budget counterpart sits beside 21.6 mm. |
+| 11 | "one row" ambiguous (A) | **Closed.** P2: one row *law*, per-scene instantiation counts. |
+| 12 | Eq. (1) sign error (B senior PC) | **Correctly excluded** — ∂C/∂q = −U_y. Re-checked independently. No action. |
+
+#### What the panels did NOT catch, and this round did
+
+- **Table 1's modal rank was wrong** (24/28 → 16/16). The paper contradicted
+  itself: §3.3 describes sixteen shelf modes. See the entry above.
+- **The complementarity residual was dimensionally mixed *and* numerically just
+  penetration in metres**, and "the complementarity conditions begin to hold"
+  at K≈24 was unsupported — only the gap side converges there. Both fixed.
+- **P6(a)'s anticipated "10²–10³× the accounting floor" was wrong** (2–274×).
+  Printed as measured, per the D5 rule.
+
+#### Still open — what a reviewer can still reject on, stated plainly
+
+1. **No video.** P8.d needs the user's interactive capture session. For a
+   graphics venue this remains the weakest presentational point; the teaser
+   carries three arms as stills, which is not the same thing.
+2. **The governor is still not contact-consistent.** Enforcement costs up to
+   21.6 mm of penetration and moves the trajectory *away* from the reference.
+   The paper concedes this in the abstract, §3.3 and Limitations. R8's NO-GO
+   evidence stands (deviation-referencing measured NOT to collapse 21.6 → 19.89;
+   band-selective unenforceable in up to 37.8% of clamp substeps). A reviewer
+   who wants the constructive method will still say so — that is the long-paper
+   track, and no text fix changes it.
+3. **The governed path is not validated against full FEM.** §3.4 validates the
+   *reduced response*, not the *governed* one. Conceded in Limitations.
+4. **Three implementations are not three formulation classes.** P1 scopes every
+   claim, but the sweep's breadth is what it is: n=3 hosts, 3 scenes, one
+   contact regime.
+5. **The AVBD overdraft is measured and unexplained.** Now bounded away from
+   accounting noise (2–274× the floor), which makes the absence of a mechanism
+   *more* conspicuous, not less.
+6. **E-C9 sharpens rather than removes the stiff-tail question.** Excluding the
+   stiff cluster cuts R by 286× on the shelf. The violation survives, so the
+   claim holds — but a reviewer may reasonably read "the amplification is
+   mostly a stiff-mode phenomenon" and ask why a rank-10 basis is not simply the
+   recommendation. The paper does not answer that.
+
+#### Page-budget honesty note
+
+The P-round's content did not fit the 6-page limit alongside the existing
+evidence. Beyond §8.2's named ladder (teaser caption, Fig. 2 caption,
+forgiveness compression, Table 2's AVBD rows) this round also shrank Fig. 2
+(0.92 → 0.80 textwidth) and Fig. 3, set the 7-step loop inline, and tightened
+nine paragraphs. **Detail moved to the supplement, and a reader loses it from
+the paper:** per-K self-convergence plateau values, per-scene device real-time
+factors, and the AVBD post-projection validity rows. No claim and no frozen
+number was dropped from the argument — but this is the point at which further
+P-items would cost evidence, not words.
