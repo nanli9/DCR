@@ -1,8 +1,8 @@
 {
   "figure": "governed_accuracy.csv",
   "stage": "X0",
-  "git_sha": "b639c16",
-  "generated_utc": "2026-07-19T06:20:07+00:00",
+  "git_sha": "afd9508",
+  "generated_utc": "2026-07-19T10:20:07+00:00",
   "config": {
     "relax": 0.7,
     "iterations": 16,

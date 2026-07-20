@@ -132,14 +132,25 @@ def main() -> int:
 
     # ---- R5.2: Table 2 augmented-Lagrangian rows ---------------------------
     want = {0.7: (1.43, 1.17, 0.729), 1.0: (3.11, 1.39, 0.6016)}
+    rel = {}
     with open(os.path.join(X1, "projection_validity_avbd.csv")) as fh:
         for r in csv.DictReader(fh):
             rx = float(r["relax"])
             gap, imp, gmin = want[rx]
             tag = f"table({rx})"
-            chk(f"{tag} clamp count in tex",
-                f"{r['n_clamped']}/{r['n_substeps']}" in tex,
-                f"{r['n_clamped']}/{r['n_substeps']}")
+            # The P-round page squeeze removed Table 2's AVBD rows, so the
+            # clamp counts are no longer printed and asserting them "in tex"
+            # became a stale check that failed for two rounds. What the tex
+            # DOES still print for this host is checked below: the absolute
+            # worst gaps, the "within 1.4x" claim, and the relative ratios.
+            rel[rx] = (float(r["gap_viol_post_max_m"])
+                       / float(r["gap_viol_pre_max_m"]))
+            chk(f"{tag} impulse and lambda-variance within 1.4x of steady",
+                float(r["impulse_next_over_steady"]) <= 1.4
+                and (float(r["lam_var_clamped_median"])
+                     / float(r["lam_var_free_median"])) <= 1.4,
+                f"{float(r['impulse_next_over_steady']):.3f}x / "
+                f"{float(r['lam_var_clamped_median']) / float(r['lam_var_free_median']):.3f}x")
             chk(f"{tag} worst gap {gap} mm",
                 abs(1e3 * float(r["gap_viol_post_max_m"]) - gap) < 0.006,
                 f"{1e3 * float(r['gap_viol_post_max_m']):.3f}")
@@ -152,6 +163,38 @@ def main() -> int:
             chk(f"{tag} momentum unchanged across projection",
                 float(r["dP_across_projection_max"]) == 0.0,
                 f"{float(r['dP_across_projection_max']):.3e}")
+
+    # The printed cross-host comparison: AVBD an order of magnitude gentler in
+    # absolute terms, comparable in relative terms (3.1 and 5.5x vs 3.5-12.6x).
+    chk("avbd relative effect 3.1x and 5.5x",
+        abs(rel[0.7] - 3.1) < 0.05 and abs(rel[1.0] - 5.5) < 0.05,
+        f"{rel[0.7]:.2f}x / {rel[1.0]:.2f}x")
+    with open(os.path.join(X1, "projection_validity.csv")) as fh:
+        xr = [(float(r["gap_viol_post_max_m"]) / float(r["gap_viol_pre_max_m"]),
+               float(r["impulse_next_over_steady"] or "nan"),
+               (float(r["lam_var_clamped_median"]) / float(r["lam_var_free_median"])
+                if float(r["lam_var_free_median"]) else float("nan")))
+              for r in csv.DictReader(fh)]
+    # The range is over ALL FOUR Table 2 rows. It was printed as "3.5-12.6x"
+    # for two rounds, which is the SHELF-only minimum: ledge 4x1 is 3.12, below
+    # the printed floor. Corrected to 3.1-12.6x. The correction does not weaken
+    # the sentence it appears in twice -- §3.3 compares the AVBD host's 3.1 and
+    # 5.5x against this range and calls them "comparable", which a floor of 3.1
+    # supports more strongly than a floor of 3.5.
+    glo, ghi = min(g for g, _, _ in xr), max(g for g, _, _ in xr)
+    chk("xpbd relative effect spans 3.1-12.6x",
+        abs(glo - 3.1) < 0.05 and abs(ghi - 12.6) < 0.05,
+        f"{glo:.2f}-{ghi:.2f}x")
+    chk("tex prints the corrected 3.1-12.6x range (both sites)",
+        tex.count(r"$3.1$--$12.6\times$") == 2
+        and r"$3.5$--$12.6\times$" not in tex,
+        f"{tex.count(r'$3.1$--$12.6\times$')} site(s) corrected, "
+        f"{tex.count(r'$3.5$--$12.6\times$')} stale")
+    chk("xpbd worst impulse 8.7x, worst lambda variance 58x",
+        abs(max(i for _, i, _ in xr if i == i) - 8.693) < 0.006
+        and abs(max(v for _, _, v in xr if v == v) - 58.5) < 0.5,
+        f"{max(i for _, i, _ in xr if i == i):.3f}x / "
+        f"{max(v for _, _, v in xr if v == v):.1f}x")
 
     # ---- R7: CPU enforcement cost ------------------------------------------
     with open(os.path.join(X5, "perf_reps_summary.csv")) as fh:

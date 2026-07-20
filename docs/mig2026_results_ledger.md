@@ -407,7 +407,19 @@ Numbers for the Limitations paragraph (one each, as the plan specifies):
   **21.6 mm** (shelf 4×1). The projection *increases* the worst violation — the
   pre-scale worst in the same cells is 6.2 mm (shelf 4×1) and 0.51 mm (shelf
   8×2), so the γ-scale accounts for roughly a 3.5× (shelf 4×1) to 12.6× (shelf
-  8×2) increase in worst-case penetration. Mechanism: γ < 1 shrinks the sag
+  8×2) increase in worst-case penetration. **CORRECTED 2026-07-20 (Q1) — this
+  range is SHELF-ONLY and was later quoted as the host-wide range.** The four
+  Table-2 rows give post/pre worst-penetration ratios shelf 4×1 3.48, shelf 8×2
+  12.58, **ledge 4×1 3.12**, ledge 8×2 4.82, so the range over the host is
+  **3.1–12.6×**, not 3.5–12.6×. R5.2 below inherited the shelf-only floor
+  ("XPBD's 3.5–12.6×") and `main_short.tex` printed it at two sites; both
+  corrected to 3.1–12.6× in the Q-round. The correction does not weaken the
+  sentence it appears in — §3.3 calls the augmented-Lagrangian host's 3.1× and
+  5.5× "comparable" to this range, which a floor of 3.1 supports more strongly
+  than a floor of 3.5. Found by extending `verify_paper_numbers.py`, which had
+  never checked this range; source: `projection_validity.csv`
+  (`gap_viol_post_max_m / gap_viol_pre_max_m`, all four rows). Mechanism: γ < 1
+  shrinks the sag
   `U_y·q`, lifting the support surface into the resting body. **This is the
   honest cost of enforcing the bound at the state level, and it is the "stable
   but not accurate when the clamp bites" limitation stated plainly.**
@@ -1035,7 +1047,9 @@ position-based one (XPBD: 44–99% of substeps clamped, worst violation 21.6 mm,
 corrective impulse to 8.7×, λ variance to 58×). Consistent with R1: AVBD's
 overdrafts are ≤15 J, so γ barely has to bite (min 0.60–0.73). The
 pre→post multiplier is comparable (3.1× and 5.5×, against XPBD's 3.5–12.6×);
-what differs is the absolute scale.
+what differs is the absolute scale. **[CORRECTED 2026-07-20 (Q1): XPBD's range
+is 3.1–12.6×, not 3.5–12.6× — the latter is E-S3's shelf-only figure. See the
+correction note in E-S3 (a).]**
 
 ### FOUR PORTING TRAPS — the E-S3 wrappers do NOT transfer unchanged
 
@@ -2018,3 +2032,43 @@ verdict are unchanged at every horizon (shelf R = 6333, ledge R = 1.195e5,
 both violating throughout), which also confirms the runs are settled well
 before 100 frames.
 
+
+### E-C9e — the scene specification (plan §8.5 P8.a), frozen 2026-07-20 (Q1)
+
+**Machine:** Apple M4, CPU only, CPython 3.12.12, numpy 2.4.5, macOS 15.2
+(arm64). **Commit:** `412503a` (code branch `impulse-native-constraint`).
+**Runs:** serial. Structural read-back only — it builds each scene and reads
+attributes; it integrates nothing, so no solver-behaviour quantity is involved
+and the concurrent-run timing incident does not bear on it.
+
+**Why this entry exists.** It did not, until the Q1 claim-index check refused to
+build: `scene_spec.csv` backs two printed quantities — Table 1's `modal rank r`
+and §2's support-row counts — and had **no ledger entry**, contradicting §3's
+own sentence that "every number is frozen with its generating command and
+commit hash in the supplemental ledger". The artifact and its command existed
+since P8; only the freeze record was missing.
+
+#### Command
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/make_scene_spec.py
+```
+
+#### The two printed quantities (`scene_spec.csv`)
+
+| printed | shelf | ledge | table |
+|---|---|---|---|
+| modal rank `r` REALIZED (Table 1) | 16 | 16 | 24 |
+| support rows, eq. (1) (§2) | 48 | 40 | 200 |
+
+Every value is read from the code, never transcribed: geometry, material and
+impactor come from the `build_reduced_*` signature defaults via `inspect`, and
+the rank and spectrum are read back from a built solver. That is the guard
+against the P7 defect, in which Table 1 printed `n_modes_global +
+n_modes_local` (24/28/24 — the REQUESTED count) because
+`reduced_scene_common.py:242` clamps local modes to the number of distinct
+contact zones, making the sum a request rather than a rank.
+
+**Independently re-derived 2026-07-20** from a live build outside the harness
+(`len(sol._kq)`, `len(sol._support)` on the shelf): rank 16, rows 48 — matching.
+The bundle's `smoke_test.py` asserts both on every clean unpack.

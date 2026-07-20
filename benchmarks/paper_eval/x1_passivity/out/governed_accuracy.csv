@@ -11,7 +11,7 @@ arm:ungoverned,spectral_gap_hi_Hz,20685.204473309528
 arm:ungoverned,e_imp_peak_J,28.95102507909968
 arm:ungoverned,finite,True
 arm:ungoverned,n_clamped,0
-arm:ungoverned,wall_s,0.5250182499876246
+arm:ungoverned,wall_s,0.5264412499964237
 arm:governed,ratio,1.0106758619142793
 arm:governed,e_modal_peak_J,29.260102225120985
 arm:governed,ke_at_peak_J,0.2902728285955522
@@ -24,7 +24,7 @@ arm:governed,spectral_gap_hi_Hz,20685.204473309528
 arm:governed,e_imp_peak_J,28.95102507909968
 arm:governed,finite,True
 arm:governed,n_clamped,162
-arm:governed,wall_s,0.6798276669578627
+arm:governed,wall_s,0.6854885830543935
 arm:xpbd_converged,ratio,0.2996130548298394
 arm:xpbd_converged,e_modal_peak_J,8.223580660384274
 arm:xpbd_converged,ke_at_peak_J,1.2327667838037468
@@ -37,7 +37,7 @@ arm:xpbd_converged,spectral_gap_hi_Hz,20685.204473309528
 arm:xpbd_converged,e_imp_peak_J,27.44733758365345
 arm:xpbd_converged,finite,True
 arm:xpbd_converged,n_clamped,0
-arm:xpbd_converged,wall_s,19.684164582984522
+arm:xpbd_converged,wall_s,19.548660750035197
 arm:oracle,ratio,0.2734809322948587
 arm:oracle,e_modal_peak_J,7.917553786483392
 arm:oracle,ke_at_peak_J,0.5186441513603264
@@ -50,7 +50,7 @@ arm:oracle,spectral_gap_hi_Hz,20685.204473309528
 arm:oracle,e_imp_peak_J,28.951026749999997
 arm:oracle,finite,True
 arm:oracle,n_clamped,0
-arm:oracle,wall_s,3.232117624953389
+arm:oracle,wall_s,3.219928125035949
 accuracy:oracle,reference,oracle
 accuracy:oracle,ref_ratio,0.2734809322948587
 accuracy:oracle,ref_e_modal_peak_J,7.917553786483392
