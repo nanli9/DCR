@@ -1945,3 +1945,76 @@ below the smallest AVBD overdraft. **Verdict: small but real — not FP noise.**
 The honest printed form is "2–270× the tightest slack the same accounting
 resolves on the never-overdrawing implicit host", NOT "10²–10³×".
 
+
+### E-C9c — supply partition-dependence, measured (plan §8.5 P8.c-i)
+
+**Machine/commit:** as E-C9 (Apple M4, CPU, CPython 3.12.12, arm64), serial.
+
+**Why:** panel B's numerics reviewer objected that `sum_k max(dE_rig^k, 0)` is a
+gross sum over *substep* boundaries, so a finer partition rectifies more of the
+rigid subsystem's own fluctuation into supply. The paper's "endpoints tile the
+timeline exactly" sentence answers completeness, which is a different property.
+
+**§8.5's offline route was NOT available**: the committed traces
+(`governed_accuracy*_traces.npz`, `selfconvergence*_traces.npz`) hold deflection
+fields only — `(frames x 48 support rows)` — and the eq2 CSVs hold run-level
+aggregates. No per-substep `E_rig` series existed to re-aggregate. Rather than
+fall back to P6's acknowledge-only sentence, the series is now *logged*:
+`probe_supply_partition.py` wraps `PassivityLedger.deposit`, records its
+argument and passes the value through untouched.
+
+**The trajectory is held FIXED** — this is what makes it a partition measurement
+and not a repeat of the E-C9 `h` axis, where a different timestep is a different
+discrete solve. One run's signed per-substep sequence is re-aggregated at coarser
+granularity, summing *within* a group before taking the positive part; since the
+endpoints telescope, the group sum is exactly the rigid-energy change across the
+whole group.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_supply_partition.py
+```
+
+| scene | relax | budget | substep-granular supply [J] | frame-granular [J] | ratio | rectified |
+|---|---|---|---|---|---|---|
+| shelf | 0.7 | 4x1 | 38.06 | 38.06 | 1.000 | 0.0% |
+| ledge | 1.0 | 4x1 | 454.9 | 454.9 | 1.000 | 0.0% |
+| shelf | 0.7 | 1x8 | 55.81 | 51.53 | 1.083 | 7.7% |
+| shelf | 0.7 | 2x4 | 41.71 | 41.13 | 1.014 | 1.4% |
+| ledge | 0.7 | 1x8 | 393.4 | 393.1 | 1.001 | 0.1% |
+| ledge | 0.7 | 2x4 | 474 | 465.7 | 1.018 | 1.8% |
+
+**Result: the effect is REAL but SMALL — coarsening ratio 1.000–1.083, i.e. at
+most 7.7% of the substep-granular supply is fluctuation that frame-granular
+accounting cancels.** The two $4{\times}1$ cells come out at exactly 1.000
+because $S=1$ makes substep and frame granularity the same thing — a sanity
+check on the probe, not a result. The effect grows with $S$, as predicted: the
+$1{\times}8$ shelf cell is the worst at 7.7%.
+
+This upgrades P6(b) from an acknowledge-only caveat to a bounded one. It does
+not rescue any violated cell: the position-based overdrafts are $10^{3}$–$10^{7}$
+J against a supply of tens to hundreds of joules, so an 8% supply correction is
+irrelevant to the verdict.
+
+### E-C9d — is the recycling exposure a window artifact? (plan §8.5 P8.c-ii)
+
+**Why:** the Limitations recycling bound is measured over the standard 100-frame
+window. If energy cycles modal → rigid → dissipated repeatedly, a longer run
+should keep re-crediting it and the return fraction should climb.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_long_horizon.py
+```
+
+| scene | 100 frames | 250 | 500 | 1000 |
+|---|---|---|---|---|
+| shelf return fraction | 22.78% | 23.60% | 23.76% | 23.85% |
+| ledge return fraction | 14.53% | 15.21% | 15.62% | 15.74% |
+
+**Result: flat.** The return fraction rises by ~1 point over a 10x horizon
+(shelf 22.78 → 23.85%, ledge 14.53 → 15.74%), converging rather than climbing,
+so the recycling exposure is a steady-state property of the scene and the
+Limitations figure is not an artifact of the 100-frame window. R and the Eq.-(2)
+verdict are unchanged at every horizon (shelf R = 6333, ledge R = 1.195e5,
+both violating throughout), which also confirms the runs are settled well
+before 100 frames.
+

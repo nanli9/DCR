@@ -1,0 +1,28 @@
+{
+  "figure": "long_horizon.csv",
+  "stage": "X0",
+  "git_sha": "6f6e608",
+  "generated_utc": "2026-07-20T03:34:16+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "ledge",
+    "shelf"
+  ],
+  "solvers": [
+    "xpbd"
+  ],
+  "note": "E-C9d (plan \u00a78.5 P8.c-ii): return-channel fraction vs horizon, 100 -> 1000 frames, ungoverned. Tests whether the recycling exposure quoted in Limitations is a property of the 100-frame window. Measurement-only (run_eq2_utilization.one(), passivity_gamma == 1.0)."
+}

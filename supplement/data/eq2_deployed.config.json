@@ -1,0 +1,31 @@
+{
+  "figure": "eq2_deployed.csv",
+  "stage": "X0",
+  "git_sha": "7f7450a",
+  "generated_utc": "2026-07-19T11:11:11+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "shelf",
+    "ledge",
+    "dinner"
+  ],
+  "solvers": [
+    "xpbd",
+    "avbd",
+    "impulse"
+  ],
+  "note": "R1 (plan \u00a76.3): Eq.-(2) utilization U with the governor OFF. Measurement-only: the ledger runs live while passivity_gamma is forced to 1.0, so every state write in the ledger block (guarded by `if gamma < 1.0`) is dead and the trajectory is bit-identical to a clamp-OFF run. U = (E_mod^n - E_mod^0) / (eta * sum_k max(dE_rig^k, 0)); U > 1 is an actual Eq.-(2) violation, unlike R = peak modal E / peak incident rigid KE, which is a severity diagnostic. return_frac = sum max(-dE_rig,0) / sum max(dE_rig,0), the recycling bound for the R2 Limitations caveat."
+}

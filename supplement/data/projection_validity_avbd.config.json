@@ -1,0 +1,27 @@
+{
+  "figure": "projection_validity_avbd.csv",
+  "stage": "X0",
+  "git_sha": "b639c16",
+  "generated_utc": "2026-07-19T06:22:38+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "dinner"
+  ],
+  "solvers": [
+    "avbd"
+  ],
+  "note": "R5.2 (plan \u00a76.7): E-S3's post-projection contact validity probe ported to the augmented-Lagrangian host, on the two cells where it exceeds R=1 (table scene, 4x1, both relaxations). Same reduction as E-S3 so the rows are directly comparable. Runtime wrappers only; the ledger is pre-constructed because this host builds it lazily on the first substep."
+}
