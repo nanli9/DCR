@@ -31,3 +31,6 @@ docs/twobody/contact_force_sweep/
 # redacted <commit> placeholders back to real hashes -- never distribute it)
 /mig26_supplement.zip
 /supplement_commit_map.private.md
+# regenerable binaries inside the bundle (rebuilt from HEAD by the assembler)
+/supplement/code_snapshot.zip
+/supplement/teaser_video.mp4

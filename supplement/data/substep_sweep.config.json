@@ -1,8 +1,8 @@
 {
-  "figure": "eq2_deployed.csv",
+  "figure": "substep_sweep.csv",
   "stage": "X0",
   "git_sha": "<commit>",
-  "generated_utc": "2026-07-19T11:11:11+00:00",
+  "generated_utc": "2026-07-19T05:50:30+00:00",
   "config": {
     "relax": 0.7,
     "iterations": 16,
@@ -18,9 +18,7 @@
     "seed": 0
   },
   "scenes": [
-    "shelf",
-    "ledge",
-    "dinner"
+    "shelf"
   ],
   "solvers": [
     "xpbd",

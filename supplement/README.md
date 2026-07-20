@@ -1,17 +1,43 @@
 # Supplementary material
 
-Anonymous submission. This bundle contains the scene specification, the frozen
-results-ledger excerpts, and the raw CSVs behind every number in the paper.
+Anonymous submission. This bundle contains the source, the scene specification,
+the frozen results-ledger excerpts, and the raw data behind every number in the
+paper, plus the supplementary video.
 
-All solver-behaviour measurements were produced on a single machine — Apple M4,
-CPU only, CPython 3.12, float64 — running serially. Chaotic contact stacks
-diverge across architectures under floating-point reassociation, so we do not
-mix machines; the sole exception is the device-resident timing paragraph, which
-is reported separately and labelled as such in the paper.
+```
+README.md              this file
+CLAIMS_INDEX.md        every results section -> data file -> command
+LEDGER_EXCERPTS.md     the frozen ledger entries (command, commit, machine)
+data/                  raw CSVs and their .config.json manifests
+code_snapshot.zip      the source needed to re-derive them
+smoke_test.py          clean-unpack check (see §4)
+requirements-freeze.txt
+teaser_video.mp4       the supplementary video (see §5)
+SHA256SUMS
+```
 
-Source commit for this bundle: `6f6e608`.
+Commit identifiers read `<commit>` throughout: a searchable hash would identify
+the authors. `code_snapshot.zip` is the exact source state those commits name.
 
-## 1. Scene specification
+## 1. Machine, versions, and what is exact
+
+Every solver-behaviour measurement was produced on a single machine — **Apple
+M4, CPU only, CPython 3.12, float64, arm64** — running serially. The one
+exception is the device-resident timing paragraph (NVIDIA RTX 4090), reported
+separately and labelled as such in the paper.
+
+We do not mix machines, and the reason bears on reproducing this work:
+**chaotic contact stacks diverge across architectures under floating-point
+reassociation.** The printed digits are exact on arm64 and should be expected
+to differ on x86-64 — in a recorded instance, three contact tests and one
+scene's standing-pillar outcome differed between the two. What is portable is
+the *qualitative* result: which host violates the bound, by how many orders of
+magnitude, and that the violation decays with iteration count. `smoke_test.py`
+therefore asserts qualitatively and prints the digits for comparison.
+
+Package versions are pinned in `requirements-freeze.txt`.
+
+## 2. Scene specification
 
 Every value below is read from the scene-builder signatures and from a built
 solver, not transcribed by hand.
@@ -45,62 +71,95 @@ Seeds: none. The CPU path has no RNG; every run is bit-deterministic on a fixed 
 **REQUESTED vs REALIZED modes.** `n_modes_local` is clamped to the number of distinct contact zones (`scenes/reduced_scene_common.py:242`, deduped within 15 mm, because coincident bumps make Mq singular), so the delivered rank is smaller than `n_modes_global + n_modes_local` on the shelf and ledge. The paper's Table 1 prints the REALIZED rank.
 
 
-## 2. Ledger excerpts
+## 3. Data
 
-`LEDGER_EXCERPTS.md` reproduces the frozen entries for the 24-cell matrix
-(E-S1b), the deployed budgets (E-C6) and the robustness ablation (E-C9),
-each with its generating command, commit and machine.
+`CLAIMS_INDEX.md` maps each of these to the paper claim it supports and the
+command that produced it.
 
-## 3. Raw data
+### §2 scene specification and row counts
+- `data/scene_spec.csv`
+- `data/scene_spec.md`
 
-### matrix (Fig. 1, Table 1, §3.1)
+### §3.1 one row, three hosts, 24 cells (Fig. 2, Table 1)
 - `data/solver_matrix.csv`
 - `data/eq2_utilization.csv`
+- `data/substep_sweep.csv`
 
-### iteration budget (Fig. 3, §3.2)
+### §3.2 iteration budget and convergence (Fig. 3)
 - `data/k_convergence.csv`
 - `data/selfconvergence.csv`
 - `data/complementarity_residual.csv`
 - `data/complementarity_residual_nd.csv`
 - `data/complementarity_residual_nd_ledge.csv`
 
-### deployed budgets 1x8 / 2x4 (§3.2, E-C6)
+### §3.2 deployed budgets 1x8 / 2x4
 - `data/eq2_deployed.csv`
 - `data/solver_matrix_deployed.csv`
 - `data/projection_validity_deployed.csv`
 - `data/governed_accuracy_1x8.csv`
 
-### enforcement cost (Table 2, §3.3)
+### §3.2 robustness ablation and worst-cell ladder
+- `data/robustness_ablation.csv`
+- `data/k_convergence_ledge_worst.csv`
+
+### §3.3 cost of enforcement (Table 2)
 - `data/projection_validity.csv`
 - `data/projection_validity_avbd.csv`
 - `data/governed_accuracy.csv`
 
-### robustness ablation (§3.2, E-C9)
-- `data/robustness_ablation.csv`
-- `data/k_convergence_ledge_worst.csv`
+### §3.4 reduced response against a full-FEM reference
+- `data/ledge_convergence.csv`
+- `data/ledge_falloff.csv`
 
-### supplement-only probes (E-C9c/d)
+### §3.5 runtime cost
+- `data/perf_reps_summary.csv`
+- `data/perf_device.csv`
+- `data/perf_device_budget.csv`
+
+### §4 limitations: supply partition and long-horizon recycling
 - `data/supply_partition.csv`
 - `data/long_horizon.csv`
 
-### scene specification (P8.a)
-- `data/scene_spec.csv`
-- `data/scene_spec.md`
-
 ## 4. Reproducing
 
-Every harness is measurement-only: it imports the scenes and solvers read-only
-and sets each knob at runtime. None modifies solver source, and each neuters the
-governor's actuator (`passivity_gamma` forced to 1.0) so the ledger runs live
-while the trajectory stays bit-identical to an ungoverned run. The
-non-perturbation property is asserted, not assumed: the ablation's two base rows
-reproduce the frozen matrix ratios exactly (119534 and 6333.22).
+Unpack the snapshot and run the smoke test:
 
-Commands are listed with each ledger entry in `LEDGER_EXCERPTS.md`.
+```sh
+unzip code_snapshot.zip -d code_snapshot
+python -m venv .venv && .venv/bin/pip install -r requirements-freeze.txt
+.venv/bin/python smoke_test.py
+```
+
+It builds one scene from source and re-derives one cell of the 24-cell sweep on
+all three hosts — the paper's central contrast in miniature — asserting the
+qualitative outcome and printing the digits.
+
+Every harness in `benchmarks/paper_eval/` is measurement-only: it imports the
+scenes and solvers read-only and sets each knob at runtime. None modifies solver
+source, and each neuters the governor's actuator (`passivity_gamma` forced to
+1.0) so the reservoir accounting runs live while the trajectory stays
+bit-identical to an ungoverned run. That non-perturbation property is asserted,
+not assumed: the ablation's two base rows reproduce the frozen matrix ratios
+exactly (119534 and 6333.22).
+
+Full invocations are listed with each entry in `LEDGER_EXCERPTS.md`.
 
 ## 5. Video
 
-A supplementary video (ungoverned / governed / converged reference at the same
-starved budget) is **not included in this revision**: it requires an interactive
-capture session that the offline pipeline cannot perform. The teaser figure
-shows the same three-arm comparison as stills.
+`teaser_video.mp4` (44.8 s, 1920x1080, H.264, no audio) shows three arms at the
+canonical shelf cell: ungoverned, governed, and the position-based host's own
+high-iteration self-reference (500x1), at identical camera and true scale. It
+was rendered headlessly from frozen traces — no interactive capture — by
+`benchmarks/paper_fig/make_teaser_video.py`.
+
+It is deliberately not only a success reel. The steel-board case shows the
+governed run tracking the reference closely; the soft-board case that follows
+shows the same bound suppressing legitimate motion, captioned *bounded, but not
+faithful*, and the closing card states what the paper claims and what it does
+not.
+
+## 6. Verifying this bundle
+
+```sh
+shasum -a 256 -c SHA256SUMS
+```

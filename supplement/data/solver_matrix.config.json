@@ -1,7 +1,7 @@
 {
   "figure": "solver_matrix.csv",
   "stage": "X0",
-  "git_sha": "e6ab01f",
+  "git_sha": "<commit>",
   "generated_utc": "2026-07-19T02:15:58+00:00",
   "config": {
     "relax": 0.7,

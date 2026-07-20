@@ -1,0 +1,24 @@
+{
+  "figure": "perf_device_budget.csv",
+  "stage": "E7-device",
+  "generated_utc": "2026-07-08T11:25:15+00:00",
+  "device": "cuda:0",
+  "gpu": "NVIDIA GeForce RTX 4090",
+  "warp": "1.15.0",
+  "numpy": "2.2.6",
+  "python": "3.10.12",
+  "relax": 0.7,
+  "frames": 200,
+  "scenes": [
+    "dinner",
+    "ledge"
+  ],
+  "budgets": [
+    "8x1",
+    "8x2",
+    "16x2",
+    "16x4",
+    "32x4"
+  ],
+  "note": "clamp-on budget sweep; passivity ledger must hold at every budget"
+}

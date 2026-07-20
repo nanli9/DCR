@@ -1,7 +1,7 @@
 {
   "figure": "governed_accuracy.csv",
   "stage": "X0",
-  "git_sha": "afd9508",
+  "git_sha": "<commit>",
   "generated_utc": "2026-07-19T10:20:07+00:00",
   "config": {
     "relax": 0.7,

@@ -1,7 +1,7 @@
 {
   "figure": "complementarity_residual_nd.csv",
   "stage": "X0",
-  "git_sha": "dc440d2",
+  "git_sha": "<commit>",
   "generated_utc": "2026-07-20T03:01:48+00:00",
   "config": {
     "relax": 0.7,

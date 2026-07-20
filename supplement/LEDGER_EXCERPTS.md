@@ -1,6 +1,6 @@
 # Frozen results ledger — excerpts
 
-Each entry carries the generating command, the commit and the machine. Reproduced verbatim from the project's results ledger.
+Each entry carries its generating command, commit and machine, reproduced verbatim from the project's results ledger. Commit identifiers read `<commit>`: a searchable hash would identify the authors, so they are restored for the camera-ready version. The code those commits name is in `code_snapshot.zip`.
 
 ### E-S1b — the SYMMETRIC three-solver matrix (the plan's actual acceptance test)
 
@@ -16,7 +16,7 @@ Generating command:
 .venv/bin/python benchmarks/paper_eval/x1_passivity/run_solver_matrix.py
 ```
 
-Source commit: `e6ab01f` (working tree). Harness:
+Source commit: `<commit>` (working tree). Harness:
 `benchmarks/paper_eval/x1_passivity/run_solver_matrix.py`; data:
 `out/solver_matrix.csv` + manifest. Config re-implemented on this branch from
 the `benchmark`-branch X1 harness — no branch merge.
@@ -120,10 +120,713 @@ solver-array reads + `rigid_mechanical_energy`). They agree:
   worst case of 5.1×10³ describes the **superseded** scene. On the current
   dinner scene XPBD's worst ratio is 0.372 — it does not inject at all.
 
+## E-S2 — Iteration-Budget Convergence
+
+Source commit: `<commit>` (working tree). Harness:
+`benchmarks/paper_eval/x1_passivity/run_k_convergence.py`; data:
+`out/k_convergence.csv`, figure `out/k_convergence.{png,pdf}`.
+
+Generating command:
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_k_convergence.py
+```
+
+Scene: **shelf drop** (deterministic single impactor; the plan says avoid
+chaotic stacks, and shelf/ledge are the two scenes that reproduce the reference
+X1 cells exactly on this machine). **Substeps pinned at 1** so the local
+iteration budget `K` is the only variable — this isolates iteration truncation
+from substep refinement and is the adversarial corner where truncation
+dominates. Clamp OFF throughout. Same metric as E-S1.
+
+| K | XPBD | AVBD | impulse |
+|---:|---:|---:|---:|
+| 1 | 29586.4 | 0.970996 | — |
+| 2 | 13035.9 | 0.607336 | 0.273974 |
+| 3 | 9660.10 | 0.614843 | — |
+| 4 | 6333.22 | 0.502239 | 0.273496 |
+| 6 | 904.183 | 0.493902 | — |
+| 8 | 265.711 | 0.450603 | 0.274160 |
+| 12 | 54.1496 | 0.393107 | — |
+| 16 | 9.57998 | 0.430469 | 0.273751 |
+| 24 | 0.486377 | 0.497832 | — |
+| 32 | 0.300305 | 0.451712 | 0.273498 |
+| 64 | — | — | 0.273506 |
+| **500 (oracle)** | — | — | **0.273481** |
+
+**Acceptance: PASS.** XPBD's curve is **monotone non-increasing in K** over the
+whole sweep and decays toward the oracle: the gap |XPBD − oracle| shrinks from
+**2.95861×10⁴ to 2.68×10⁻²**, six orders of magnitude. XPBD crosses the
+injection threshold (ratio = 1) between K = 16 (9.58) and K = 24 (0.486).
+
+The oracle is **impulse at K = 500**, ratio **0.273481** — the same code path as
+the impulse sweep points, run to convergence, so it is a converged reference of
+the same model rather than a different model.
+
+Supporting reading, and the sharpest single fact in this experiment: **the
+impulse backend is already converged at K = 2.** Its ratio moves only in the
+fourth decimal across K = 2 → 500 (0.273974 → 0.273481, a spread of 4.9×10⁻⁴),
+while XPBD moves by five orders of magnitude over the same budget range. That is
+the formulation-vs-iteration dichotomy measured on one scene with one metric.
+
+**Caveat that must travel with the AVBD column.** The denominator (peak incident
+impactor KE) is solver- and budget-dependent, and at very low K it is not
+comparable across solvers: AVBD's is 13.0 J at K = 1 rising to 28.2 J at K = 32,
+i.e. at K = 1 AVBD under-resolves the drop itself. XPBD's denominator is stable
+(27.89 J at K = 1, 27.45 J for all K ≥ 2) and impulse's is stable at 28.95 J, so
+the XPBD trend and the XPBD-vs-oracle comparison are clean. **Do not read the
+AVBD curve as a convergence trend** — it is non-monotone (0.971 → 0.452 with
+excursions) and partly denominator-driven.
+
+## E-S3 — Post-Projection Contact Validity
+
+Source commit: `<commit>` (working tree). Harness:
+`benchmarks/paper_eval/x1_passivity/run_projection_validity.py`; data:
+`out/projection_validity.csv`.
+
+Generating command:
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_projection_validity.py
+```
+
+The hole this closes: the γ-projection scales realized `(q, q̇)` *after* the
+contact solve has finished (`solver_xpbd.py:1244-1250`, the last act of
+`_substep_cpu`). Scaling `q` moves the deformed support surface
+`y_rest + U_y·q` **without re-solving contact**. A contact reviewer will probe
+this. Measurement is by runtime wrappers only — the module-level
+`passivity_gamma` (pre-scale), `ledger.commit` (post-scale), and `_substep_cpu`
+(substep boundaries); every wrapper returns the original value unchanged.
+
+**Non-perturbation check**: the wrapped runs reproduce E-S1's independent clamp
+counts exactly (shelf 8×2: 162/216; shelf 4×1: 107/108; ledge 4×1: 98/108;
+ledge 8×2: 96/216). The instrumentation does not change the solve.
+
+XPBD, relax 0.7, starved budgets, 108 logged frames:
+
+| cell | clamped | min γ | (a) gap violation median / worst | (b) next-substep impulse median / worst / steady | (c) λ variance clamped / unclamped | (d) ΔP across projection |
+|---|---:|---:|---:|---:|---:|---:|
+| shelf 4×1 | 107/108 | 0.00712 | 1.248×10⁻³ / **2.160×10⁻²** m | 0.6629 / 9.452 N·s / — | 4.00×10⁻⁸ / 0 | **0** |
+| shelf 8×2 | 162/216 | 0.0884 | 2.993×10⁻⁴ / 6.464×10⁻³ m | 0.2973 / 8.748 / 0.04312 N·s (**6.90×**) | 2.19×10⁻⁹ / 8.45×10⁻¹¹ (26×) | **0** |
+| ledge 4×1 | 98/108 | 0.00388 | 6.969×10⁻⁵ / **2.119×10⁻²** m | 0.5331 / 112.4 / 0.5199 N·s (1.03×) | 1.13×10⁻⁷ / 1.06×10⁻⁷ (1.07×) | **0** |
+| ledge 8×2 | 96/216 | 0.0369 | 7.027×10⁻⁵ / 4.076×10⁻³ m | 2.310 / 108.1 / 0.2657 N·s (**8.69×**) | 4.03×10⁻⁷ / 6.89×10⁻⁹ (58×) | **0** |
+
+Numbers for the Limitations paragraph (one each, as the plan specifies):
+
+- **(a) Post-projection gap violation**: median **0.07–1.25 mm**, worst case
+  **21.6 mm** (shelf 4×1). The projection *increases* the worst violation — the
+  pre-scale worst in the same cells is 6.2 mm (shelf 4×1) and 0.51 mm (shelf
+  8×2), so the γ-scale accounts for roughly a 3.5× (shelf 4×1) to 12.6× (shelf
+  8×2) increase in worst-case penetration. **CORRECTED 2026-07-20 (Q1) — this
+  range is SHELF-ONLY and was later quoted as the host-wide range.** The four
+  Table-2 rows give post/pre worst-penetration ratios shelf 4×1 3.48, shelf 8×2
+  12.58, **ledge 4×1 3.12**, ledge 8×2 4.82, so the range over the host is
+  **3.1–12.6×**, not 3.5–12.6×. R5.2 below inherited the shelf-only floor
+  ("XPBD's 3.5–12.6×") and `main_short.tex` printed it at two sites; both
+  corrected to 3.1–12.6× in the Q-round. The correction does not weaken the
+  sentence it appears in — §3.3 calls the augmented-Lagrangian host's 3.1× and
+  5.5× "comparable" to this range, which a floor of 3.1 supports more strongly
+  than a floor of 3.5. Found by extending `verify_paper_numbers.py`, which had
+  never checked this range; source: `projection_validity.csv`
+  (`gap_viol_post_max_m / gap_viol_pre_max_m`, all four rows). Mechanism: γ < 1
+  shrinks the sag
+  `U_y·q`, lifting the support surface into the resting body. **This is the
+  honest cost of enforcing the bound at the state level, and it is the "stable
+  but not accurate when the clamp bites" limitation stated plainly.**
+- **(b) Corrective normal impulse in the following substep**: median **1.03× to
+  8.69×** the unclamped steady-state value; worst single substep **112.4 N·s**
+  (ledge 4×1) against a 0.52 N·s steady state. The contact solve does recover —
+  the violation is corrected on the next substep rather than accumulating — but
+  it pays a visible transient.
+- **(c) λ variance (chatter proxy)**: **1.07× to 58×** the unclamped variance on
+  clamp-active substeps.
+- **(d) Net rigid linear-momentum change across the projection: exactly 0.000**
+  in every clamp-active substep of all four cells. This is **zero by
+  construction, not by luck** — the projection writes only `_q`/`_qdot` and
+  never touches `_V`/`_W` (`solver_xpbd.py:1246-1247`); we verified it
+  numerically rather than asserting it. Substep-to-substep momentum change on
+  clamp-active substeps (median 0.0031–4.09 kg·m/s) is **at or below** the
+  unclamped baseline (0.389–4.08), so the governor does not pump rigid momentum.
+
+The ledger holds and is passive in all four cells.
+
+**Caveat**: in the shelf 4×1 cell the clamp fires on 107 of 108 substeps, so
+only one unclamped substep exists and the steady-state reference is undefined
+(reported as "—", ratio not computed). The 8×2 cells are the meaningful
+ratio measurements; 4×1 is reported for the worst-case gap only.
+
+---
+
+## R1 — Eq.-(2) utilization with the governor OFF (2026-07-19)
+
+Plan §6.3, the load-bearing fix. Closes E-S1b caveat 1: with the clamp OFF the
+Eq.-(2) accounting previously existed only on the impulse backend (XPBD's was
+vacuous, AVBD had no ledger object), so the abstract's "AVBD exceeds the supply
+bound (1.7×)" had **no supporting measurement** — 1.7 was R.
+
+Harness: `benchmarks/paper_eval/x1_passivity/run_eq2_utilization.py`
+Data: `out/eq2_utilization.csv`; figure `benchmarks/paper_fig/fig_s1_solver_matrix.py`
+Machine: Apple M4, CPU only, CPython 3.12. Commit `<commit>` + working tree.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_eq2_utilization.py --check-frozen
+```
+
+### Method — measurement-only by CONSTRUCTION
+
+The plan proposed replicating the ΔE_rig formula offline. We do **not**: a
+replica can drift from the real formula silently. Instead the solver's OWN
+ledger runs live (`_enforce_modal_passivity = True`) while its actuator is
+neutered — the module-level `passivity_gamma` is forced to return 1.0. In all
+three backends every state write in the ledger block sits inside
+`if gamma < 1.0` (`solver_xpbd.py:1244`, `solver_6dof.py:2639`,
+`solver_impulse.py:1003`), so that branch is DEAD and the trajectory is
+bit-identical to a clamp-OFF run. `passivity_gamma` is imported
+function-locally in all three, so one module patch reaches them all.
+
+**AVBD needs its ledger pre-constructed.** It builds `PassivityLedger` lazily on
+the first substep (`solver_6dof.py:2449`, `:3057`), unlike XPBD which builds it
+at `set_modal_support`. A harness reading `sol._psv_ledger` at setup finds
+`None` and silently measures nothing — this is the whole of E-S1b caveat 1's
+"AVBD has no ledger object at all". The lazy init is guarded
+`if self._psv_ledger is None`, so pre-constructing the same object with the
+same η makes the solver adopt it. **Anyone re-deriving these numbers must do
+this.**
+
+### Verdict definition — the printed inequality, not the enforced one
+
+**These are two different inequalities and they disagree.** Reported here:
+
+    margin_J = max_n [ E_mod^n − E_mod^0 − η·Σ_{k≤n} max(ΔE_rig^k, 0) ]
+    violation ⟺ margin_J > 0                       (Eq. 2 EXACTLY AS PRINTED)
+
+The implementation's own `passive()` (`passivity.py:287-293`) instead forgives
+up to one substep's largest deposit, `max_net_excess ≤ max_deposit + tol`,
+because modal PE can spike in the same substep the rigid body is still
+delivering KE. **That allowance is worth 7–389 J in these scenes**, so:
+
+| reading | XPBD | AVBD | impulse |
+|---|---:|---:|---:|
+| Eq. (2) as printed (strict) | 8/24 | **23/24** | 0/24 |
+| implementation `passive()` (allowance) | 8/24 | **1/24** | 0/24 |
+| implementation `holds()` (gross-gain form) | 9/24 | 2/24 | 0/24 |
+
+The strict reading is reported (user decision 2026-07-19) because it is what
+the paper prints AND because the **governed** runs satisfy it too — worst
+`max_net_excess_on` is +1.14×10⁻¹³ J (XPBD), +2.43×10⁻¹⁷ (AVBD), −5.7×10⁻⁴
+(impulse), from the committed `solver_matrix.csv`. So both columns are
+adjudicated by one inequality. **R2 must document the discrepancy in-paper.**
+
+Cell counts alone mislead in the opposite direction, so the joules always
+travel with them: XPBD overdraws by up to 4.4×10⁷ J, AVBD by ≤ 15.08 J.
+
+### Results (governor OFF, η = 1)
+
+| solver | Eq.(2) violated | margin range [J] | worst R | return channel |
+|---|---:|---:|---:|---:|
+| XPBD | **8/24** | −0.0398 … **+4.436×10⁷** | 1.19534×10⁵ | 3.39–32.15% |
+| AVBD | **23/24** | −0.00205 … **+15.083** | 1.70032 | 101.99–118.17% |
+| impulse | **0/24** | −0.1806 … −5.743×10⁻⁴ | 0.531421 | 0.41–27.09% |
+
+XPBD's violating cells (identical to its R > 1 set):
+
+| scene | relax | budget | R | margin [J] | supply [J] |
+|---|---:|---:|---:|---:|---:|
+| shelf | 0.7 | 4×1 | 6333.22 | +1.738×10⁵ | 38.06 |
+| shelf | 0.7 | 8×2 | 53.7307 | +1823.91 | 39.76 |
+| shelf | 1.0 | 4×1 | 10962.1 | +3.008×10⁵ | 39.94 |
+| shelf | 1.0 | 8×2 | 123.656 | +3549.07 | 40.94 |
+| ledge | 0.7 | 4×1 | 56266.2 | +2.0817×10⁷ | 422.67 |
+| ledge | 0.7 | 8×2 | 47.453 | +1.941×10⁵ | 406.26 |
+| ledge | 1.0 | 4×1 | 119534 | **+4.4355×10⁷** | 454.92 |
+| ledge | 1.0 | 8×2 | 167.723 | +4.0546×10⁵ | 414.33 |
+
+AVBD: violates in 23/24, but every margin except two is ≤ 0.14 J. The two real
+ones are the table-scene starved cells that R also flagged:
+dinner 0.7 4×1 (R 1.17891, margin **+5.353 J**) and
+dinner 1.0 4×1 (R 1.70032, margin **+15.083 J**). Its single satisfying cell
+is shelf 0.7 4×1 (margin −0.00205 J).
+
+### THE TWO METRICS DIVERGE — this is the panel's blocker, demonstrated
+
+R and Eq. (2) agree on XPBD (8/24 both) and impulse (0/24 both). On AVBD they
+do not: **R flags 2 cells, Eq. (2) is violated in 23.** R is a severity
+diagnostic and understates pervasiveness; the invariant is the claim. Reported
+as measured, not argued.
+
+### Acceptance — all three checks pass
+
+1. **Non-perturbation**: all 8 frozen E-S1b XPBD cells and all 3 per-solver
+   worst-over-cells values reproduce EXACTLY (`--check-frozen`).
+2. **Impulse cross-validation**: `cum_rigid_loss` vs E-S1b's live OFF-run
+   monitor over 24 cells — **worst relative difference 0.00e+00** (bit-exact,
+   not merely round-off, because it is the same accounting, not a replica).
+3. **Bracket contiguity** (`probe_dErig_bracket.py`): E_rig_post^k ==
+   E_rig_pre^{k+1} with sum|gap| = **0 J exactly** on all three backends, so
+   the per-substep ΔE_rig brackets tile the timeline and no rigid energy change
+   escapes the accounting.
+
+### Return channel (feeds R2)
+
+Σ max(−ΔE_rig, 0) / Σ max(+ΔE_rig, 0), the bound on gross-sum recycling:
+XPBD 3.39–32.15%, impulse 0.41–27.09%, **AVBD 101.99–118.17%**. Plan §6.4
+expected "≲1%"; it is one to two orders of magnitude larger, and on AVBD the
+gross rigid *gain* exceeds the gross loss in every cell. The Limitations
+recycling caveat must stand on these numbers, and the AVBD >100% needs its own
+sentence (same family as the impulse box–box rectification already named).
+
+### A metric that was WRONG and is retracted
+
+The first implementation used the plan's literal formula with a RUNNING
+denominator, maximised over n. That denominator accumulates from ~0, so a
+sub-joule in-transit lead inflated without bound: it reported "AVBD violates in
+23/24 with U up to 22" for overdrafts of 0.01–0.15 J (AVBD shelf 0.7 32×8: raw
+U = 20.3 for 0.13 J). Caught because a cell reported U = 21.9 while its peak
+modal energy, 4.98 J, was five times SMALLER than its supply, 25.3 J. The
+count 23/24 later turned out to be right for an unrelated reason (the strict
+reading), but the U values were not. **A ratio whose denominator accumulates
+from zero is not a verdict — check the absolute joules first.**
+
+---
+
+## R3 — making the comparison controlled (2026-07-19)
+
+Plan §6.5. Answers the panel's "apples-to-apples" blocker. Machine: Apple M4,
+CPU only, CPython 3.12. Commit `<commit>` + working tree.
+
+### R3.1 — T2 solver/parameter table (paper Table 1)
+
+Every entry read from the implementation. Anchors:
+
+| table row | code |
+|---|---|
+| unknown solved for | position (`solver_xpbd._substep_cpu`), position+multiplier (`solver_6dof`), velocity (`solver_impulse._substep`) |
+| XPBD compliant projection $\tilde\alpha=\alpha/h^2$, $\alpha=0$ ⇒ rigid | `solver_xpbd.py:243` (`contact_compliance=0.0` default), `:1137-1138` |
+| AVBD penalty + dual update, $\alpha=0.99$, $\beta=10^5$ | `solver_6dof.py:188-189`, `:289-290` |
+| impulse Schur $A=\frac{\mathrm{cfm}}{h^2}I+JM^{-1}J^\top+\hat G W\hat G^\top$ | `solver_impulse.py:22` (module docstring), PGS at `:892-912` |
+| impulse implicit modal weight $W=(M+hD+h^2K)^{-1}$ | `solver_impulse.py:30-38`, `:781-783` |
+| XPBD per-mode elastic compliance $1/(H_{ii}h^2-1)$ | `solver_xpbd.py:1113-1114` (`_alpha_e`) |
+| iteration structure | XPBD GS sweeps w/ gap re-evaluation `solver_xpbd.py:1130-1136`; AVBD coloured primal GS + q-block; impulse PGS `solver_impulse.py:902` |
+| warm start: XPBD NONE ($\lambda\leftarrow0$/substep) | `solver_xpbd.py:1119-1120` (`sc.lam = 0.0`, `_lam_q` zeroed) |
+| warm start: impulse $\lambda$ cache keyed per row | `solver_impulse.py:278`, `:893-894`, `:911-912` |
+| warm start: AVBD $\lambda$ + penalty carried | `solver_6dof.py:297`, `:1478-1486`, `:2001` |
+| relaxation 0.7 both; **inert on impulse** | `paper_config.py:45` (`relax=0.7`); `solver_impulse.py:290-292` (`modal_relax=1.0`, never read) |
+| $h=1/120$, substep $h/S$ | `paper_config.py` `h`; `solver_xpbd.py:563-564` |
+| modal rank $r$ = 24 / 28 / 24 | `reduced_shelf.py:40-41` (10+14), `reduced_ledge.py:42-43` (12+16), `reduced_dinner_table.py:87-88` (10+14) |
+| Rayleigh $D=\alpha_0M+\alpha_1K$, $\alpha_0\in\{2,3\}$, $\alpha_1=10^{-5}$ | `reduced_shelf.py:46-47` ($\alpha_0{=}3$), `reduced_ledge.py:48-49` / `reduced_dinner_table.py:95-96` ($\alpha_0{=}2$) |
+| implicit-midpoint stepper; $\eta=1$ | `paper_config.py:45` `stepper="symplectic"`; `apply_passivity(eta=1.0)` |
+
+### R3.2 — row-evaluation accounting
+
+A cell costs $K\cdot S$ row evaluations per frame: 4, 16, 64, 256 across the
+budget axis. So each rung **quadruples** the work and the axis spans **×64**
+end to end — steeper than the $4{\times}1\to32{\times}8$ labelling suggests.
+(Plan §6.5 called it "a ×4 work ladder"; ×4 is the per-rung factor, ×64 the
+span. The paper now states the four counts explicitly to avoid the ambiguity.)
+
+### R3.3 — substep-only sweep (NEW RUN)
+
+Companion to E-S2, which pins $S=1$ and sweeps $K$. Here $K=4$ is pinned and
+$S\in\{1,2,4,8\}$ swept, shelf drop, all three hosts, both relaxations,
+governor OFF.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_eq2_utilization.py \
+    --scenes shelf --budgets 4x1,4x2,4x4,4x8 --relaxes 0.7,1.0 --out substep_sweep
+```
+Data: `benchmarks/paper_eval/x1_passivity/out/substep_sweep.csv`
+
+XPBD, relax 0.7 (R / Eq.-(2) margin J):
+
+| S | 1 | 2 | 4 | 8 |
+|---|---:|---:|---:|---:|
+| R | 6333 | 213.9 | 68.05 | **3.129** |
+| margin [J] | +1.738×10⁵ | +1.429×10⁴ | +1944 | **+480.9** |
+
+relax 1.0: R = 1.096×10⁴ / 1431 / 244.7 / **29.19**; margin +3.008×10⁵ /
++4.139×10⁴ / +7059 / **+813**.
+AVBD violates 7/8 (worst margin +0.0225 J); impulse 0/8 (worst −5.7×10⁻⁴ J).
+
+**THE EQUAL-WORK RESULT** — same scene (shelf), same relax (0.7), same machine,
+same governor state as E-S2, so the two ladders overlay exactly:
+
+| row-evals/frame | as iterations ($S{=}1$, E-S2) | as substeps ($K{=}4$, this run) |
+|---:|---:|---:|
+| 4 | K=4: R = 6333 | S=1: R = 6333 (same cell) |
+| 8 | K=8: R = **265.7** | S=2: R = **213.9** |
+| 16 | K=16: R = **9.58** | S=4: R = **68.05** |
+| 32 | K=32: R = **0.300**, Eq.(2) HOLDS | S=8: R = **3.13**, margin **+481 J** |
+
+Iterations and substeps are NOT interchangeable at equal work. The ordering is
+not uniform — at 8 row-evals substeps are marginally ahead — but iterations pull
+away as the budget grows, and **within this ladder only the iteration axis
+reaches the regime where Eq. (2) holds.** Stated in the paper as "Equal work,
+unequal outcome"; honest about the non-uniform ordering rather than claiming a
+clean sweep.
+
+### R3.4 — complementarity residual vs K (NEW RUN)
+
+`res = ‖min(C, λ)‖∞` over support rows at end of substep. Harness
+`benchmarks/paper_eval/x1_passivity/probe_complementarity_residual.py`
+(measurement-only: wraps `_substep_cpu`, returns unchanged; `passivity_gamma`
+forced to 1.0). Same scene/relax/substeps as E-S2 so the curves overlay.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_complementarity_residual.py
+```
+Data: `out/complementarity_residual.csv`
+
+| K | 1 | 2 | 4 | 8 | 16 | 24 | 32 | 64 | 128 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| max | 2.79×10⁻² | 1.51×10⁻² | 6.16×10⁻³ | 1.85×10⁻³ | 1.59×10⁻⁴ | 2.99×10⁻⁵ | 1.07×10⁻⁵ | 3.559×10⁻⁶ | 3.559×10⁻⁶ |
+| median | 9.22×10⁻⁴ | 3.95×10⁻⁴ | 2.65×10⁻⁴ | 1.33×10⁻⁴ | 1.52×10⁻⁵ | 2.26×10⁻⁶ | 3.57×10⁻⁷ | 1.068×10⁻⁷ | 1.068×10⁻⁷ |
+
+Monotone, falls **7850×** over K=1..128, and **bottoms out by K=64** (K=128
+agrees to 7 significant figures — the floor is the solve, not the budget).
+
+**Why this matters**: it closes the "one scalar could shrink by coincidence"
+objection. The E-S2 energy crossing at K≈24 coincides with the residual passing
+~3×10⁻⁵, so the amplification disappears exactly as the complementarity
+conditions begin to hold. The energy decay IS constraint convergence.
+
+**Scope, stated in the paper**: XPBD only. AVBD's AL multiplier is not the same
+object, and the impulse host is converged at K=2 (E-S2), so its curve is flat by
+construction. Reporting one number per host would be the apples-to-oranges
+comparison R3 exists to remove.
+
+### Cross-platform test-suite check (not a paper number)
+
+User-requested. Full `pytest tests/` on both the ARM M4 and the x86 pod, for
+correctness only — **no solver-behaviour number may come from the x86 host**
+(plan hard rule; chaotic contact stacks diverge between architectures under
+floating-point reassociation, as the paper states). `tests/avbd/
+test_adapter_smoke.py::test_box_falls_and_settles` fails on BOTH machines
+(box never leaves y=0.5), so it is a pre-existing failure, not an x86 artifact
+and not caused by this session — which touched no solver source.
+
+---
+
+## R4 — XPBD self-convergence to K=500 + state agreement (2026-07-19)
+
+Plan §6.6. **THE ACCEPTANCE CRITERION IS NOT MET, and the negative result is
+the finding.** Machine: Apple M4, CPU only. Commit `14983e0` + working tree.
+
+Harness: `benchmarks/paper_eval/x1_passivity/run_selfconvergence.py` (NEW).
+Data: `out/selfconvergence.csv` (100 frames), `out/selfconvergence_long.csv`
+(300 frames, robustness check), `out/selfconvergence_traces.npz`.
+Same scene/relax/substeps as E-S2 (shelf, 0.7, S=1) so the column overlays it.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_selfconvergence.py
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_selfconvergence.py \
+    --nframes 300 --out selfconvergence_long          # robustness
+```
+
+### Energy: XPBD self-converges, but NOT to the oracle
+
+Oracle = implicit sequential-impulse host at K=500: **ratio 0.2734809**.
+
+| K | 16 | 24 | 32 | 64 | 128 | 256 | 500 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| XPBD ratio | 9.579983 | 0.4863771 | 0.3003054 | 0.2999081 | 0.2996861 | 0.2996276 | **0.2996131** |
+| gap to oracle | 9.307 | 0.2129 | 0.02682 | 0.02643 | 0.02621 | 0.02615 | **0.02613** |
+
+**Plan §6.6 acceptance was "|XPBD(500) − oracle| ≪ the K=32 gap (2.7×10⁻²)".
+Measured improvement: 1.026×.** The gap is a FIXED POINT, not a tail — XPBD
+plateaus by K≈64 at 0.2996, which differs from the oracle by 9.6% relative.
+
+### State: peak agrees, trajectory does not
+
+Deflection trajectory `d_i(t) = U_y[i]·q(t)` [m] — the same expression the
+contact row uses, so it is the surface the coupling actually sees.
+
+| metric | XPBD K=500 vs oracle |
+|---|---|
+| peak deflection | 0.0204817 m vs 0.0200003 m = **1.0241×** (2.4% high) |
+| L∞ of trace difference | **6.804×10⁻³ m = 34.02% of the oracle's peak** |
+| both flat from K=32 | peak 1.0248→1.0241, L∞ 34.00%→34.02% |
+
+So amplitudes agree to 2.4% while the trajectories differ by a third of peak —
+i.e. the disagreement is in phase/shape, not scale.
+
+### Ring frequency: NOT REPORTED, measurement unreliable
+
+The dominant FFT peak of the deflection trace moved with window length
+(XPBD 15.6 Hz at 100 frames → 11.2 Hz at 300; oracle 6 Hz in both). Over these
+windows the trace is dominated by the quasi-static sag, not the elastic ring,
+so the dominant peak is the settling envelope. **Do not quote these numbers.**
+The resolved ring comparison is the full-FEM one already in the paper
+(78.0 vs 78.3 Hz, §3.4), from a purpose-built harness. Energy, peak and L∞ are
+stable to 4 s.f. across BOTH window lengths, so those are the reportable ones.
+
+### Interpretation (now in paper §3.2)
+
+The two hosts converge to **different discrete solutions**. That is expected
+rather than alarming: they discretize the same continuous law differently — the
+paper's own §1 says the position-level row is one linearization step from the
+velocity-level law and takes e=0. The consequence for the paper's argument is
+that the sweep separates two effects that are easy to conflate:
+
+1. a **truncation pathology** (ratio 2.96×10⁴ → 0.2996) that convergence removes;
+2. a **formulation difference** (residual 9.6% energy, 34%-of-peak trajectory)
+   that convergence does NOT remove.
+
+The §3.2 wording changed from "cured by convergence" to "largely cured by
+convergence ... removes the pathology outright", and a new paragraph
+"Self-convergence stops short of the reference" states the plateau and the
+state metrics explicitly. This is more defensible than the original claim: a
+reviewer running K=500 themselves would have found the plateau.
+
+---
+
+## R5 — usefulness of the governed result (2026-07-19)
+
+Plan §6.7. Machine: Apple M4, CPU only, CPython 3.12. Commit `<commit>` +
+working tree.
+
+Harnesses (both NEW):
+- `benchmarks/paper_eval/x1_passivity/run_governed_accuracy.py` (R5.1 + R5.4)
+- `benchmarks/paper_eval/x1_passivity/run_projection_validity_avbd.py` (R5.2)
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_governed_accuracy.py
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_projection_validity_avbd.py
+```
+Data: `out/governed_accuracy.csv`, `out/governed_accuracy_traces.npz`,
+`out/projection_validity_avbd.csv`.
+
+### R5.1 — accuracy at the shelf 8×2, relax 0.7 cell
+
+Four arms on one axis. Reference arms are measurement-only (`passivity_gamma`
+forced to 1.0, so the enforcement branch is dead); the governed arm is the arm
+under test, with `_psv_monitor_only=False` so the projection is ACTIVE.
+
+| arm | budget | ratio | E_mod peak [J] | peak \|d\| [mm] | resting sag [mm] |
+|---|---|---:|---:|---:|---:|
+| ungoverned | xpbd 8×2 | 53.7307066 | 1555.6 | 24.116 | 1.403 |
+| governed | xpbd 8×2 | 1.01067586 | 29.26 | 5.929 | 0.453 |
+| xpbd converged | xpbd 500×1 | 0.2996131 | 8.2236 | 20.482 | 1.714 |
+| oracle | impulse 500×1 | 0.2734809 | 7.9176 | 20.000 | 2.377 |
+
+**The plan's arithmetic SURVIVES, and it survives under both references.** R4
+made "the reference" ambiguous (the position-based host self-converges to
+0.2996, not the oracle's 0.2735), so both are reported:
+
+| reference | energy error ungoverned → governed | in joules |
+|---|---|---|
+| oracle (0.2734809) | **196.5× → 3.696×** | +1548 J → +21.34 J |
+| xpbd converged (0.2996131) | **189.2× → 3.558×** | +1547 J → +21.04 J |
+
+Plan §6.7 predicted "~200× → ~3.7×" from 53.7/0.2735 and 1.011/0.2735. Verified:
+196.5 and 3.696. The choice of reference moves the numbers by <5%, so the claim
+does not rest on it. **Paper reports the oracle-referenced pair and names the
+other.**
+
+### R5.1b — THE GOVERNOR MAKES THE TRAJECTORY WORSE, NOT BETTER
+
+Not anticipated by the plan, and it is the sharpest result of R5.
+
+| reference | deflection L∞ ungoverned → governed |
+|---|---|
+| oracle | 6.505 mm (32.5% of ref peak) → **14.28 mm (71.4%)** |
+| xpbd converged | 7.988 mm (39.0%) → **14.77 mm (72.1%)** |
+
+Energy error improves ~53×; trajectory error **doubles**. The governor is a
+safety envelope, not an accuracy device — now demonstrated rather than asserted.
+
+### R5.1c — the mechanism, measured (why 196× energy is only 1.2× deflection)
+
+A reviewer will ask how the ungoverned run can hold 196× the reference energy
+while its peak deflection is only 24.1 mm against 20.0. Answer: the excess is
+neither kinetic nor low-frequency. Measured at the peak-energy frame:
+
+| arm | KE fraction | spectral centroid | energy above 10 kHz |
+|---|---:|---:|---:|
+| ungoverned | 0.3% | 24130.5 Hz | **99.626%** |
+| governed | 1.0% | 23350.5 Hz | **97.670%** |
+| xpbd converged | 15.0% | 29.7 Hz | 0.000% |
+| oracle | 6.6% | 25.2 Hz | 0.000% |
+
+The shelf spectrum is sharply BIMODAL — ten bending modes at 20.34 Hz … 2.033
+kHz, then a stiff cluster of six at 20.685 … 24.708 kHz. Any threshold inside
+that decade-wide gap gives the same number, so the 10 kHz cut is not a tuned
+knob (verified: the gap is 2033 → 20685 Hz). The substep rate at 8×2 is 240 Hz,
+so the stiff cluster sits ~200× above its Nyquist and is unrepresentable —
+this is the documented stiff-row injection mode.
+
+**Two consequences, both honest and both new:**
+1. The spurious energy lives in modes that barely move the support surface, so
+   an energy metric and a deflection metric measure genuinely different things.
+   This retroactively explains R4's split verdict (peak agrees to 2.4%, L∞
+   differs by 34%).
+2. **The γ-projection is a single scalar, so it cannot redistribute energy
+   across the spectrum.** It removes the right AMOUNT (1555.6 → 29.26 J) and
+   leaves the spectral character intact (99.6% → 97.7% above 10 kHz), while
+   scaling down the legitimate low-frequency sag along with the noise (peak
+   deflection 24.1 → 5.9 mm against a reference 20.0). That is precisely why
+   R5.1b's L∞ degrades, and it is a mechanism, not a guess.
+
+### R5.2 — AVBD post-projection contact validity (Table 2 completion)
+
+E-S3 ported to the augmented-Lagrangian host on its two R>1 cells (table scene,
+4×1, both relaxations — R = 1.179 / 1.700, Eq.-(2) margins +5.35 / +15.08 J).
+
+| scene | relax | clamped | γ min | gap viol. med / max [mm] | pre-scale max [mm] | impulse | λ var. |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| table | 0.7 | 27/108 | 0.729174 | 0.011 / **1.429** | 0.4646 | 1.169× | 0.41× |
+| table | 1.0 | 25/108 | 0.601613 | 0.023 / **3.108** | 0.5645 | 1.392× | 1.38× |
+
+Momentum change across the projection is **0.000e+00 kg·m/s exactly** in every
+clamp-active substep (same as XPBD, and necessarily so: the scale writes only
+modal state). `holds()` and `passive()` both True in both cells.
+
+**The projection is an order of magnitude gentler on this host** than on the
+position-based one (XPBD: 44–99% of substeps clamped, worst violation 21.6 mm,
+corrective impulse to 8.7×, λ variance to 58×). Consistent with R1: AVBD's
+overdrafts are ≤15 J, so γ barely has to bite (min 0.60–0.73). The
+pre→post multiplier is comparable (3.1× and 5.5×, against XPBD's 3.5–12.6×);
+what differs is the absolute scale. **[CORRECTED 2026-07-20 (Q1): XPBD's range
+is 3.1–12.6×, not 3.5–12.6× — the latter is E-S3's shelf-only figure. See the
+correction note in E-S3 (a).]**
+
+### FOUR PORTING TRAPS — the E-S3 wrappers do NOT transfer unchanged
+
+Anyone re-deriving these must handle all four; each one silently produces wrong
+numbers rather than an error.
+
+1. **`sol._q` on AVBD is the list of body QUATERNIONS (xyzw)**
+   (`solver_6dof.py:311`), not the modal coordinate — that is `_q_modal_host`.
+   E-S3's `_gaps()` reads `sol._q` and would compute a gap from a quaternion.
+2. **Support rows are parallel lists**, not objects: `_support_row_cidx` (index
+   into `_rows`, giving `body_a`/`off_a`), `_support_U_y_rows`,
+   `_support_y_rest`.
+3. **The ledger must be PRE-CONSTRUCTED** (`solver_6dof.py:2449` builds it
+   lazily on the first substep). The R1 trap, hit again here.
+4. **UNITS: `c_lambda` is a FORCE in newtons** — X1d (`run_static_ledger.py`)
+   validates Σ|λ_N| = m·g per resting body against the analytic weight. So the
+   impulse is λ·h_sub, NOT the λ/h_sub of the position-based probe, whose
+   multiplier is a different object. Caught by noticing a "steady impulse" of
+   5052 N·s; corrected to 0.300 N·s. **The reported ratio is invariant to the
+   factor** (1.169 / 1.392 either way), so no conclusion changed — but the
+   absolute column would have been mislabelled by 4 orders of magnitude.
+   The paper reports only the ratio, on both hosts.
+
+Clamp site asserted at runtime, not assumed: the table scene is built without
+native cargo, so the support-only clamp (`_modal_commit`, `:2637`) fires and
+the augmented (q_support, a_cargo) clamp at `:3303` does not.
+
+### R5.4 — normalized penetration (completes R0 item 10)
+
+E-S3's worst-case post-projection penetration is 21.6 mm (shelf 4×1). R0 put
+the geometry half in the paper (72% of the 30 mm board thickness, 2.7% of the
+0.8 m span); the missing half was the sag the projection destroys, which needed
+an instrumented run. "Resting sag" is defined as the tail median of
+max_i |d_i(t)| over the last half of the window, governor OFF, at a converged
+budget — so it is the scene's own equilibrium, not a truncation artifact.
+
+| unclamped reference | resting sag | peak dynamic deflection | 21.6 mm is |
+|---|---:|---:|---|
+| xpbd converged 500×1 | 1.714 mm | 20.482 mm | 12.60× the sag, **1.05×** the peak |
+| oracle impulse 500×1 | 2.377 mm | 20.000 mm | 9.09× the sag, **1.08×** the peak |
+
+**The sharp statement: the worst-case penetration is the board's entire dynamic
+deflection.** At the worst substep the projection does not merely reduce the
+sag, it removes all of it and then some (1.05–1.08× the peak the unclamped
+scene ever reaches, 9–13× its resting sag). This is a starker framing than
+either the thickness fraction or the bare millimetres, and it is the honest one.
+
+### Acceptance (plan §6.7)
+
+1. **Non-perturbation, exact**: the ungoverned and governed arms reproduce the
+   frozen `solver_matrix.csv` cell to the last digit — 53.73070660394743 and
+   1.0106758619142793, |diff| = 0 (`--check-frozen`).
+2. Table 2 now covers AVBD's problem cells (2 new rows).
+3. Numbers frozen here with command + commit + machine before entering the tex.
+4. Triptych: see the page-budget decision below.
+
+---
+
+## R7 — enforcement cost, honestly (2026-07-19)
+
+Plan §6.9. The device half (R7b) is already frozen in
+`docs/mig2026_device_ledger.md`. This is the **CPU half**, and it corrects the
+number the paper was printing.
+
+Harness: `benchmarks/paper_eval/x5_perf/run_perf_reps.py` (existing, unmodified).
+Machine: **Apple M4, CPU only, CPython 3.12** — the paper's declared CPU host.
+Commit `<commit>` + working tree. 10 reps × 100 frames, warm-up 5, fresh scene
+build per rep; overhead = (clamped mean − unclamped mean) per repetition.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x5_perf/run_perf_reps.py \
+    --only shelf,ledge,dinner --reps 10 --frames 100
+```
+Data: `x5_perf/out/perf_reps_summary.csv`, `perf_reps.csv`, `perf_reps_m4.log`.
+The prior server artifacts are preserved as `perf_reps_{,summary_}server_ref.csv`.
+
+### TWO DEFECTS IN THE PRINTED NUMBER, both found here
+
+The paper said: *"The ledger adds 0.8–2.9 ms/step at the evaluated configuration
+on the CPU host."*
+
+1. **It was measured on the wrong machine.** That range comes from
+   `x5_perf/out/perf_reps_server.log` — an **x86 server** — while §3 of the paper
+   states that every solver-behaviour number except the device timing was
+   produced on the Apple M4. `paper/NUMBERS.md` even records a "Mac cross-check
+   3.5–4.6×", i.e. the declared host is 3.5–4.6× faster than the machine the
+   number came from. This was an undisclosed second machine.
+2. **The upper bound was never statistically resolved.** The 2.9 ms that sets it
+   is the server's `dinner xpbd: clamp +2.89 ± 2.76` — the standard deviation
+   over 10 repetitions is 95% of the mean. The headline range was quoting noise.
+
+### Measured on the declared host (Apple M4)
+
+| scene | solver | baseline [ms] | worst [ms] | ledger [ms] | % of baseline | resolved? |
+|---|---|---:|---:|---:|---:|---|
+| shelf | xpbd | 18.45 ± 0.08 | 29.55 | +0.23 ± 0.14 | 1.25% | marginal |
+| shelf | avbd | 12.14 ± 0.06 | 14.32 | +0.41 ± 0.10 | **3.35%** | yes |
+| ledge | xpbd | 30.68 ± 0.12 | 51.63 | +0.27 ± 0.19 | 0.86% | marginal |
+| ledge | avbd | 10.99 ± 0.09 | 11.86 | +0.35 ± 0.09 | 3.22% | yes |
+| table | xpbd | 125.63 ± 5.68 | 194.59 | +1.35 ± 2.08 | 1.08% | **NO** (σ > μ) |
+| table | avbd | 37.47 ± 1.13 | 48.76 | +0.04 ± 1.43 | 0.09% | **NO** (σ ≫ μ) |
+
+**Reportable claim**: the ledger costs **0.23–0.41 ms/step, 0.9–3.4% of
+baseline**, on the four shelf/ledge configurations where it resolves above
+run-to-run variance. On the table scene the per-repetition spread exceeds the
+effect in both hosts, so it is reported as unresolved (bounded by ~1.4 ms,
+consistent with the resolved rows) rather than quoted as a mean. This is
+strictly more defensible than "0.8–2.9 ms" and it is on the right machine.
+
+**The percentage is the portable quantity.** Absolute times differ 3.5–4.6×
+between the two machines, but the percentages agree closely where both resolve
+(shelf xpbd 1.25% M4 vs 1.23% server; ledge xpbd 0.86% vs 0.84%). That is why
+plan §6.9 asked for a percentage, and it is the form the paper now prints.
+
+**CPU baselines are far from interactive**: 11.0–125.6 ms/step at 16×4, i.e.
+1.3–15× short of a 120 Hz budget. The host-side governor is not an interactive
+path and the paper should not imply otherwise; this is the motivation for the
+separate device measurement, not a competitor to it.
+
+### Device half — scope, stated in the paper
+
+R7b (frozen separately) gives 5.0–8.9 ms/step at 16×4 on an RTX 4090, ledger
+carried **read-only as a monitor**. Plan §6.9 requires stating plainly that a
+device-resident *enforced* γ **does not exist** — it is the long-paper unlock —
+so the panel's "device-side governed timing" ask is out of scope by design. The
+paper now says this rather than leaving it inferable.
+
+### Acceptance (plan §6.9)
+
+Baseline next to overhead as a percentage, per scene and host, on the declared
+CPU machine; device paragraph names the GPU, keeps "monitor-only" explicit, and
+states the absent enforced-γ path. Done.
+
+---
+
 ### E-C6 — the DEPLOYED budgets 1×8 and 2×4 (plan §7.7)
 
 **Machine:** Apple M4, CPU only, CPython 3.12 (the ARM-M4-only header above).
-**Commit:** `7f7450a` working tree, plus the `run_perf_reps.py`
+**Commit:** `<commit>` working tree, plus the `run_perf_reps.py`
 `--budget` / `--out-prefix` patch committed as the C6 commit. No solver source
 was touched; both new flags are additive and default to the frozen behaviour
 (`--budget` unset ⇒ PAPER_CONFIG 16×4; `--out-prefix` unset ⇒ `perf_reps`, so
@@ -291,7 +994,7 @@ to "90 / 78" in the C6 commit.
 
 **Machine:** Apple M4, CPU only, CPython 3.12.12, numpy 2.4.5, macOS 15.2
 (arm64 Darwin — the ARM-M4-only header above).
-**Commit:** `dc440d2` (code branch `impulse-native-constraint`), working tree
+**Commit:** `<commit>` (code branch `impulse-native-constraint`), working tree
 adding the two new measurement-only harnesses below. **No solver source was
 touched**: every knob is set at runtime via `build_reduced_*` kwargs or solver
 attributes, the C6 pattern.
@@ -472,4 +1175,117 @@ below the smallest AVBD overdraft. **Verdict: small but real — not FP noise.**
 The honest printed form is "2–270× the tightest slack the same accounting
 resolves on the never-overdrawing implicit host", NOT "10²–10³×".
 
+
+### E-C9c — supply partition-dependence, measured (plan §8.5 P8.c-i)
+
+**Machine/commit:** as E-C9 (Apple M4, CPU, CPython 3.12.12, arm64), serial.
+
+**Why:** panel B's numerics reviewer objected that `sum_k max(dE_rig^k, 0)` is a
+gross sum over *substep* boundaries, so a finer partition rectifies more of the
+rigid subsystem's own fluctuation into supply. The paper's "endpoints tile the
+timeline exactly" sentence answers completeness, which is a different property.
+
+**§8.5's offline route was NOT available**: the committed traces
+(`governed_accuracy*_traces.npz`, `selfconvergence*_traces.npz`) hold deflection
+fields only — `(frames x 48 support rows)` — and the eq2 CSVs hold run-level
+aggregates. No per-substep `E_rig` series existed to re-aggregate. Rather than
+fall back to P6's acknowledge-only sentence, the series is now *logged*:
+`probe_supply_partition.py` wraps `PassivityLedger.deposit`, records its
+argument and passes the value through untouched.
+
+**The trajectory is held FIXED** — this is what makes it a partition measurement
+and not a repeat of the E-C9 `h` axis, where a different timestep is a different
+discrete solve. One run's signed per-substep sequence is re-aggregated at coarser
+granularity, summing *within* a group before taking the positive part; since the
+endpoints telescope, the group sum is exactly the rigid-energy change across the
+whole group.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_supply_partition.py
+```
+
+| scene | relax | budget | substep-granular supply [J] | frame-granular [J] | ratio | rectified |
+|---|---|---|---|---|---|---|
+| shelf | 0.7 | 4x1 | 38.06 | 38.06 | 1.000 | 0.0% |
+| ledge | 1.0 | 4x1 | 454.9 | 454.9 | 1.000 | 0.0% |
+| shelf | 0.7 | 1x8 | 55.81 | 51.53 | 1.083 | 7.7% |
+| shelf | 0.7 | 2x4 | 41.71 | 41.13 | 1.014 | 1.4% |
+| ledge | 0.7 | 1x8 | 393.4 | 393.1 | 1.001 | 0.1% |
+| ledge | 0.7 | 2x4 | 474 | 465.7 | 1.018 | 1.8% |
+
+**Result: the effect is REAL but SMALL — coarsening ratio 1.000–1.083, i.e. at
+most 7.7% of the substep-granular supply is fluctuation that frame-granular
+accounting cancels.** The two $4{\times}1$ cells come out at exactly 1.000
+because $S=1$ makes substep and frame granularity the same thing — a sanity
+check on the probe, not a result. The effect grows with $S$, as predicted: the
+$1{\times}8$ shelf cell is the worst at 7.7%.
+
+This upgrades P6(b) from an acknowledge-only caveat to a bounded one. It does
+not rescue any violated cell: the position-based overdrafts are $10^{3}$–$10^{7}$
+J against a supply of tens to hundreds of joules, so an 8% supply correction is
+irrelevant to the verdict.
+
+### E-C9d — is the recycling exposure a window artifact? (plan §8.5 P8.c-ii)
+
+**Why:** the Limitations recycling bound is measured over the standard 100-frame
+window. If energy cycles modal → rigid → dissipated repeatedly, a longer run
+should keep re-crediting it and the return fraction should climb.
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_long_horizon.py
+```
+
+| scene | 100 frames | 250 | 500 | 1000 |
+|---|---|---|---|---|
+| shelf return fraction | 22.78% | 23.60% | 23.76% | 23.85% |
+| ledge return fraction | 14.53% | 15.21% | 15.62% | 15.74% |
+
+**Result: flat.** The return fraction rises by ~1 point over a 10x horizon
+(shelf 22.78 → 23.85%, ledge 14.53 → 15.74%), converging rather than climbing,
+so the recycling exposure is a steady-state property of the scene and the
+Limitations figure is not an artifact of the 100-frame window. R and the Eq.-(2)
+verdict are unchanged at every horizon (shelf R = 6333, ledge R = 1.195e5,
+both violating throughout), which also confirms the runs are settled well
+before 100 frames.
+
+
+### E-C9e — the scene specification (plan §8.5 P8.a), frozen 2026-07-20 (Q1)
+
+**Machine:** Apple M4, CPU only, CPython 3.12.12, numpy 2.4.5, macOS 15.2
+(arm64). **Commit:** `<commit>` (code branch `impulse-native-constraint`).
+**Runs:** serial. Structural read-back only — it builds each scene and reads
+attributes; it integrates nothing, so no solver-behaviour quantity is involved
+and the concurrent-run timing incident does not bear on it.
+
+**Why this entry exists.** It did not, until the Q1 claim-index check refused to
+build: `scene_spec.csv` backs two printed quantities — Table 1's `modal rank r`
+and §2's support-row counts — and had **no ledger entry**, contradicting §3's
+own sentence that "every number is frozen with its generating command and
+commit hash in the supplemental ledger". The artifact and its command existed
+since P8; only the freeze record was missing.
+
+#### Command
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/make_scene_spec.py
+```
+
+#### The two printed quantities (`scene_spec.csv`)
+
+| printed | shelf | ledge | table |
+|---|---|---|---|
+| modal rank `r` REALIZED (Table 1) | 16 | 16 | 24 |
+| support rows, eq. (1) (§2) | 48 | 40 | 200 |
+
+Every value is read from the code, never transcribed: geometry, material and
+impactor come from the `build_reduced_*` signature defaults via `inspect`, and
+the rank and spectrum are read back from a built solver. That is the guard
+against the P7 defect, in which Table 1 printed `n_modes_global +
+n_modes_local` (24/28/24 — the REQUESTED count) because
+`reduced_scene_common.py:242` clamps local modes to the number of distinct
+contact zones, making the sum a request rather than a rank.
+
+**Independently re-derived 2026-07-20** from a live build outside the harness
+(`len(sol._kq)`, `len(sol._support)` on the shelf): rank 16, rows 48 — matching.
+The bundle's `smoke_test.py` asserts both on every clean unpack.
 
