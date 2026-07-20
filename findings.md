@@ -1424,3 +1424,84 @@ with 107/108 clamped substeps and no corrective-impulse/variance entry; the
 **ledge $8{\times}2$** (`:550`). Q5's overlay must not attach 8.69× to the
 21.6 mm cell — they are different cells, and the paper never claims otherwise
 (§4 prints them as separate worst-cases at `:85` and `:603`).
+
+### Q1: the anonymity scan's first run found a real deanonymization the P8 scan
+### would have shipped
+
+`dcr/avbd/_solver/__init__.py:3` reads *"Vendored from the upstream port at
+`https://github.com/<author-account>/AVBD`"* — the author's own GitHub account,
+in a module docstring, in the one directory a code snapshot cannot omit. Three
+upstream commit hashes follow in the same docstring, searchable in that same
+account's repository.
+
+The P8 DEANON list (home paths, `compshare`) would not have caught any of it,
+and P8 shipped no code, so the exposure only became reachable the moment Q1
+added the snapshot. The lesson generalizes past this one line: **the scan's
+pattern list has to grow with what the bundle contains**, and a repo URL is not
+automatically a leak — `github.com/savant117/avbd-demo2d` in the sibling file is
+a citation of someone else's public demo and must stay. So URLs are adjudicated
+one at a time against an allowlist rather than pattern-matched, and the
+assembler refuses on any unadjudicated one.
+
+Also learned the hard way: the assembler must exclude *itself* from the
+snapshot. `make_supplement.py` holds the DEANON pattern list, which spells the
+author's name, username and institution in plain text — shipping the scanner
+would have shipped exactly what it scans for.
+
+### Q1: `verify_paper_numbers.py` had been failing for two rounds and nobody ran it
+
+It exits 1 on the P-round paper. Two of its checks assert that Table 2's AVBD
+clamp counts (`27/108`, `25/108`) appear in `main_short.tex`; the P-round page
+squeeze deleted Table 2's AVBD rows (progress.md records the deletion), so the
+checks have been red since. The paper is fine — the *checker* went stale, in
+the direction that makes a green tool useless rather than a red one noisy.
+
+The repair matters more than the bug. Extending the checker to the numbers it
+had never covered immediately found a **real error in the paper**: §3.3 printed
+the post-projection penetration increase as `3.5`–`12.6×` at two sites, where
+`3.5` is E-S3's shelf-only floor (ledge 4×1 is `3.12`). E-S3 computed it
+shelf-only and said so; R5.2 then re-quoted it as "XPBD's 3.5–12.6×", host-wide;
+the tex inherited R5.2's scope. Corrected to `3.1`–`12.6×` everywhere. It does
+not weaken the claim — the second site calls the AVBD host's 3.1× and 5.5×
+"comparable" to the XPBD range, which a floor of 3.1 supports more strongly than
+3.5 does.
+
+Two process points worth carrying to Q8: a verifier that nobody runs is worse
+than none, so it now runs from the bundle itself; and a *scope-narrowing* clause
+in a ledger entry ("shelf 4×1 … shelf 8×2") is exactly what gets dropped when
+the number is re-quoted elsewhere. When a ledger range is scoped, the scope
+belongs in the number's own row, not in the prose around it.
+
+### Q1: a printed Table 1 quantity had no ledger entry at all
+
+The claim-index self-check refused to build because `scene_spec.csv` — which
+backs Table 1's realized modal rank (16/16/24) and §2's support-row counts
+(48/40/200) — had **no entry in `mig2026_results_ledger.md`**. NUMBERS.md
+recorded it; the ledger, which §3 of the paper explicitly points readers at
+("every number is frozen with its generating command and commit hash in the
+supplemental ledger"), did not. Frozen as **E-C9e**. The artifact and its
+command had existed since P8; only the freeze record was missing, which is the
+failure mode a mechanical index catches and a human read does not.
+
+### Q1: bundle scope decisions worth not relitigating
+
+- **Data extended 20 → 26 artifacts.** The P8 bundle covered §3.1–§3.3 and §4
+  but not §3.1's substep sweep, §3.4's FEM comparison or §3.5's runtime, all of
+  which the paper prints. Every results section now has its CSV present. What
+  is still *not* re-derivable is stated in CLAIMS_INDEX rather than left
+  implicit: device timings need an RTX 4090, the FEM reference needs hours, and
+  the video's traces are large binaries.
+- **`scripts/` and `benchmarks/paper_fig/` are not snapshotted.** No paper_eval
+  harness imports either (checked with `git grep`), and paper_fig/data holds
+  large frozen artifacts from other suites.
+- **The snapshot is built from `git show HEAD:`**, never the working tree, so
+  uncommitted WIP (the sound workstream, the R8 probes) cannot leak into a
+  bundle. The consequence is an ordering constraint the plan already anticipated:
+  the assembler must run *after* the round's final commit, or the snapshot
+  ships the previous state. It bit once here — the first bundle carried the
+  unrepaired verifier — and Q8 re-runs it last for exactly this reason.
+- **`governed_accuracy.csv`'s working-tree drift was benign and is now
+  committed.** The re-run differed from HEAD only in wall-clock timings and the
+  manifest's sha/timestamp; every physical quantity was bit-identical. That is
+  an unintentional reproducibility datum: the same measurement at a different
+  commit reproduced exactly.

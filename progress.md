@@ -469,7 +469,8 @@ Q5 fast path → Q8. Q6 deferred by advisor ruling (§9.8). Q9 gates every commi
 
 | item | code branch | paper worktree |
 |---|---|---|
-| Q0 baseline + panel log | `5aa9b96` | — (verified, untouched) |
+| Q0 baseline + panel log | `5aa9b96`, `06c0911` | — (verified, untouched) |
+| Q1 supplement v2 | `ea795b5`, `fa6e08c`, `ecf3861` | `36679a6` |
 
 ## Q0 — adjudicate baseline + log the panel (§9.2) — DONE
 
@@ -493,3 +494,45 @@ Q5 fast path → Q8. Q6 deferred by advisor ruling (§9.8). Q9 gates every commi
   (`:85,:547,:550` ← Table 2 rows); modal rank `16/16/24` (`:380` ←
   `scene_spec.csv` REALIZED, the P7 correction) and the `1.1e-13` J worst
   margin over 90 measured cells / 78 distinct (`:329,:82`).
+
+## Q1 — supplement v2 (§9.3) — DONE
+
+Delivered all seven elements (a–g). `mig26_supplement.zip`, **1.93 MiB**, well
+under the 200 MB allowance.
+
+| element | what landed |
+|---|---|
+| a. runnable snapshot | `code_snapshot.zip`, 128 files, built from `git show HEAD:` (no `.git`, no working-tree state); `scripts/`, `paper_fig/`, every `out/` and the assembler itself excluded |
+| b. claim index | `CLAIMS_INDEX.md`, 27 rows, one per results section; **self-checking** — refuses to build if a row's tex anchor has left `main_short.tex` or its harness has left the ledger |
+| c. version record | `requirements-freeze.txt` via `importlib.metadata` (this venv is uv-managed, has no `pip`; the first run silently wrote an empty file), 38 distributions + `CPython 3.12.12 on Darwin arm64` |
+| d. smoke test | `smoke_test.py`: builds the shelf scene from source, checks rank 16 / 48 rows against Table 1, re-derives the 4×1 cell on all three hosts. Qualitative asserts, digits printed |
+| e. sums + one zip | `SHA256SUMS` over 54 files; `shasum -c` 0 failures |
+| f. video | wired in, byte-identical to the panel-reviewed artifact (1343 frames, 44.767 s, 1920×1080, sha `6dcd904…`). README §5 rewritten — it had claimed the video was "not included" and needed an interactive capture session, false on both counts since Jul 19 |
+| g. anonymity | commit hashes → `<commit>` (15, mapping written outside the bundle); zip member paths scanned; repo URLs adjudicated individually against an allowlist |
+
+Acceptance, all from a clean unpack of the zip:
+- `shasum -a 256 -c SHA256SUMS` → 54 OK, 0 FAILED
+- `python smoke_test.py` → exit 0, digits match the arm64 reference **exactly**
+  (`R = 6333.221296009669`)
+- `verify_paper_numbers.py --data data` → exit 0, 37 passed, 1 skipped (the
+  one check that needs the paper source, which the bundle does not ship)
+- independent re-scan of the final zip: **0** deanon hits, **0** commit-hash
+  tokens over 179 text members including the snapshot
+- CLAIMS_INDEX spot-check, 10+ rows re-derived from the bundled CSVs: rank
+  16/16/24, rows 48/40/200, R>1 counts 8/2/0, Eq. (2) violations 8/23/0, worst
+  R 119534, governed worst 1.22/0.87, AVBD worst margin 15.08 J, impulse least
+  slack −5.74e−4 J, 4×8 ratio 3.13 / 480.9 J, ladder 8.46e5→0.1653, robustness
+  24/24 over 2.54–4.67e5, penetration 21.6 mm, 1556/29.26/7.918 J, deployed
+  6/6 worst 2282, baseline 10.99–125.63 ms — every one matching the paper
+
+Three things Q1 found that were not on its list (details in findings.md):
+- **A real deanonymization**: the author's own GitHub account in a vendored
+  module docstring, which the P8 scan would have shipped once code was added.
+- **`verify_paper_numbers.py` exited 1 on the P-round paper** — two checks went
+  stale when the page squeeze deleted Table 2's AVBD rows. Repaired.
+- **A real error in the paper**, found by extending that verifier: §3.3's
+  penetration range was E-S3's shelf-only floor re-quoted as host-wide.
+  Corrected `3.5`–`12.6×` → `3.1`–`12.6×` at both sites, ledger-first, and it
+  slightly strengthens the sentence it appears in. New ledger entry **E-C9e**
+  freezes the scene specification, which backed two printed Table 1/§2
+  quantities with no ledger entry at all.
