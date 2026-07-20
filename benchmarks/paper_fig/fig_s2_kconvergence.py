@@ -8,9 +8,9 @@ code path as its own sweep points, run to convergence, so it is a converged
 reference of the same model rather than a different model.
 
 XPBD is monotone non-increasing in K and decays toward the oracle across six
-orders of magnitude (2.96e4 at K=1 to 0.300 at K=32), crossing the injection
-threshold between K=16 and K=24. The impulse backend is already converged at
-K=2 (spread 4.9e-4 over K=2..500).
+orders of magnitude (2.96e4 at K=1 to 0.300 at K=32), crossing the
+incident-energy threshold (R = 1) between K=16 and K=24. The impulse backend is
+already converged at K=2 (spread 4.9e-4 over K=2..500).
 
 The AVBD curve is drawn but must NOT be read as a convergence trend: its
 denominator (peak incident impactor KE) is itself budget-dependent at low K
@@ -61,7 +61,11 @@ def main():
     ax.axhline(oracle, ls=(0, (5, 2)), c="k", lw=1.0, zorder=1,
                label=f"converged ref.\n(impulse $K$=500): {oracle:.3f}")
     ax.axhline(1.0, ls=":", c="0.45", lw=0.9, zorder=1)
-    ax.text(1.05, 1.35, "injection threshold", fontsize=6, color="0.35")
+    # The dotted line is R = 1, i.e. peak modal energy == peak incident rigid
+    # KE. It is NOT an injection threshold: injection is measured against the
+    # supply of eq. (2), not against incident energy, and the two metrics are
+    # shown to disagree (paper 3.1). Name it exactly as the caption does.
+    ax.text(1.05, 1.35, "incident-energy threshold", fontsize=6, color="0.35")
 
     ax.set_xscale("log", base=2)
     ax.set_yscale("log")
