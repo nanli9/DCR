@@ -74,12 +74,14 @@ $15$~J, and the implicit realization never: a rare but catastrophic pathology
 beside a pervasive but negligible one, which the customary
 ratio-to-incident-energy diagnostic does not separate. An iteration-budget sweep
 identifies the position-based amplification as a truncation artifact, decaying
-toward a converged reference computed in the same code path and closing the gap
+toward an implicit high-iteration reference computed in the same code path,
+closing the gap
 by six orders of magnitude. Since that regime is unaffordable at interactive
 budgets we add a deliberately minimal fail-safe: a cumulative modal-storage
-bound funded by the measured gross rigid-side loss, enforced by a reservoir
+bound funded by the measured gross rigid-side loss, maintained by a reservoir
 ledger and a projection of the realized modal state, whose cost we measure
-rather than assume. It holds in all 90 measured cells ($78$ distinct
+rather than assume. The loop guarantees a one-deposit relaxation of that bound;
+the strict form is observed in all 90 measured cells ($78$ distinct
 configurations), including the $1{\times}8$ and $2{\times}4$ budgets at which
 interactive solvers are commonly deployed, and what it costs is contact
 validity: worst-case post-projection penetration $21.6$~mm ($72\%$ of the
@@ -106,8 +108,8 @@ deployed budgets.
 ($1{\times}8$), true scale, three independent runs. Ungoverned, truncation
 energy throws the resting books up to $93$~mm --- more than their own height;
 governed, \eqref{eq:invariant} holds peak modal energy to $29.5$~J and they
-stay within $1$~mm of rest; the reference is the host's own converged solution
-($K{=}500$). The bound removes the spurious launch and some legitimate motion
+stay within $1$~mm of rest; the reference is the host's own high-iteration
+self-reference ($500{\times}1$). The bound removes the spurious launch and some legitimate motion
 with it: the reference lifts one book $19$~mm, the governed run none.}
 \label{fig:teaser}
 \end{figure}
@@ -148,17 +150,18 @@ within an interactive budget.
 \paragraph*{Contributions.}
 \begin{enumerate}
 \item \textbf{Measurement.} A single contact row evaluated in three
-  fixed-budget solver formulations over one identical 24-cell adversarial
+  fixed-budget solver implementations over one identical 24-cell adversarial
   sweep on one machine (\S\ref{sec:matrix}), plus an iteration-budget sweep
-  against a converged reference identifying the position-based injection as a
-  truncation artifact (\S\ref{sec:kconv}).
+  against an implicit high-iteration reference identifying the position-based
+  injection as a truncation artifact (\S\ref{sec:kconv}).
 \item \textbf{A cumulative storage bound.} A one-directional bound on the
   energy entering modal storage, funded by the measured gross rigid-side loss
-  and enforced by a reservoir ledger and a projection of the realized modal
+  and maintained by a reservoir ledger and a projection of the realized modal
   state (\S\ref{sec:bound}). It is the simplest admissible enforcement --- a
   deliberately minimal, audited fail-safe, not a constructive contact method
-  --- and it satisfies the prescribed inequality in all $90$ measured cells
-  ($78$ distinct configurations).
+  --- guaranteeing \eqref{eq:budgeted}, a one-deposit relaxation of the bound;
+  the strict form is \emph{observed} in all $90$ measured cells ($78$
+  distinct configurations).
 \item \textbf{The cost of enforcement.} Post-projection contact validity
   (penetration, corrective impulse, multiplier variance, momentum), measured
   rather than assumed (\S\ref{sec:validity}).
@@ -270,13 +273,21 @@ a port. The \emph{gross} sum ignores substeps in which the rigid subsystem
 \emph{gains} energy, so those cannot cancel earlier credits, and energy returned
 and re-dissipated counts as fresh supply (\S\ref{sec:limits} measures both).
 \textbf{(ii)~The enforced recursion} is the per-substep loop below --- credit,
-test, project, debit. \textbf{(iii)~The implementation's own test} additionally
-forgives one substep's largest deposit, $\max_k \eta\max(\dErig^{\,k},0)$,
-absorbing a granularity artifact of that loop: modal potential energy can rise
-in the very substep whose credit funds it. That allowance is worth $7$--$389$~J
---- immaterial where the overdraw is $10^{5}$~J or more, decisive where it is
-not: under it the augmented-Lagrangian host would violate $1$ of $24$ cells
-rather than $23$. We report the stricter reading~(i) throughout.
+test, project, debit. \textbf{(iii)~The bound the loop actually guarantees}
+relaxes \eqref{eq:invariant} by one substep's largest deposit, absorbing a
+granularity artifact: modal potential energy can rise in the substep whose
+credit funds it:
+\begin{equation}
+\Emod^{\,n} - \Emod^{\,0}
+\;\le\;
+\eta \sum_{k\le n} \max\!\bigl(\dErig^{\,k},0\bigr)
+\;+\; \max_{k\le n}\,\eta\max\!\bigl(\dErig^{\,k},0\bigr).
+\label{eq:budgeted}
+\end{equation}
+That slack is worth $7$--$389$~J --- immaterial where the overdraw is
+$10^{5}$~J or more, decisive where it is not: under it the augmented-Lagrangian
+host would violate $1$ of $24$ cells, not $23$. We report the stricter
+reading~(i) throughout.
 
 \paragraph*{Enforcement.} A reservoir $B$ accumulates the supply and is debited
 by realized storage. Both happen \emph{after} the contact solve, within the
@@ -314,8 +325,8 @@ is inert whenever the solve is within budget ($\gamma=1$, bitwise-identical
 trajectories), and it never re-solves contact (step~7).
 
 \begin{proposition}\label{prop:guarantee}
-For any $\eta\in(0,1]$ and any host, the loop maintains $B\ge0$ and enforces
-\textup{(iii)} unconditionally, assuming nothing about the contact solve.
+For any $\eta\in(0,1]$ and any host, the loop maintains $B\ge0$ and guarantees
+\eqref{eq:budgeted} unconditionally, assuming nothing about the contact solve.
 \end{proposition}
 
 \noindent\emph{Sketch.} Induct with the invariant $B\ge0$: $B^{0}$ is $0$,
@@ -324,8 +335,8 @@ only when $\Emod^{+}$ exceeds $\Emod^{-}+B$, and applies the largest $\gamma$
 with $\gamma^{2}\Emod^{+}\le\Emod^{-}+B$; as $\Emod$ is quadratic in the state,
 realized storage is then at most $\Emod^{-}+B$. Telescoping over $k\le n$ gives
 \eqref{eq:invariant} up to the one deposit credited in the substep that spends
-it --- exactly~(iii). Strict \eqref{eq:invariant} is not implied; it is
-\emph{observed}, in all $90$ governed cells, worst margin
+it --- exactly~\eqref{eq:budgeted}. Strict \eqref{eq:invariant} is not implied;
+it is \emph{observed}, in all $90$ governed cells, worst margin
 $1.1\times10^{-13}$~J.
 
 % =====================================================================
@@ -338,13 +349,13 @@ frozen with its generating command and commit hash in the supplemental ledger.
 We deliberately avoid mixing machines: chaotic contact stacks diverge across
 architectures under floating-point reassociation.
 
-\subsection{One row, three formulations, the same 24 cells}
+\subsection{One row, three implementations, the same 24 cells}
 \label{sec:matrix}
 
 \begin{figure*}[t]
 \centering
 \includegraphics[width=0.80\textwidth]{fig_s1_solver_matrix.pdf}
-\caption{The same contact row in three fixed-budget solver formulations over an
+\caption{The same contact row in three fixed-budget solver implementations over an
 identical 24-cell sweep (3 scenes $\times$ modal relaxation
 $\{0.7,1.0\}$ $\times$ budget), governor OFF. \textbf{Top:} the ratio $R$ =
 peak modal energy / peak incident rigid kinetic energy, log scale diverging at
@@ -352,9 +363,8 @@ $1$ --- a severity diagnostic. XPBD exceeds $1$ in $8/24$ cells, AVBD in
 $2/24$, the implicit realization in $0/24$. \textbf{Bottom:} the invariant
 itself --- the signed margin of \eqref{eq:invariant} in joules, symmetric-log,
 diverging at $0$; positive values violate. The two panels disagree on AVBD.
-Hatched rows mark the relaxation axis a host does not consume; those rows are
-bit-identical by construction, shown only for grid symmetry. We report joules
-rather than a second ratio because every candidate denominator misleads.}
+Hatched rows mark a relaxation axis the host does not consume, bit-identical
+by construction (\S\ref{sec:matrix}).}
 \label{fig:matrix}
 \end{figure*}
 
@@ -456,23 +466,23 @@ solve is already within budget.
 \includegraphics[width=0.88\columnwidth]{fig_s2_kconvergence.pdf}
 \caption{Energy ratio versus local iteration budget $K$ on a deterministic
 shelf drop, substeps pinned at $1$ so $K$ is the only variable, governor OFF.
-The position-based host decays monotonically toward the converged reference,
+The position-based host decays monotonically toward the implicit reference,
 crossing the incident-energy threshold between $K{=}16$ and
 $K{=}24$; the gap shrinks by six orders of magnitude. The
-reference is the implicit realization at $K{=}500$ --- the same code path run
-to convergence, not a different model; it is already converged at $K{=}2$. The
+reference is the implicit realization at $K{=}500$ --- the same code path, not
+a different model; it is already converged at $K{=}2$. The
 AVBD curve is shown for completeness only: its denominator is itself
 budget-dependent at small $K$, so it cannot be read as a convergence trend.}
 \label{fig:kconv}
 \end{figure}
 
 Figure~\ref{fig:kconv} isolates the local iteration budget. Two references
-recur below and are not the same object: \emph{the converged reference} is the
-implicit realization at $K{=}500$ --- the same code path run to convergence ---
-and \emph{the host's own fixed point} is the position-based host run to
-$K{=}500$ against itself. The position-based
+recur below and are not the same object: \emph{the implicit reference} is the
+implicit high-iteration realization at $K{=}500$ --- the same code path run to
+$K{=}500$ --- and \emph{the XPBD self-reference} is the position-based host run
+to $K{=}500$ against itself. The position-based
 host falls monotonically from $2.96\times10^{4}$ at $K{=}1$ to $0.300$ at
-$K{=}32$, approaching the converged reference $0.2735$; the gap
+$K{=}32$, approaching the implicit reference $0.2735$; the gap
 $|\text{XPBD}-\text{reference}|$ shrinks from $2.96\times10^{4}$ to
 $2.7\times10^{-2}$. The implicit realization moves only in the fourth decimal
 across $K=2\ldots500$ (spread $4.9\times10^{-4}$).
@@ -555,9 +565,9 @@ ledge & $8{\times}2$ & 96/216  & 0.07 / 4.08          & $8.69\times$ & $58\times
 \paragraph*{Accuracy.} Bounding the energy is useful only if the bounded
 solution improves on the unbounded one. At a moderate injecting cell (shelf,
 $8{\times}2$, relaxation $0.7$), peak modal energy is $1555.6$~J ungoverned and
-$29.26$~J governed against the converged reference's $7.92$~J: the energy error
+$29.26$~J governed against the implicit reference's $7.92$~J: the energy error
 falls $196{\times}\to3.7{\times}$ ($+1548\to+21$~J), and
-$189{\times}\to3.6{\times}$ against the host's own fixed point ($8.22$~J), so it
+$189{\times}\to3.6{\times}$ against the XPBD self-reference ($8.22$~J), so it
 does not depend on the reference chosen. The trajectory, however, degrades:
 $\|d-d^{\text{ref}}\|_\infty$ is $6.5$~mm ungoverned and $14.3$~mm governed,
 $33\%$ and $71\%$ of the reference's peak --- the governor is a safety envelope,
@@ -586,7 +596,7 @@ reproduce the independent sweep exactly).
 Median post-projection penetration is $0.07$--$1.25$~mm, but the worst case
 reaches $21.6$~mm, a $3.1$--$12.6\times$ increase over its pre-scale value. The
 shelf board is $30$~mm thick, so that is $72\%$ of its thickness; against the
-unclamped scene at a converged budget (resting sag $1.7$--$2.4$~mm, peak
+unclamped scene at either reference (resting sag $1.7$--$2.4$~mm, peak
 dynamic deflection $20.0$--$20.5$~mm) it is $9$--$13\times$ the sag and
 $1.05$--$1.08\times$ the board's peak deflection --- a visible
 interpenetration, not a sub-millimetre artifact, occurring where the projection
@@ -651,7 +661,7 @@ rather than being withheld (\S\ref{sec:limits}).
 % =====================================================================
 \textbf{Stability is not accuracy.} Where the projection is load-bearing it
 opens contact violations up to $21.6$~mm and moves the trajectory \emph{away}
-from the converged reference even as it moves the energy toward it
+from the implicit reference even as it moves the energy toward it
 (\S\ref{sec:validity}): bounded, not faithful, so its honest use is as a safety
 envelope for budgets that would otherwise diverge, and convergence remains the
 better remedy wherever affordable. A natural next mechanism scales deviations
@@ -683,8 +693,8 @@ partition-independence.
 
 \textbf{Coverage.} Enforcement is host-side and single-machine (CPU float64); a
 device-resident governor and a validation of the \emph{governed} path against a
-full-FEM reference remain future work. Three formulations, three scenes, one
-contact regime; the augmented-Lagrangian host's small but near-universal
+full-FEM reference remain future work. Three formulations, one implementation
+of each; three scenes, one contact regime; the augmented-Lagrangian host's small but near-universal
 overdraft makes any claim that descent-class solvers are passive in this setting
 an empirical statement about this sweep, not a theorem --- though those
 overdrafts run $2$--$274\times$ the tightest slack the same accounting resolves
