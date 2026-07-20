@@ -36,6 +36,9 @@
   Games (MIG '26), December 11--13, 2026, Charleston, SC, USA}
 \acmDOI{}
 \acmISBN{}
+% Placeholder: EasyChair assigns this at registration (window opens 2026-07-25).
+% Fill before submission; leaving it empty is harmless in review mode.
+\acmSubmissionID{}
 
 \usepackage{pifont}
 \graphicspath{{figures/}}
@@ -98,16 +101,14 @@ supporting board's thickness.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{fig_teaser.pdf}
-\caption{One shelf impact at a production-like interactive budget (one
-iteration per substep, eight substeps per frame), true scale, three
-independent runs. Ungoverned, truncation energy throws the resting books up
-to $93$~mm --- more than their own height; governed,
-\eqref{eq:invariant} holds peak modal energy to $29.5$~J and they stay within
-$1$~mm of rest; the reference is the host's own converged solution
+\caption{One shelf impact at a production-like interactive budget
+($1{\times}8$), true scale, three independent runs. Ungoverned, truncation
+energy throws the resting books up to $93$~mm --- more than their own height;
+governed, \eqref{eq:invariant} holds peak modal energy to $29.5$~J and they
+stay within $1$~mm of rest; the reference is the host's own converged solution
 ($K{=}500$). The bound removes the spurious launch and some legitimate motion
-with it: the reference lifts one book $19$~mm where the governed run lifts
-none (\S\ref{sec:validity}). The impactor's own rebound is rigid-side, which
-the bound does not govern (\S\ref{sec:limits}).}
+with it: the reference lifts one book $19$~mm where the governed run lifts none
+(\S\ref{sec:validity}).}
 \label{fig:teaser}
 \end{figure}
 
@@ -339,11 +340,9 @@ $1$ --- a severity diagnostic. XPBD exceeds $1$ in $8/24$ cells, AVBD in
 $2/24$, the implicit realization in $0/24$. \textbf{Bottom:} the invariant
 itself --- the signed margin of \eqref{eq:invariant} in joules, symmetric-log,
 diverging at $0$; positive values violate. The two panels disagree on AVBD.
-Hatched rows mark the relaxation axis where the formulation does not consume
-it; those rows are bit-identical by construction, shown only for grid symmetry.
-We report joules rather than a second ratio because every candidate denominator
-misleads: the supply-to-date explodes in the opening substeps, and the run
-total hides early peaks.}
+Hatched rows mark the relaxation axis a host does not consume; those rows are
+bit-identical by construction, shown only for grid symmetry. We report joules
+rather than a second ratio because every candidate denominator misleads.}
 \label{fig:matrix}
 \end{figure*}
 
@@ -702,6 +701,14 @@ truncation artifact convergence removes; the augmented-Lagrangian overdraft we
 measure but do not explain. Where convergence is unaffordable, a cumulative
 storage bound funded by measured gross rigid-side loss holds in every measured
 cell, at a quantified cost to contact accuracy.
+
+% PAGE GATE (do not remove): the page carrying this label is the last body
+% page. The CFP allows 4-6 content pages EXCLUDING references, so
+% page(bodyend) <= 6 is a hard submission gate. Checked by
+% ../scripts/check_page_gate.py after EVERY tex commit, trivial ones included
+% -- the 7-page spill found on 2026-07-19 came from a one-line abstract edit
+% committed without a rebuild.
+\label{bodyend}
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{references}
