@@ -16,3 +16,7 @@
 *.vrb
 # compiled output (Overleaf builds its own)
 main.pdf
+# local latexmk aux dir (see latexmkrc)
+build/
+# macOS Finder
+.DS_Store
