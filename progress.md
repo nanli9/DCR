@@ -438,3 +438,26 @@ OPEN:
 - `\acmSubmissionID{}` — fill after EasyChair registration (window opens
   Jul 25).
 - Submit ≥24 h before 2026-08-07 23:59 AoE.
+
+# 2026-07-19 Current PDF + video-supplement six-reviewer rerun
+
+- Reopened the six-reviewer task because the user explicitly supplied the current video supplement in addition to the PDF.
+- Activated a fresh artifact lock and blind-panel run; prior panel scores will not be reused unless the PDF hash proves identical, and the supplement's evidentiary effect will be judged independently.
+- Locked the new PDF as `627a14e...` and the supplement as `6dcd904...`; the PDF does not match the previously reviewed build, so a full fresh review is required.
+- Extracted 7,323 PDF words and rendered all seven pages. Timestamped video-sheet creation hit a missing FFmpeg `drawtext` filter; switched to fixed-interval ordered sheets.
+- Visually inspected the full-paper contact sheet and the first half of the video. The previous page-7 body spill is fixed; the supplement clearly demonstrates the steel-board stabilization and begins an honest soft-board counterexample.
+- Completed the video visual audit. It is a useful, concise supplement that demonstrates both the success case and the governor's failure to recover a faithful trajectory; no audio stream is present or needed for the claim.
+- Began the detailed PDF text audit and confirmed the revision now frames the projection as an audited emergency fail-safe rather than a constructive contact method.
+- Audited the method and core results. The revision adds useful matched-within-XPBD convergence and robustness evidence, while still conceding the weaker implemented recursion, cross-host confounds, spectral non-correction, and substantial contact invalidity.
+- Finished the PDF text and packaging audit. The body now fits six pages, fonts are embedded, and the supplement materially helps; the remaining likely administrative defect is the absent assigned paper ID.
+- Began a live official-rubric check; direct URL opening was blocked by browser safety handling, so the next attempt will use an indexed official-domain result.
+- Verified the live official MIG 2026 call through the site's own navigation. The paper fits the six-content-page limit and the video is eligible; the missing unique paper ID remains a mandatory pre-submission fix.
+- Confirmed the MP4 decodes cleanly for all 1,343 frames and finished a close page-1 clarity check.
+- Completed close visual inspection of the densest result/limitations pages; no rendering defect found, with information density remaining a presentation risk rather than a compliance problem.
+- Marked artifact/rubric inspection complete and launched blind reviewers 1–3 (physics/energy, contact numerics, novelty/significance). Reviewers cannot access prior panel notes or one another's conclusions.
+- First blind batch completed and remains sealed from later reviewers. Launched reviewers 4–6 (evaluation/reproducibility, clarity/practitioner, senior-PC generalist) with the same frozen artifacts and rubric.
+- Confirmed the MP4 carries no author-identifying metadata; only generic FFmpeg encoder tags are present.
+- All six blind reviews completed on unchanged hashes. Scores are `5,3,4,3,5,5` (mean `4.17/7`, median `4.5/7`), all confidence `4/5`: three weak accepts, one borderline lean reject, and two weak rejects.
+- Reconciled the panel to a borderline/lean-weak-accept scientific recommendation under the short-paper bar, with a mandatory paper-ID fix and four high-impact scientific/reproducibility revisions before upload.
+- Prepared the self-contained six-reviewer table, area-chair verdict, supplement assessment, and ranked pre-submission actions; all review phases are complete.
+- The generic plan checker could not parse this repository's custom multi-project plan (`0/0 phases`); manual phase audit confirms current review phases 11–14 are complete.
