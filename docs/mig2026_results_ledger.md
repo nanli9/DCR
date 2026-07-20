@@ -1757,3 +1757,191 @@ T3: 18 cells, all distinct (single relax axis). Combined **90 measured cells,
 to "90 / 78" in the C6 commit.
 
 **Nothing in §E-S1b changed.** T3 is a separate table; Fig. 1 is untouched.
+
+---
+
+## E-C9 — single-host robustness ablation of the XPBD result (plan §8.4, P7)
+
+**Machine:** Apple M4, CPU only, CPython 3.12.12, numpy 2.4.5, macOS 15.2
+(arm64 Darwin — the ARM-M4-only header above).
+**Commit:** `dc440d2` (code branch `impulse-native-constraint`), working tree
+adding the two new measurement-only harnesses below. **No solver source was
+touched**: every knob is set at runtime via `build_reduced_*` kwargs or solver
+attributes, the C6 pattern.
+**Runs:** serial, one process, one cell at a time. This entry reports no
+wall-clock quantity, so the concurrent-run timing incident does not bear on it;
+the rule was kept anyway.
+
+**Why:** both six-reviewer panels asked whether the position-based amplification
+is a knife-edge artifact of one configuration. The paper had breadth on two axes
+(budget, relaxation) and held everything else fixed.
+
+**Acceptance, pre-registered in plan §8.4 BEFORE running** (so the reading could
+not be chosen after seeing the numbers): *persistence in kind* — Eq. (2)
+violated AND R >> 1 away from base — NOT magnitude stability. `h` in particular
+changes the scene's difficulty, so magnitudes were expected to move.
+
+#### Commands
+
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_robustness_ablation.py
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_k_convergence.py \
+    --scene ledge --relax 1.0 --out k_convergence_ledge_worst
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_complementarity_residual_nd.py
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_complementarity_residual_nd.py \
+    --scene ledge --relax 1.0 --out complementarity_residual_nd_ledge
+```
+
+`run_robustness_ablation.py` does not re-implement the accounting: it calls
+`run_eq2_utilization.one()` (the §6.3 harness, already cross-validated against
+the impulse live monitor) with a wrapped builder, so the ledger runs live while
+`passivity_gamma == 1.0` makes every state write in the enforcement path dead.
+
+**Non-perturbation check — both base rows reproduce frozen E-S1b EXACTLY:**
+ledge relax 1.0 4×1 → R = 119534 (frozen 119534); shelf relax 0.7 4×1 →
+R = 6333.22 (frozen 6333.22).
+
+#### (1) The ablation, governor OFF (`robustness_ablation.csv`)
+
+**24 of 24 configurations violate Eq. (2), with R > 1 in 24 of 24.**
+One axis at a time from each base cell; physical window held fixed across the
+`h` axis (nframes/settle scale with 1/h), realized rank reported per row.
+
+
+**ledge, relaxation 1.0, 4×1 (matrix worst cell)**
+
+| axis | value | realized rank | R | strict Eq.-(2) margin [J] |
+|---|---|---|---|---|
+| *base* | — | 16 | 1.195e+05 | +4.436e+07 |
+| h | 1/60 | 16 | 4.674e+05 | +1.653e+08 |
+| h | 1/240 | 16 | 9804 | +3.774e+06 |
+| support_compliance | 1e-06 | 16 | 9.424e+04 | +3.504e+07 |
+| support_compliance | 0.0001 | 16 | 2.535 | +570.1 |
+| contact_compliance | 1e-08 | 16 | 1.195e+05 | +4.435e+07 |
+| contact_compliance | 1e-06 | 16 | 1.195e+05 | +4.435e+07 |
+| rank | no local (excl. stiff cluster) | 12 | 3354 | +1.244e+06 |
+| rank | n_global=18 | 22 | 1.279e+05 | +4.769e+07 |
+| rayleigh_alpha0 | 1 | 16 | 1.195e+05 | +4.435e+07 |
+| rayleigh_alpha0 | 6 | 16 | 1.195e+05 | +4.436e+07 |
+| rayleigh_alpha1 | 1e-4 | 16 | 1.199e+05 | +4.447e+07 |
+
+**shelf, relaxation 0.7, 4×1 (the 21.6 mm / teaser cell)**
+
+| axis | value | realized rank | R | strict Eq.-(2) margin [J] |
+|---|---|---|---|---|
+| *base* | — | 16 | 6333 | +1.738e+05 |
+| h | 1/60 | 16 | 1.534e+04 | +3.986e+05 |
+| h | 1/240 | 16 | 494.6 | +1.429e+04 |
+| support_compliance | 1e-06 | 16 | 6321 | +1.735e+05 |
+| support_compliance | 0.0001 | 16 | 924.6 | +2.535e+04 |
+| contact_compliance | 1e-08 | 16 | 6333 | +1.738e+05 |
+| contact_compliance | 1e-06 | 16 | 6333 | +1.738e+05 |
+| rank | no local (excl. stiff cluster) | 10 | 22.14 | +583.9 |
+| rank | n_global=16 | 22 | 3.907e+04 | +1.072e+06 |
+| rayleigh_alpha0 | 1 | 16 | 6412 | +1.76e+05 |
+| rayleigh_alpha0 | 6 | 16 | 6218 | +1.706e+05 |
+| rayleigh_alpha1 | 1e-4 | 16 | 6308 | +1.731e+05 |
+
+Readings, in order of how much they move the result:
+
+- **Modal rank is the strongest single lever, and it is a *sharpened diagnosis*,
+  not a retraction** — the §8.4 contingency, which fired. Dropping the local
+  bumps removes the stiff cluster entirely (shelf rank 16 → 10, no mode above
+  2.03 kHz; ledge 16 → 12, none above 17.0 kHz) and cuts R by 286× on the shelf
+  (6333 → 22.1) and 36× on the ledge (1.20×10⁵ → 3354). **But the violation
+  survives**: +584 J and +1.24×10⁶ J respectively. So the amplification is
+  *concentrated* in the stiff tail — consistent with §3.3, where 99.6% of the
+  ungoverned energy sits there — and is *not caused only by it*. Adding
+  resolved bending modes above base (rank 22) makes it worse on both scenes.
+- **Support compliance is the strongest mitigator and still does not fix it.**
+  At 10⁻⁴ m/N the ledge falls 1.20×10⁵ → 2.535 (47000×) and the shelf
+  6333 → 924.6, yet both still overdraw (+570 J, +2.5×10⁴ J).
+- **Rigid contact compliance is inert** (R unchanged to 4 significant figures on
+  both scenes at both values). A useful negative control: the effect is specific
+  to the contact→modal support row, not to generic contact softening.
+- **Rayleigh damping is nearly inert** — ±1% on the shelf, ±0.4% on the ledge,
+  across α₀ ∈ {1, 6} and α₁ = 10⁻⁴. The amplification is not a damping artifact.
+- **`h` moves magnitudes in both directions, as pre-registered.** Coarser
+  (1/60) is worse (ledge 4.67×10⁵), finer (1/240) is better (9804) but never
+  safe. Consistent with truncation: a finer step buys more row evaluations.
+
+#### (2) Worst-cell K-ladder (`k_convergence_ledge_worst.csv`)
+
+Panel B asked whether convergence cures the *worst* cell or only the shelf drop.
+Re-pointed at ledge relaxation 1.0, substeps pinned at 1:
+
+R = 846352 (K=1) → 337715 → 168479 → **119534 (K=4, the frozen matrix cell)** →
+52269 → 20373 → 2621 → 307.2 (K=16) → 3.976 (K=24) → **0.1653 (K=32)**,
+monotone non-increasing throughout, against the converged reference 0.0288464
+(impulse K=500). |XPBD − reference| shrinks 846352 → 0.1365. The crossing of
+R = 1 sits between K=24 and K=32, matching the shelf sweep's K≈24.
+
+Caveat for readers of that CSV: its `holds` column reads `True` for XPBD at
+every K. That is the vacuous-ledger artifact recorded in E-S1b caveat 1 (with
+the clamp off this harness never updates `cum_rigid_loss` on XPBD), **not** an
+Eq.-(2) result. The Eq.-(2) verdicts in this entry come from the live-ledger
+path in (1).
+
+#### (3) Nondimensionalized complementarity residual — AND A CORRECTION
+#### (`complementarity_residual_nd.csv`, `..._nd_ledge.csv`)
+
+Both panels objected that `||min(C, λ)||_∞` mixes metres with force, so its
+value is unit-system dependent and the paper's "residual passing ~3×10⁻⁵"
+names no physical quantity. Re-logged with the two components split (penetration
+in mm; multiplier surviving on separated rows, over the steady-state median
+active multiplier λ̄, measured once at K=128 and held FIXED across the ladder)
+and as `res_nd = max` of the two normalized parts, with L = the support
+thickness read from the scene builder.
+
+**shelf, relax 0.7** (L = 30 mm, λ̄ = 1.82286×10⁻⁴):
+
+| K | 1 | 2 | 4 | 8 | 16 | 24 | 32 | 64 | 128 |
+|---|---|---|---|---|---|---|---|---|---|
+| gap viol. [mm] | 27.95 | 15.13 | 6.164 | 1.850 | 0.1592 | 0.02836 | 0.01075 | 0.003559 | 0.003559 |
+| λ on separated rows [×λ̄] | 84.3 | 104.8 | 114.8 | 133.7 | 138.7 | 139.0 | 34.85 | **0** | **0** |
+| res_nd | 84.26 | 104.8 | 114.8 | 133.7 | 138.7 | 139.0 | 34.85 | 1.186×10⁻⁴ | 1.186×10⁻⁴ |
+
+**ledge, relax 1.0** (L = 80 mm, λ̄ = 1.14616×10⁻³): gap 25.73 → 0.05903 mm over
+K = 1…128, plateauing by K=32; λ on separated rows 289.6 → 348.1 (K=4) → 309.1
+(K=24) → **0** from K=32 on.
+
+**TWO DEFECTS IN THE PRINTED SENTENCE, both found here.**
+
+(a) **The quoted residual is, numerically, max penetration in metres.** `C` is
+signed and goes negative under penetration, so `min(C, λ)` selects `C` whenever
+any row is penetrated. Verified per-K: `res_raw_max` equals `gap_viol_mm_max`
+to full float64 precision in 8 of the 9 shelf cells (the K=24 cell differs at
+the third digit, 2.988×10⁻⁵ vs 2.836×10⁻⁵, where a λ term happened to attain
+the max on one substep). The paper's "2.79×10⁻² at K=1 → 3.56×10⁻⁶ by K=64" is
+therefore a penetration curve in metres — 27.95 mm → 0.0036 mm — and its
+"~3×10⁻⁵ threshold" is 0.03 mm of penetration.
+
+(b) **"The complementarity conditions begin to hold" at K≈24 is not supported.**
+Only the *gap* side converges there. The *multiplier* side is at its worst at
+K=24 (139× λ̄ on the shelf, 309× on the ledge) and clears only at K=64 (shelf) /
+K=32 (ledge). The composite is therefore **not monotone**, contrary to "falls
+monotonically". The energy crossing at K≈24 coincides with gap convergence, not
+with complementarity being satisfied.
+
+The decay trend — the only load-bearing part — survives in both components and
+in `res_nd` (7.1×10⁵× shelf, 3.9×10⁵× ledge). §3.2 must be rewritten to the
+split form; the raw scalar and its threshold must not survive.
+
+#### (4) P6(a) AVBD drift floor, derived offline (`eq2_utilization.csv`)
+
+The plan anticipated "~10²–10³× the accounting floor"; the data does not support
+that range and the measured one is used instead (D5: wording follows numbers).
+
+AVBD positive strict margins, 23 of 24 cells: min 1.370×10⁻³ J, median
+3.352×10⁻² J, 21 of 23 at or below 1.574×10⁻¹ J, then 5.353 J and 15.083 J.
+The implicit host runs the *same* accounting on the *same* scenes and never
+produces a positive margin; its margins span −1.806×10⁻¹ … −5.743×10⁻⁴ J, so
+the tightest slack that accounting ever resolves is **5.743×10⁻⁴ J**.
+
+Ratios to that floor: min **2.4×**, median **58×**, the 21-cell bulk up to
+**274×**, and the two outliers 9.3×10³× and 2.6×10⁴×. Float64 accumulation noise
+on these energy scales (10²–10³ J over ~10⁴ substeps) is ~10⁻⁹ J, six orders
+below the smallest AVBD overdraft. **Verdict: small but real — not FP noise.**
+The honest printed form is "2–270× the tightest slack the same accounting
+resolves on the never-overdrawing implicit host", NOT "10²–10³×".
+

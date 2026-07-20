@@ -1126,3 +1126,146 @@ in-text rather than hidden:
 4. **One machine, three scenes, one contact regime.** Unchanged, and named.
 
 Nothing found in this pass contradicts a frozen number.
+# 2026-07-19 Six-Reviewer MIG Short-Paper Review
+
+- Review requested for `paper/main_short.pdf`; artifact hash, page count, and content audit pending.
+- Panel design: six isolated AI reviewers use a shared rubric but cannot see one another's conclusions before synthesis.
+- Artifact locked: SHA-256 `f36166def1214640a111b68ed89bfa4075381e9d5ff5b1b1036e23ddc7f5ea22`, generated 2026-07-19 05:23:18 PDT, 643,714 bytes, 7 letter-size pages, anonymous ACM/MIG metadata.
+- Paper title: “How Much Energy Does a Modal Contact Row Inject? A Cross-Formulation Measurement and a Cumulative Storage Bound.” Page 7 contains references; the conclusion ends on page 6, so compliance depends on whether the current rule permits six content pages plus references.
+- Claimed contributions: controlled 24-cell cross-formulation measurement (XPBD, AVBD, sequential impulse), iteration convergence diagnosis, gross-rigid-loss-funded cumulative modal-storage bound with state projection, and explicit measurement of the enforcement/contact-validity cost.
+- Central empirical result: XPBD has rare catastrophic underconvergence, AVBD has near-universal but mostly tiny invariant overdraw, and the implicit sequential-impulse realization does not overdraw in the tested sweep. Governed runs satisfy the printed bound in all 90 measured cells.
+- The manuscript is unusually explicit about negative results: the projection can reduce modal-energy error while worsening trajectory accuracy, causes up to 21.6 mm post-projection penetration (72% of board thickness), is a safety envelope rather than an accuracy mechanism, and has no device-resident enforcement implementation.
+- Bound limitation: supply is scene-wide gross rigid kinetic loss corrected for gravity, not signed contact-port work; it can include unrelated rigid-contact losses and recycle returned/re-dissipated energy. The implementation test has a one-substep allowance although reported violations use the stricter printed inequality.
+- Evidence scope: three scenes and one normal-only, zero-restitution regime; reduced/FEM comparison is for the ungoverned response, while validation of the governed path against full FEM remains future work.
+- Runtime: CPU baselines are often outside 120 Hz; separate GPU monitor-only path reaches about 5.0–8.9 ms at 16×4 on four scenes, but no device-resident governor exists and the paper avoids an unqualified real-time claim.
+- Visual audit: pages 1–6 contain all body text and the conclusion; page 7 is references only. No visible clipping, overlap, broken glyphs, or illegible body text was found at full-page inspection.
+- Figure 1 is legible and candidly exposes the method's failure mode, but it is a small line-profile triptych rather than a compelling qualitative animation figure. Figures 2–3 and Tables 1–2 are dense but readable; Figure 2 efficiently carries the cross-formulation result.
+- Presentation is highly compressed and qualifier-heavy. The writing is technically careful, but the amount of caveat/detail creates cognitive load for a six-page short paper and can obscure the simple takeaway.
+- Page 7 has substantial unused space, but it contains references only; this is not itself a body-page overflow.
+- Official MIG 2026 CFP checked 2026-07-19: short papers are 4–6 pages excluding references; long papers are up to 10 excluding references. Therefore the supplied six-content-page plus one-reference-page PDF is length-compliant.
+- Official review criteria: originality, technical quality, clarity, significance, reproducibility where applicable, and relevance to motion, interaction, and games. Short papers are explicitly for focused results, emerging ideas, or concise technical contributions; physics-based animation and interactive simulation are listed topics, so venue/category fit is strong.
+- Official review format is `\\documentclass[sigconf, screen, review, anonymous]{acmart}` and must include the assigned unique paper ID. The PDF visibly uses the correct anonymous review styling but no paper ID appears; add it before submission after EasyChair assigns it.
+- Official submission encourages supplementary material, especially videos, up to 200 MB. This paper would benefit from a short side-by-side animation because Figure 1 shows profiles rather than motion/contact recovery.
+- Primary-source spot check supports the manuscript's related-work distinctions: Wei et al. 2026 prove finite-iteration passivity for bilateral port-Hamiltonian subsystem coupling via wave-coordinate Douglas–Rachford splitting, not unilateral modal contact; You et al. 2026 target prescribed total energy in nonlinear barrier-contact elastodynamics; Rath 2008 gives energy-stable contacting modal objects; Kaufman et al. 2008 already covers velocity-level rigid/reduced-deformable frictional contact at interactive rates.
+- Novelty therefore appears narrow but plausible: the established contact row, modal coupling, and energy-control genre are not new; the candidate contribution is the empirical cross-formulation truncation diagnosis plus this specific gross-rigid-loss-funded cumulative modal-storage ceiling and its measured failure tradeoff.
+- Synthesis risk to watch: because the actuator is a closed-form post-hoc radial state scale and the supply is global gross loss rather than port work, some reviewers may view the bound as too weak/trivial to count as a useful method. Conversely, its candid negative evaluation and the 90-cell diagnostic study can meet a short-paper bar even if the governor is not a production solution.
+
+## Isolated panel returns (sealed from remaining reviewers)
+
+- Reviewer 1 (physics/modal technical): overall 3/7 weak reject, confidence 4/5. Strongly values the truncation diagnosis and candor; treats contact-invalid post-projection states, weak/global supply semantics, absence of governed FEM validation, and uncontrolled formulation differences as acceptance blockers.
+- Reviewer 3 (novelty/significance): overall 4/7 borderline leaning accept, confidence 4/5. Finds the governor's ingredients incremental and physically weak, but judges the surprising measurement/diagnosis to narrowly meet the focused-emerging-result short-paper bar.
+- Reviewer 2 (contact/numerics): overall 3/7 weak reject, confidence 4/5. Flags causal non-identifiability across unequal hosts, unclear strict-vs-weaker invariant wording, a dimensionally mixed complementarity residual, and contact destruction by the projection; still regards the empirical diagnosis as relevant and unusually candid.
+- Early agreement: the empirical XPBD truncation result is the strongest contribution; venue fit and clarity are strong; the governor is not contact-consistent, not contact-port passivity, and should be framed as emergency containment rather than a physical solution.
+- Reviewer 4 (evaluation/reproducibility): overall 3/7 weak reject, confidence 4/5. Finds the iteration/spectral diagnosis credible but the per-row injection interpretation, cross-host causal attribution, governed physical validity, and standalone reproducibility insufficient.
+- Reviewer 5 (clarity/MIG generalist): overall 3/7 weak reject, confidence 4/5. Finds the paper relevant and the central plots effective, but the constructive contribution replaces blow-up with a visibly invalid state and the dense narrative/ambiguous “one row” framing weakens impact.
+- Reviewer 6 (senior PC generalist): overall 5/7 weak accept, confidence 4/5. Explicitly judges the negative diagnostic result alone narrowly publishable at the short-paper bar, provided every formulation-level claim is narrowed to the tested implementations and the governor is described as a diagnostic fail-safe rather than a production method.
+
+## Panel synthesis
+
+- Overall scores: 3, 3, 4, 3, 3, 5; mean 3.50/7, median 3/7. Votes: four weak reject, one borderline/lean accept, one weak accept. Every reviewer reported confidence 4/5. Consensus recommendation: weak reject as currently framed, with a credible path to borderline/accept as a focused diagnostic paper.
+- Mean criterion scores: originality 3.00/5, technical quality 3.00/5, clarity 3.83/5, significance 3.00/5, reproducibility 2.50/5, MIG relevance 4.83/5.
+- Unanimous or near-unanimous positives: direct MIG fit; short-paper-sized focus; surprising and useful XPBD truncation result; strong iteration/convergence evidence; valuable distinction between ratio severity and invariant margin; unusually honest reporting of failures and runtime limits.
+- Unanimous or near-unanimous blockers: post-contact radial state scaling does not preserve complementarity and can cause 21.6 mm penetration/suppressed sag; the gross scene-wide reservoir is not per-contact work or passivity and can cross-fund/recycle energy; the three-host comparison confounds formulation with policy/discretization differences; the governed path lacks full-FEM validation; the PDF alone underspecifies the catastrophic benchmark.
+- Panel disagreement is narrow: Reviewers 3 and 6 believe the empirical negative result alone clears or nearly clears MIG's focused short-paper bar. Reviewers 1, 2, 4, and 5 regard the current title/abstract/contribution structure as a method paper whose proposed method is not yet physically usable.
+- Fastest acceptance-oriented revision: reframe the paper around the measurement and truncation diagnosis, call the governor an intentionally crude fail-safe/negative baseline, and scope every conclusion to the three tested implementations. Stronger but larger revision: introduce contact-consistent enforcement (joint constrained projection or corrective contact re-solve), prove the exact invariant, and validate the governed trajectory.
+- Mandatory technical cleanup: reconcile strict Eq. (2) with the implementation's one-deposit allowance; replace or nondimensionalize `||min(C, lambda)||_inf`; clarify that “one row” means one row law instantiated at many contacts; rename the implicit K=500 and XPBD fixed-point references; add baseline algorithm citations and a minimal self-contained benchmark specification.
+- High-value evidence: controlled warm-start/compliance/timestep/modal-cutoff/rank ablations or an independent minimal reproduction; governed-versus-FEM comparison; long-horizon recycling and unrelated-contact stress tests; scale-aware analysis of tiny AVBD margins; attached command/data ledger and a short scene/video overview.
+
+## Current-artifact rerun (17:43 PDT build)
+
+- The PDF changed after the sealed panel: current SHA-256 is `103ac0e1c527f0c4dae9067b7bc1f3185d196f15e441314ee9c7f7d4f54b0033`, modified 2026-07-19 17:43:50 PDT, 686,140 bytes, seven letter-size pages.
+- All earlier panel scores are stale until the changed artifact is re-audited; venue-rule findings from the same day may be reused only after a live source check.
+- Text extraction confirms the same title and a seven-page anonymous ACM/MIG build. The abstract now foregrounds the strict Eq. (2) overdraw (XPBD up to `4.4e7 J`, AVBD 23/24 cells but at most `15 J`, impulse 0/24) and states that the governed result costs up to `21.6 mm` post-projection penetration.
+- Figure 1 is materially stronger than in the stale panel: it presents a synchronized true-scale ungoverned/governed/converged-reference shelf comparison, reports `+93 mm`, `+19 mm`, and peak modal energies, and explicitly admits that the governor removes both spurious launch and some legitimate motion.
+- The current method text is unusually explicit that the supply is scene-wide gross rigid kinetic loss rather than contact-port work, can count unrelated rigid-contact loss and recycled energy, and that the implementation enforces a one-substep-weaker test while the paper reports the strict printed invariant.
+- The 24-cell result is now presented with two distinct diagnostics: incident-energy ratio and the signed strict-invariant margin in joules. This makes the AVBD result interpretable as 23/24 formal overdrafts but 21/23 below `0.15 J`, while XPBD has 8/24 catastrophic failures up to `4.4e7 J`.
+- The iteration study is a strong causal diagnostic within the XPBD implementation: with substeps fixed, the ratio decreases monotonically from `2.96e4` at `K=1` to about `0.300` at `K=32`, near a different-formulation implicit reference of `0.2735`; the XPBD self-fixed point remains about `0.2996`. The manuscript correctly separates truncation removal from formulation-level fixed-point disagreement.
+- The constructive mechanism remains scientifically limited. The radial `(q,qdot)` projection is post-contact and does not re-solve constraints; in load-bearing cells it opens up to `21.6 mm` penetration, produces up to `8.7x` corrective impulse and `58x` multiplier variance, can worsen trajectory error, and leaves the high-frequency spectral character largely unchanged.
+- The ungoverned reduced model has useful full-FEM evidence (frequency within `0.4%`, far-field Spearman `rho=0.89`, timestep convergence), but the governed trajectory itself still has no full-FEM validation. Runtime evidence separates CPU enforcement from an RTX 4090 monitor-only path and avoids claiming device-resident governed real time.
+- Potential technical/presentation concerns to test with reviewers: (i) the paper names Eq. (2) as the bound although the implemented enforcement test is explicitly weaker; (ii) `||min(C, lambda)||_inf` mixes quantities with different units unless normalized; (iii) the cross-host sweep holds scenes/settings fixed but not contact policy/discretization/warm-start, limiting causal formulation claims; (iv) the supply is an upper envelope with measured recycling as high as `118%` in AVBD.
+- Visual audit pages 1–4: the ACM review layout is clean with no overlap/clipping and expected red line numbers. Figure 1 now communicates the failure and tradeoff much better than the stale build, although its three scene thumbnails and energy trace are small at full-page scale. Figure 2 is an effective, readable six-heatmap summary. Table 1 is information-dense with tight wrapping but legible when zoomed.
+- The PDF visibly lacks an assigned paper-ID line. Its auto-generated reference format says “7 pages,” which is total PDF length rather than six content pages; this is not a scientific defect but should be checked against the submission template/metadata.
+- Visual audit pages 5–7: Figure 3 and Table 2 are clear, though the plot still labels `R=1` as “injection threshold” while the paper carefully distinguishes that ratio from the actual invariant. Page 6 is dense but clean.
+- Crucial format finding: the conclusion does **not** end on page 6. Four lines of conclusion appear at the top of page 7 before the references. If MIG's “4–6 pages excluding references” means all non-reference content must fit within six pages, the current artifact is over length. This is easily repairable because page 7 has large unused space, but it must be fixed before submission.
+- All seven pages render without clipping, overlap, broken glyphs, or unreadable text. The reference list is complete-looking but unusually short (14 entries) for the breadth of adjacent passivity/contact work; novelty reviewers may ask whether the positioning is sufficiently comprehensive.
+- Live-source check: the official MIG 2026 site is `https://mig.siggraph.org/2026/`, confirms the 2026 venue/dates and paper window. The first domain-restricted query returned no indexed results; a broader search found the official site. The exact papers subpage still needs to be opened for the authoritative page-limit/rubric wording.
+- Official MIG 2026 CFP verified live at `https://mig.siggraph.org/2026/papers.htm`: short papers are 4–6 pages excluding references; the page explicitly says content should fit the six-page limit. Because current page 7 contains conclusion text before the references, the supplied build is noncompliant as rendered.
+- The official review rubric is technical quality, novelty/originality, significance, clarity, reproducibility where applicable, and relevance. Short papers are framed as focused results, emerging ideas, or concise technical contributions; physics-based animation and interactive simulation are explicit topics, so category/venue fit is direct.
+- The official review command matches the manuscript's `sigconf, screen, review, anonymous` appearance, but the CFP also requires the unique paper ID assigned by EasyChair. No such ID is visible in the current PDF.
+- PDF packaging check: all listed fonts are embedded/subsetted and text extraction works. There are no embedded file attachments. `qpdf` is unavailable, but Poppler rendered every page without structural/rendering errors.
+
+### Fresh isolated panel returns (hash `103ac0e...`)
+
+- Reviewer 3 (novelty/significance): **5/7 weak accept**, confidence **4/5**; criteria originality 3, technical 4, clarity 4, significance 3, reproducibility 3, MIG relevance 5. Judges the controlled measurement and convergence evidence narrowly sufficient for a focused short paper despite an incremental/crude governor. Flags the global recyclable supply, implementation-level confounds, narrow spectrum/contact coverage, missing governed FEM/device validation, incomplete standalone setup, page-7 body spill, and missing paper ID.
+- Reviewer 1 (physics/energy): **3/7 weak reject**, confidence **4/5**; criteria originality 3, technical 3, clarity 4, significance 3, reproducibility 2, MIG relevance 5. Values the direct invariant measurement, XPBD self-convergence evidence, and unusually candid failure accounting. Treats the nonlocal/recyclable reservoir, mechanically inconsistent post-contact projection, dimensionally mixed residual, under-resolved high-frequency spectrum, uncalibrated tiny AVBD margins, missing governed FEM validation, page overflow, and paper-ID omission as decisive in the current form.
+- Reviewer 2 (contact/numerics): **3/7 weak reject**, confidence **4/5**; criteria originality 3, technical 3, clarity 4, significance 3, reproducibility 2, MIG relevance 5. Adds two important numerical concerns: gross positive rigid loss is substep-partition dependent, while the reservoir's positive-increment debit is stricter than Eq. (2), so the measured correction cost is not necessarily intrinsic to the stated bound. Also rejects per-row/causal formulation language without matched controls, numerical-drift calibration, normalized KKT residuals, and reproducible setup detail.
+- Reviewer 4 (evaluation/reproducibility): **4/7 borderline**, confidence **4/5**; criteria originality 3, technical 4, clarity 4, significance 3, reproducibility 3, MIG relevance 5. Leans weak accept on scientific merit because of the diagnostic breadth and candid negative evaluation, but rejects the current upload if format rules are enforced. Requests convergence on the worst ledge/deployed cells, matched-cost and competing-mitigation baselines, robustness/tolerance studies, long-horizon reservoir tests, governed FEM validation, and a complete submitted artifact.
+- Reviewer 5 (clarity/MIG practitioner): **3/7 weak reject**, confidence **4/5**; criteria originality 3, technical 3, clarity 4, significance 3, reproducibility 3, MIG relevance 5. Finds Figures 1 and 3 effective and the failure diagnosis useful to practitioners, but regards the governor as a blunt emergency limiter. Flags dense prose/Table 1, ambiguous dual reference terminology, missing immediate coupled-momentum/velocity-complementarity analysis, unexplained AVBD behavior, narrow scope, untagged PDF accessibility, and both submission-rule violations.
+- Reviewer 6 (senior PC): **3/7 weak reject**, confidence **4/5**; criteria originality 3, technical 3, clarity 4, significance 3, reproducibility 2, MIG relevance 5. Says the empirical diagnostic alone could be publishable if the governor is explicitly a crude fail-safe and claims stay implementation-specific. Its stated blockers were the missing paper ID, self-contained reproducibility, and an alleged Eq. (1) sign inconsistency.
+
+### Factual reconciliation
+
+- Current artifact hash rechecked after all six reviews and remains `103ac0e...`.
+- Reviewer 6's alleged Eq. (1) sign inconsistency is a false positive caused by the small rendered parentheses/text extraction. The PDF renders `C = y_c - (y_rest + U_y^T q)`, so `dC/dq = -U_y` is consistent; the TeX source confirms the same. This concern is excluded from the consensus blockers and does not affect the panel score.
+
+### Fresh-panel synthesis
+
+- Overall scores in reviewer order: `3, 3, 5, 4, 3, 3`; mean `3.50/7`, median `3/7`. Vote split: four weak rejects, one borderline, one weak accept. All six confidence scores are `4/5`. Consensus is **weak reject for the current PDF**, with the scientific case near the accept/reject boundary once format defects are fixed.
+- Mean criterion scores: originality `3.00/5`, technical quality `3.33/5`, clarity `4.00/5`, significance `3.00/5`, reproducibility `2.50/5`, MIG relevance `5.00/5`.
+- Unanimous/near-unanimous strengths: excellent MIG fit; a focused short-paper-sized question; valuable separation of catastrophic XPBD failures from tiny AVBD overdrafts; strong within-XPBD iteration/self-convergence evidence; effective new Figure 1; unusually honest measurement of failure, accuracy, runtime, and recycling costs.
+- Unanimous/near-unanimous scientific concerns: the reservoir is a global, recyclable upper envelope rather than contact-local work/passivity; the radial post-contact projection can destroy complementarity and legitimate sag; cross-host differences prevent formulation-class causal claims; the governed path lacks full-FEM/device validation; and the PDF alone is not independently reproducible.
+- Additional high-value numerical concerns: the positive-loss supply is substep-partition dependent; tiny AVBD margins need drift/tolerance/precision controls; `||min(C,lambda)||` needs unit-consistent normalization; and the printed invariant, stricter positive-increment ledger policy, and one-deposit-forgiving test need one aligned statement/proof.
+- Administrative verdict is unambiguous: do not upload this exact PDF. Four conclusion lines occupy page 7 despite the six-content-page limit, and the required EasyChair paper ID is missing. The stale `injection threshold` label in Figure 3 should also be corrected to avoid contradicting the ratio-vs-invariant distinction.
+- Fastest acceptance path: make the measurement/truncation diagnosis the primary contribution; describe the governor as a deliberately crude emergency fail-safe or negative baseline; rename “one row” as a row law instantiated across contacts; restrict claims to the three tested implementations; and add a minimal reproduction package plus targeted controls (worst-cell convergence, supply partition/long-horizon recycling, AVBD drift tolerance, and modal-cutoff/rank sensitivity).
+- Stronger but slower method path: contact-local signed accounting plus a contact-consistent correction/re-solve, followed by governed full-FEM and device-resident validation. This is not necessary if the submission is honestly positioned as a diagnostic short paper.
+
+## P-round (plan §8) — 2026-07-19
+
+### P7 prep found a Table 1 error: the printed modal rank is the REQUESTED
+### mode count, not the realized one (shelf 24→16, ledge 28→16)
+
+Found while choosing the E-C9 rank-axis points, which required knowing where
+the stiff cluster sits in the realized basis.
+
+`scenes/reduced_scene_common.py:242` clamps the local-mode count to the number
+of *distinct* contact zones:
+
+```python
+n_modes_local = min(int(n_modes_local), len(distinct_zones))
+```
+
+(zones deduped within 15 mm, because coincident Gaussian bumps make `Mq`
+singular and break the eigenbasis projection). So the builder kwargs are a
+request, not the delivered rank:
+
+| scene | requested `n_global + n_local` | Table 1 prints | realized rank | measured spectrum |
+|---|---|---|---|---|
+| shelf | 10 + 14 = 24 | **24** | **16** | 10 modes 20.3 Hz–2.03 kHz, 6 stiff 20.7–24.7 kHz |
+| ledge | 12 + 16 = 28 | **28** | **16** | 12 modes 118 Hz–17.0 kHz, 4 stiff 170–191 kHz |
+| table | 12 + 12 = 24 | 24 | 24 | 24 modes 4.7 Hz–5.20 kHz (no clamp: enough zones) |
+
+Measured by reading `sol._kq` / `sol._mq` straight after `build_reduced_*`
+(the same source `run_governed_accuracy.py:141` uses for its spectral split).
+
+**The paper already contradicts itself on this, which is how it is
+falsifiable without re-running anything.** §3.3 describes the shelf spectrum as
+"ten bending modes below $2.1$~kHz, six stiff ones above $20$~kHz" — sixteen
+modes, i.e. the *realized* basis — while Table 1 prints $r=24$ for the same
+scene. The §3.3 sentence is right and Table 1's is wrong.
+
+**No measured result changes.** Every E-S1b / E-C6 / R-round number was produced
+by these builders at these settings; only the *description* of the model was
+wrong. This is a corrected description, not a re-measurement, so the frozen
+matrix stays frozen.
+
+**§3.4's "$k{=}24$ mode truncation" is NOT affected — do not "fix" it.** That
+sentence is about the ledge full-FEM comparison, whose arm is built by
+`benchmarks/paper_eval/x3_ground_truth/ledge_scene_gt.py:284`
+(`make_fem_modal_support(fem, num_modes=24)`) — a genuine 24-mode FEM
+eigenbasis, a different construction from `build_reduced_ledge`. Verified
+separately; it is correct as printed.
+
+Bearing on E-C9: the rank axis is defined against the realized basis. Shelf
+base is 16 = 10 global + 6 local, so "below the stiff cluster" is
+`n_modes_local=0` (rank 10) and "above" is `n_modes_global=16` (rank 22);
+ledge base is 16 = 12 + 4.
