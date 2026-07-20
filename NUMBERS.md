@@ -251,3 +251,63 @@ Ledger 0.06–1.9%, ripple ±2.72→±1.48 N, ring 1.1e-5/0 ←
 | topple = knife-edge scene dressing; frozen-ring control leaves all pillars standing; coupled arm on ARM also topples none | ARM host (Apple M-series), paper config 16×4 relax 0.7 symplectic, 480 steps: native max\|q̇\|=0.768, frozen 0.0; all 3 pillars tilt 0.00°/max 0.09–0.10°, y-drop 2.1 mm (static sag) both arms | `benchmarks/paper_eval/er1_topple_control/out/topple_control.csv` (code repo) |
 | knocked-off pillar of the §4.1 ledger paragraph (x86 EPYC run 2026-07-10) is platform-FP-sensitive | x86 run: pillar_2 gone, pillar_0/1 leaning (+8.0/7.8% joints); ARM re-run at identical config/commit: all standing | `x1_passivity/out/static_ledger.csv` vs the E-R1 CSV; cf. ARM-vs-x86 chaotic-scene note (3 contact tests, platform FP) |
 | frozen-ring control on the x86 host | PENDING — compshare pod unreachable 2026-07-13; rerun `er1_topple_control/run_topple_control.py` there before any topple-causation claim | — |
+
+## MIG short paper — P-round additions (2026-07-19/20; ARM M4, serial)
+
+Frozen in `docs/mig2026_results_ledger.md` as **E-C9 / E-C9c / E-C9d** with
+commands, commit and machine. Source CSVs under
+`benchmarks/paper_eval/x1_passivity/out/`. All measurement-only: the ledger runs
+live while `passivity_gamma` is forced to 1.0, so every state write in the
+enforcement path is dead and the trajectory is bit-identical to an ungoverned
+run. Both base rows reproduce the frozen E-S1b ratios exactly (119534, 6333.22).
+
+### Table 1 — modal rank CORRECTED (was 24/28/24, a real error)
+
+| printed | value | source |
+|---|---|---|
+| modal rank r = 16 (shelf), 16 (ledge), 24 (table) | realized basis size | `scene_spec.csv : "modal rank r REALIZED"`; read back from `sol._kq` |
+| (superseded 24/28/24) | those were `n_modes_global + n_modes_local` as REQUESTED | `scenes/reduced_scene_common.py:242` clamps local modes to distinct contact zones |
+
+§3.3's "ten bending modes below 2.1 kHz, six stiff above 20 kHz" (= 16) was
+always right and contradicted the old Table 1. §3.4's "k=24" is a DIFFERENT arm
+(`x3_ground_truth/ledge_scene_gt.py:284`, a genuine 24-mode FEM basis) and is
+correct as printed — do not "fix" it.
+
+### §2 — one row law, instantiated per support contact (P2)
+
+| printed | value | source |
+|---|---|---|
+| 48 rows (shelf), 40 (ledge), 200 (table) | len(sol._support) | `scene_spec.csv : "support rows (eq. 1)"` |
+
+### §3.2 — robustness ablation (E-C9)
+
+| printed | value | source |
+|---|---|---|
+| violated with R>1 in all 24 configurations | 24/24 | `robustness_ablation.csv : eq2_violates, ratio_off` |
+| R spans 2.5 to 4.7e5 | 2.535 … 4.674e5 | same |
+| excluding stiff cluster: R 6333 -> 22.1, still 584 J over | 6333.22 -> 22.14; margin_J +583.9; rank 16 -> 10 | same, axis=rank, value="no local" |
+| worst-cell ladder R 8.5e5 -> 0.165 over K=1..32 | 846352 -> 0.165324, monotone | `k_convergence_ledge_worst.csv : ratio (solver=xpbd)` |
+
+### §3.2 — complementarity residual, NONDIMENSIONALIZED (replaces the old scalar)
+
+| printed | value | source |
+|---|---|---|
+| penetration 27.9 mm (K=1) -> 3.6 um (K=64) | 27.95 mm -> 3.559e-3 mm | `complementarity_residual_nd.csv : gap_viol_mm_max` |
+| multiplier on separated rows 84x -> 139x (K=24) -> 0 (K=64) | 84.26 / 138.969 / 0.0 | same `: lam_sep_ratio_max`, normalized by lambda_bar = 1.82286e-4 fixed at K=128 |
+
+> **The superseded form must not be reused.** `||min(C,lambda)||_inf` mixes
+> metres with force; C is signed, so `min()` selects it whenever a row is
+> penetrated, making the old "2.79e-2 -> 3.56e-6" numerically a penetration
+> curve in metres and the "~3e-5 threshold" 0.03 mm. And the old claim that
+> "the complementarity conditions begin to hold" at K~24 was wrong: only the
+> gap side converges there; the multiplier side peaks at K=24 and clears at
+> K=64, so the composite is not monotone.
+
+### §4 Limitations — AVBD drift floor and partition dependence (P6)
+
+| printed | value | source |
+|---|---|---|
+| AVBD overdrafts 2-274x the tightest slack the same accounting resolves | positives 1.370e-3 … 1.574e-1 J (21 of 23) vs impulse least-slack 5.743e-4 J | derived from `eq2_utilization.csv : margin_J` |
+| (NOT the "10^2-10^3x" the plan anticipated) | median 58x | same |
+| supply partition-dependence bounded | coarsening ratio 1.000-1.083; <=7.7% rectified | `supply_partition.csv` (E-C9c) |
+| recycling is steady-state, not a window artifact | shelf 22.78 -> 23.85%, ledge 14.53 -> 15.74% over 100 -> 1000 frames | `long_horizon.csv` (E-C9d) |
