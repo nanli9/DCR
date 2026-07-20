@@ -593,9 +593,17 @@ harness renamed, without the check failing.
 
 Three entry points check printed numbers against these CSVs directly:
 
-- `benchmarks/paper_eval/verify_paper_numbers.py` — re-reads the §3.3 accuracy,
-  contact-validity and §3.5 runtime numbers from the CSVs and asserts each
-  against `main_short.tex`. Pure file reads, no simulation.
+- `verify_paper_numbers.py` — re-reads the §3.3 accuracy, contact-validity and
+  §3.5 runtime numbers from the CSVs and asserts each. Pure file reads, no
+  simulation, about a second:
+
+  ```sh
+  python code_snapshot/benchmarks/paper_eval/verify_paper_numbers.py --data data
+  ```
+
+  One check compares against the paper source, which this bundle does not ship;
+  it reports `skip` unless you pass `--tex <path to main_short.tex>`. All
+  others run.
 - `run_eq2_utilization.py --check-frozen` — re-runs the 24-cell sweep and
   asserts it reproduces the frozen ratios exactly. This is also the
   non-perturbation proof: the accounting runs live while the trajectory stays

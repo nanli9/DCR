@@ -20,6 +20,7 @@ Run: .venv/bin/python benchmarks/paper_eval/verify_paper_numbers.py
 """
 from __future__ import annotations
 
+import argparse
 import csv
 import os
 import sys
@@ -32,6 +33,7 @@ TEX = os.path.join(_ROOT, "paper", "main_short.tex")
 
 _ok: list[str] = []
 _bad: list[str] = []
+_skipped: list[str] = []
 
 
 def chk(label: str, cond: bool, detail: str) -> None:
@@ -48,7 +50,20 @@ def _sections(path):
 
 
 def main() -> int:
-    tex = open(TEX).read()
+    # The supplement ships the CSVs flat in `data/` and does not ship the tex,
+    # so both locations are overridable and the tex-dependent checks degrade to
+    # SKIP rather than crashing. Without this the bundle's own CLAIMS_INDEX
+    # pointed at a script that could not run from the bundle.
+    global X1, X5
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", help="directory holding the CSVs (supplement: "
+                                   "`data`); defaults to the in-repo out/ dirs")
+    ap.add_argument("--tex", default=TEX, help="paper source; checks that need "
+                                               "it are skipped if absent")
+    a = ap.parse_args()
+    if a.data:
+        X1 = X5 = a.data
+    tex = open(a.tex).read() if os.path.isfile(a.tex) else None
 
     # ---- R5.1 / R5.1c: governed accuracy + spectral content ----------------
     g = _sections(os.path.join(X1, "governed_accuracy.csv"))
@@ -185,11 +200,15 @@ def main() -> int:
     chk("xpbd relative effect spans 3.1-12.6x",
         abs(glo - 3.1) < 0.05 and abs(ghi - 12.6) < 0.05,
         f"{glo:.2f}-{ghi:.2f}x")
-    chk("tex prints the corrected 3.1-12.6x range (both sites)",
-        tex.count(r"$3.1$--$12.6\times$") == 2
-        and r"$3.5$--$12.6\times$" not in tex,
-        f"{tex.count(r'$3.1$--$12.6\times$')} site(s) corrected, "
-        f"{tex.count(r'$3.5$--$12.6\times$')} stale")
+    if tex is None:
+        _skipped.append("tex prints the corrected 3.1-12.6x range "
+                        "(no paper source: pass --tex)")
+    else:
+        chk("tex prints the corrected 3.1-12.6x range (both sites)",
+            tex.count(r"$3.1$--$12.6\times$") == 2
+            and r"$3.5$--$12.6\times$" not in tex,
+            f"{tex.count(r'$3.1$--$12.6\times$')} site(s) corrected, "
+            f"{tex.count(r'$3.5$--$12.6\times$')} stale")
     chk("xpbd worst impulse 8.7x, worst lambda variance 58x",
         abs(max(i for _, i, _ in xr if i == i) - 8.693) < 0.006
         and abs(max(v for _, _, v in xr if v == v) - 58.5) < 0.5,
@@ -226,9 +245,12 @@ def main() -> int:
     # ---- report ------------------------------------------------------------
     for line in _ok:
         print(f"  ok   {line}")
+    for line in _skipped:
+        print(f"  skip {line}")
     for line in _bad:
         print(f"  FAIL {line}")
-    print(f"\n{len(_ok)} passed, {len(_bad)} failed")
+    print(f"\n{len(_ok)} passed, {len(_bad)} failed"
+          + (f", {len(_skipped)} skipped" if _skipped else ""))
     return 1 if _bad else 0
 
 
