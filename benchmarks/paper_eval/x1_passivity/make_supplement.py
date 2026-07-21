@@ -84,6 +84,9 @@ BUNDLE: dict[str, list[tuple[str, str]]] = {
     "§3.2 robustness ablation and worst-cell ladder": [
         (X1, "robustness_ablation.csv"), (X1, "k_convergence_ledge_worst.csv"),
     ],
+    "§3.1/§3.5 reviewer-response ablations (warm-start, band-limit)": [
+        (X1, "warm_start_ablation.csv"), (X1, "band_limit_sweep.csv"),
+    ],
     "§3.3 cost of enforcement (Table 2)": [
         (X1, "projection_validity.csv"), (X1, "projection_validity_avbd.csv"),
         (X1, "governed_accuracy.csv"),
@@ -269,10 +272,16 @@ CLAIMS: list[tuple[str, str, str, str, str]] = [
              "R spans 2.5 to 4.7e5; excluding the stiff cluster leaves 584 J",
      "robustness_ablation.csv", "run_robustness_ablation.py",
      r"$R$ spanning $2.5$ to $4.7\times10^{5}$"),
-    ("§3.2", "worst cell converges: R falls 8.5e5 -> 0.165 over K=1...32",
-     "k_convergence_ledge_worst.csv",
-     "run_k_convergence.py --scene ledge --relax 1.0 --out k_convergence_ledge_worst",
-     r"$R$ falls $8.5\times10^{5}\to0.165$"),
+    ("§3.5", "band-limit the co-solve across the sweep: 6 of 8 injecting cells "
+             "still overdraw (worst ledge 4x1 +1.24e6 J); shelf 4x1 R 6333->22.1, "
+             "584 J still overdrawn",
+     "band_limit_sweep.csv", "probe_band_limit_sweep.py",
+     r"$6$ of $8$ injecting cells still overdraw"),
+    ("§3.1", "warm-start ablation: carrying lambda across substeps leaves the "
+             "position-based footprint unchanged (R>1 in the same 8/24 cells, "
+             "worst 1.20e5 either way), and worse at 4x1 (3.1x)",
+     "warm_start_ablation.csv", "probe_warm_start_ablation.py",
+     r"$1.20\times10^{5}$ either way"),
     ("§3.3, Table 2", "post-projection contact validity, XPBD: clamp counts, "
                       "gap violation med/max, corrective impulse, lambda variance",
      "projection_validity.csv", "run_projection_validity.py",

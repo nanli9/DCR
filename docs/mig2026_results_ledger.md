@@ -2111,3 +2111,46 @@ the XPBD high-iteration self-reference.
 `30a862facd530dd31741e41ef1774582f2d46d42ad3043ce5bc56f5a267a5d54`
 It supersedes the panel-reviewed `6dcd9042f57bce0faf213d4e5e690bb7ef989a2d138bfa6c0ce107a60f51fd8a`,
 which differs only in the three label strings.
+
+### E-C9g — reviewer-response ablations (2026-07-21)
+
+Two experiments answering the review panels' two structural objections. Both
+reuse `run_eq2_utilization.one()` verbatim (same ledger, same neutered γ), so the
+un-ablated arm reproduces `eq2_utilization.csv` bit-for-bit and only the single
+ablated variable moves. Both default OFF in the solver, so every other reported
+number is unchanged.
+
+#### (1) Warm-start confound — is the injection a formulation property or a warm-start artifact? (`warm_start_ablation.csv`)
+
+The position-based host resets λ←0 each substep while the augmented-Lagrangian and
+impulse hosts carry duals (Table 1), so "the injection is formulation-dependent"
+was confounded with warm-starting. Guarded flag `solver_xpbd.py:_warm_start_lam`
+(default OFF, bit-neutral) carries the contact multiplier across substeps instead.
+
+```
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_warm_start_ablation.py
+```
+
+Result (§3.1): warm-starting does **not** reduce the injection — R>1 in the same
+**8/24** cells both ways, Eq.(2) margin>0 in **9/24** both ways, worst case
+**1.195×10⁵ → 1.196×10⁵** (unchanged), and at the starved 4×1 corner **worse**
+(shelf 1.0 4×1: on/off = **3.13×**). A warm multiplier does not converge the
+shared modal DOF; only iterations do (§3.2). The confound is refuted.
+
+#### (2) Band-limit sweep — is band-limiting the co-solve sufficient? (`band_limit_sweep.csv`)
+
+The paper's first-line remedy (§3.3) is band-limiting the co-solved basis. The
+single-cell rank result (shelf 4×1: R 6333→22.1, 584 J still overdrawn) is
+generalized to the whole sweep, excluding the stiff cluster with the paper's own
+definition (`n_modes_local=0`, `run_robustness_ablation.py:170`); the realized
+spectrum is logged per cell (`n_stiff=0` confirms the cluster is gone).
+
+```
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_band_limit_sweep.py
+```
+
+Validation: shelf 0.7 4×1 reproduces the paper exactly (R_band **22.14**, margin
+**+584.1 J**). Result (§3.5): band-limiting cuts R by one to three orders of
+magnitude, but **6 of the 8** full-basis injecting cells still overdraw — worst
+ledge 1.0 4×1 at R **3354**, margin **+1.24×10⁶ J**. Band-limiting the co-solve
+is necessary but not sufficient; the bound remains the residual backstop.

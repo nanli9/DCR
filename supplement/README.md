@@ -102,6 +102,10 @@ command that produced it.
 - `data/robustness_ablation.csv`
 - `data/k_convergence_ledge_worst.csv`
 
+### §3.1/§3.5 reviewer-response ablations (warm-start, band-limit)
+- `data/warm_start_ablation.csv`
+- `data/band_limit_sweep.csv`
+
 ### §3.3 cost of enforcement (Table 2)
 - `data/projection_validity.csv`
 - `data/projection_validity_avbd.csv`
