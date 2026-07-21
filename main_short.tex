@@ -64,15 +64,16 @@ energetic cost of that truncation. Running one transcribed contact row through
 three fixed-budget solver formulations --- position-based (XPBD),
 augmented-Lagrangian (AVBD), and an implicit sequential-impulse realization ---
 over an identical 24-cell scene\,$\times$\,relaxation\,$\times$\,budget sweep,
-we find the injection is formulation-dependent. Measured against the gross
+we find the injection varies sharply across the three implementations. Measured against the gross
 rigid-side loss (a scene-wide, gravity-corrected quantity), the position-based
 host overdraws by up to $4.4\times10^{7}$~J ($1.2\times10^{5}$ times the
 incident rigid kinetic energy), the augmented-Lagrangian host by at most
 $6.7$~J in $3$ of $24$ cells, and the implicit realization never. An
 iteration-budget sweep identifies the position-based amplification as a
 truncation artifact, decaying six orders of magnitude toward an implicit
-high-iteration reference in the same code path; at equal cost, iterations beat
-substeps ($K{=}32,S{=}1$ stays bounded; $K{=}4,S{=}8$ overdraws). Since
+high-iteration reference in the same code path; at equal row-evaluation count,
+iterations beat substeps ($K{=}32,S{=}1$ stays bounded; $K{=}4,S{=}8$
+overdraws). Since
 convergence is unaffordable at interactive budgets we add a deliberately minimal
 fail-safe: a cumulative modal-storage bound funded by the measured gross
 rigid-side loss, guaranteed unconditionally (Prop.~\ref{prop:guarantee}) and
@@ -701,12 +702,15 @@ ledger.
 Transcribing an established rigid--modal contact law into fixed-budget solvers
 is not energy-safe, and how unsafe differs sharply across the three tested
 implementations: worst-case modal-to-incident ratios are $1.2\times10^{5}$,
-$1.70$ and $0.53$ on the same 24 cells. The position-based amplification is a
+$1.70$ and $0.53$. The position-based amplification is a
 truncation artifact convergence removes; the augmented-Lagrangian overdraft we
 measure but do not explain. Prefer the implicit or augmented-Lagrangian host,
-which stay within budget; where a position-based host is fixed and convergence
+which overdraw at most mildly ($\le6.7$~J in $3$ of $24$ cells, against the
+position-based host's $10^{7}$~J); where a position-based host is fixed and convergence
 unaffordable, a cumulative storage bound funded by measured gross rigid-side loss
 holds in every measured cell, at a measured cost to contact validity.
+% NOTE: "overdraw at most mildly" is code-faithful (eq2_utilization.csv):
+% implicit 0/24, AVBD 3/24 by <=6.7 J, vs the position-based host's 4.4e7 J.
 
 % PAGE GATE (do not remove): the page carrying this label is the last body
 % page. The CFP allows 4-6 content pages EXCLUDING references, so
