@@ -3,23 +3,33 @@
 
 \paragraph*{Motivation.} Rigid-body simulators are fast because they discard
 deformation, but real objects ring, chatter, and transmit vibration through their
-contacts. Modal reduction restores that behaviour cheaply by tracking a handful of
-vibration modes per body. The open question is how tightly the modal layer is
-\emph{coupled} to contact: whether contact merely \emph{reads} rigid motion and adds
-a cosmetic vibration (one-way), or whether the vibration \emph{reacts} back on the
-bodies and on their neighbours through the same contact (two-way).
+contacts. Interactive applications obtain contact-rich scenes from position-based
+and augmented-Lagrangian solvers run at fixed, low iteration budgets
+(XPBD~\citep{macklin2016xpbd}, VBD/AVBD~\citep{chen2024vbd,giles2025avbd}); a
+full soft-body discretization in such a host costs thousands of degrees of
+freedom per body, while modal reduction restores vibration response for six
+rigid plus a handful of modal coordinates. Cheap reduced coordinates are not
+the hard part --- subspace simulation is decades old (\S\ref{sec:related}). The
+open questions are how tightly the modal layer is \emph{coupled} to contact ---
+whether contact merely \emph{reads} rigid motion and adds a cosmetic vibration
+(one-way), or whether the vibration \emph{reacts} back on the bodies and on
+their neighbours through the same contact (two-way) --- and whether that
+coupling can be made \emph{safe} in a solver that is never run to convergence.
 
 \paragraph*{The gap.} \citet{zheng2011} resolve modal vibration inside both the
 collision and frictional-contact stages, producing genuinely coupled motions --- but
 at large computational cost, in an offline velocity-level solver.
-\citet{coevoet2020distant} (DCR) make this affordable for real time by dropping the
+\citet{coevoet2020distant} make this affordable for real time by dropping the
 back-reaction: they inject a distant collision response as a one-way velocity change
-and the simulation ``remains rigid.'' Neither offers a guarantee on the \emph{energy}
-the contact injects into the modes.
+and the simulation ``remains rigid.'' Reduced bodies with two-way contact do run
+at interactive rates --- Affine Body Dynamics~\citep{lan2022abd} --- but on an
+affine basis that cannot bend or ring, inside a Newton/barrier solver rather
+than the fixed-budget family. And none of the three offers a guarantee on the
+\emph{energy} the contact injects into the reduced coordinates.
 
 \paragraph*{This paper.} We embed the vibration modes as native compliant constraints
 inside an interactive-rate augmented-Lagrangian / position-based rigid solver
-(XPBD~\citep{macklin2016xpbd}, VBD/AVBD~\citep{chen2024vbd,giles2025avbd}). One
+(XPBD, VBD/AVBD). One
 unilateral contact multiplier excites the modes and reacts on the bodies within the
 same solver iteration (\S\ref{sec:method}). We are explicit about what that step is
 \emph{not}: the constraint is no new contact law --- linearized, the position-level
@@ -36,9 +46,16 @@ $\dEmod \le \eta\,\dErig$ on the contact$\to$modal transfer, maintained cumulati
 every substep by an exact energy projection (\S\ref{sec:method:passivity}), which
 holds however far the host converged. We generalize the invariant across a
 body--body modal contact network and validate against a full-FEM ground truth
-(\S\ref{sec:results}).
+(\S\ref{sec:results}). The result runs where its audience does: a GPU-resident
+co-solved path reaches $120$~Hz real-time rates and sustains $512$ bodies
+while a per-run ledger verifies the same bound, and --- as a demonstration,
+not a contribution --- the bounded excitation stream drives a standard modal
+impact-sound render (\S\ref{sec:results:perf}).
 
-\paragraph*{Contributions.}
+\paragraph*{Contributions.} These are one thesis, not independent claims: the
+fixed-budget regime \emph{creates} the injection failure mode a convergent
+global solve never faced, and the enforced bound is what closes it --- the
+constraint row itself is claimed by neither.
 \begin{itemize}
   \item A cumulative \textbf{directional energy budget} on the transfer from
         contact into the modes, funded by measured rigid contact loss and
@@ -59,6 +76,9 @@ body--body modal contact network and validate against a full-FEM ground truth
         net-injecting at the same budget (\S\ref{sec:method:solve}).
   \item That bound \textbf{generalized across a body--body modal contact
         network} --- stacked bodies ring through their shared contacts.
-  \item Validation against a full-FEM ground truth and a contact-force audit
+  \item Validation against a full-FEM ground truth and a contact-force audit,
+        plus interactive-rate capability: a GPU-resident co-solved path at
+        $120$~Hz real-time budgets with sublinear ${\approx}N^{1/2}$ scaling
+        to $512$ bodies, the passivity ledger verified in every measured cell
         (\S\ref{sec:results}).
 \end{itemize}

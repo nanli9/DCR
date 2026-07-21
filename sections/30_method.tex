@@ -3,17 +3,20 @@
 
 \subsection{Modes as native contact constraints}
 \label{sec:method:constraint}
-Each body is a floating frame of reference: state
+Each body is a floating frame of reference (FFRF,
+\citealp{shabana_multibody}): state
 $(x,R,\amp)$ with COM position $x$, rotation $R$, and modal amplitudes
-$\amp\in\mathbb{R}^k$ over mass-normalized free-body modes $\Phimat$ (DCR Eq.~6,
-rigid modes discarded). A material point $\bar p$ deforms as
+$\amp\in\mathbb{R}^k$ over mass-normalized free-body modes $\Phimat$ (rigid
+modes discarded). A material point $\bar p$ deforms as
 \begin{equation}
   p(x,R,\amp) \;=\; x + R\big(\bar p + \Phimat_{\bar p}\,\amp\big),
   \label{eq:ffr}
 \end{equation}
 with $\Phimat_{\bar p}$ the $3\times k$ restriction of the basis to that point.
-Alongside the Newton--Euler equations, the reduced elastic dynamics are (DCR
-Eqs.~5,~7)
+Alongside the Newton--Euler equations, the reduced elastic dynamics are the
+classical mass-normalized modal system (\citealp{shabana_multibody,
+james2002dyrt}; the one-way baseline of \citealp{coevoet2020distant} uses the
+same form)
 \begin{equation}
 \begin{gathered}
   M_q\ddot\amp + D_q\dot\amp + K_q\amp = \Phimat^{\!\top} f_{\mathrm{ext}},\\
@@ -60,7 +63,7 @@ the support mode shapes' vertical components at the contact's footprint. That is
 the whole generalization --- every body with modes participates, including stacked
 bodies that only ever touch another body. Mass-normalized modes give
 $M_q=I$, $K_q=\operatorname{diag}(\omega_j^2)$, $D_q=\alpha_0 I+\alpha_1 K_q$
-(Rayleigh; DCR Eq.~7), so no reduced inverse is ever formed.
+(Rayleigh), so no reduced inverse is ever formed.
 
 \paragraph*{Relation to the velocity-level law.}
 Eq.~\ref{eq:gap} is a transcription, not a new contact law: with $J$ the full
@@ -77,8 +80,9 @@ $h$, is the velocity-level rigid--modal contact condition of
 Jacobian, the same multiplier. If anything the transcription \emph{narrows}
 their law: we couple modes through the normal rows only, while
 \citet{zheng2011} resolve vibration in the friction stage as well, and a
-velocity-level system accommodates Newton restitution directly (DCR adds it
-in the right-hand side, their Eq.~4) where the position-level row gives
+velocity-level system accommodates Newton restitution directly (e.g.\
+\citealp{coevoet2020distant} add it in the bias, their Eq.~4) where the
+position-level row gives
 $e{=}0$ (\S\ref{sec:conclusion}). We therefore claim nothing for the rewrite
 itself. What it changes is the \emph{solver} the row must survive: a global
 QP converged to tolerance absorbs the stiff modal block silently; the
@@ -170,7 +174,12 @@ block solve tolerates $\omega_r=0.7$, while XPBD's sequential projections have a
 measured ceiling of $\omega_r=0.25$ on the stiff scenes ($0.4$ marginal,
 $0.5$--$0.6$ ejects bodies ${\sim}90$~m, ${\ge}0.65$ NaN on the road impact) ---
 the same truncation-order sensitivity that motivates the formulation-level
-passivity analysis below.
+passivity analysis below. We offer no convergence proof for either treatment
+at a fixed budget --- their stability is measured, across the robustness
+matrix and every result of \S\ref{sec:results} --- and that measured-not-proven
+status is exactly why the bound of \S\ref{sec:method:passivity} is enforced on
+realized state rather than assumed from the solver: it replaces the theorem we
+cannot supply with an invariant we can.
 
 \subsection{The passivity bound}
 \label{sec:method:passivity}
@@ -236,7 +245,9 @@ Each rigid substep deposits the irreversible contact loss into a reservoir,
 $r \leftarrow r + \eta\,\max(\dErig,0)$, with $\dErig$ the substep's
 gravitational work minus its change in rigid kinetic energy --- zero in
 ballistic flight, positive only when contact dissipates --- and the realized
-modal gain $g=\max(\Delta E_m,0)$ debits it. While $g$ fits the reservoir the
+modal gain $g=\max(\Delta E_m,0)$ debits it. The ledger is deliberately
+one-directional: modal$\to$rigid back-transfer (the bodies riding the ring)
+does not re-credit the reservoir, so the accounting errs conservative. While $g$ fits the reservoir the
 controller is inert. A substep that would overshoot is projected back by
 scaling the full modal state,
 \begin{equation}
@@ -260,7 +271,13 @@ projection reduces to the $\alpha$-cap. Scaling $\amp$ together with
 $\dot\amp$ is what makes the projection exact for an arbitrary co-solved
 update; it is also why an injecting host is over-damped rather than merely
 capped (\S\ref{sec:results:passivity}) --- once injected energy mixes into
-elastic PE, the ledger cannot separate it from the valid ring.
+elastic PE, the ledger cannot separate it from the valid ring. The projection
+has a price at the instants it fires: scaling $\amp$ perturbs the gap
+(Eq.~\ref{eq:gap}) of every engaged contact the sweep just resolved --- the
+next substep re-resolves it --- and energy, not impulse, is the conserved
+currency at a clamped step. On the descent-class host the price is never paid
+($0$ activations at production settings); on the injecting host it is the
+documented over-damping.
 
 The architecture is thus deliberately two-level: contact is resolved at the
 position / incremental-potential level (\S\ref{sec:method:solve}), while the
@@ -272,6 +289,8 @@ In practice the two formulations sit on opposite sides of this bound: the AVBD
 block solve of Eq.~\ref{eq:qblock} is measured passive at the production
 budget (the clamp is a monitor, $0$ activations at $\omega_r=0.7$), while the
 XPBD projections of Eq.~\ref{eq:xpbd} inject without it and the clamp is
-load-bearing (\S\ref{sec:results:passivity}). This is a deliberate departure
-from DCR's forced IIR (their Eq.~10): the modal excitation is funded by
-measured rigid kinetic-energy loss, not a forced response.
+load-bearing (\S\ref{sec:results:passivity}).
+The modal
+excitation is thereby funded by measured rigid kinetic-energy loss --- in
+contrast to forced-response injection, which drives the modes open-loop
+from the contact impulse (\citealp{coevoet2020distant}, Eq.~10).

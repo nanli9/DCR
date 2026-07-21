@@ -73,7 +73,7 @@ regime). GT = CoupledFEMRigidSim implicit Newmark h_fine=5e-5.
 | worst per scene OFF: shelf 1.1e4, ledge 1.2e5, dinner 5.1e3 | 10,962 / 119,533.86 / 5,141 | same : max(passivity_off) per scene |
 | every injecting cell lands ≤1.22 ON | max passivity_on 1.2197 (shelf) | same |
 | PAPER_CONFIG (16×4, 0.7): 0 clamps, identical | n_clamped=0; passivity_off==passivity_on (0.4366/0.2200/0.2220) | same, rows iters=16,substeps=4,relax=0.7 |
-| shelf 8×2: 53.7× OFF → 1.01 ON | 53.7307 / 1.0107 | same, row shelf/0.7/8/2 |
+| shelf 8×2: 53.7× OFF → 1.02 ON | 53.7307 / 1.0209 | same, row shelf/0.7/8/2 (governed ON +1% under R4 trapezoidal W_g) |
 | clamps 174/236; inert 0/472; ledger excess ~3e-17 J; AVBD monitor 0.617/0.271, excess 0.026 J | — | `docs/paper_eval/x1.md` Results table (pre-doc validated run) |
 | blow-up 5.5e4 / 9.2e6 / 3.0e6 J OFF → 40.8/36.0/42.3 J ON (~1 J scene) | 54,986.7 / 9,243,073 / 3,028,624 → 40.77/35.99/42.32 | `x1_passivity/out/blowup_prod.csv` rows xpbd 1×16, 2×4, 1×8 |
 | AVBD bit-identical 0.91/0.79 J, 0 activations | Emod_off==Emod_on 0.90742/0.78789 | same, rows avbd 4×4, 2×4 |
@@ -307,20 +307,20 @@ correct as printed — do not "fix" it.
 
 | printed | value | source |
 |---|---|---|
-| worst penetration is a 3.1–12.6× increase over its pre-scale value | 3.12 (ledge 4×1) … 12.58 (shelf 8×2); shelf 4×1 3.48, ledge 8×2 4.82 | `projection_validity.csv : gap_viol_post_max_m / gap_viol_pre_max_m`, all four rows |
-| (superseded 3.5–12.6×) | E-S3's SHELF-ONLY range, later quoted as host-wide | ledger E-S3 (a) correction note, 2026-07-20 |
+| worst penetration is a 3.1–12.5× increase over its pre-scale value | 3.12 (ledge 4×1) … 12.47 (shelf 8×2); shelf 4×1 3.48, ledge 8×2 4.82 | `projection_validity.csv : gap_viol_post_max_m / gap_viol_pre_max_m`, all four rows |
+| (superseded 3.1–12.6×) | R4 trapezoidal-W_g re-run shifted the governed clamp pattern | eq2 re-run 2026-07-20 |
 
-Printed at two tex sites (§3.3 penetration sentence and the AVBD comparison).
-The correction does not weaken either: §3.3 calls the AVBD host's 3.1× and 5.5×
-"comparable" to the XPBD range, which a floor of 3.1 supports more strongly.
-Now mechanically checked by `verify_paper_numbers.py`, which asserts both the
-CSV range and that the tex prints it at exactly two sites.
+Printed at one tex site now (§3.3 penetration sentence). The R4 W_g fix reframed
+the AVBD projection (only the one materially-overdrawing cell clamps), so the
+former "AVBD 3.1× and 5.5× comparable" comparison was dropped. Mechanically
+checked by `verify_paper_numbers.py`, which asserts the CSV range and that the
+tex prints it once.
 
 ### §4 Limitations — AVBD drift floor and partition dependence (P6)
 
 | printed | value | source |
 |---|---|---|
-| AVBD overdrafts 2-274x the tightest slack the same accounting resolves | positives 1.370e-3 … 1.574e-1 J (21 of 23) vs impulse least-slack 5.743e-4 J | derived from `eq2_utilization.csv : margin_J` |
-| (NOT the "10^2-10^3x" the plan anticipated) | median 58x | same |
+| AVBD still overdraws in 3 of 24 cells; overdraft (up to 6.7 J) is a property of the solver, not the ledger (impulse margins are exactly 0) | AVBD 3/24 {dinner 1.0 4×1 +6.738 J; ledge 8×2 +5.4e-3/+5.9e-3}; impulse max margin 0.0 | `eq2_utilization.csv : margin_J` (R4 trapezoidal W_g) |
+| (former "2-274× tightest slack / 21 of 23 < 0.15 J" dropped) | was displacement-W_g integrator artifact; see LEDGER supersession note | R4 re-run 2026-07-20 |
 | supply partition-dependence bounded | coarsening ratio 1.000-1.083; <=7.7% rectified | `supply_partition.csv` (E-C9c) |
 | recycling is steady-state, not a window artifact | shelf 22.78 -> 23.85%, ledge 14.53 -> 15.74% over 100 -> 1000 frames | `long_horizon.csv` (E-C9d) |

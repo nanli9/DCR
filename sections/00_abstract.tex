@@ -1,17 +1,23 @@
 \begin{abstract}
-We bring \emph{two-way} rigid--modal contact coupling into an interactive-rate,
-augmented-Lagrangian rigid-body solver. Each body's linear vibration modes are
-carried as compliant-constraint degrees of freedom: a single shared unilateral
-contact multiplier both excites the modes of the bodies in contact and reacts
-on their rigid frames through equal-and-opposite Jacobian blocks, and vibration
-propagates through a body--body contact network. The constraint law itself is
-classical --- linearized, our position-level contact row recovers the
-velocity-level rigid--modal contact constraint of Zheng and James --- but its direct
-transcription into a solver running at a fixed, low iteration budget is not
-energy-safe: the under-converged stiff modal block injects spurious energy, or
-diverges outright. The contributions are the solver couplings that keep that
-block stable at a fixed budget, and an enforced passivity inequality
-$\dEmod \le \eta\,\dErig$ on the contact$\to$modal transfer, maintained
-cumulatively across every substep of every run, which together make two-way
-modal contact usable at interactive rates.
+We bring \emph{two-way} rigid--modal contact coupling into the fixed-iteration
+position-based / augmented-Lagrangian rigid-body solvers that interactive
+applications already run (XPBD, AVBD). Each body's linear vibration modes are
+carried as a handful of compliant-constraint degrees of freedom: a single
+shared unilateral contact multiplier both excites the modes of the bodies in
+contact and reacts on their rigid frames through equal-and-opposite Jacobian
+blocks, and vibration propagates through a body--body contact network. The
+constraint law itself is classical --- linearized, our position-level contact
+row recovers the velocity-level rigid--modal contact constraint of Zheng and
+James --- but its direct transcription into a solver running at a fixed, low
+iteration budget is not energy-safe: the under-converged stiff modal block
+injects spurious energy, or diverges outright. The contributions are the
+solver couplings that keep that block stable at a fixed budget, and an
+enforced passivity inequality $\dEmod \le \eta\,\dErig$ on the
+contact$\to$modal transfer, maintained cumulatively across every substep of
+every run, which together make two-way modal contact usable at interactive
+rates. We validate deformation amplitude, frequency, and spatial profile
+against a full-FEM ground truth; a GPU-resident co-solved path reaches
+$120$~Hz real-time rates and sustains $512$ bodies while a per-run ledger
+verifies the same bound, and the bounded excitation stream drives a standard
+modal impact-sound render.
 \end{abstract}

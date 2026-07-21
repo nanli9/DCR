@@ -50,8 +50,8 @@
 
 \begin{document}
 
-\title{How Much Energy Does a Modal Contact Row Inject?\\
-  A Cross-Formulation Measurement and a Cumulative Storage Bound}
+\title{Modal Energy Injection in Three Fixed-Budget Contact Solvers:\\
+  Measurement and a Cumulative Storage Bound}
 
 \author{Anonymous Author(s)}
 
@@ -69,10 +69,10 @@ implementations. Measured against the gross
 rigid-side loss (a scene-wide, gravity-corrected quantity, not a per-contact
 dissipation), the position-based host overdraws by up to $4.4\times10^{7}$~J
 --- $1.2\times10^{5}$ times the incident rigid kinetic energy in the most
-starved cells --- the augmented-Lagrangian host in $23$ of $24$ cells by at most
-$15$~J, and the implicit realization never: a rare but catastrophic pathology
-beside a pervasive but negligible one, which the customary
-ratio-to-incident-energy diagnostic does not separate. An iteration-budget sweep
+starved cells --- the augmented-Lagrangian host in $3$ of $24$ cells by at most
+$6.7$~J, and the implicit realization never: a catastrophic pathology beside a
+small and localized one, five orders of magnitude apart, which the customary
+ratio-to-incident-energy diagnostic compresses into a single number. An iteration-budget sweep
 identifies the position-based amplification as a truncation artifact, decaying
 toward an implicit high-iteration reference computed in the same code path,
 closing the gap
@@ -80,13 +80,14 @@ by six orders of magnitude. Since that regime is unaffordable at interactive
 budgets we add a deliberately minimal fail-safe: a cumulative modal-storage
 bound funded by the measured gross rigid-side loss, maintained by a reservoir
 ledger and a projection of the realized modal state, whose cost we measure
-rather than assume. The loop guarantees a one-deposit relaxation of that bound;
-the strict form is observed in all 90 measured cells ($78$ distinct
-configurations), including the $1{\times}8$ and $2{\times}4$ budgets at which
-interactive solvers are commonly deployed, and what it costs is contact
-validity: worst-case post-projection penetration $21.6$~mm ($72\%$ of the
-board's thickness) at the adversarial $4{\times}1$ corner, $9.8$~mm at the
-deployed budgets.
+rather than assume. The loop guarantees that bound unconditionally --- for any
+host and any contact solve, up to a stated accounting tolerance --- and the
+realized margins sit at the roundoff floor ($1.1\times10^{-13}$~J) in all 90
+measured cells ($78$ distinct configurations), including the $1{\times}8$ and
+$2{\times}4$ budgets at which interactive solvers are commonly deployed; what it
+costs is contact validity: worst-case post-projection penetration $21.6$~mm
+($72\%$ of the board's thickness) at the adversarial $4{\times}1$ corner,
+$9.8$~mm at the deployed budgets.
 \end{abstract}
 
 \begin{CCSXML}
@@ -159,9 +160,9 @@ within an interactive budget.
   and maintained by a reservoir ledger and a projection of the realized modal
   state (\S\ref{sec:bound}). It is the simplest admissible enforcement --- a
   deliberately minimal, audited fail-safe, not a constructive contact method
-  --- guaranteeing \eqref{eq:budgeted}, a one-deposit relaxation of the bound;
-  the strict form is \emph{observed} in all $90$ measured cells ($78$
-  distinct configurations).
+  --- and it guarantees \eqref{eq:invariant} unconditionally, for any host and
+  any contact solve, up to an accounting tolerance; the realized margins sit at
+  the roundoff floor in all $90$ measured cells ($78$ distinct configurations).
 \item \textbf{The cost of enforcement.} Post-projection contact validity
   (penetration, corrective impulse, multiplier variance, momentum), measured
   rather than assumed (\S\ref{sec:validity}).
@@ -262,7 +263,7 @@ the gravity work, and only an inelastic velocity change funds the reservoir.
 Substep-boundary endpoints tile the timeline exactly, so no rigid energy change
 escapes the accounting.
 
-\paragraph*{Three objects, stated once.} Conflating them is the easiest way to
+\paragraph*{Two objects, stated once.} Conflating them is the easiest way to
 misread what follows. \textbf{(i)~The printed invariant} is
 \eqref{eq:invariant} exactly as written: a cumulative, gross-loss-funded storage
 ceiling on the modal subsystem whose supply is \emph{measured, not prescribed}
@@ -273,21 +274,13 @@ a port. The \emph{gross} sum ignores substeps in which the rigid subsystem
 \emph{gains} energy, so those cannot cancel earlier credits, and energy returned
 and re-dissipated counts as fresh supply (\S\ref{sec:limits} measures both).
 \textbf{(ii)~The enforced recursion} is the per-substep loop below --- credit,
-test, project, debit. \textbf{(iii)~The bound the loop actually guarantees}
-relaxes \eqref{eq:invariant} by one substep's largest deposit, absorbing a
-granularity artifact: modal potential energy can rise in the substep whose
-credit funds it:
-\begin{equation}
-\Emod^{\,n} - \Emod^{\,0}
-\;\le\;
-\eta \sum_{k\le n} \max\!\bigl(\dErig^{\,k},0\bigr)
-\;+\; \max_{k\le n}\,\eta\max\!\bigl(\dErig^{\,k},0\bigr).
-\label{eq:budgeted}
-\end{equation}
-That slack is worth $7$--$389$~J --- immaterial where the overdraw is
-$10^{5}$~J or more, decisive where it is not: under it the augmented-Lagrangian
-host would violate $1$ of $24$ cells, not $23$. We report the stricter
-reading~(i) throughout.
+test, project, debit --- and it maintains \eqref{eq:invariant} exactly, not a
+relaxation of it: because the reservoir is credited \emph{before} the projection
+test, the same-substep deposit that funds a legitimate rise in modal energy is
+already inside the budget the test enforces, so no granularity slack is
+required. Proposition~\ref{prop:guarantee} proves this; the only give is a
+per-substep accounting tolerance, which the governed runs realize at the
+$10^{-13}$~J roundoff floor.
 
 \paragraph*{Enforcement.} A reservoir $B$ accumulates the supply and is debited
 by realized storage. Both happen \emph{after} the contact solve, within the
@@ -326,18 +319,26 @@ trajectories), and it never re-solves contact (step~7).
 
 \begin{proposition}\label{prop:guarantee}
 For any $\eta\in(0,1]$ and any host, the loop maintains $B\ge0$ and guarantees
-\eqref{eq:budgeted} unconditionally, assuming nothing about the contact solve.
+\eqref{eq:invariant} unconditionally, assuming nothing about the contact solve,
+up to an accounting tolerance $n\epsilon$ over $n$ substeps ($\epsilon$ the
+per-test tolerance, $10^{-12}$~J).
 \end{proposition}
 
-\noindent\emph{Sketch.} Induct with the invariant $B\ge0$: $B^{0}$ is $0$,
-step~5 adds a non-negative credit, step~7 clips the debit at $0$. Step~6 fires
-only when $\Emod^{+}$ exceeds $\Emod^{-}+B$, and applies the largest $\gamma$
-with $\gamma^{2}\Emod^{+}\le\Emod^{-}+B$; as $\Emod$ is quadratic in the state,
-realized storage is then at most $\Emod^{-}+B$. Telescoping over $k\le n$ gives
-\eqref{eq:invariant} up to the one deposit credited in the substep that spends
-it --- exactly~\eqref{eq:budgeted}. Strict \eqref{eq:invariant} is not implied;
-it is \emph{observed}, in all $90$ governed cells, worst margin
-$1.1\times10^{-13}$~J.
+\noindent\emph{Proof.} Write $c_k=\eta\max(\dErig^{\,k},0)$ for the substep
+credit and $B_k$ for the reservoir after substep $k$, and carry two invariants:
+$B_k\ge0$ and $(\Emod^{k}-\Emod^{0})+B_k\le\sum_{j\le k}c_j$. Both hold at
+$k{=}0$ ($B_0=\Emod^{0}=0$). The credit (step~5) enters $B$ \emph{before} the
+test, so step~6 applies the largest $\gamma$ with
+$\gamma^{2}\Emod^{+}\le\Emod^{-}+B_{k-1}+c_k$; as $\Emod$ is quadratic in the
+state, realized storage is at most $\Emod^{-}+B_{k-1}+c_k$, i.e.\ the realized
+gain $\Delta\Emod\le B_{k-1}+c_k$. The debit (step~7) sets
+$B_k=\max(B_{k-1}+c_k-\max(\Delta\Emod,0),\,0)$, keeping $B_k\ge0$; and in either
+branch $(\Emod^{k}-\Emod^{0})+B_k\le(\Emod^{k-1}-\Emod^{0})+B_{k-1}+c_k$, so the
+second invariant follows by induction. Since $B_n\ge0$, this is
+$\Emod^{n}-\Emod^{0}\le\sum_{k\le n}c_k$ --- \eqref{eq:invariant} itself, not a
+relaxation: the same-substep credit absorbs the granularity term a naive
+telescoping would otherwise leave. The $90$ governed cells confirm it at the
+roundoff floor, worst margin $1.1\times10^{-13}$~J.
 
 % =====================================================================
 \section{Results}
@@ -438,15 +439,16 @@ reservoir accounting live while forcing $\gamma\equiv1$: every state write in
 the enforcement path is guarded by $\gamma<1$, so the trajectory is
 bit-identical to an ungoverned run (the ratios above reproduce the independent
 sweep exactly). We report the signed margin of \eqref{eq:invariant} in joules;
-positive values violate. The two metrics agree on the position-based host
-($8/24$ either way) and on the implicit one ($0/24$, margin at worst
-$-5.7\times10^{-4}$~J), but they disagree on the augmented-Lagrangian host,
-which violates \eqref{eq:invariant} in $23$ of $24$ cells although $R$ flags
-only $2$. The magnitudes separate the two failures: in $21$ of its $23$ cells
-the augmented-Lagrangian overdraw is below $0.15$~J (worst $15.1$~J), against
-the position-based host's $4.4\times10^{7}$~J. A pervasive but negligible
-overdraw and a rare but catastrophic one are different pathologies, and only
-the invariant distinguishes them.
+positive values violate. The invariant and the ratio do not flag the same
+cells: the position-based host violates \eqref{eq:invariant} in $9$ of $24$
+cells against $R>1$ in $8$, the augmented-Lagrangian host in $3$ against $2$,
+and the implicit host in neither ($0/24$, worst margin at the roundoff floor).
+Each metric catches a cell the other misses, so neither subsumes the other.
+What orders the failures is magnitude: the position-based overdraw reaches
+$4.4\times10^{7}$~J, five orders past the largest augmented-Lagrangian one
+($6.7$~J, at the starved $4{\times}1$ table corner where $R=1.70$), itself past
+the implicit host's exact zero --- three regimes the ratio-to-incident-energy
+diagnostic compresses into a single number.
 
 With enforcement enabled, all $72$ cells \emph{of this sweep} satisfy
 \eqref{eq:invariant} --- $60$ of them distinct configurations, the implicit
@@ -485,7 +487,7 @@ host falls monotonically from $2.96\times10^{4}$ at $K{=}1$ to $0.300$ at
 $K{=}32$, approaching the implicit reference $0.2735$; the gap
 $|\text{XPBD}-\text{reference}|$ shrinks from $2.96\times10^{4}$ to
 $2.7\times10^{-2}$. The implicit realization moves only in the fourth decimal
-across $K=2\ldots500$ (spread $4.9\times10^{-4}$).
+across $K=2\ldots500$ (max$-$min $6.8\times10^{-4}$).
 
 A falling energy ratio does not by itself show that the \emph{row} is
 converging --- a single scalar could shrink coincidentally. Measuring the
@@ -509,23 +511,22 @@ no better --- on the deflection trajectory
 $d_i(t)=\mathbf{U}_y[i]^{\!\top}\mathbf{q}(t)$ the peak matches to $2.4\%$ but
 the trajectories differ by $6.8$~mm, $34\%$ of the reference's own peak. The two
 hosts converge to different discrete solutions, as expected when they discretize
-the same continuous law differently, so the sweep separates two easily conflated
-effects: a truncation pathology that convergence removes, superimposed on a
-difference between the discretizations that it does not.
+the same continuous law differently: the sweep thus separates a truncation
+pathology that convergence removes from a discretization difference that it does
+not.
 
-This cuts in two directions: truncation creates the amplification and
-convergence largely cures it, so iterating further --- or adopting the implicit
-realization tested here --- would remove it outright, and the bound of
-\S\ref{sec:bound} is therefore not a substitute for convergence but targets the
-regime where neither escape is available. Following the one-iteration small-step
+This cuts two ways: truncation creates the amplification and convergence largely
+cures it, so iterating further --- or adopting the implicit realization --- would
+remove it outright, and the bound of \S\ref{sec:bound} is not a substitute for
+convergence but targets the regime where neither escape is available. Following the one-iteration small-step
 regime~\citep{macklin2019small}, interactive position-based solvers run
 schedules near $1{\times}8$ to $2{\times}4$, well below the $K\!\ge\!24$ this
 scene needs. On $18$ further cells (3 scenes $\times$ 3 hosts $\times$
 $\{1{\times}8, 2{\times}4\}$, relaxation $0.7$) the position-based host violates
 \eqref{eq:invariant} in all six of its deployed cells, worst $R=2282$ --- on $8$
 row evaluations, twice the $4$ of the $4{\times}1$ corner --- while the others
-behave as in the sweep ($5/6$ and $0/6$, the former by at most $0.16$~J).
-Governed, all $18$ satisfy \eqref{eq:invariant} (worst $R = 1.022$) and the
+behave as in the sweep ($1/6$ and $0/6$, the former by at most $0.011$~J).
+Governed, all $18$ satisfy \eqref{eq:invariant} (worst $R = 1.023$) and the
 projection is gentler: worst penetration $9.8$~mm against $21.6$.
 
 \paragraph*{Not a knife-edge configuration.} Varying one setting at a time away
@@ -554,10 +555,10 @@ clamp on nearly every substep, so no steady state exists there (---).}
 \toprule
 scene & budget & clamped & gap viol.\ med / max [mm] & impulse & $\lambda$ var. \\
 \midrule
-shelf & $4{\times}1$ & 107/108 & 1.25 / \textbf{21.6} & ---          & --- \\
-shelf & $8{\times}2$ & 162/216 & 0.30 / 6.46          & $6.90\times$ & $26\times$ \\
-ledge & $4{\times}1$ & 98/108  & 0.07 / \textbf{21.2} & $1.03\times$ & $1.07\times$ \\
-ledge & $8{\times}2$ & 96/216  & 0.07 / 4.08          & $8.69\times$ & $58\times$ \\
+shelf & $4{\times}1$ & 107/108 & 1.24 / \textbf{21.6} & ---          & --- \\
+shelf & $8{\times}2$ & 171/216 & 0.21 / 6.43          & $3.68\times$ & $5.6\times$ \\
+ledge & $4{\times}1$ & 97/108  & 0.08 / \textbf{21.2} & $1.03\times$ & $1.08\times$ \\
+ledge & $8{\times}2$ & 178/216 & 0.07 / 4.08          & $8.92\times$ & $62\times$ \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -565,16 +566,18 @@ ledge & $8{\times}2$ & 96/216  & 0.07 / 4.08          & $8.69\times$ & $58\times
 \paragraph*{Accuracy.} Bounding the energy is useful only if the bounded
 solution improves on the unbounded one. At a moderate injecting cell (shelf,
 $8{\times}2$, relaxation $0.7$), peak modal energy is $1555.6$~J ungoverned and
-$29.26$~J governed against the implicit reference's $7.92$~J: the energy error
-falls $196{\times}\to3.7{\times}$ ($+1548\to+21$~J), and
+$29.56$~J governed against the implicit reference's $7.92$~J: the energy error
+falls $196{\times}\to3.7{\times}$ ($+1548\to+22$~J), and
 $189{\times}\to3.6{\times}$ against the XPBD self-reference ($8.22$~J), so it
 does not depend on the reference chosen. The trajectory, however, degrades:
-$\|d-d^{\text{ref}}\|_\infty$ is $6.5$~mm ungoverned and $14.3$~mm governed,
+$\|d-d^{\text{ref}}\|_\infty$ is $6.5$~mm ungoverned and $14.2$~mm governed,
 $33\%$ and $71\%$ of the reference's peak --- the governor is a safety envelope,
 not an accuracy device. At the deployed $1{\times}8$ cell energy gives
 $2823{\times}\to3.7{\times}$ and the trajectory improves too ($108\to96\%$ of
 reference peak): the trade is budget-dependent, but $96\%$ is still not
-faithful.
+faithful. The $500{\times}1$ reference is converged in iteration count, not
+schedule-matched to the governed $S{>}1$ runs, so the residual bounds the
+governed error rather than isolating truncation from schedule mismatch.
 
 This also explains how a $196\times$ energy error can coexist with a peak
 deflection only $1.2\times$ too large: the excess is neither kinetic ($0.3\%$)
@@ -593,45 +596,42 @@ re-solving contact. Table~\ref{tab:validity} quantifies the consequence,
 instrumented by wrappers that leave the solve unperturbed (clamp counts
 reproduce the independent sweep exactly).
 
-Median post-projection penetration is $0.07$--$1.25$~mm, but the worst case
-reaches $21.6$~mm, a $3.1$--$12.6\times$ increase over its pre-scale value. The
+Median post-projection penetration is $0.07$--$1.24$~mm, but the worst case
+reaches $21.6$~mm, a $3.1$--$12.5\times$ increase over its pre-scale value. The
 shelf board is $30$~mm thick, so that is $72\%$ of its thickness; against the
 unclamped scene at either reference (resting sag $1.7$--$2.4$~mm, peak
 dynamic deflection $20.0$--$20.5$~mm) it is $9$--$13\times$ the sag and
-$1.05$--$1.08\times$ the board's peak deflection --- a visible
-interpenetration, not a sub-millimetre artifact, occurring where the projection
-is most load-bearing. Contact recovers in the next substep rather
+$1.05$--$1.08\times$ the board's peak deflection: a visible interpenetration
+where the projection is most load-bearing. Contact recovers in the next substep
+rather
 than accumulating, but that correction costs a normal impulse of up to
-$8.7\times$ the steady-state value, with multiplier variance up to $58\times$
-higher. Net rigid linear momentum is unchanged across the projection --- with
-exactly zero drift --- in every clamp-active substep of every cell, necessarily
-so since \eqref{eq:gamma} writes only modal state; we verified this numerically
-rather than asserting it.
+$8.9\times$ the steady-state value, with multiplier variance up to $62\times$
+higher. Net rigid linear momentum is unchanged across the projection --- exactly
+zero drift, verified numerically --- in every clamp-active substep of every cell,
+necessarily so since \eqref{eq:gamma} writes only modal state.
 
-The same instrumentation on the augmented-Lagrangian host, at its only two cells
-with $R>1$, finds the projection an order of magnitude gentler in absolute terms
---- worst violations $1.4$ and $3.1$~mm against $21.6$, corrective impulse and
-multiplier variance within $1.4\times$ of steady state where the position-based
-host reaches $8.7\times$ and $58\times$ --- while the \emph{relative} effect is
-comparable ($3.1$ and $5.5\times$ against $3.1$--$12.6\times$). The hosts differ
-in the scale of the correction, not in its character (full rows in the
+On the augmented-Lagrangian host the same instrumentation fires only at its one
+materially-overdrawing cell (the starved $4{\times}1$ table corner, $+6.7$~J),
+where the projection is an order of magnitude gentler: it opens $1.8$~mm against
+the position-based host's $21.6$, clamps a single substep against its
+near-continuous firing, and needs no measurable corrective impulse. The hosts
+differ in the scale of the correction, not its character (full rows in the
 supplement).
 
 \subsection{The reduced response against a full-FEM reference}
 \label{sec:gt}
-Bounding the energy is likewise useful only if the bounded response is the
-correct one. On the ledge scene we compare the reduced arm against an unreduced
-FEM solve of the same mesh on the \emph{same} discrete operator (the reduced
-basis is $\mathrm{eigsh}(\mathbf{K},\mathbf{M})$ of the operator the reference
-integrates), so discretization bias cancels from every ratio. The
-reduced-to-reference peak-deflection ratio rises monotonically
-$0.38\to0.54\to0.79\to0.88$ as $h$ refines $1/120\to1/960$, plateauing near
-$0.9$; the residual ${\sim}10\%$ is $k{=}24$ mode truncation on a thick,
-high-frequency slab, not a coupling error --- the ring frequency already agrees
-to $0.4\%$ ($78.0$ vs $78.3$~Hz). The far-field shape agrees too: peak
-deflection sits at the pedestal antinode rather than under the impact, and the
-falloff tracks the reference at Spearman $\rho=0.89$ with no fitted attenuation
-term, in the pre-topple, small-displacement regime.
+Bounding the energy is likewise useful only if the bounded response is correct.
+On the ledge scene we compare the reduced arm against an unreduced FEM solve on
+the \emph{same} discrete operator (the reduced basis is
+$\mathrm{eigsh}(\mathbf{K},\mathbf{M})$ of the operator the reference
+integrates), so discretization bias cancels. The reduced-to-reference
+peak-deflection ratio rises monotonically $0.38\to0.54\to0.79\to0.88$ as $h$
+refines $1/120\to1/960$, plateauing near $0.9$; the residual ${\sim}10\%$ is
+$k{=}24$ mode truncation on a thick slab, not a coupling error --- the ring
+frequency agrees to $0.4\%$ ($78.0$ vs $78.3$~Hz). The far-field shape agrees
+too: peak deflection sits at the pedestal antinode, not under the impact, and
+the falloff tracks the reference at Spearman $\rho=0.89$ with no fitted
+attenuation term, in the small-displacement regime.
 
 \subsection{Runtime cost}
 \label{sec:cost}
@@ -645,15 +645,19 @@ ${\sim}1.4$~ms. The percentage is the portable quantity: on a second machine
 absolute times differ by $3.5$--$4.6\times$ while the percentages agree to within
 $0.02$ points wherever both resolve. These baselines fall $1.3$--$15\times$ short
 of a $120$~Hz budget, though shelf and ledge meet it at $2{\times}4$ governed.
+The percentage is budget-dependent and larger at the deployed schedules: at
+$1{\times}8$ and $2{\times}4$ the ledger's absolute cost stays comparable
+($0.30$--$2.22$~ms) but the smaller baseline lifts it to $6.6$--$34.3\%$ (shelf
+and ledge, both hosts), so enforcement is not free where the budget is tight.
 
 A separate device-resident path (NVIDIA RTX 4090), carrying the ledger
-read-only as a monitor rather than enforcing it, reaches $5.0$--$8.9$~ms/step at
+read-only as a monitor rather than enforcing it, reaches $5.3$--$9.4$~ms/step at
 $16{\times}4$ across four scenes: shelf and ledge meet a $120$~Hz budget with
 margin, a road slab sits at the boundary, the table does not, and all four meet
 it at $16{\times}2$ or below (per-scene factors in the supplement). We make no
 unqualified real-time claim, and a device-resident \emph{enforced} $\gamma$ does
 not exist in this work, so governed device timings lie outside our measurements
-rather than being withheld (\S\ref{sec:limits}).
+(\S\ref{sec:limits}).
 
 % =====================================================================
 \section{Limitations}
@@ -666,9 +670,7 @@ from the implicit reference even as it moves the energy toward it
 envelope for budgets that would otherwise diverge, and convergence remains the
 better remedy wherever affordable. A natural next mechanism scales deviations
 about the quasi-static equilibrium rather than the whole state, preserving the
-load-bearing sag; unbuilt, and its unscaled equilibrium term would leave
-\eqref{eq:invariant} holding only while the reservoir exceeds the sag's strain
-energy.
+load-bearing sag; it is unbuilt.
 
 \textbf{Scope of the row.} The coupling is normal-only --- friction stays
 body-local, so scraping and rolling transfer lie outside it --- and the
@@ -688,18 +690,17 @@ above rather than a property of the bound. Tightening the envelope needs the
 signed or per-interface accounting this scalar reservoir avoids. The supply also
 depends on the substep \emph{partition}: a finer schedule rectifies more
 fluctuation into supply, so the budget belongs to the schedule as well as the
-scene, and endpoints tiling the timeline answers completeness, not
-partition-independence.
+scene.
 
 \textbf{Coverage.} Enforcement is host-side and single-machine (CPU float64); a
 device-resident governor and a validation of the \emph{governed} path against a
 full-FEM reference remain future work. Three formulations, one implementation
-of each; three scenes, one contact regime; the augmented-Lagrangian host's small but near-universal
-overdraft makes any claim that descent-class solvers are passive in this setting
-an empirical statement about this sweep, not a theorem --- though those
-overdrafts run $2$--$274\times$ the tightest slack the same accounting resolves
-on the never-overdrawing implicit host ($5.7\times10^{-4}$~J), so they are small
-but not noise.
+of each; three scenes, one contact regime; the augmented-Lagrangian host still
+overdraws in $3$ of $24$ cells, so any claim that descent-class solvers are
+passive in this setting is an empirical statement about this sweep, not a
+theorem; since the implicit host's margins sit at exactly zero under the same
+accounting, that overdraft (up to $6.7$~J) is a property of the solver, not the
+ledger.
 
 % =====================================================================
 \section{Conclusion}

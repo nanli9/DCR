@@ -1,21 +1,55 @@
 \section{Results}
 \label{sec:results}
 
-We evaluate on the scenes of Table~\ref{tab:scenes}: DCR's own road, dinner, and
-ledge figure layouts --- re-simulated with the two-way modal-constraint coupling in
-place of DCR's one-way injection --- plus three of our own: a box--box cube
-stack, a two-body full-FEM reference, and an $N$-body scale grid
-(\S\ref{sec:results:perf}). Reusing DCR's layouts is
-deliberate: it lets us show, on the same scenes, the back-reaction DCR cannot
-produce (a distant body moved \emph{by} another body's ring through their shared
-contact).
+\todo{NEW EVIDENCE NOT YET IN THIS SECTION (measured 2026-07-18, ARM Mac, frozen
+with commands + commit hashes in \texttt{docs/mig2026\_results\_ledger.md}).
+Three items, in decreasing order of importance:
+\textbf{(1) K-convergence, commit \texttt{3d5f91a}.} The injection is a
+truncation artifact: on a deterministic shelf drop at substeps${=}1$, XPBD is
+monotone non-increasing in the iteration budget $K$ and decays from
+$2.96{\times}10^{4}$ ($K{=}1$) to $0.300$ ($K{=}32$), toward a converged
+reference of $0.2735$ (the implicit sequential-impulse backend at $K{=}500$, the
+same code path run to convergence); it crosses the injection threshold between
+$K{=}16$ and $K{=}24$. The impulse backend is already converged at $K{=}2$.
+This is the strongest new result AND it cuts both ways --- it says convergence
+cures the pathology, so the bound must be positioned for the regime where
+convergence is unaffordable, not as a general fix. Figure exists:
+\texttt{fig\_s2\_kconvergence.pdf}.
+\textbf{(2) Post-projection contact validity, commit \texttt{aed967d}.} What the
+$\gamma$-projection costs contact, which this paper currently does not report:
+median post-scale support-gap violation $0.07$--$1.25$~mm but worst case
+\textbf{$21.6$~mm}, i.e.\ the projection increases worst-case penetration by
+$3.5$--$12.6\times$; next-substep corrective normal impulse $1.03$--$8.69\times$
+steady state; $\lambda$ variance $1.07$--$58\times$ higher on clamp-active
+substeps; net rigid linear momentum change across the projection exactly $0$
+(by construction --- it writes only modal state --- verified numerically). This
+belongs in Limitations and closes the hole a contact reviewer will probe.
+\textbf{(3) Three-solver symmetry, commit \texttt{f884380}.} The same 24 cells
+now run in all three backends on one machine: XPBD $8/24$ injecting (worst
+$1.19534{\times}10^{5}$), AVBD $2/24$ (worst $1.7003$), impulse $0/24$ (worst
+$0.5314$); all 72 cells satisfy the invariant with the governor on. Figure:
+\texttt{fig\_s1\_solver\_matrix.pdf}.}
+
+We evaluate along four axes: accuracy against a full-FEM ground truth,
+the enforced passivity bound, two-way capability (back-reaction and the
+body--body network), and scale/runtime. Table~\ref{tab:scenes} lists the
+scenes by what they test: a slab with bystanders is the full-FEM accuracy
+anchor, a ledge topple exercises strong coupling, a dinner-table drop sweep
+measures the spatial response, a box--box cube stack stresses the contact
+network, a shelf serves as the ablation/performance reference, and an
+$N$-body grid sweeps scale (\S\ref{sec:results:perf}). The road, dinner, and
+ledge layouts follow \citet{coevoet2020distant}, which lets the one-way
+baseline run in its own setting; on those layouts we measure the
+back-reaction a one-way response cannot produce --- a distant body moved
+\emph{by} another body's ring through their shared contact.
 
 Table~\ref{tab:matrix} is the validation matrix. Each row is a metric scored against
 a named reference baseline; each column is a scene. \yes\ marks a measured result
 (number in the cell, subsection cited); \na\ marks not-applicable, with the
 reason in the caption. Accuracy-vs-FEM rows are scored on the three
-ground-truth scenes (slab, ledge, dinner); the stack and shelf are
-network-stress and ablation scenes with no FEM twin. The road scene is
+ground-truth scenes (slab, ledge, dinner); the stack and shelf carry no
+\emph{scored} accuracy row here and serve as the network-stress and ablation
+scenes. The road scene is
 exercised qualitatively and for device-resident runtime (the truck row of
 \S\ref{sec:results:perf}) and carries no measured accuracy rows, so it is
 excluded from the matrix.
@@ -24,8 +58,9 @@ excluded from the matrix.
 \textbf{F} --- a full-FEM (unreduced) solve of the same mesh, the accuracy ground
 truth (a penalty/linear-implicit FEM under-resolves stiff contact, so
 IPC-grade contact~\citep{lan2022abd} would be a stronger reference);
-\textbf{D} --- DCR one-way (rigid $+$ separate IIR, no back-reaction), the base
-method;
+\textbf{D} --- one-way forced-IIR injection \citep{coevoet2020distant}:
+rigid $+$ separate IIR response, no back-reaction --- the real-time one-way
+prior;
 \textbf{R} --- rigid-only (modes off), the cost floor and the two-way null;
 \textbf{A} --- the analytic static ledger ($\sum\lambda = mg$);
 and the two internal toggles \textbf{off/on} (passivity clamp; modal network) that
@@ -33,16 +68,18 @@ isolate the two claims that are ours alone.
 
 \begin{table*}[t]\centering\footnotesize
 \setlength{\tabcolsep}{4pt}
-\caption{Evaluation scenes. Rows 1--3 are DCR's own figure layouts re-simulated with
-two-way coupling; rows 4--7 are our network-stress, reference, and scale scenes
+\caption{Evaluation scenes. Rows 1--3 adopt the figure layouts of
+\citet{coevoet2020distant} --- provenance that lets the one-way baseline run
+in its own setting; rows 4--7 are our network-stress, reference, and scale scenes
 (the shelf is the ablation/performance reference; the slab is the full-FEM
 accuracy anchor; the stress grid sweeps body count at fixed physics,
 \S\ref{sec:results:perf}).
 $n_g/n_\ell$ = global/local reduced modes per body; body counts for dinner/ledge are
 the measured scene sizes. $^{\dagger}$The dinner table's basis is the eigenbasis
 of the same discrete FEM operator its ground truth integrates (shared operator,
-\S\ref{sec:results:fem}); the scene duplicates DCR \S5.1 (2.2$\times$1.1~m table,
-their Table~2 material, 5~kg pot with a parameterized drop point).
+\S\ref{sec:results:fem}); the scene uses a 2.2$\times$1.1~m table, a 5~kg pot
+with a parameterized drop point, and the material of
+\citet{coevoet2020distant} (their Table~2).
 The road count is its 12 movable bodies (3 crates, 5 cones, 4 lumber) resting on
 the reduced-modal road slab, counted the same movable-only way as dinner/ledge;
 the road scene is demonstrated qualitatively and timed on the device path
@@ -51,11 +88,11 @@ not appear in the matrix (Table~\ref{tab:matrix}).}
 \label{tab:scenes}
 \begin{tabular}{llccl}
 \toprule
-scene & source & bodies & $n_g/n_\ell$ & what it tests \\
+scene & layout & bodies & $n_g/n_\ell$ & what it tests \\
 \midrule
-Road (crate/cones)    & DCR road  & 12              & 12/16 & distant response, large slab (qualitative) \\
-Dinner table          & DCR Fig.1/\S5.1 & 25        & 24$^{\dagger}$ & distant place-settings, drop sweep \\
-Ledge (boulder)       & DCR ledge & 5               & 12/16 & strong-coupling topple \\
+Road (crate/cones)    & Coevoet et al. & 12              & 12/16 & spatial response, large slab (qualitative) \\
+Dinner table          & Coevoet et al. & 25        & 24$^{\dagger}$ & distant place-settings, drop sweep \\
+Ledge (boulder)       & Coevoet et al. & 5               & 12/16 & strong-coupling topple \\
 Cargo network (stack) & ours      & 6              & 8/1   & two-way, box--box network \\
 Shelf (board+cubes)   & ours      & 6              & 10/14 & ablation / performance reference \\
 Slab + bystanders     & ours      & 1+2--5         & 16    & full-FEM accuracy anchor \\
@@ -73,7 +110,8 @@ rows need the scene's FEM twin (slab, ledge, dinner); the momentum probe is
 defined on an isolated free-flight pair (\S\ref{sec:results:momentum}) and
 anchored-support scenes exchange momentum with the environment by design; the
 two-way ring discriminator needs modal cargo, which the paper configuration
-reserves for the stack (dinner's dishes are rigid per DCR \S4.5 --- the
+reserves for the stack (dishes rigid, matching the baseline configuration,
+\citealp{coevoet2020distant} \S4.5 --- the
 all-cargo variant is Fig.~\ref{fig:dinner}); restitution is the dinner
 protocol; the blow-up ablation runs on the three XPBD robustness scenes. The
 rows no prior method can pass --- the enforced bound OFF/ON
@@ -87,14 +125,14 @@ machine (stack: default cargo modal path).}
 metric & ref & Dinner & Ledge & Stack & Shelf & Slab \\
 \midrule
 Deflection ratio (native/F)        & F      & \yes\q{.02$\to$.26 launch} & \yes\q{.38$\to$.88} & \na & \na & \yes\q{.56$\to$1.03} \\
-Distant-response fidelity          & F,D    & \yes\q{\S\ref{sec:results:fem}} & \yes\q{$\rho$=.89} & \na   & \na & \yes\q{2.3$\times$D} \\
+Spatial response fidelity          & F,D    & \yes\q{\S\ref{sec:results:fem}} & \yes\q{$\rho$=.89} & \na   & \na & \yes\q{2.3$\times$D} \\
 Contact-force ledger               & A      & \na & \yes\q{.25--.32\%} & \yes\q{.06--1.9\%} & \yes\q{$\le$.10\%} & \na \\
 Passivity $\dEmod\!\le\!\eta\dErig$ & bound  & \yes & \yes & \yes & \yes & \yes\q{0 act.} \\
 Momentum drift (lin/ang)           & $0$    & \na & \na & \yes\q{\S\ref{sec:results:momentum}} & \yes\q{\S\ref{sec:results:momentum}} & \na \\
 Two-way ring $|\amp|$              & off/on & \na & \na & \yes\q{1.1e{-}5/0} & \na & \na \\
 Restitution ratio $\le1\ \forall\varepsilon_r$ & D & \yes\q{.05 vs 2.6} & \na & \na & \na & \na \\
 Runtime (ms/step)                  & --     & \yes\q{125.6} & \yes\q{51.6} & \yes\q{78.5} & \yes\q{53.8} & \na \\
-Passivity ablation (blow-up)       & off/on & \yes\q{5.1e3$\times$} & \yes\q{1.2e5$\times$} & \na & \yes\q{1.1e4$\times$} & \na \\
+Passivity ablation (blow-up)       & off/on & \yes\q{5.1e3$\times$\todo{superseded dinner scene; current $0.372$, no injection}} & \yes\q{1.2e5$\times$} & \na & \yes\q{1.1e4$\times$} & \na \\
 \bottomrule
 \end{tabular}
 \end{table*}
@@ -130,7 +168,14 @@ settled boulder matches to $0.32\%$ and the supported system total to
 $0.25\%$, with the knocked-off pillar excluded and the two surviving pillars
 leaning against the pedestal: their joint multipliers each read ${\sim}8\%$
 above the vertical weight because a leaning contact's normal is tilted (a
-geometric effect, not a force imbalance).
+geometric effect, not a force imbalance). The topple itself we treat as scene
+dressing, not capability evidence: it is a knife-edge outcome of the balanced
+pillars --- a modes-off (frozen-ring) control at the identical configuration
+leaves all pillars standing, but so does the coupled arm when the run is
+repeated on a different FP platform (Apple ARM vs.\ the x86 host of
+Table~\ref{tab:perf}) --- so the two-way evidence is the ring discriminator
+(\S\ref{sec:results:network}) and the FEM-validated deflection fields
+(\S\ref{sec:results:fem}), not the topple.
 
 \begin{figure*}[t]\centering
   \includegraphics[width=0.92\linewidth]{fig_contact_forces.pdf}
@@ -202,7 +247,7 @@ reduced-vs-full-FEM peak-deflection ratio rises monotonically $0.38\to0.54\to
 truncation on the thick, higher-frequency slab --- the ring frequency already
 matches at $78.0$ (native) vs $78.3$~Hz (GT), $0.4\%$ --- not a coupling error,
 and it is the same pre-topple, small-displacement regime the Limitations state.
-The distant response is again the modal \emph{standing wave}: the peak deflection
+The far-field response is again the modal \emph{standing wave}: the peak deflection
 sits at the pedestal (the antinode), \emph{not} under the impact, and the native
 falloff along the slab tracks the GT with Spearman $\rho=0.89$ --- no fitted
 attenuation term, on a second scene.
@@ -225,15 +270,17 @@ attenuation term, on a second scene.
   \label{fig:ledge}
 \end{figure*}
 
-On the dinner scene (DCR \S5.1 duplicate: their Table~2 material, 5~kg pot,
-dishes rigid exactly as in their \S4.5), the pot is dropped at three points
+On the dinner scene (layout and material of \citealp{coevoet2020distant},
+\S5.1; dishes rigid to match the baseline configuration, their \S4.5), the
+pot is dropped at three points
 along the 2.2~m table against an all-FEM ground truth in which \emph{every}
 body is elastic (implicit Newmark at $h=5\times10^{-5}$~s, ${\sim}18$~min per
 1.2~s drop vs.\ ${\sim}34$~ms/step for ours, \S\ref{sec:results:perf}). The two arms agree on the operator ---
 the ground truth's measured ring ($9.2$--$9.9$~Hz) matches the native basis
 $f_1 = 9.8$~Hz --- and the native response falls off with distance from the
-drop point with \emph{no fitted attenuation model} (DCR fits its Eq.~14
-$C,\beta$ manually or to data; Fig.~\ref{fig:dinner}). The native arm
+drop point with \emph{no fitted attenuation model} (the one-way baseline
+fits its attenuation model --- their Eq.~14 $C,\beta$ --- manually or to
+data; Fig.~\ref{fig:dinner}). The native arm
 under-predicts absolute dish-launch amplitude --- ${\sim}7\times$ at the
 loudest near-field dishes (Fig.~\ref{fig:dinner}), median launch ratio
 $0.016$ over all 72 scored bodies at the paper step --- and an $h$-ladder
@@ -246,8 +293,8 @@ $\propto v^2$ of a sub-millisecond surface-velocity peak that the rigid step
 low-passes), and it is also the observable the GT itself resolves poorly
 (above), so the residual gap at $1/960$ \emph{bounds the true deficit from
 above} rather than measuring it --- the GT-convergent deflection field is
-the accuracy metric, and it reaches $1.03$. DCR's forced-IIR architecture
-(their Eqs.~10--12) makes the opposite trade: it re-injects the
+the accuracy metric, and it reaches $1.03$. The forced-IIR baseline
+(\citealp{coevoet2020distant}, Eqs.~10--12) makes the opposite trade: it re-injects the
 \emph{maximum} filter displacement as a velocity change, deliberately
 re-amplifying that transient --- and exceeding the passive bound as
 $\varepsilon_r\!\to\!1$ (\S\ref{sec:results:restitution}). Passive recovery
@@ -262,7 +309,7 @@ sacrifices the guarantee.
   variant, and the all-FEM ground truth.}
   \caption{Dinner drop-position sweep: per-body peak upward jump vs.\ distance
   from the pot's drop point (log scale), three drop points. The native
-  rigid-dish arm (DCR's own \S4.5 configuration) reproduces the ground truth's
+  rigid-dish arm (the baseline's own \S4.5 configuration) reproduces the ground truth's
   distance falloff at ${\sim}7\times$ lower amplitude (band-limiting, see
   text); the all-cargo variant (every dish deformable, our generalization)
   responds less again because soft bodies absorb impact compliantly. Toppled
@@ -270,20 +317,21 @@ sacrifices the guarantee.
   \label{fig:dinner}
 \end{figure*}
 
-\subsection{Head-to-head with DCR on one operator}
+\subsection{Two-way constraint vs.\ one-way injection (one operator)}
 \label{sec:results:dcr}
 Figure~\ref{fig:x2falloff} runs the slab reference under three arms --- rigid-only
-(\textbf{R}), paper-DCR (\textbf{D}: the Eq.~10 forced IIR plus the post-solve
+(\textbf{R}), one-way (\textbf{D}: the forced IIR of
+\citealp{coevoet2020distant}, their Eq.~10, plus the post-solve
 $\Delta v = d_{\max}/h$ velocity increment), and the native constraint --- and measures each
 bystander's peak KE against its distance from an off-centre impact. Rigid-only
-produces no distant response (identically zero beyond the nearest object: the
-machinery is genuinely off). Paper-DCR is strongest near the impact
+produces no far-field response (identically zero beyond the nearest object: the
+machinery is genuinely off). The one-way arm is strongest near the impact
 ($13.5$~mJ at $0.14$~m) but collapses to $0.9$~mJ by $0.42$~m. The native arm
 starts softer ($9.8$~mJ) and falls off gently, delivering $2.0$~mJ at
-$0.56$~m --- $2.3\times$ the paper-DCR response at the farthest object; the two
+$0.56$~m --- $2.3\times$ the one-way response at the farthest object; the two
 curves \emph{cross}. The native falloff is the slab's standing-wave modal
 profile (\S\ref{sec:results:fem}) with no $C\,r^{-\beta}$ term and no per-scene
-response parameters (paper-DCR manually sets $C,\beta,r_0$ and its Rayleigh pair);
+response parameters (the one-way arm manually sets $C,\beta,r_0$ and its Rayleigh pair);
 its steeper decay is the impulse-localized forced response. We note that this is a
 method-level comparison on one shared operator, each arm at its natural
 timestep --- the comparand is the falloff \emph{shape}, which is
@@ -292,10 +340,11 @@ $h$-independent (\S\ref{sec:results:fem}), not absolute magnitude.
 \begin{figure}[t]\centering
   \includegraphics[width=\linewidth]{fig_x2_falloff.pdf}
   \Description{Peak bystander kinetic energy versus distance from impact for
-  rigid-only, paper-DCR, and native arms on the shared slab operator.}
-  \caption{Response vs.\ distance, three arms on one slab operator. Paper-DCR
+  rigid-only, one-way, and native arms on the shared slab operator.}
+  \caption{Response vs.\ distance, three arms on one slab operator. The
+  one-way arm (D)
   is strong near-field and collapses with distance; the native standing-wave
-  response reaches the far bystander at $2.3\times$ the DCR level; rigid-only
+  response reaches the far bystander at $2.3\times$ the one-way level; rigid-only
   is zero.}
   \label{fig:x2falloff}
 \end{figure}
@@ -314,7 +363,20 @@ support-ring energy over the impactor KE --- an intensity diagnostic; the
 \emph{enforced} invariant is the ledger inequality, which the ON sweep
 satisfies in every cell. OFF: \textbf{12 of 24 cells inject},
 with per-scene worst cases $1.1\times10^{4}$ (shelf), $1.2\times10^{5}$
-(ledge), $5.1\times10^{3}$ (dinner). ON: \textbf{all 24 cells satisfy the
+(ledge), $5.1\times10^{3}$ (dinner).
+\todo{STALE --- re-measured 2026-07-18 on branch \texttt{impulse-native-constraint}
+(commit \texttt{f884380}, ARM Mac, one machine). Shelf and ledge reproduce
+EXACTLY ($1.0962{\times}10^{4}$, $1.19534{\times}10^{5}$, and the $6333.22$ /
+$53.73$ / $47.45$ / $167.7$ cells). Dinner does NOT: the dinner scene was
+materially redefined on that branch ($1.2{\times}1.0$~m, $E{=}10$~GPa
+$\rightarrow$ $2.2{\times}1.1$~m, $E{=}1.1$~GPa, the \S5.1 duplication), and on
+the current scene XPBD's worst ratio is $0.372$ --- it does not inject at all.
+So on current scenes the count is \textbf{8 of 24}, not 12, and the
+$5.1\times10^{3}$ dinner figure belongs to the SUPERSEDED scene and must not be
+cited beside branch numbers. Decide: re-run this sweep on the current scenes and
+restate as 8/24, or scope the sentence explicitly to the old scene set. See
+\texttt{docs/mig2026\_results\_ledger.md} \S E-S1b.}
+ON: \textbf{all 24 cells satisfy the
 ledger invariant}, and every injecting cell lands at $\le 1.22$. At the paper
 configuration ($16{\times}4$, relax $0.7$) the clamp fires \textbf{zero times
 on all three scenes} and the trajectories are unchanged --- the governor is
@@ -397,7 +459,8 @@ there are \emph{zero} clamp activations at every $\mu$ (AVBD monitor-only).
 Friction enlarges the loss budget rather than opening an unbounded tangential
 modal channel, so the guarantee needs no tangential term.
 
-\paragraph*{What the guarantee costs, and where it is free.} On the
+\paragraph*{What the guarantee costs, and where it is free.}
+On the
 descent-class host (AVBD), accuracy, passivity, and interactive cost hold
 \emph{simultaneously}: the FEM-validated configuration of
 \S\ref{sec:results:fem} runs with the ledger attached at zero activations and
@@ -406,8 +469,8 @@ an actor. On the projection-class host (XPBD) the clamp is load-bearing: it
 converts a $10^{5}\times$ blow-up into a bounded run at the price of
 over-damping the ring --- stable, not accurate. On both hosts the impact
 transient is band-limited by the rigid step (\S\ref{sec:results:fem});
-amplitude recovers under substepping at linear cost, where DCR's forced IIR
-recovers it by re-amplification at the price of the bound itself
+amplitude recovers under substepping at linear cost, where the forced-IIR
+baseline recovers it by re-amplification at the price of the bound itself
 (\S\ref{sec:results:restitution}). The bound is free exactly where the host
 is already passive, and load-bearing exactly where it is not.
 
@@ -418,7 +481,11 @@ is already passive, and load-bearing exactly where it is not.
   \caption{Adversarial robustness: XPBD across scene $\times$ budget $\times$
   relaxation, clamp OFF (left) vs ON (right). OFF injects in 12/24 cells (up
   to $1.2\times10^{5}\times$); ON passes the ledger invariant in 24/24 and is
-  bit-inert in the already-safe region.}
+  bit-inert in the already-safe region.
+  \todo{12/24 is stale --- 8/24 on the current dinner scene; the $1.2\times10^{5}$
+  peak is confirmed. A three-solver version of this figure (XPBD/AVBD/impulse
+  over the same 24 cells, one machine) now exists as
+  \texttt{fig\_s1\_solver\_matrix.pdf} and should probably replace this one.}}
   \label{fig:x1robust}
 \end{figure*}
 
@@ -462,11 +529,12 @@ support geometry later contacts see.
 
 \subsection{Restitution: bounded where the forced IIR double-counts}
 \label{sec:results:restitution}
-DCR's own \S5.4 flags the flaw: as $\varepsilon_r\to1$ a contact dissipates
+\citet{coevoet2020distant} flag this limitation of the forced response
+themselves (their \S5.4): as $\varepsilon_r\to1$ a contact dissipates
 almost nothing, so a response driven by the contact \emph{impulse} keeps
 injecting vibration energy that no longer exists to give. We sweep the pot's
 $\varepsilon_r$ on the dinner drop and measure, per impact, injected vibration
-energy over rigid contact loss (Fig.~\ref{fig:x7}). Paper-DCR: the loss
+energy over rigid contact loss (Fig.~\ref{fig:x7}). The one-way arm (D): the loss
 collapses $7.30\to0.20$~J while the forced-IIR injection \emph{grows}
 $0.15\to0.52$~J; the ratio crosses $1$ near $\varepsilon_r\approx0.8$ and
 plateaus at $2.63$--$2.64\times$ --- energy created. Native: $0.053$ at every
@@ -481,8 +549,9 @@ matched-restitution comparison.
 \begin{figure}[t]\centering
   \includegraphics[width=\linewidth]{fig_x7_restitution.pdf}
   \Description{Injected-over-lost energy ratio versus coefficient of
-  restitution for paper-DCR and the native bounded arm.}
-  \caption{Restitution sweep: injected/lost energy per impact. Paper-DCR
+  restitution for the one-way arm and the native bounded arm.}
+  \caption{Restitution sweep: injected/lost energy per impact. The one-way
+  arm (D)
   crosses $1$ near $\varepsilon_r\approx0.8$ and reaches $2.6\times$
   (double-counting); the native arm stays at $0.05\le1$ for all
   $\varepsilon_r$.}
@@ -515,7 +584,14 @@ CPU reference, the two paths differ only in the modal integrator (host
 symplectic vs.\ co-solved), not the constraint. Critically, a read-only
 passivity ledger evaluated over the full trajectory of all four scenes across five
 budgets ($8{\times}1$ to $32{\times}4$) finds the device path \emph{passive in
-$20/20$ cells with no active clamp}: peak modal energy never reaches its start
+$20/20$ cells with no active clamp}\todo{This device result stands (different
+matrix: 4 scenes $\times$ 5 budgets, minimum $8{\times}1$). But do NOT generalize
+it to ``AVBD is passive''. On the HOST CPU path, over the 24-cell sweep that
+includes the more starved $4{\times}1$ budget, AVBD injects in \textbf{2 of 24}
+cells (dinner $4{\times}1$: $1.1789$ at relax $0.7$, $1.7003$ at relax $1.0$);
+the governor bounds both ($0.87$/$0.86$). Any sentence elsewhere claiming AVBD
+is unconditionally passive needs qualifying to ``passive in this sweep''.
+Ledger \S E-S1b.}: peak modal energy never reaches its start
 value plus $\eta$ times the cumulative rigid loss (net excess $<0$ in every
 cell), including the $8{\times}1$ real-time budget where a stationarity-class
 host would inject. We state this precisely: the $\gamma$-projection of
@@ -551,6 +627,23 @@ solve, not the coupling. The read-only ledger of Fig.~\ref{fig:device}
 evaluated per cell finds all $18$ $(N,\text{budget})$ cells passive (net
 excess $<0$ in every cell; natural transfer ratio $0.11$--$0.25$), and no
 body is ejected in any cell.
+
+\paragraph*{Impact-sound render (demonstration, not a contribution).} The
+same logged excitation that funds the visible ring also renders as sound,
+with the energy discipline intact. A band-split, audio-rate modal IIR
+bank~\citep{vandendoel1998} replays the per-substep engaged contact force
+open-loop at $44.1$~kHz; the co-solved sim-rate band is untouched, since
+pushing kHz modes into the fixed-budget block is exactly the stiff-row
+injection failure mode of \S\ref{sec:results:passivity}. A cumulative audio
+ledger admits each kick under the same one-sided budget,
+$\Delta E_{\mathrm{audio}} \le \eta_{\mathrm{audio}}\,\dErig$: on the dinner
+scene the rendered excitation uses $11.5$~J of a $25.7$~J budget and the cap
+never binds ($0/1036$ events), offline and live (PortAudio callback,
+$0$ underruns) with bit-identical ledgers. The synthesis itself is the
+standard van~den~Doel--Pai bank; the demonstration is that one measured
+rigid-loss budget bounds both the visible ring and the audible impact.
+Impacts only --- the coupling is normal-row, so scraping and rolling are out
+of scope by construction.
 
 \begin{figure}[t]\centering
   \includegraphics[width=\linewidth]{fig_stress_scale_col.pdf}

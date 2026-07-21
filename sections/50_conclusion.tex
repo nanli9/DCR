@@ -22,18 +22,29 @@ makes the coupling energy-safe there.
         directional, source-referenced energy bound.
   \item The bound applies to the modal-path injection only; the
         spatial-attenuation path is empirical and carries no energy budget.
+  \item The supply rate is a discretization-level quantity: $\dErig$ is
+        \emph{measured} loss during contact resolution, which includes the
+        host's numerical dissipation alongside physical restitution loss ---
+        a more dissipative host funds a larger vibration budget. This is
+        deliberate (it is the only reservoir that exists at the solver's
+        level of description), and $\eta<1$ tightens it
+        (\S\ref{sec:results:passivity}), but the budget is not a
+        physical-restitution accounting.
   \item Small-displacement regime only: support contact rows sample the modal
         basis at each contact's rest footprint with a fixed vertical normal
-        (DCR instead re-maps contacts barycentrically per step), and the
-        linearized modes carry no geometric stiffening --- valid at the
-        mm-scale responses shown, not for span-scale deflections.
+        (\citealp{coevoet2020distant} instead re-map contacts barycentrically
+        each step), contact
+        normals come from the undeformed collision geometry (the row carries
+        no deformation-induced normal rotation), and the linearized modes
+        carry no geometric stiffening --- valid at the mm-scale responses
+        shown, not for span-scale deflections.
   \item The rigid step band-limits the impact transient: dish-launch
         amplitudes run well under the full-FEM reference at $h=1/120$ and
         recover monotonically with the step ($16\times$ over an $8\times$
         ladder, \S\ref{sec:results:fem}) without reaching it --- though the
         reference launch observable is itself contact-model-limited, so the
-        residual is an upper bound on the true deficit. DCR's sub-stepped
-        forced-IIR response re-amplifies that transient at the cost of passivity
+        residual is an upper bound on the true deficit. The sub-stepped
+        forced-IIR baseline re-amplifies that transient at the cost of passivity
         (\S\ref{sec:results:restitution}).
   \item Two paths, one invariant: the passivity- and accuracy-validated
         correctness path is the symplectic modal step (CPU; $11$--$34$~ms/step
@@ -52,8 +63,8 @@ makes the coupling energy-safe there.
   \item Native contact restitution is $e{=}0$: the sweep of
         \S\ref{sec:results:restitution} shows the energy ratio stays bounded at
         every $\varepsilon_r$ by construction, but a matched-restitution
-        comparison against DCR needs a Newton restitution term in the native
-        contact --- future work.
+        comparison against the one-way baseline needs a Newton restitution
+        term in the native contact --- future work.
   \item Scene breadth: the road scene is qualitative-only (timed on the
         device path; excluded from the matrix); the $N$-body stress grid
         (\S\ref{sec:results:perf}) measures runtime and passivity to $513$
@@ -64,7 +75,7 @@ makes the coupling energy-safe there.
 
 \paragraph*{Future work.} A swappable affine (ABD) cargo basis for cheap, robust
 contact, energy-governed the same way; a Newton restitution term in the native
-contact so the restitution comparison against DCR
+contact so the restitution comparison against the one-way baseline
 (\S\ref{sec:results:restitution}) can be run at matched $\varepsilon_r$ rather
 than against the $e{=}0$ reference; a ground-truth accuracy pass on the road
 scene; and the two device items of \S\ref{sec:results:perf}, which stand

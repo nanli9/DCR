@@ -1,6 +1,6 @@
 % =====================================================================
 %  Passivity-Bounded Two-Way Modal Contact in an Interactive-Rate
-%  Augmented-Lagrangian Solver   --   DCR follow-up paper (DRAFT)
+%  Augmented-Lagrangian Solver   --   standalone method paper (DRAFT)
 %
 %  Builds with:  latexmk -pdf main.tex   (pdflatex -> bibtex -> pdflatex x2)
 %
@@ -13,6 +13,20 @@
 %  CLAUDE.md 14 ("claims to avoid"). Do NOT claim "first two-way".
 %  REAL-TIME DISCIPLINE: the validated CPU path measures 17-34 Hz (X5) --
 %  say "interactive rates"; the device path is future validation work (G3).
+%
+%  REPOSITIONING (2026-07-13, EXECUTED): this is a STANDALONE method paper.
+%  Coevoet et al. 2020 is motivation + the one-way baseline, NOT the base
+%  we extend. Source-wide policy (applies to all new text):
+%   - the acronym "DCR" never appears; cite \citet{coevoet2020distant},
+%     or say "the one-way (forced-IIR) injection baseline";
+%   - no "builds on / generalizes / base method / departure from" voice;
+%   - scenes are described by what they test; layout provenance is one
+%     clause, never the lead;
+%   - method equations cite the standard sources (FFRF/modal analysis),
+%     with Coevoet et al. as an instance, not "DCR Eq. N";
+%   - "distant response" only when describing THEIR method; otherwise
+%     "far-field/spatial response", "transmitted vibration".
+%  The Zheng-James transcription honesty and all numbers are unchanged.
 % =====================================================================
 \PassOptionsToPackage{dvipsnames,table}{xcolor}
 \documentclass[sigconf,screen,review,anonymous]{acmart}
@@ -96,8 +110,11 @@
 \keywords{rigid-body dynamics, modal reduction, contact, passivity,
   augmented Lagrangian, XPBD}
 
-% TODO(teaser): \begin{teaserfigure} with a render strip once W5 lands:
-%   clamp-off blow-up | stack ring | dinner vs ground truth.
+% TODO(teaser): \begin{teaserfigure} with a render strip once W5 lands.
+%   Panels sell the standalone story --- candidate strip: stack ring
+%   through contacts | native-vs-FEM overlay | clamp-off blow-up. No
+%   baseline-layout branding in the caption. (E-R1 topple control did NOT
+%   pan out as a panel: knife-edge, platform-FP-sensitive — see 40_results.)
 
 \maketitle
 

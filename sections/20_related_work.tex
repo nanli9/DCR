@@ -24,13 +24,18 @@ models at haptic kilohertz rates. Neither shares a unilateral
 augmented-Lagrangian multiplier between rigid and modal DOFs at a fixed
 iteration budget, and neither bounds the contact$\to$modal energy transfer.
 \citet{james2002dyrt} render one-way real-time modal response (display-only, no
-back-reaction). DCR~\citep{coevoet2020distant} is the real-time, one-way distant
-response this project builds on and generalizes.
+back-reaction).
+Closest in spirit, \citet{coevoet2020distant} approximate the response of
+distant contacts one-way in real time: precomputed modes drive a forced IIR
+whose peak displacement is re-injected as a velocity change, and the
+simulation remains rigid. That work is the immediate motivation for ours,
+which replaces the injected response with vibration state the contact solve
+carries natively.
 
 \paragraph*{Reduced bodies as contact DOFs.} Affine Body
 Dynamics~\citep{lan2022abd} makes a $9$-DOF affine subspace a native contact DOF
 inside IPC; it captures uniform stretch/shear but not the bending/plate modes that
-carry the distant response, and carries no energy-transfer bound.
+carry the far-field response, and carries no energy-transfer bound.
 \citet{sheth2015} give fully momentum-conserving reduced deformable contact ---
 two-way and conserving \emph{momentum}, but not bounding \emph{energy}. Classical
 floating-frame / component-mode multibody (\citealp{shabana_multibody};
@@ -119,7 +124,7 @@ No prior row occupies all six columns.}
 \midrule
 \textbf{This paper}                    & \yes & \yes & \yes & \yes                 & \yes                 & \yes \\
 Zheng \& James 2011                    & \yes & \yes & \yes & \no\textsuperscript{d} & \no\textsuperscript{o} & \yes \\
-DCR (Coevoet 2020)                     & \no\textsuperscript{i} & \no & \yes & \no & \yes & \pmark\textsuperscript{n} \\
+Distant response (Coevoet 2020)        & \no\textsuperscript{i} & \no & \yes & \no & \yes & \pmark\textsuperscript{n} \\
 Hauser et al.\ 2003                    & \yes & \yes & \yes & \no & \no\textsuperscript{t} & \pmark \\
 Rath 2008                              & \yes & \yes & \yes & \pmark\textsuperscript{e} & \no\textsuperscript{t} & \no \\
 Barbi\v{c} \& James 2008               & \yes & \yes & \pmark\textsuperscript{r} & \no\textsuperscript{d} & \no\textsuperscript{t} & \no \\
