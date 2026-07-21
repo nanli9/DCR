@@ -172,11 +172,15 @@ def _neuter_gamma():
 
 
 def one(build_fn, solver, iters, subs, relax, nframes=NFRAMES, settle=SETTLE,
-        eta=1.0):
+        eta=1.0, mutate=None):
     """Run one un-governed cell with the Eq.-(2) accounting live.
 
     Returns a dict carrying both metrics: R (the diagnostic the paper already
     reports) and U (the invariant the paper claims).
+
+    `mutate`, if given, is called as mutate(sol) on the fully-configured solver
+    just before the run. It is the ablation hook (warm-start, band-limit); the
+    default None path is byte-for-byte the reported measurement.
     """
     t0 = time.perf_counter()
     H = build_fn(device="cpu", iterations=iters, avbd_substeps=subs,
@@ -187,6 +191,8 @@ def one(build_fn, solver, iters, subs, relax, nframes=NFRAMES, settle=SETTLE,
     # Ledger ON so the accounting runs; gamma neutered below so nothing moves.
     apply_passivity(sol, solver, enable=True, eta=eta)
     sol._psv_monitor_only = False         # match E-S1's ON semantics exactly
+    if mutate is not None:                 # ablation hook (warm-start / band-limit)
+        mutate(sol)
 
     # AVBD constructs its ledger LAZILY, on the first substep
     # (solver_6dof.py:2449 / :3057), whereas XPBD builds it at

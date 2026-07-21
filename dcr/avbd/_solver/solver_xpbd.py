@@ -335,6 +335,13 @@ class SolverXPBD:
         self._enforce_modal_passivity = False
         self._modal_eta = 1.0
         self._psv_ledger = None
+        # ABLATION (reviewer response, NOT the paper default). When True, carry
+        # the contact normal multiplier across substeps instead of the paper's
+        # lambda<-0 reset (the position-based host's own "no warm start" row,
+        # Coevoet et al. Table 1). Default OFF reproduces every reported number
+        # bit-for-bit; the warm-start ablation probe flips it to test whether the
+        # measured injection is a formulation property or a warm-start artifact.
+        self._warm_start_lam = False
         self._psv_Il = None      # cached body-local inertia = inv(invIl) (§15 clamp)
         self._E_rig_pre = 0.0
         # Cargo (Stage 4): augmented modal vector Q = [q_support; a_cargo…].
@@ -1117,13 +1124,18 @@ class SolverXPBD:
                 self._q = (self._q + h_pred * self._qdot
                            + (h * h) * self._modal_grav_acc)
             self._lam_q = np.zeros(self._r)
-            for sc in self._support:
-                sc.lam = 0.0
+            # DEVIATION (ablation): the paper resets lambda<-0 every substep (no
+            # warm start). With _warm_start_lam the contact multiplier is carried
+            # instead, mirroring the augmented-Lagrangian host's Table-1 row.
+            if not self._warm_start_lam:
+                for sc in self._support:
+                    sc.lam = 0.0
             for bi in self._cargo:                      # cargo predict (Stage 4)
                 cargo_an[bi] = self._cargo_a[bi].copy()
                 self._cargo_a[bi] = (self._cargo_a[bi]
                                      + h_pred * self._cargo_adot[bi])
-                self._cargo_lam[bi][:] = 0.0
+                if not self._warm_start_lam:
+                    self._cargo_lam[bi][:] = 0.0
 
         # ---- generate contacts at the predicted pose --------------------
         contacts = self._collect_contacts()
