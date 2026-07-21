@@ -31,7 +31,7 @@ def _build_dinner():
         pot_drop_xz=(0.0, 0.0), solver="avbd", support_basis="debug")
 
 
-def _table_basis(r=4):
+def _support_basis(r=4):
     from scenes.reduced_support_shelf import N_GRID_X, N_GRID_Z
     rng = np.random.default_rng(0)
     return AudioBasis(
@@ -80,9 +80,12 @@ def test_ring_staging_matches_hook_sampler():
 # ---------------------------------------------------------------------------
 
 class _StubEngine:
+    fs = 44100.0
+
     def __init__(self):
         self.pushed = []
         self.chokes = []
+        self.noise = []
 
     def push_kicks(self, t_sim, kicks):
         self.pushed.append((t_sim, kicks))
@@ -90,16 +93,19 @@ class _StubEngine:
     def push_choke(self, t_sim, key, choked):
         self.chokes.append((t_sim, key, choked))
 
+    def push_noise(self, t_sim, samples):
+        self.noise.append((t_sim, samples))
+
 
 def test_ring_tap_event_and_ledger_parity_with_hook_tap():
     handle = _build_dinner()
     world = handle.world
-    basis = _table_basis()
+    basis = _support_basis()
 
     eng_hook, eng_ring = _StubEngine(), _StubEngine()
-    tap_hook = LiveExcitationTap(world, eng_hook, table_basis=basis,
+    tap_hook = LiveExcitationTap(world, eng_hook, support_basis=basis,
                                  source="hook")
-    tap_ring = LiveExcitationTap(world, eng_ring, table_basis=basis,
+    tap_ring = LiveExcitationTap(world, eng_ring, support_basis=basis,
                                  source="ring")
     for _ in range(108):
         world.step()

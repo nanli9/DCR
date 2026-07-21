@@ -38,7 +38,7 @@ def main():
     rig = [float(r["rigid_peakKE_mJ"]) for r in rows]
 
     fig, ax = plt.subplots(figsize=(3.5, 2.8))
-    ax.plot(d, dcr, marker="o", color=PALETTE["dcr"], label="paper-DCR (forced IIR)")
+    ax.plot(d, dcr, marker="o", color=PALETTE["dcr"], label="one-way (D, forced IIR)")
     ax.plot(d, nat, marker="s", color=PALETTE["native"], label="native (standing wave)")
     # rigid null: nonzero only at the struck body
     rd = [(di, ri) for di, ri in zip(d, rig) if ri > 0]

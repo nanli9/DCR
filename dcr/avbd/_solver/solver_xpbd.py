@@ -1055,6 +1055,7 @@ class SolverXPBD:
         n = X.shape[0]
         x_prev = X.copy()
         q_prev = Q.copy()
+        v_prev = V.copy()   # §15 trapezoidal gravity work (see the clamp below)
 
         # Stage X1: snapshot rigid KE + modal energy at substep start, for the
         # passive-energy clamp at substep end (foundation §15). Host path only.
@@ -1228,12 +1229,19 @@ class SolverXPBD:
             # only when the contact/velocity solve inelastically removes KE. This is
             # the reservoir's ONLY funding source, so a bouncing impactor cannot
             # over-credit the budget with its reversible gravitational PE.
+            # DEVIATION (paper Eq. (3); foundation §15): trapezoidal gravity work
+            # ½ m g·(v⁻+v⁺) h, NOT the displacement form m g·(x⁺−x⁻). Under
+            # symplectic Euler x⁺=x⁻+h v⁺, so the displacement form exceeds the
+            # KE-consistent gravity work by ½ m h²|g|² per body per substep — a
+            # phantom supply that credits free ballistic motion. The velocity-
+            # trapezoidal form nets exactly zero for contact-free motion (asserted
+            # in tests/avbd_native/test_gravity_supply_trapezoidal.py).
             grav_work = 0.0
             for _i in range(n):
                 if invm[_i] == 0.0:
                     continue
-                grav_work += self._mass[_i] * float(
-                    self.gravity @ (X[_i] - x_prev[_i]))
+                grav_work += self._mass[_i] * 0.5 * float(
+                    self.gravity @ (v_prev[_i] + V[_i])) * h
             rigid_loss = (self._E_rig_pre - E_rig_post) + grav_work
             ke_new, pe_new = modal_mech_energy(self._qdot, self._q,
                                                self._mq, self._kq)

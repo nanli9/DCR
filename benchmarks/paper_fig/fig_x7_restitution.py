@@ -38,7 +38,7 @@ def main():
     ax.axhline(1.0, color="0.35", lw=0.9, ls="--")
     ax.text(0.02, 1.05, r"passive bound $\Delta E_{\mathrm{m}}\leq\Delta E_{\mathrm{r}}$",
             fontsize=6.5, color="0.35", va="bottom")
-    ax.plot(er, dcr, marker="o", color=PALETTE["dcr"], label="paper-DCR (forced IIR)")
+    ax.plot(er, dcr, marker="o", color=PALETTE["dcr"], label="one-way (D, forced IIR)")
     ax.plot(er, nat, marker="s", color=PALETTE["native"], label="native (bounded)")
     ax.annotate(r"$2.63\times$ (energy created)", xy=(er[-1], dcr[-1]),
                 xytext=(0.42, 2.35), fontsize=6.5, color=PALETTE["dcr"])

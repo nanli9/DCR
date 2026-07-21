@@ -1266,6 +1266,94 @@ Nothing found in this pass contradicts a frozen number.
 - Highest-priority pre-submission work: (1) reconcile/prove or rename the exact invariant; (2) attach the referenced anonymous ledger, commands, configs, raw plot data, hashes, and code/data snapshot; (3) use “three tested implementations”/“row law” consistently and standardize reference names; (4) add the assigned EasyChair paper ID; (5) if one experiment is possible, add an isolated or physics-matched contact control/matched-residual comparison. A video penetration close-up is useful but secondary.
 - Final hash recheck after all reviews matched both frozen artifacts exactly.
 
+## 2026-07-20 current-artifact panel
+
+- PDF lock: SHA-256 `276cc3750e33d44bf668061c295c9e348d76c5e6d43ae95a18176fe3e1a53fc5`, generated 2026-07-20 00:05:58 PDT, 732,900 bytes, seven letter-size pages.
+- Video lock: SHA-256 `30a862facd530dd31741e41ef1774582f2d46d42ad3043ce5bc56f5a267a5d54`, modified 2026-07-20 00:02:12 PDT, 44.77 s, 1920x1080, H.264 at 30 fps, video-only.
+- Both hashes differ from the 2026-07-19 reviewed artifacts (`627a14e...` and `6dcd904...`), so the earlier 4.17/7 panel is stale and will not be reused.
+- Current paper framing is unusually explicit: the shared modal contact row is established prior art; the new contribution is a cross-implementation fixed-budget measurement plus a deliberately minimal gross-loss-funded storage governor.
+- The strict storage ceiling Eq. (2) and the guaranteed one-deposit relaxation Eq. (4) are now clearly separated. Proposition 2.1 claims only Eq. (4), while strict Eq. (2) is empirical in all 90 governed cells; the maximum one-deposit allowance is reported as 7–389 J.
+- Central evidence remains strong as a diagnostic: XPBD violates the gross-loss invariant in 8/24 cells with a catastrophic worst case; AVBD violates in 23/24 by small absolute amounts (worst 15.1 J); the tested implicit sequential-impulse implementation violates in 0/24. A within-XPBD K sweep links the catastrophic case to truncation and also shows a residual discrete-solution difference.
+- The paper candidly measures the governor's failure modes: trajectory error can worsen, legitimate sag and motion are suppressed, stiff-spectrum content is rescaled rather than repaired, and post-projection contact can open up to 21.6 mm penetration with up to 8.69x corrective impulse and 58x multiplier variance.
+- Claim scope is careful but the core scientific limitation remains: the supply is a scene-wide rectified rigid kinetic loss, not signed contact-port work; it can cross-fund unrelated losses, recycle returned energy, and vary with substep partition. The governed path is not validated against full FEM or enforced on the device-resident implementation.
+- The PDF says every number is frozen in a supplemental ledger, but the user supplied only the MP4 for this review; absent a separate artifact, those commands/data/hashes cannot be credited as reviewer-accessible reproducibility evidence.
+- Live official MIG 2026 CFP rechecked 2026-07-20 at `https://mig.siggraph.org/2026/papers.htm`: short papers are 4–6 content pages excluding references; the current six-body-page plus references-only page 7 layout complies. Physics-based animation and interactive simulation are explicit topics, so venue relevance is strong.
+- The official review criteria are originality, technical quality, clarity, significance, reproducibility where applicable, and MIG relevance. The review PDF must be anonymous and include the EasyChair-assigned unique paper ID; no paper ID is visible in this artifact, so it is not upload-ready unless the ID has not yet been assigned.
+- Visual PDF audit: all seven pages render cleanly, no body text spills onto page 7, figures/tables are legible at page scale, and there is no clipping or overlap. Pages 2–6 are dense but professionally laid out. Figure 1 communicates the principal success/failure tradeoff immediately.
+- Complete video audit: all 1,343 frames decode without error; the 44.77 s supplement has no audio stream and no identifying metadata beyond generic FFmpeg/libx264 tags. Ordered two-second samples cover the entire runtime with no missing segment.
+- The video is a strong, candid qualitative supplement. It first shows a steel-board case where the ungoverned 1x8 XPBD run launches books while the high-iteration self-reference barely moves, then a soft-board case where the reference legitimately moves and the governor suppresses that motion. It closes with the measured budget plot and the explicit message "Boundedness, not trajectory recovery."
+- The revised video consistently labels the high-iteration comparator `XPBD self-reference (500x1)`, states three independent runs/true scale, identifies the CPU float64 host, reports the 90-cell coverage, and disclaims an unqualified real-time claim. This fixes the previous comparator-label ambiguity.
+- Supplement impact is positive for clarity and reviewer trust, but narrow: it visualizes one XPBD shelf family and does not show the worst post-projection penetration, AVBD/impulse behavior, full-FEM comparison, or device-resident results.
+- Packaging audit: all PDF fonts are embedded/subsetted, text extraction succeeds, and the PDF contains no embedded files. Artifact hashes remained unchanged through the complete primary audit.
+
+### Isolated reviewer returns (in arrival order)
+
+- Reviewer 3 (novelty/significance): `5/7` weak accept, confidence `4/5`. Finds the carefully scoped diagnostic sufficient for a focused short paper, while rating the governor incremental, cross-host evidence implementation-level, generality narrow, and practical utility preliminary. Most important revision: a controlled fixed-schedule/second-implementation ablation isolating the cause.
+- Reviewer 1 (physics/energy): `5/7` weak accept, confidence `4/5`. Values the truncation evidence and candor but identifies a central internal inconsistency: the written credit/project/debit recursion appears to imply strict Eq. (2), not merely relaxed Eq. (4). Most important revision: precisely index the reservoir chronology and make theorem, pseudocode, and reported guarantee agree.
+- Both reviewers independently derived the same strict-bound concern: with same-substep credit and post-projection debit, nonnegative `B` appears to imply cumulative positive modal increments cannot exceed cumulative credited supply. This is now a likely technical correction, not a stylistic preference.
+- Reviewer 2 (contact numerics): `4/7` borderline, lean reject, confidence `4/5`. Praises the diagnostic and candor but considers the `1x8` versus `500x1` reference schedule confounded given the paper's own substep-partition dependence, the cross-host comparison implementation-level, and the post-projection contact damage too large for a production mechanism. Most important revision: schedule-matched converged references and a fuller `K x S` control matrix.
+- Reviewer 2 independently repeats the strict-Eq.-(2) derivation concern. All first three reviewers therefore agree that the theorem/indexing language must be corrected before submission.
+- Reviewer 4 (evaluation/reproducibility): `3/7` weak reject, confidence `4/5`. The decisive issue is that the PDF repeatedly delegates commands, raw rows, source anchors, configurations, and timing factors to a supplemental ledger, while the review packet supplied here contains only the MP4. Also flags implementation confounds, no governed-path independent validation, weak long-horizon supply semantics, and no equal-wall-clock alternative. Most important revision: attach a complete executable reproduction package.
+- Reviewer 4 becomes the fourth of four returns to independently identify the Eq. (2)/Eq. (4) indexing issue. Its rejection is materially conditional: the score could change if the promised anonymous ledger/code/data archive is actually submitted alongside the video.
+- Reviewer 5 (clarity/practitioner): `5/7` weak accept, confidence `4/5`. Finds the empirical diagnosis and honest audit useful to MIG practitioners, but says the target/guarantee/observation taxonomy is still too easy to misread, solver labels invite class-level generalization, the title overstates row-local measurement, and practical eta guidance is absent. Most important revision: explicitly separate Eq. (2) as the desired budget, Eq. (4) as the claimed formal guarantee, and Eq. (2)'s observed satisfaction.
+- Reviewer 6 (senior generalist): `5/7` weak accept, confidence `4/5`. Judges the narrow diagnostic sufficiently substantiated for a focused short paper, provided conclusions remain implementation-specific and the governor is treated only as a safety envelope. Most important revision: controlled attribution ablations or uniformly narrower cross-formulation language.
+
+### Reconciled 2026-07-20 panel
+
+- Overall scores in reviewer order: `5, 4, 5, 3, 5, 5`; mean `4.50/7`, median `5/7`. Votes: four weak accepts, one borderline/lean reject, one weak reject. All confidence scores are `4/5`.
+- Mean criteria: originality `3.25/5`, technical quality `3.33/5`, clarity `3.92/5`, significance `3.42/5`, reproducibility `2.42/5`, MIG relevance `4.75/5`.
+- Unanimous strengths: direct MIG fit; memorable and well-supported XPBD truncation pathology; useful separation of incident-energy severity from the joule-valued budget; unusually candid limitation analysis; clean six-page presentation; and a video that honestly demonstrates both the success case and lost legitimate motion.
+- Unanimous or near-unanimous concerns: Eq. (2)/Eq. (4) guarantee/indexing inconsistency; implementation rather than formulation-level cross-host evidence; scene-wide recyclable and schedule-dependent supply rather than contact-port work; large post-projection contact/fidelity costs; no governed full-FEM/device validation; and absent reviewer-accessible ledger/code/data in the specified packet.
+- Area-chair calibration: **borderline weak accept as a focused empirical diagnostic**, not as a validated contact-control method. The governor alone would not clear the bar. The score is not a safe accept because the theorem language and artifact packet can trigger technically justified rejects.
+- Highest-impact fixes before upload: (1) formally resolve the reservoir indexing—the written recursion appears to prove strict Eq. (2), otherwise show why not; (2) submit the promised anonymous ledger/code/data archive; (3) add schedule-matched high-iteration references such as converged `K x 8` for the deployed `1 x 8` case, or explicitly scope the current comparisons; (4) narrow every host/class claim; (5) add the EasyChair paper ID once assigned. A penetration close-up in the video is useful but secondary.
+- Supplement conclusion: strong positive clarity/credibility effect, but it supports selected XPBD shelf cases only and cannot validate the cross-host sweep, contact cost, FEM/runtime claims, or reproducibility.
+
+## 2026-07-20 20:05 current-PDF audit
+
+- New PDF lock: SHA-256 `4aea9e00e9975021cbf48bfb97c1f262b6b4d3f687d02bf8875c0976fa923eef`, generated 2026-07-20 20:05:00 PDT, 732,947 bytes, seven letter-size pages.
+- Video lock remains SHA-256 `30a862facd530dd31741e41ef1774582f2d46d42ad3043ce5bc56f5a267a5d54`, 44.77 s, 1920x1080 H.264 at 30 fps, video-only.
+- The PDF differs from the previously reviewed `276cc375...` artifact, so that panel's scores are stale. The unchanged video may be revalidated, but it cannot make the paper delta irrelevant.
+- Structural audit: seven letter-size pages, approximately 7,483 extracted words, six body pages plus a references-only page 7. Every font is embedded/subsetted; the pages render without visible clipping, overlap, or body-text spill onto the reference page.
+- Visual audit at contact-sheet scale: professional anonymous ACM/MIG layout, one teaser figure on page 1, method equations on pages 2–3, dense quantitative figures/tables on pages 3–5, and limitations/runtime/conclusion on page 6. The main presentation risk is density, not a rendering failure.
+- Current central claims: across an identical 24-cell sweep, XPBD violates the gross-loss-funded storage budget in 9/24 cells (up to roughly `4.4e7 J`; its separate incident-energy diagnostic exceeds one in 8/24 and reaches `1.2e5`), AVBD violates the budget in 3/24 by at most `6.7 J` (versus 2/24 under the ratio), and the tested implicit sequential-impulse implementation violates neither metric in 0/24. The paper explicitly frames these as implementation-level observations, not solver-class theorems.
+- The current manuscript now states Proposition 2.1 as an unconditional proof of strict Eq. (2), using same-substep credit before projection and a nonnegative reservoir debit. It reports a worst governed margin of `1.1e-13 J` across 90 cells (78 distinct configurations), resolving the earlier artifact's Eq. (2)/Eq. (4) target-versus-guarantee ambiguity on its face.
+- The method is deliberately a fail-safe rather than trajectory repair. The abstract and Figure 1 foreground both the successful prevention of a spurious 93 mm launch and the suppression of legitimate 19 mm self-reference motion; worst post-projection penetration is reported as 21.6 mm at an adversarial `4x1` corner and 9.8 mm at deployed budgets.
+- Experimental positives: identical scene/relaxation/budget grids across three implementations; a `K`-only XPBD convergence sweep showing six orders of gap closure; direct gap and separated-row multiplier residuals; a 24-configuration sensitivity sweep; deployed `1x8`/`2x4` cells; accuracy against both an implicit reference and XPBD self-reference; a separate unreduced-FEM comparison; contact-validity instrumentation; and CPU/device runtime scope stated without an unqualified real-time claim.
+- Key control caveats remain explicit rather than hidden: equal `K*S` row counts do not equal equal work or schedule; warm-start/compliance/unknown choices remain host-constitutive rather than matched; `500x1` is iteration-converged but not schedule-matched to governed `S>1` runs; each formulation has only one implementation; and the enforced device path plus governed full-FEM validation do not exist.
+- The gross scene-wide kinetic-loss supply is the method's main conceptual weakness. It is neither signed contact-port work nor per-interface dissipation, can cross-fund unrelated contacts, credits returned-and-re-dissipated energy twice, and changes with substep partition. Reported opposite-channel fractions reach `102–118%` for AVBD, reinforcing that this is a conservative exposure envelope rather than a physical transfer identity.
+- Enforcement improves energy magnitude dramatically but not necessarily state accuracy: at the moderate shelf cell, energy error improves from `196x` to `3.7x` while trajectory error worsens from 33% to 71% of reference peak. The scalar projection retains the stiff spectral character (`99.6%` to `97.7%` in the high cluster) and reduces legitimate sag.
+- Reproducibility is conditional on packaging: the PDF repeatedly promises a supplemental ledger with commands, commit hashes, source anchors, and full rows, but the user-specified review packet contains only the PDF and MP4. Reviewers cannot credit that material unless it is actually submitted as an anonymous supplemental artifact.
+- Page-level visual audit, pp. 1–2: the teaser, abstract, contribution list, equations, and related-work positioning are crisp and legible with no overlap or clipping. The title page remains anonymous but shows no visible submission/paper ID; whether that is a defect depends on the live submission instructions and assignment status.
+- Page-level visual audit, pp. 3–4: the enforcement chronology, Proposition 2.1 proof, host-comparison table, and two-metric heatmap are all rendered cleanly. The proof's same-substep credit/project/debit order is internally consistent with strict Eq. (2); Figure 2 clearly distinguishes diagnostic-ratio flags (`8/24, 2/24, 0/24`) from actual invariant violations (`9/24, 3/24, 0/24`). Table 1 is dense but readable at full page resolution.
+- Page-level visual audit, pp. 5–6: convergence, contact-cost, accuracy, FEM-reference, timing, limitation, and conclusion material all fit cleanly. Figure 3 and Table 2 are legible, and the manuscript visibly gives high-cost failures comparable prominence to successes; no body content spills onto page 7.
+- Page-level visual audit, p. 7: references only, cleanly rendered, with 18 cited works spanning the contact law, XPBD/AVBD, modal contact, iterative coupling/passivity, energy tanks, and projection. This confirms compliance with a six-content-page rule if references are excluded.
+- Video revalidation: all 1,343 frames decode at 30 fps over 44.77 s. A complete two-second contact sheet confirms a coherent sequence: question/setup; steel-board `1x8` launch pathology; three-run ungoverned/governed/`XPBD self-reference (500x1)` comparison; soft-board case showing legitimate reference motion suppressed by the governor; invariant plot; and the closing claim “Boundedness, not trajectory recovery.” It is legible, true-scale, candid, and narrow to the XPBD shelf family.
+- Live MIG 2026 CFP verified from the official site on 2026-07-20: short papers may use 4–6 content pages excluding references; supplements up to 200 MB are strongly encouraged; physics-based animation and interactive simulation are explicit topics; review criteria are originality, technical quality, clarity, significance, reproducibility where applicable, and MIG relevance. The current six-body-page plus references-only page 7 structure complies and venue fit is strong.
+- Upload-readiness issue: the official double-blind instructions require the unique paper ID assigned by EasyChair. None is visible in the current PDF. This is administrative rather than scientific and becomes actionable once a submission record/ID exists.
+- Packaging/anonymity audit: the PDF has zero embedded attachments; its visible/XMP summary fields expose no author identity, only generic LaTeX/acmart/pdfTeX producer information. The MP4 carries only generic FFmpeg/libx264 container tags and no audio stream or identifying author metadata. Both hashes remained stable through the primary audit.
+- **Acceptance-critical internal data mismatch:** Figure 2's lower heatmap is inconsistent with the surrounding text and abstract. Counting positive cells under the caption's own rule (`>0` violates), the printed heatmap shows XPBD `8/24`, AVBD `23/24`, impulse `0/24`, with AVBD maximum `+15 J`; the body/abstract instead report invariant violations `9/24`, `3/24`, `0/24` and AVBD maximum `6.7 J`. The discrepancy is not rounding: it reverses the AVBD story from pervasive small positive margins to three localized violations, and the figure's XPBD count also differs by one.
+- A second numerical wording error accompanies the new values: `4.4e7 J / 6.7 J` is about `6.6e6` (roughly 6.8 orders), yet the paper says the former is “five orders past” the latter. Five orders is appropriate for the separate incident-energy ratios (`1.2e5` vs `1.70`), not the stated joule margins.
+- Table 1 contains a separate technical-clarity problem: the XPBD modal weight is printed as `1/(H_ii h^2 - 1)`, but `H_ii` is never defined in the visible paper and the sign/parenthesization is suspicious enough that a reviewer cannot reconstruct or sanity-check the transcription. The sequential-impulse weight `(M+hD+h^2K)^-1` is also not reconciled in the paper with the separately stated implicit-midpoint stepper. These may be notation/compression defects rather than code defects, but they undermine the claim that the three discrete rows are verifiable from the paper/video packet.
+
+### Isolated reviewer returns so far (current hash `4aea9e00...`)
+
+- Reviewer 1, formal physics: `3/7` weak reject, confidence `4/5`. Accepts Proposition 2.1's narrow endpoint algebra, but rejects the physical interpretation of the gross-loss supply and flags the undefined/suspicious Table 1 weights.
+- Reviewer 2, contact numerics: `3/7` weak reject, confidence `4/5`. Finds the XPBD truncation diagnosis persuasive but the exact accounting guarantee insufficient evidence of useful governed solutions; requests contact-local work, schedule matching, and governed validation.
+- Reviewer 3, novelty/significance: `3/7` weak reject, confidence `4/5`. Values the empirical diagnosis but rates the governor incremental and the scene-wide reservoir too weak semantically for the claimed practical role.
+- Reviewer 4, evaluation/reproducibility: `3/7` weak reject, confidence `4/5`. Focuses on formulation confounds, incomplete governed baselines, unresolved interactive cost, and the absent promised ledger/raw artifact.
+- Reviewer 5, practitioner/clarity: `5/7` weak accept, confidence `4/5`. Judges the focused diagnosis and candid failure accounting sufficient for a short paper if the governor is read only as an emergency envelope, while still requesting per-island accounting and an `eta` tradeoff study.
+- Reviewer 6, senior generalist: `2/7` reject, confidence `4/5`. Independently caught and enumerated the Figure 2/prose contradiction, judging it fatal to the current comparative empirical record even though the theorem and XPBD diagnosis remain credible.
+- None of the first five isolated reports independently noticed the stale Figure 2/new-prose contradiction; reviewer 6 did. The area-chair synthesis must apply that verified artifact defect rather than pretending the panel evaluated a consistent central dataset.
+
+### Reconciled current-hash panel
+
+- Scores in reviewer order: `3, 3, 3, 3, 5, 2`; mean `3.17/7`, median `3/7`; votes are five reject versus one weak accept. All confidence scores are `4/5`.
+- Mean criteria: originality `3.00/5`, technical quality `2.83/5`, clarity `3.83/5`, significance `3.00/5`, reproducibility `2.50/5`, MIG relevance `5.00/5`.
+- Consensus strengths: excellent MIG fit; a visually memorable and well-controlled within-XPBD truncation diagnosis; a now internally coherent narrow endpoint-bound proof; unusually candid measurement of accuracy, spectral, contact, and runtime costs; professional six-page presentation; and a supplement that shows both stabilization and lost legitimate motion.
+- Consensus concerns even before the figure defect: scene-wide rectified loss is not signed/contact-local work and can recycle/cross-fund; the scalar projection is an emergency envelope rather than an accurate contact method; cross-host comparisons are implementation-confounded; `K*S` is not a matched schedule/cost axis; governed full-FEM/device validation is absent; the tight-budget overhead is substantial; and the promised ledger/raw reproduction package is missing from the supplied artifacts.
+- Area-chair recommendation: **reject the current PDF**. The immediate reason is the irreconcilable central-data mismatch, not a demonstrated algebraic failure of Proposition 2.1. After regenerating all dependent claims from one audited table, defining/correcting Table 1's discrete weights, and attaching the promised anonymous artifact, the focused empirical diagnosis could return to borderline/weak-accept territory; the governor should remain framed only as a coarse safety envelope.
+- Highest-priority repair order: (1) rebuild Figure 2, abstract, counts, maxima, and AVBD discussion from one authoritative per-cell table; (2) define `H_ii`, correct the printed XPBD weight if needed, and reconcile the implicit operator with midpoint; (3) attach the anonymous ledger/raw CSVs/commands/code and add the EasyChair paper ID; (4) add a signed/per-interface or adversarial cross-funding audit plus an `eta`/contact-quality tradeoff; (5) strengthen schedule-/cost-matched controls and governed validation; (6) add the worst penetration and an AVBD/impulse example to the video.
+
 ## P-round (plan §8) — 2026-07-19
 
 ### P7 prep found a Table 1 error: the printed modal rank is the REQUESTED
@@ -1742,3 +1830,119 @@ Adversarial pass over our own changes, not the panel's list:
 
 Nothing found in this pass contradicts a frozen number, and
 `verify_paper_numbers.py` passes 38/38 against the final tex.
+
+---
+
+## R4 round: two panels combined → solid-accept plan (2026-07-20)
+
+Plan: `prompts/mig_short_r4_solid_accept_plan.md`. Inputs: Opus 4.8 panel
+(pre-Q, mean 4.50 "borderline weak accept") + Fable panel on the Q8 build
+(mean 4.33 "publishable, not safe"). Both deduped into one ledger S1–S12.
+
+### P0 — provability gate: PASSED, verified in code
+
+Reviewer 1's argument (strict Eq. (2) is provable) is **correct against the
+implementation**, and the Q8 record's "needs a different loop (§10)" was wrong.
+Confirmed all four ledger sites share the order credit → test → project →
+debit-on-post-projection-state:
+
+| site | credit | test | project | debit |
+|---|---|---|---|---|
+| `solver_impulse.py` `_psv_commit` | 998 | 1001 | 1003–11 | 1012 |
+| `solver_xpbd.py` `_substep_cpu` | 1241 | 1242 | 1244–50 | 1251–52 |
+| `solver_6dof.py` `_modal_commit` | 2630 | 2631 | 2639–46 | 2647 |
+| `solver_6dof.py` network §N2 | 3300 | 3301 | 3305–09 | 3310 |
+
+Ledger internals (`passivity.py`): `deposit` credits `c_k=η·max(ΔErig,0)` and
+returns `B_{k-1}+c_k`; `passivity_gamma` caps `γ²E⁺ ≤ E⁻+B_{k-1}+c_k` (exactly
+when binding, `+tol` when inert); `commit` debits `max(ΔE,0)` and floors B at 0.
+Carry two invariants `B_k≥0` and `(E_m^k−E_m^0)+B_k ≤ Σ_{j≤k}c_j`; both hold at
+k=0 and are preserved in all branches (inert / binding / reservoir-floored, the
+last one covered by the projection cap `ΔE≤B_{k-1}+c_k`). Since `B_n≥0`,
+`E_m^n−E_m^0 ≤ Σc_k` = **strict Eq. (2)**, up to `n·ε` (per-test tol 1e-12).
+The ledger's own `max_net_excess` (passivity.py:282) measures exactly that
+slack, and the paper already reports it at the 1.1e-13 J roundoff floor — the
+`n·ε` tolerance in numbers. The old "one-deposit" (Eq. 4) slack was
+over-conservative: the pre-test credit already accounts the in-substep deposit.
+
+### P1 — theorem upgrade shipped (LaTeX + supplement, no re-run)
+
+Four paper sites rewritten; build clean (7 pp, 0 overfull):
+- Abstract (was "guarantees a one-deposit relaxation … strict form observed") →
+  guarantees the bound unconditionally up to a stated tolerance, margins at the
+  1.1e-13 J roundoff floor.
+- Contribution bullet: `eqref{eq:budgeted}` → `eqref{eq:invariant}`, same upgrade.
+- "Three objects" → "Two objects": deleted object (iii), the `eq:budgeted`
+  display (former Eq. 4), and the "7–389 J slack … 1 of 24, not 23" sentence.
+  Object (ii) now states the loop maintains Eq. (invariant) exactly.
+- Prop. 2.1 restated (unconditional Eq. (invariant) up to `nε`); the sketch is
+  now a full inductive **proof** matching the code.
+- Supplement: `CLAIMS_INDEX.md` note that the `_allow`/`max_deposit` columns are
+  the retired one-deposit reading, not a paper object; read `max_net_excess`.
+- No dangling refs (grep clean: no `eq:budgeted`, no literal "(4)", no
+  "reading (i)"). Net a space saving (one display equation removed).
+
+P2–P5 tracked in the plan; P2 (trapezoidal `W_g` + re-run) is the long pole and
+the only code work.
+
+### P2 — code done, re-run done, and it changed the thesis (2026-07-20)
+
+Code: trapezoidal `W_g = ½ m g·(v⁻+v⁺) h` at all four ledger sites (impulse,
+xpbd, both 6dof commits), each with a `# DEVIATION` note; `v_prev`/`_psv_v_pre`
+snapshotted at substep start. New test `test_gravity_supply_trapezoidal.py`
+(18 cases: formula-level free-fall = 0 over a 64× h sweep; live xpbd/impulse
+free-fall supply < 1e-4; 6dof white-box deposit matches trapezoidal to 1e-9).
+Full `avbd_native` regression 202 passed / 30 skipped. One network-injection
+torture fixture retuned (drop 0.02→0.05, E 3e6→1e7) because its old marginal
+"injection" was itself the removed artifact.
+
+**Re-run (`run_eq2_utilization.py --check-frozen`), the pivotal result:**
+- Frozen **ratios all reproduce** — trajectory bit-identical, fix is ledger-only.
+- **impulse: 0/24, worst margin now exactly 0.0 J** (was −5.7e-4) — the
+  converged reference is provably clean; the old −5.7e-4 was pure artifact.
+- **XPBD: 9/24** (was 8/24), worst 4.4e7 J unchanged — catastrophic injection
+  untouched, one more cell caught by the tighter accounting.
+- **AVBD: 3/24** (was **23/24**), worst +6.7 J (was 15.1). The 3: dinner 1.0
+  4×1 (+6.74 J, R=1.70, the starved corner the paper already highlights) +
+  ledge 8×2 at both relaxes (+0.005 J, tiny). The other 20 now hold (margins
+  ~−1e-3). **The "pervasive but negligible" AVBD overdraft was ~87% integrator
+  artifact.**
+
+Why it's correct, not a bug: displacement `W_g = m g·(x⁺−x⁻)` is the exact
+discrete mechanical-energy loss, but symplectic Euler drains a staggered-grid
+½mh²g²/substep during free flight — real in the discrete energy, but a
+discretization artifact, not contact dissipation. Trapezoidal removes it. The
+impulse→exactly-0 result is the smoking gun. Telescoping check: Σ(disp−trap) =
+½h Σ_b m_b g·(v_final−v_init) ≈ 0 for rest-to-rest, so total supply barely
+moves; the margin (a peak-relative quantity) shifts because the timing of the
+credit differs across the impact transient.
+
+**Consequence — this reshaped Contribution 1.** User chose "adopt + reframe
+honestly" (2026-07-20). The old punchline "pervasive but negligible (AVBD)
+beside rare but catastrophic (XPBD), only the invariant distinguishes them" lost
+its "pervasive AVBD" leg; reframed around **magnitude ordering** — catastrophic
+truncation (XPBD 4.4e7 J) / small-localized (AVBD 6.7 J, one starved corner) /
+none (impulse exactly 0) — with "neither metric subsumes the other" (each flags
+a cell the other misses: XPBD shelf 16×4 Eq2-only, AVBD ledge 8×2 Eq2-only vs
+dinner 0.7 4×1 R-only).
+
+**Reframe executed across every affected site:** abstract (3/24, 6.7 J),
+§3.1 ratio-is-not-invariant paragraph, §3.2 deployed (AVBD 5/6→1/6, ≤0.011 J),
+§3.3 accuracy (governed peak 29.26→29.56 J, +1%), §3.3 AVBD projection (only
+dinner 1.0 4×1 clamps: 1.8 mm; the R>1 0.7 cell holds), §4 Coverage, Table 2
+(settling-cell clamp pattern shifted: shelf 8×2 impulse 6.90→3.68×, λvar 26→5.6×;
+ledge 8×2 8.69→8.92×, 58→62×), prose 8.7→8.9× / 58→62×, range 3.1-12.6→3.1-12.5.
+Governed matrix numbers **unchanged** (1.22/0.87 worst ratio; Prop 1.1e-13;
+projection 21.6 mm held exactly — catastrophic injection dominates).
+
+**Bundle frozen & self-consistent:** `verify_paper_numbers.py` 32/32 (AVBD block
+rewritten for the reframe; ~15 constants updated); `smoke_test.py` PASS (impulse
+margin assertion `≥0`→`>1e-9` since it's now exactly 0); CLAIMS_INDEX 29/29
+anchors; `make_supplement.py` scan PASS (0 deanon), code_snapshot has the fix,
+zip 1.93 MiB; `LEDGER_EXCERPTS.md` carries an R4 supersession header; NUMBERS.md
+reconciled. Paper builds 7 pp, 0 overfull, 735,857 B. New test
+`test_gravity_supply_trapezoidal.py` (18) + full `avbd_native` 202 pass.
+
+**Only open item: EasyChair paper ID** (S11 — needs the user; insert in the
+anonymous build). Deferred user decisions: E-C11 4×1 pose close-up (S9) and a
+clean-room re-panel (S12).

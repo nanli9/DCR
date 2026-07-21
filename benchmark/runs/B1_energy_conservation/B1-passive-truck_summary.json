@@ -1,0 +1,177 @@
+{
+  "run_id": "B1-passive-truck",
+  "benchmark": "B1",
+  "scene": "truck",
+  "mode": "energy_prescribed_patch",
+  "flavor": "barbic_james",
+  "params": {
+    "eta": 0.95,
+    "beta": 0.25,
+    "h": 0.005,
+    "duration_s": 4.0,
+    "damping_scale": 1.0,
+    "restitution": 0.15,
+    "material": "default",
+    "causal_gating": false
+  },
+  "n_steps": 800,
+  "wall_time_total_s": 39.60135133296717,
+  "wall_time_ms_per_step": {
+    "mean": 49.50168916620896,
+    "p50": 49.50168916620896,
+    "p95": 49.50168916620896,
+    "p99": 49.50168916620896,
+    "max": 49.50168916620896
+  },
+  "rubric_pass": false,
+  "invariant_max_violation_J": 4.547473508864641e-13,
+  "energy_totals": {
+    "cum_E_loss_final_J": 3628.055976005895,
+    "cum_E_budget_eta_final_J": 3446.6531772056,
+    "cum_E_injected_final_J": 2778.398382109604,
+    "cum_E_extracted_final_J": 1500.949988998681,
+    "E_modal_peak_J": 2268.916547393075,
+    "ratio_injected_over_budget": 0.8061148712276909
+  },
+  "injection_signal": {
+    "peak_rate_W": 446029.22147218493,
+    "temporal_concentration_herfindahl": 0.651098389084065,
+    "spectral_centroid_Hz": 50.14448548745218,
+    "n_distinct_kick_events": 4
+  },
+  "bodies": [
+    {
+      "name": "drop_light",
+      "mass_kg": 20.0,
+      "max_tilt_deg": 89.63115351180883,
+      "drift_m": 0.5264357692920522,
+      "max_penetration_mm": 6.683750000000016,
+      "tail_y_settle_mm": 6.489987220418866,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "drop_mid",
+      "mass_kg": 50.0,
+      "max_tilt_deg": 32.7644576659853,
+      "drift_m": 0.09047889434464824,
+      "max_penetration_mm": 10.11999999999999,
+      "tail_y_settle_mm": 14.726350290503982,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "drop_heavy",
+      "mass_kg": 100.0,
+      "max_tilt_deg": 18.631527033029165,
+      "drift_m": 0.023830537666708253,
+      "max_penetration_mm": 22.861349999999906,
+      "tail_y_settle_mm": 6.148777412152626,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "cone_0",
+      "mass_kg": 0.3,
+      "max_tilt_deg": 89.99730603397524,
+      "drift_m": 0.42692452237861817,
+      "max_penetration_mm": 21.207184808744067,
+      "tail_y_settle_mm": 19.07996159774164,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "cone_1",
+      "mass_kg": 0.3,
+      "max_tilt_deg": 89.98392103075224,
+      "drift_m": 0.4515633637133659,
+      "max_penetration_mm": 16.101196675110902,
+      "tail_y_settle_mm": 95.03285809482695,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "cone_2",
+      "mass_kg": 0.3,
+      "max_tilt_deg": 89.9460677089963,
+      "drift_m": 1.7385706310283287,
+      "max_penetration_mm": 12.096067698274073,
+      "tail_y_settle_mm": 6.722858886973951,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "cone_3",
+      "mass_kg": 0.3,
+      "max_tilt_deg": 89.99944293953163,
+      "drift_m": 0.4906075475384228,
+      "max_penetration_mm": 14.370879412086424,
+      "tail_y_settle_mm": 13.13170542956621,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "cone_4",
+      "mass_kg": 0.3,
+      "max_tilt_deg": 89.9928000811374,
+      "drift_m": 0.21454362574274838,
+      "max_penetration_mm": 17.77763436448977,
+      "tail_y_settle_mm": 36.451604846521285,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "lumber_0",
+      "mass_kg": 2.0,
+      "max_tilt_deg": 89.86121971844862,
+      "drift_m": 1.0453378211450406,
+      "max_penetration_mm": 1.5730902129563948,
+      "tail_y_settle_mm": 55.73858444832021,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "lumber_1",
+      "mass_kg": 2.0,
+      "max_tilt_deg": 89.77143992020696,
+      "drift_m": 0.6947643453806718,
+      "max_penetration_mm": 0.5940315562735637,
+      "tail_y_settle_mm": 11.286298352520618,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "lumber_2",
+      "mass_kg": 2.0,
+      "max_tilt_deg": 89.96336180880031,
+      "drift_m": 0.08795974570921396,
+      "max_penetration_mm": 0.0,
+      "tail_y_settle_mm": 118.35654286628576,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "lumber_3",
+      "mass_kg": 2.0,
+      "max_tilt_deg": 89.99922224671646,
+      "drift_m": 0.5760285784742846,
+      "max_penetration_mm": 1.1623331473394476,
+      "tail_y_settle_mm": 62.731303649630284,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    }
+  ],
+  "status": "ok"
+}

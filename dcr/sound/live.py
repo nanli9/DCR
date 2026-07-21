@@ -40,7 +40,7 @@ from numpy.typing import NDArray
 from .audio_basis import AudioBasis, phi_at_corner, phi_at_xz
 from .events import LoadedTracker
 from .render import AudioLedger
-from .shaping import half_sine_spectrum, hertz_tau
+from .shaping import contact_noise_burst, half_sine_spectrum, hertz_tau
 from .logger import (
     DeviceRingSource,
     RowCache,
@@ -214,9 +214,15 @@ class LiveSoundEngine:
         self._voices: dict[object, ComplexModalSynth] = {}
         self._q: queue.SimpleQueue = queue.SimpleQueue()
         self._stream = None
+        # Noise-burst overlap-add carry: a burst landing near block end spills
+        # into this buffer and is drained by later callbacks. Sized to the
+        # longest burst `contact_noise_burst` can emit (8 ms) + slack.
+        self._noise_ov = np.zeros(int(np.ceil(8.0e-3 * self.fs)) + 16,
+                                  dtype=np.float64)
         # stats
         self.blocks = 0
         self.kicks_played = 0
+        self.noise_played = 0
         self.underruns = 0
         self.max_cb_ms = 0.0
         self.peak_pre_gain = 0.0
@@ -245,6 +251,16 @@ class LiveSoundEngine:
         granularity (≤ blocksize/fs ≈ 6 ms slop vs the kick timeline —
         inaudible for a damping change; disclosed approximation)."""
         self._q.put(("choke", float(t_sim), key, bool(choked)))
+
+    def push_noise(self, t_sim: float,
+                   samples: NDArray[np.float64]) -> None:
+        """Sim-thread entry: schedule a final-amplitude contact-noise burst
+        stamped t_sim (`shaping.contact_noise_burst`, scaled by the tap).
+        Mixed sample-accurately with the kick timeline; the master gain +
+        soft limiter apply as for voices."""
+        s = np.asarray(samples, dtype=np.float64)
+        if s.size:
+            self._q.put(("noise", float(t_sim), s))
 
     def start(self) -> None:
         import sounddevice as sd     # lazy: repo must work without it
@@ -287,20 +303,23 @@ class LiveSoundEngine:
 
     def stats(self) -> dict:
         return dict(blocks=self.blocks, kicks_played=self.kicks_played,
+                    noise_played=self.noise_played,
                     underruns=self.underruns, max_cb_ms=self.max_cb_ms,
                     peak_pre_gain=self.peak_pre_gain,
                     clipped_blocks=self.clipped_blocks,
                     voices=len(self._voices))
 
     # ---- audio thread ------------------------------------------------
-    def _drain(self, frames: int) -> tuple[dict[int, list], dict]:
-        """Queue → ({sample_offset: [(voice_key, g), ...]}, {key: choked}),
-        kick offsets preserving relative sim timing within this block
-        (earliest drained kick plays at offset 0 — "ASAP" scheduling; AV sync
-        error ≈ one block + hook lag). Choke flips collapse to their LAST
-        drained value and apply at block start (push_choke docstring)."""
+    def _drain(self, frames: int) -> tuple[dict[int, list], dict, list]:
+        """Queue → ({sample_offset: [(voice_key, g), ...]}, {key: choked},
+        [(sample_offset, noise_samples), ...]), offsets preserving relative
+        sim timing within this block (earliest drained timestamped item plays
+        at offset 0 — "ASAP" scheduling; AV sync error ≈ one block + hook
+        lag). Choke flips collapse to their LAST drained value and apply at
+        block start (push_choke docstring)."""
         by_off: dict[int, list] = {}
         chokes: dict = {}
+        noise: list[tuple[int, NDArray[np.float64]]] = []
         t0 = None
         while True:
             try:
@@ -310,12 +329,15 @@ class LiveSoundEngine:
             if item[0] == "choke":
                 chokes[item[2]] = item[3]
                 continue
-            _, t_sim, kicks = item
+            kind, t_sim, payload = item
             if t0 is None:
                 t0 = t_sim
             off = int(np.clip(round((t_sim - t0) * self.fs), 0, frames - 1))
-            by_off.setdefault(off, []).extend(kicks)
-        return by_off, chokes
+            if kind == "noise":
+                noise.append((off, payload))
+            else:
+                by_off.setdefault(off, []).extend(payload)
+        return by_off, chokes, noise
 
     def _callback(self, outdata, frames, _time_info, status) -> None:
         t_cb = time.perf_counter()
@@ -323,7 +345,7 @@ class LiveSoundEngine:
             self.underruns += 1
         try:
             buf = np.zeros(frames, dtype=np.float64)
-            by_off, chokes = self._drain(frames)
+            by_off, chokes, noise = self._drain(frames)
             for key, flag in chokes.items():
                 syn = self._voices.get(key)
                 if syn is not None:
@@ -340,6 +362,21 @@ class LiveSoundEngine:
                 cur = off
             for v in self._voices.values():
                 v.render_into(buf, cur, frames - cur)
+
+            # Noise bursts: overlap-add, carrying block-boundary spill in
+            # self._noise_ov (drained first, shifted after).
+            take = min(frames, self._noise_ov.shape[0])
+            buf[:take] += self._noise_ov[:take]
+            self._noise_ov[:-take] = self._noise_ov[take:]
+            self._noise_ov[-take:] = 0.0
+            for off, s in noise:
+                in_block = min(off + s.shape[0], frames) - off
+                buf[off:off + in_block] += s[:in_block]
+                spill = s.shape[0] - in_block
+                if spill > 0:
+                    spill = min(spill, self._noise_ov.shape[0])
+                    self._noise_ov[:spill] += s[in_block:in_block + spill]
+                self.noise_played += 1
 
             self.peak_pre_gain = max(self.peak_pre_gain,
                                      float(np.max(np.abs(buf))))
@@ -375,7 +412,7 @@ class LiveExcitationTap:
     """
 
     def __init__(self, world, engine: LiveSoundEngine, *,
-                 table_basis: AudioBasis | None,
+                 support_basis: AudioBasis | None,
                  body_bases: dict[int, AudioBasis] | None = None,
                  tau_ref_per_body: dict[int, float] | None = None,
                  tau_ref: float = 8.0e-4,
@@ -387,13 +424,14 @@ class LiveExcitationTap:
                  arm_j_floor: float = 2.0e-2,
                  choke_load_on: float = 0.25,
                  choke_load_off: float = 0.10,
+                 noise_frac: float = 0.35,
                  source: str = "hook"):
         self.source = str(source)
         self._solver = (validate_native_world_ring(world)
                         if self.source == "ring"
                         else validate_native_host_world(world))
         self.engine = engine
-        self.table_basis = table_basis
+        self.support_basis = support_basis
         self.body_bases = body_bases or {}
         self.tau_ref_per_body = tau_ref_per_body or {}
         self.tau_ref = float(tau_ref)
@@ -419,6 +457,11 @@ class LiveExcitationTap:
         self.choke_load_off = float(choke_load_off)
         self._loadgate: LoadedTracker | None = None
         self.chokes_pushed = 0
+        # Contact-noise transient (render.render_soundtrack noise_frac
+        # docstring: one knob covers ledger charge AND noise:modal loudness).
+        self.noise_frac = float(noise_frac)
+        self._noise_rng = np.random.default_rng(2026)
+        self.noise_pushed = 0
         self._cache: RowCache | None = None
         self._tracker: BurstTracker | None = None
         self._h_sub: float = 0.0
@@ -516,23 +559,46 @@ class LiveExcitationTap:
                             tau_ref=self.tau_ref_per_body.get(ev.body,
                                                               self.tau_ref))
             kicks: list[tuple[object, NDArray[np.float64]]] = []
+            bases: list[AudioBasis] = []
             e_kick = 0.0
-            if self.table_basis is not None:
-                g = (ev.impulse * phi_at_xz(self.table_basis, ev.x, ev.z)
-                     * half_sine_spectrum(self.table_basis.omega, tau))
+            if self.support_basis is not None:
+                g = (ev.impulse * phi_at_xz(self.support_basis, ev.x, ev.z)
+                     * half_sine_spectrum(self.support_basis.omega, tau))
                 e_kick += 0.5 * float(g @ g)
-                kicks.append(("table", g))
+                kicks.append(("support", g))
+                bases.append(self.support_basis)
             bb = self.body_bases.get(ev.body)
             if bb is not None:
                 g = (ev.impulse * phi_at_corner(bb, ev.off)
                      * half_sine_spectrum(bb.omega, tau))
                 e_kick += 0.5 * float(g @ g)
                 kicks.append((ev.body, g))
-            gamma = self.ledger.admit(e_kick)
+                bases.append(bb)
+            # Noise transient charged with the kick (render.render_soundtrack
+            # noise_frac docstring: γ covers both, §15-form bound intact).
+            e_noise = self.noise_frac ** 2 * e_kick
+            gamma = self.ledger.admit(e_kick + e_noise)
             if gamma > 0.0 and kicks:
                 self.engine.push_kicks(
                     ev.t, [(k, gamma * g) for k, g in kicks])
                 self.events_emitted += 1
+                if self.noise_frac > 0.0:
+                    # Event output scale ‖w ⊙ ĝ‖ (voice gain folded when the
+                    # engine has the voice; stub engines fall back to the
+                    # basis weight — same default-gain value).
+                    s_out2 = 0.0
+                    for (key, g), basis in zip(kicks, bases):
+                        syn = getattr(self.engine, "_voices", {}).get(key)
+                        w = syn.w if syn is not None else basis.weight
+                        wg = w * g
+                        s_out2 += float(wg @ wg)
+                    if s_out2 > 0.0:
+                        fs = float(getattr(self.engine, "fs", 44100.0))
+                        burst = contact_noise_burst(tau, fs, self._noise_rng)
+                        self.engine.push_noise(
+                            ev.t, gamma * self.noise_frac
+                            * np.sqrt(s_out2) * burst)
+                        self.noise_pushed += 1
 
 
 # ---------------------------------------------------------------------------
@@ -557,6 +623,7 @@ class LiveSound:
         d = self.engine.stats()
         d.update(events_emitted=self.tap.events_emitted,
                  events_muted=self.tap.events_muted,
+                 noise_pushed=self.tap.noise_pushed,
                  armed=self.tap._armed,
                  e6_holds=self.tap.ledger.holds(),
                  n_capped=self.tap.ledger.n_capped,
@@ -571,7 +638,7 @@ class LiveSound:
 def attach_live_sound(
     world,
     *,
-    table_basis: AudioBasis | None,
+    support_basis: AudioBasis | None,
     body_bases: dict[int, AudioBasis] | None = None,
     body_gains: dict[int, float] | None = None,
     tau_ref_per_body: dict[int, float] | None = None,
@@ -583,31 +650,37 @@ def attach_live_sound(
     fs: float = 44100.0,
     blocksize: int = 256,
     gain: float = 0.35,
-    table_gain: float = 1.0,
+    support_gain: float = 1.0,
     zeta_contact: float | None = 0.08,
+    noise_frac: float = 0.35,
     source: str = "hook",
 ) -> LiveSound:
     """Build engine + voices, start the stream, attach the tap. Call
     `.stop()` before rebuilding the world; attach a fresh one after.
 
     `zeta_contact`: choked modal ζ for BODY voices while they carry support
-    load (ComplexModalSynth choke DEVIATION note; the table voice — the
-    permanent support — is never choked). None disables.
+    load (ComplexModalSynth choke DEVIATION note; the support voice —
+    permanently loaded by construction — is never choked). None disables.
+
+    `noise_frac`: per-event contact-noise transient level, charged to the
+    same §15-form ledger (render.render_soundtrack noise_frac docstring;
+    0 disables).
 
     `source`: "hook" (host per-substep sampling, CPU path) or "ring" (device
     staging drained per frame — the CUDA path; caller must call `.drain()`
     after each `world.step()`)."""
     engine = LiveSoundEngine(fs=fs, blocksize=blocksize, gain=gain)
-    if table_basis is not None:
-        engine.add_voice("table", table_basis, gain=table_gain)
+    if support_basis is not None:
+        engine.add_voice("support", support_basis, gain=support_gain)
     body_gains = body_gains or {}
     for idx, basis in (body_bases or {}).items():
         engine.add_voice(idx, basis, gain=body_gains.get(idx, 1.0),
                          zeta_contact=zeta_contact)
     engine.start()
     tap = LiveExcitationTap(
-        world, engine, table_basis=table_basis, body_bases=body_bases,
+        world, engine, support_basis=support_basis, body_bases=body_bases,
         tau_ref_per_body=tau_ref_per_body, tau_ref=tau_ref,
         eta_audio=eta_audio, j_floor=j_floor,
-        settle_quiet=settle_quiet, settle_max=settle_max, source=source)
+        settle_quiet=settle_quiet, settle_max=settle_max,
+        noise_frac=noise_frac, source=source)
     return LiveSound(engine=engine, tap=tap)

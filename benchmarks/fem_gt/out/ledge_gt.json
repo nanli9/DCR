@@ -49,7 +49,7 @@
     }
   },
   "impactor": "boulder",
-  "wall_s": 4.5,
+  "wall_s": 3.8,
   "peak_mid_uy": 1.2661669216400748e-05,
   "ring_hz": 50.01633152116374,
   "signal": "support_mid_uy + top_uy fields (plan \u00a76.1); ledger averaged"

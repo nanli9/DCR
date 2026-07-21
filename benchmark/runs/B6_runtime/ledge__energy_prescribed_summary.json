@@ -1,0 +1,100 @@
+{
+  "run_id": "ledge__energy_prescribed",
+  "benchmark": "B6",
+  "scene": "ledge",
+  "mode": "energy_prescribed",
+  "flavor": "barbic_james",
+  "params": {
+    "eta": 0.95,
+    "beta": 0.25,
+    "h": 0.005,
+    "duration_s": 4.0,
+    "damping_scale": 1.0,
+    "restitution": 0.15,
+    "material": "default",
+    "causal_gating": false
+  },
+  "n_steps": 800,
+  "wall_time_total_s": 16.84088116697967,
+  "wall_time_ms_per_step": {
+    "mean": 17.2611967925,
+    "p50": 15.836791499999999,
+    "p95": 21.295214899999998,
+    "p99": 71.96071625,
+    "max": 95.203167
+  },
+  "rubric_pass": false,
+  "invariant_max_violation_J": 5.684341886080802e-14,
+  "energy_totals": {
+    "cum_E_loss_final_J": 484.32323457257047,
+    "cum_E_budget_eta_final_J": 460.1070728439419,
+    "cum_E_injected_final_J": 382.3960388165427,
+    "cum_E_extracted_final_J": 24.973794236702453,
+    "E_modal_peak_J": 370.688564562839,
+    "ratio_injected_over_budget": 0.831102283329261
+  },
+  "injection_signal": {
+    "peak_rate_W": 74137.7129125678,
+    "temporal_concentration_herfindahl": 0.9404674853696413,
+    "spectral_centroid_Hz": 49.54898284775544,
+    "n_distinct_kick_events": 2
+  },
+  "bodies": [
+    {
+      "name": "pedestal",
+      "mass_kg": 5.0,
+      "max_tilt_deg": 8.281938848093018,
+      "drift_m": 0.00845684209885132,
+      "max_penetration_mm": 25.55730339960157,
+      "tail_y_settle_mm": 1.212848432796676e-07,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "box_0",
+      "mass_kg": 0.5,
+      "max_tilt_deg": 90.0,
+      "drift_m": 0.12620384927537726,
+      "max_penetration_mm": 135.2271886947658,
+      "tail_y_settle_mm": 0.0,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "box_1",
+      "mass_kg": 0.5,
+      "max_tilt_deg": 89.99999999999997,
+      "drift_m": 0.11912843767316983,
+      "max_penetration_mm": 138.76299125661876,
+      "tail_y_settle_mm": 0.0,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "box_2",
+      "mass_kg": 0.5,
+      "max_tilt_deg": 89.47598277371551,
+      "drift_m": 0.04144512053047713,
+      "max_penetration_mm": 119.9371630630062,
+      "tail_y_settle_mm": 0.004311984990651441,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "boulder",
+      "mass_kg": 50.0,
+      "max_tilt_deg": 0.0018344782638333122,
+      "drift_m": 1.754000142337374e-05,
+      "max_penetration_mm": 16.889722472900765,
+      "tail_y_settle_mm": 0.0,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    }
+  ],
+  "status": "ok"
+}

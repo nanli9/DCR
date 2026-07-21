@@ -659,6 +659,7 @@ class Solver6DOF:
         self._E_rig_pre = 0.0
         self._E_modal_pre = 0.0
         self._psv_x_pre = None
+        self._psv_v_pre = None
 
     # ---- Scene building -----------------------------------------------------
 
@@ -2450,6 +2451,7 @@ class Solver6DOF:
                 self._psv_ledger = PassivityLedger(eta=float(self._modal_eta))
             V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self._psv_quats_wxyz()
             self._psv_x_pre = self.x.numpy().copy()
+            self._psv_v_pre = V.copy()   # §15 trapezoidal gravity work (commit below)
             self._E_rig_pre = rigid_mechanical_energy(
                 V, Wo, Qq, self._mass, self._inv_I_local,
                 Il=self._psv_local_inertia())
@@ -2618,12 +2620,17 @@ class Solver6DOF:
                 V, Wo, Qq, self._mass, self._inv_I_local,
                 Il=self._psv_local_inertia())
             grav = np.asarray(self.gravity, dtype=np.float64)
+            # DEVIATION (paper Eq. (3); foundation §15): trapezoidal gravity work
+            # ½ m g·(v⁻+v⁺) h, not the displacement form m g·(x⁺−x⁻), which under
+            # symplectic Euler over-credits free ballistic motion by ½ m h²|g|²
+            # per body per substep (see solver_impulse._psv_commit; asserted in
+            # tests/avbd_native/test_gravity_supply_trapezoidal.py).
             grav_work = 0.0
             for _i in range(len(self._mass)):
                 if float(self._mass[_i]) <= 0.0:
                     continue
-                grav_work += float(self._mass[_i]) * float(
-                    grav @ (Xx[_i] - self._psv_x_pre[_i]))
+                grav_work += float(self._mass[_i]) * 0.5 * float(
+                    grav @ (self._psv_v_pre[_i] + V[_i])) * h
             rigid_loss = (self._E_rig_pre - E_rig_post) + grav_work
             ke_new, pe_new = modal_mech_energy(qd, q, self._Mq, self._Kq)
             e_modal_new = ke_new + pe_new
@@ -3058,6 +3065,7 @@ class Solver6DOF:
                 self._psv_ledger = PassivityLedger(eta=float(self._modal_eta))
             V = self.v.numpy(); Wo = self.omega.numpy(); Qq = self._psv_quats_wxyz()
             self._psv_x_pre = self.x.numpy().copy()
+            self._psv_v_pre = V.copy()   # §15 trapezoidal gravity work (commit below)
             self._E_rig_pre = rigid_mechanical_energy(
                 V, Wo, Qq, self._mass, self._inv_I_local,
                 Il=self._psv_local_inertia())
@@ -3287,12 +3295,17 @@ class Solver6DOF:
                 V, Wo, Qq, self._mass, self._inv_I_local,
                 Il=self._psv_local_inertia())
             grav = np.asarray(self.gravity, dtype=np.float64)
+            # DEVIATION (paper Eq. (3); foundation §15): trapezoidal gravity work
+            # ½ m g·(v⁻+v⁺) h, not the displacement form m g·(x⁺−x⁻), which under
+            # symplectic Euler over-credits free ballistic motion by ½ m h²|g|²
+            # per body per substep (see solver_impulse._psv_commit; asserted in
+            # tests/avbd_native/test_gravity_supply_trapezoidal.py).
             grav_work = 0.0
             for _i in range(len(self._mass)):
                 if float(self._mass[_i]) <= 0.0:
                     continue
-                grav_work += float(self._mass[_i]) * float(
-                    grav @ (Xx[_i] - self._psv_x_pre[_i]))
+                grav_work += float(self._mass[_i]) * 0.5 * float(
+                    grav @ (self._psv_v_pre[_i] + V[_i])) * h
             rigid_loss = (self._E_rig_pre - E_rig_post) + grav_work
             ke_new, pe_new = modal_mech_energy(self._qdot_aug, self._q_aug,
                                                self._Mq_aug, self._Kq_aug)

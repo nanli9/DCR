@@ -1,0 +1,1 @@
+[run_one] shelf__energy_prescribed_patch__b0.25: 800 steps, wall=24.51s, rubric=FAIL, cum_E_injected=69.739 J, §15 violation=1.42e-14 J

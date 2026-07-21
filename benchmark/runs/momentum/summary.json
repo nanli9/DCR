@@ -1,0 +1,76 @@
+{
+  "probeA": {
+    "cells": [
+      {
+        "iters": 12,
+        "subs": 4,
+        "network": false,
+        "kind": "rigid",
+        "Px0": 0.8999990701675418,
+        "Px_end": 1.319191932678223,
+        "creation_pct": 46.57703284433898,
+        "free_flight_drift": 0.0
+      },
+      {
+        "iters": 32,
+        "subs": 4,
+        "network": false,
+        "kind": "rigid",
+        "Px0": 0.8999990701675418,
+        "Px_end": 1.0066222429275515,
+        "creation_pct": 11.84703143528371,
+        "free_flight_drift": 0.0
+      },
+      {
+        "iters": 64,
+        "subs": 4,
+        "network": false,
+        "kind": "rigid",
+        "Px0": 0.8999990701675418,
+        "Px_end": 0.9159034967422488,
+        "creation_pct": 1.7671603340374895,
+        "free_flight_drift": 0.0
+      },
+      {
+        "iters": 12,
+        "subs": 16,
+        "network": false,
+        "kind": "rigid",
+        "Px0": 0.9000033617019656,
+        "Px_end": 0.9016856431961062,
+        "creation_pct": 0.18691946782946675,
+        "free_flight_drift": 0.0
+      },
+      {
+        "iters": 12,
+        "subs": 4,
+        "network": true,
+        "kind": "fem_rigid",
+        "Px0": 0.8999990701675418,
+        "Px_end": 1.318994522094727,
+        "creation_pct": 46.555098312400034,
+        "free_flight_drift": 0.0
+      },
+      {
+        "iters": 12,
+        "subs": 4,
+        "network": false,
+        "kind": "fem_rigid",
+        "Px0": 0.8999990701675418,
+        "Px_end": 1.3190288543701176,
+        "creation_pct": 46.558913013606805,
+        "free_flight_drift": 0.0
+      }
+    ]
+  },
+  "probeB": {
+    "n_frames": 120,
+    "n_clamp_activations": 183,
+    "first_clamp_frame": 1,
+    "first_divergence_frame": 2,
+    "identical_before_first_clamp": true,
+    "max_dP_after": 9.57623986889529,
+    "max_dL_after": 1.9434631553250128,
+    "P_scale": 18.697743164375424
+  }
+}

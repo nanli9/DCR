@@ -94,6 +94,7 @@ BUNDLE: dict[str, list[tuple[str, str]]] = {
     "§3.5 runtime cost": [
         (X5, "perf_reps_summary.csv"), (X5, "perf_device.csv"),
         (X5, "perf_device_budget.csv"),
+        (X5, "perf_reps_1x8_summary.csv"), (X5, "perf_reps_2x4_summary.csv"),
     ],
     "§4 limitations: supply partition and long-horizon recycling": [
         (X1, "supply_partition.csv"), (X1, "long_horizon.csv"),
@@ -236,16 +237,17 @@ CLAIMS: list[tuple[str, str, str, str, str]] = [
      f"{E} --scenes shelf --budgets 4x1,4x2,4x4,4x8 --relaxes 0.7,1.0 "
      "--out substep_sweep",
      r"it is $3.13$, overdrawing by $481$~J"),
-    ("§3.1, Fig. 2 bottom", "Eq. (2) violated in 23/24 AVBD cells, 8/24 XPBD, "
-                            "0/24 impulse; AVBD worst 15.1 J",
+    ("§3.1, Fig. 2 bottom", "Eq. (2) violated in 3/24 AVBD cells, 9/24 XPBD "
+                            "(vs R>1 in 2 and 8), 0/24 impulse; AVBD worst 6.7 J "
+                            "(trapezoidal W_g, foundation §15)",
      "eq2_utilization.csv", f"{E} --check-frozen",
-     r"in $23$ of $24$ cells although $R$ flags"),
+     r"the augmented-Lagrangian host in $3$ against $2$"),
     ("§3.1", "governed: all 72 cells satisfy Eq. (2); worst ratio 1.22 / 0.87",
      "solver_matrix.csv", M, r"falls to $1.22$ (XPBD) and $0.87$ (AVBD)"),
     ("§3.2, Fig. 3", "XPBD 2.96e4 (K=1) -> 0.300 (K=32); reference 0.2735; "
-                     "implicit spread 4.9e-4 over K=2...500",
+                     "implicit max-min 6.8e-4 over K=2...500",
      "k_convergence.csv", "run_k_convergence.py",
-     r"(spread $4.9\times10^{-4}$)"),
+     r"(max$-$min $6.8\times10^{-4}$)"),
     ("§3.2", "penetration 27.9 mm (K=1) -> 3.6 um (K=64); separated-row "
              "multiplier 84x -> 139x (K=24) -> 0 (K=64)",
      "complementarity_residual_nd.csv", "probe_complementarity_residual_nd.py",
@@ -255,14 +257,14 @@ CLAIMS: list[tuple[str, str, str, str, str]] = [
      "selfconvergence.csv", "run_selfconvergence.py",
      r"plateaus by $K\approx64$ at $0.2996$"),
     ("§3.2", "deployed 1x8 / 2x4: XPBD violates 6/6 (worst R = 2282), "
-             "AVBD 5/6 by <= 0.16 J, impulse 0/6",
+             "AVBD 1/6 by <= 0.011 J, impulse 0/6",
      "eq2_deployed.csv", f"{E} --budgets 1x8,2x4 --relaxes 0.7 --out eq2_deployed",
      r"worst $R=2282$"),
     ("§3.2", "governed at the deployed budgets: all 18 satisfy Eq. (2), "
-             "worst R = 1.022",
+             "worst R = 1.023",
      "solver_matrix_deployed.csv",
      f"{M} --budgets 1x8,2x4 --relaxes 0.7 --out solver_matrix_deployed",
-     r"(worst $R = 1.022$)"),
+     r"(worst $R = 1.023$)"),
     ("§3.2", "not a knife-edge: 24/24 perturbed configurations violate, "
              "R spans 2.5 to 4.7e5; excluding the stiff cluster leaves 584 J",
      "robustness_ablation.csv", "run_robustness_ablation.py",
@@ -274,13 +276,15 @@ CLAIMS: list[tuple[str, str, str, str, str]] = [
     ("§3.3, Table 2", "post-projection contact validity, XPBD: clamp counts, "
                       "gap violation med/max, corrective impulse, lambda variance",
      "projection_validity.csv", "run_projection_validity.py",
-     r"1.25 / \textbf{21.6}"),
-    ("§3.3", "AVBD is gentler in absolute terms (worst 1.4 and 3.1 mm) and "
-             "comparable in relative terms (3.1x and 5.5x)",
+     r"1.24 / \textbf{21.6}"),
+    ("§3.3", "AVBD projection at its one materially-overdrawing cell (dinner "
+             "1.0 4x1, +6.7 J): 1.8 mm, single clamped substep, no corrective "
+             "impulse; the other R>1 cell holds the invariant (clamp inert)",
      "projection_validity_avbd.csv", "run_projection_validity_avbd.py",
-     r"worst violations $1.4$ and $3.1$~mm"),
-    ("§3.3", "accuracy at shelf 8x2: 1555.6 J -> 29.26 J against 7.92 J; "
-             "energy error 196x -> 3.7x; trajectory 6.5 mm -> 14.3 mm",
+     r"it opens $1.8$~mm against the position-based host's $21.6$"),
+    ("§3.3", "accuracy at shelf 8x2: 1555.6 J -> 29.56 J against 7.92 J; "
+             "energy error 196x -> 3.7x; trajectory 6.5 mm -> 14.2 mm "
+             "(governed peak +1% under trapezoidal W_g)",
      "governed_accuracy.csv", "run_governed_accuracy.py",
      r"falls $196{\times}\to3.7{\times}$"),
     ("§3.3", "deployed 1x8: energy 2823x -> 3.7x, trajectory 108% -> 96%",
@@ -305,9 +309,15 @@ CLAIMS: list[tuple[str, str, str, str, str]] = [
      "perf_reps_summary.csv",
      "run_perf_reps.py --only shelf,ledge,dinner --reps 10 --frames 100",
      r"$0.23$--$0.41$~ms"),
-    ("§3.5", "device-resident monitor path: 5.0-8.9 ms/step at 16x4",
+    ("§3.5", "deployed 1x8/2x4: absolute 0.30-2.22 ms, percentage 6.6-34.3% "
+             "(shelf/ledge, baseline shrinks); table scene 7-12% faster governed",
+     "perf_reps_1x8_summary.csv",
+     "run_perf_reps.py --budgets 1x8,2x4 --only shelf,ledge,dinner",
+     r"$6.6$--$34.3\%$"),
+    ("§3.5", "device-resident monitor path: 5.3-9.4 ms/step at 16x4 "
+             "(baseline_ms per scene; the 'road slab' is the truck scene)",
      "perf_device.csv", "(x5_perf device harness; see ledger)",
-     r"$5.0$--$8.9$~ms/step"),
+     r"$5.3$--$9.4$~ms/step"),
     ("§3.5", "all four scenes meet a 120 Hz budget at 16x2 or below",
      "perf_device_budget.csv", "(x5_perf device harness; see ledger)",
      r"at $16{\times}2$ or below"),
@@ -344,10 +354,24 @@ def check_claims(ledger: str) -> list[str]:
 # --------------------------------------------------------------------------
 # 5. Assembly
 # --------------------------------------------------------------------------
+_LEDGER_SUPERSESSION = """\
+> **Supersession note (R4, trapezoidal `W_g`).** The reservoir supply now uses
+> the trapezoidal gravity work `W_g = ½ m g·(v⁻+v⁺) h` (foundation §15), so free
+> ballistic motion credits **zero** supply. Ledger excerpts below that predate
+> this fix report the older displacement-form counts — most consequentially the
+> augmented-Lagrangian host at **23 of 24** cells and the implicit host's
+> **−5.7×10⁻⁴ J** worst margin. Those were dominated by the symplectic ½mh²g²
+> integrator artifact; the current, paper-reported values are **3 of 24** (AVBD,
+> worst +6.7 J), **9 of 24** (XPBD), **0 of 24** (impulse, worst margin exactly
+> 0). See `CLAIMS_INDEX.md` and `data/eq2_utilization.csv` for the live numbers.
+
+"""
+
+
 def ledger_excerpt() -> str:
     if not os.path.isfile(LEDGER):
         return "(results ledger not found)\n"
-    out, keep, depth = [], False, 0
+    out, keep, depth = [_LEDGER_SUPERSESSION], False, 0
     for ln in open(LEDGER, encoding="utf-8").read().split("\n"):
         if ln.startswith("#"):
             if any(ln.startswith(h) for h in LEDGER_SECTIONS):
@@ -611,6 +635,21 @@ Three entry points check printed numbers against these CSVs directly:
 - `run_governed_accuracy.py --check-frozen` — the same for §3.3.
 
 `smoke_test.py` in this bundle runs the cheapest version of the second one.
+
+## Historical CSV columns (no longer a paper object)
+
+The `eq2_*.csv` files carry `margin_allow_J`, `eq2_violates_allow`, and
+`max_deposit` columns. These encode the *one-deposit-relaxed* reading of the
+bound (former Eq. (4)). The paper now proves and reports the **strict** bound
+Eq. (2) directly (Prop. 2.1), so the relaxed columns are retained only for
+provenance and are not referenced by any paper claim; read `eq2_violates`,
+`margin_J`, and `max_net_excess` instead. `max_net_excess` is exactly the signed
+slack of Eq. (2) the proposition bounds.
+
+The supply itself uses the trapezoidal gravity work `W_g = ½ m g·(v⁻+v⁺) h`
+(foundation §15): free ballistic motion credits zero, so the earlier 23/24 AVBD
+"overdraft" — mostly the symplectic ½mh²g² integrator artifact — resolves to
+3/24, and the implicit host's margins sit at exactly zero.
 
 ## What is NOT re-derivable from this bundle
 

@@ -1,0 +1,7 @@
+arm,pillar,outcome,tilt_final_deg,tilt_max_deg,y_final_m,y_drop_m,off_pedestal
+native,pillar_0,survived,0.0,0.09,0.1799,0.0021,False
+native,pillar_1,survived,0.0,0.09,0.1799,0.0021,False
+native,pillar_2,survived,0.0,0.09,0.1799,0.0021,False
+frozen,pillar_0,survived,0.0,0.1,0.1799,0.0021,False
+frozen,pillar_1,survived,0.0,0.1,0.1799,0.0021,False
+frozen,pillar_2,survived,0.0,0.1,0.1799,0.0021,False

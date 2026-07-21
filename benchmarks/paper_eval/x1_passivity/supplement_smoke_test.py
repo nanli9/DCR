@@ -38,9 +38,9 @@ import zipfile
 # Source: data/solver_matrix.csv and data/eq2_utilization.csv, rows
 # (solver, shelf, relax 0.7, 4 iterations, 1 substep).
 REFERENCE = {
-    "xpbd":    dict(R=6333.221296009669, violates=True,  margin_J=1.737997e5),
-    "avbd":    dict(R=0.502239,          violates=False, margin_J=-2.053e-3),
-    "impulse": dict(R=0.273496,          violates=False, margin_J=-3.676e-2),
+    "xpbd":    dict(R=6333.221296009669, violates=True,  margin_J=1.737996e5),
+    "avbd":    dict(R=0.502239,          violates=False, margin_J=-9.272e-4),
+    "impulse": dict(R=0.273496,          violates=False, margin_J=0.0),
 }
 
 
@@ -118,9 +118,9 @@ def main() -> int:
         if got[host]["ratio_off"] >= 1.0:
             fails.append(f"{host}: R = {got[host]['ratio_off']:.4g}, expected "
                          f"< 1 at this cell")
-        if got[host]["margin_J"] >= 0.0:
+        if got[host]["margin_J"] > 1e-9:
             fails.append(f"{host}: margin {got[host]['margin_J']:.4g} J, "
-                         f"expected negative (no overdraw) at this cell")
+                         f"expected <= 0 (no overdraw) at this cell")
 
     exact = abs(R - REFERENCE["xpbd"]["R"]) < 1e-6 * REFERENCE["xpbd"]["R"]
     if exact:
@@ -140,10 +140,10 @@ def main() -> int:
           "by >1e4 J")
     print("  ok   the other two hosts do not, at this cell")
     print("\nsmoke test PASSED")
-    print("\nScope: one cell of 24. The paper's matrix-level counts (8/24, "
-          "23/24, 0/24)\nare in data/solver_matrix.csv and "
-          "data/eq2_utilization.csv; the augmented-\nLagrangian host does "
-          "violate in 23 of 24 cells, but not at this one.")
+    print("\nScope: one cell of 24. The paper's matrix-level Eq. (2) counts "
+          "(9/24,\n3/24, 0/24) are in data/solver_matrix.csv and "
+          "data/eq2_utilization.csv;\nthe augmented-Lagrangian host violates "
+          "in 3 of 24 cells, but not at this one.")
     return 0
 
 

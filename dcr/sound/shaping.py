@@ -59,6 +59,42 @@ def half_sine_spectrum(
     return np.clip(h, 0.0, 1.0)
 
 
+def contact_noise_burst(
+    tau: float,
+    fs: float,
+    rng: np.random.Generator,
+    *,
+    dur_factor: float = 4.0,
+    dur_min: float = 1.5e-3,
+    dur_max: float = 8.0e-3,
+) -> NDArray[np.float64]:
+    """Unit-energy contact-noise transient (Σ s² = 1): white noise, one-pole
+    low-passed at f_c ≈ 1/τ — the half-sine kernel's ≈ −10 dB corner, so the
+    burst's brightness follows the same Hertz τ(v) law as the modal kicks
+    (fast/hard → shorter → brighter) — under an exponential decay envelope of
+    duration clip(dur_factor·τ, dur_min, dur_max).
+
+    # DEVIATION (render-side; disclosed in docs/stageE6): a real impact
+    # carries a broadband micro-collision transient (surface roughness + the
+    # dense unresolved high-mode continuum) that a truncated modal bank cannot
+    # produce — the classic "struck tuning fork" artifact. A shaped noise
+    # burst is the standard synthesis remedy (cf. van den Doel, Kry & Pai
+    # 2001's noise-driven contact textures), NOT a measured residual: shape
+    # and duration are plausibility choices, and the caller charges the
+    # burst's energy to the same §15-form ledger as the modal kicks
+    # (render.py / live.py `noise_frac`).
+    """
+    dur = float(np.clip(dur_factor * float(tau), dur_min, dur_max))
+    n = max(int(round(dur * float(fs))), 4)
+    x = rng.standard_normal(n)
+    f_c = min(1.0 / max(float(tau), 1e-6), 0.4 * float(fs))
+    a = float(np.exp(-2.0 * np.pi * f_c / float(fs)))
+    from scipy.signal import lfilter         # one-pole LP; scipy is core here
+    y = lfilter([1.0 - a], [1.0, -a], x)
+    s = y * np.exp(-3.0 * np.arange(n) / (dur * float(fs)))
+    return s / max(float(np.sqrt(np.sum(s * s))), 1e-30)
+
+
 def impulse_kernel(
     t_event: float,
     tau: float,

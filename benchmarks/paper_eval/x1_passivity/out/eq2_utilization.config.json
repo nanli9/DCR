@@ -1,8 +1,8 @@
 {
   "figure": "eq2_utilization.csv",
   "stage": "X0",
-  "git_sha": "250b45d",
-  "generated_utc": "2026-07-19T05:21:25+00:00",
+  "git_sha": "a60f46b",
+  "generated_utc": "2026-07-21T01:41:36+00:00",
   "config": {
     "relax": 0.7,
     "iterations": 16,

@@ -69,9 +69,14 @@ from benchmarks.paper_eval.paper_config import (                 # noqa: E402
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 
-# Frozen expectations (out/solver_matrix.csv, commit 250b45d): the cell this
-# item is about. Reproducing these EXACTLY is the non-perturbation check.
-FROZEN = {"ungoverned": 53.73070660394743, "governed": 1.0106758619142793}
+# Frozen expectations (out/solver_matrix.csv): the cell this item is about.
+# Reproducing these EXACTLY is the non-perturbation check.
+# The UNGOVERNED value is trajectory-independent of the ledger and is unchanged.
+# The GOVERNED value moved 1.0106759 -> 1.0209246 with the trapezoidal-W_g
+# supply fix (foundation §15): the corrected (larger) contact-phase supply
+# relaxes the clamp slightly, so governed modal storage rises ~1% (E_mod_peak
+# 29.26 -> 29.56 J). This is the intended effect of the fix, re-frozen here.
+FROZEN = {"ungoverned": 53.73070660394743, "governed": 1.0209246116008728}
 TOL = 0.0            # exact: same code path, same seed, same machine
 F_STIFF = 1.0e4      # Hz; sits inside the shelf spectrum's 2.0k..20.7k gap
 

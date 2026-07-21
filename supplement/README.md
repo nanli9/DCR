@@ -115,6 +115,8 @@ command that produced it.
 - `data/perf_reps_summary.csv`
 - `data/perf_device.csv`
 - `data/perf_device_budget.csv`
+- `data/perf_reps_1x8_summary.csv`
+- `data/perf_reps_2x4_summary.csv`
 
 ### §4 limitations: supply partition and long-horizon recycling
 - `data/supply_partition.csv`

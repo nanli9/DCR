@@ -81,6 +81,33 @@ def test_impulse_kernel_conserves_impulse():
             assert np.all(w >= 0.0)
 
 
+def test_contact_noise_burst_shape_and_determinism():
+    from dcr.sound import contact_noise_burst
+
+    fs = 44100.0
+    b = contact_noise_burst(8.0e-4, fs, np.random.default_rng(7))
+    assert abs(float(np.sum(b * b)) - 1.0) < 1e-12         # unit energy
+    assert b.shape[0] == round(np.clip(4.0 * 8.0e-4, 1.5e-3, 8.0e-3) * fs)
+    # Deterministic for a given rng state.
+    b2 = contact_noise_burst(8.0e-4, fs, np.random.default_rng(7))
+    assert np.array_equal(b, b2)
+    # Duration clamps: τ at the Hertz clip bounds.
+    assert (contact_noise_burst(1.5e-4, fs, np.random.default_rng(0)).shape[0]
+            == round(1.5e-3 * fs))
+    assert (contact_noise_burst(4.0e-3, fs, np.random.default_rng(0)).shape[0]
+            == round(8.0e-3 * fs))
+    # Hertz brightness: a faster (shorter-τ) impact has a brighter burst —
+    # higher spectral centroid than a slow one.
+
+    def centroid(tau):
+        s = contact_noise_burst(tau, fs, np.random.default_rng(3))
+        spec = np.abs(np.fft.rfft(s, n=4096)) ** 2
+        f = np.fft.rfftfreq(4096, 1.0 / fs)
+        return float(np.sum(f * spec) / np.sum(spec))
+
+    assert centroid(2.0e-4) > 2.0 * centroid(2.0e-3)
+
+
 def test_hertz_tau_monotone_brightness():
     taus = [hertz_tau(v) for v in (0.05, 0.5, 1.0, 3.0, 8.0)]
     assert all(a >= b for a, b in zip(taus, taus[1:]))   # faster ⇒ shorter
@@ -125,6 +152,114 @@ def test_box_basis_free_free_plate():
 
 
 # ---------------------------------------------------------------------------
+# Shell (Rayleigh ring) basis
+# ---------------------------------------------------------------------------
+
+def _cup_shell(**over):
+    from dcr.sound import build_shell_audio_basis
+    # doublet_detune=0 → legacy single-partner basis: the ring-series and
+    # corner-coupling tests below verify the underlying Rayleigh phasing
+    # exactly; the doublet default is covered by test_shell_basis_doublets.
+    kw = dict(half_extents=(0.035, 0.030, 0.035), thickness=0.003,
+              youngs=70.0e9, poisson=0.22, density=2400.0, zeta_const=2e-3,
+              num_modes=8, rim_factor=1.0, kappa=0.4, doublet_detune=0.0,
+              name="cup")
+    kw.update(over)
+    return build_shell_audio_basis(**kw)
+
+
+def test_shell_basis_ring_series():
+    b = _cup_shell()
+    assert b.kind == "corners"                # same downstream machinery
+    f = b.freqs_hz()
+    # f2 matches Rayleigh's ring formula by hand (plate modulus E′).
+    ep = 70.0e9 / (1.0 - 0.22 ** 2)
+    base = 0.003 / 0.035 ** 2 * np.sqrt(ep / (12.0 * 2400.0))
+    f2 = (2.0 * 3.0 / np.sqrt(5.0)) * base / (2.0 * np.pi)
+    assert abs(f[0] - f2) / f2 < 1e-12
+    assert 800.0 <= f[0] <= 2500.0            # mug register, not 9 kHz
+    assert b.n_modes >= 4                     # several partials in band
+    n = np.arange(2, 2 + b.n_modes, dtype=float)
+    fac = n * (n ** 2 - 1.0) / np.sqrt(n ** 2 + 1.0)
+    assert np.allclose(f / f[0], fac / fac[0], rtol=1e-12)
+    assert np.all(f <= 0.45 * 44100.0)        # render-Nyquist cap
+    assert np.all(b.weight > 0.0)
+    assert np.all(np.isfinite(b.phi_corners))
+    # rim_factor is a pure frequency scale
+    b2 = _cup_shell(rim_factor=2.0)
+    assert np.allclose(b2.omega[: b2.n_modes],
+                       2.0 * b.omega[: b2.n_modes], rtol=1e-12)
+
+
+def test_shell_basis_corner_coupling():
+    from dcr.sound.audio_basis import phi_at_corner
+    b = _cup_shell()
+    # n=2 (mode 0): diagonal corners are antinodes with alternating sign.
+    g_pp = phi_at_corner(b, np.array([0.03, -0.03, 0.03]))   # θ = +45°
+    g_pm = phi_at_corner(b, np.array([0.03, -0.03, -0.03]))  # θ = −45°
+    assert g_pp[0] > 0.0
+    assert abs(g_pp[0] + g_pm[0]) < 1e-15                    # opposite phase
+    # n=3 (mode 1) has a node at the −45° corner.
+    assert abs(g_pm[1]) < 1e-12 * abs(g_pp[1])
+    # kappa scales the coupling linearly, nothing else.
+    b2 = _cup_shell(kappa=0.8)
+    assert np.allclose(b2.phi_corners, 2.0 * b.phi_corners, rtol=1e-12)
+    assert np.allclose(b2.omega, b.omega) and np.allclose(b2.weight, b.weight)
+
+
+def test_shell_basis_doublets():
+    """Default doublet_detune: each ring order contributes a detuned cos/sin
+    pair whose members BOTH couple at the corners (nodal rotation χ_n) —
+    the beat ('warble') source. Pair means stay on the Rayleigh series."""
+    detune = 3.0e-3
+    b0 = _cup_shell()                            # single-partner reference
+    b = _cup_shell(doublet_detune=detune)
+    assert b.n_modes == 2 * b0.n_modes
+    f, f0 = b.freqs_hz(), b0.freqs_hz()
+    assert np.all(np.diff(f) > 0.0)              # ascending, pairs split
+    for i in range(b0.n_modes):
+        lo, hi = f[2 * i], f[2 * i + 1]
+        mid = 0.5 * (lo + hi)
+        assert abs(mid - f0[i]) / f0[i] < 1e-12  # pair mean = ring frequency
+        split = (hi - lo) / mid
+        assert 0.5 * detune <= split <= detune + 1e-12
+        # Both partners couple at a diagonal corner (χ_n rotation): neither
+        # is the exact-node partner the legacy basis dropped.
+        g = b.phi_corners[np.all(b.corner_signs == [1.0, -1.0, 1.0], axis=1)][0]
+        assert abs(g[2 * i]) > 0.0 and abs(g[2 * i + 1]) > 0.0
+        # cos partner dominates (χ ≤ 0.5 rad → tan χ ≤ 0.55).
+        assert abs(g[2 * i + 1]) < abs(g[2 * i])
+    # Pair coupling power is corner-independent (cos²+sin² = κ²A_n²) and
+    # equals the legacy ANTINODE sample squared — the doublet redistributes
+    # coupling across the pair, it does not get louder.
+    pair_pow = (b.phi_corners[:, 0::2] ** 2 + b.phi_corners[:, 1::2] ** 2)
+    assert np.allclose(pair_pow, pair_pow[0:1, :], rtol=1e-9)
+    corner_pp = np.all(b0.corner_signs == [1.0, -1.0, 1.0], axis=1)
+    legacy_antinode = b0.phi_corners[corner_pp][0] ** 2       # (κ·A_n)²
+    assert np.allclose(pair_pow[0], legacy_antinode, rtol=1e-9)
+
+
+def test_split_degenerate_pairs():
+    from dcr.sound import split_degenerate_pairs
+
+    w = np.array([1000.0, 1000.1, 2000.0, 5000.0, 5000.0, 5100.0])
+    out = split_degenerate_pairs(w, detune=4.0e-3)
+    # Degenerate pairs pushed apart; means preserved; strictly ascending.
+    assert np.all(np.diff(out) > 0.0)
+    assert abs(0.5 * (out[0] + out[1]) - 1000.05) < 1e-9
+    assert (out[1] - out[0]) / 1000.05 >= 0.5 * 4.0e-3
+    assert out[2] == 2000.0                      # isolated mode untouched
+    assert (out[4] - out[3]) / 5000.0 >= 0.5 * 4.0e-3
+    # Deterministic; detune=0 is the identity.
+    assert np.array_equal(out, split_degenerate_pairs(w, detune=4.0e-3))
+    assert np.array_equal(w, split_degenerate_pairs(w, detune=0.0))
+    # Degenerate TRIPLE: greedy pair split capped strictly below the third —
+    # order preserved, no crossing (split truncated, disclosed limitation).
+    out3 = split_degenerate_pairs(np.array([800.0, 800.0, 800.0]), 4.0e-3)
+    assert np.all(np.diff(out3) > 0.0)
+
+
+# ---------------------------------------------------------------------------
 # Radiation weight heuristic
 # ---------------------------------------------------------------------------
 
@@ -149,6 +284,28 @@ def test_radiation_weight_scaling():
 # ---------------------------------------------------------------------------
 # Contact-load gate + choked phasor render
 # ---------------------------------------------------------------------------
+
+def test_zero_mode_grid_basis_cache_roundtrip(tmp_path):
+    """A grid basis whose band-split kept 0 modes (e.g. the soft E=50 MPa
+    tabletop: every eigenmode below fmin) must round-trip through the npz
+    cache with phi_grid as a (n_pts, 0) ARRAY, not None — load_audio_basis
+    once collapsed it to None via `.size`, and the first contact event then
+    tripped the `kind == "grid" → phi_grid is not None` assert in phi_at_xz."""
+    from dcr.sound import load_audio_basis, phi_at_xz, save_audio_basis
+
+    empty = np.zeros((0,), dtype=np.float64)
+    basis = AudioBasis(name="table", kind="grid", omega=empty, zeta=empty,
+                       weight=empty, phi_grid=np.zeros((231, 0)),
+                       length=2.2, width=1.1, n_grid_x=21, n_grid_z=11)
+    path = str(tmp_path / "table_softband.npz")
+    save_audio_basis(path, basis)
+    loaded = load_audio_basis(path)
+    assert loaded.kind == "grid" and loaded.phi_grid is not None
+    assert loaded.phi_grid.shape == (231, 0) and loaded.n_modes == 0
+    assert phi_at_xz(loaded, 0.3, -0.2).shape == (0,)
+    # The (0, 0) placeholder for the absent corners array still loads as None.
+    assert loaded.phi_corners is None
+
 
 def test_loaded_tracker_hysteresis():
     trk = LoadedTracker(row_body=np.array([0, 0, 1]),
@@ -263,9 +420,24 @@ def test_end_to_end_dinner_impact(dinner_log):
         length=2.2, width=1.1, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
 
     audio, diag = render_soundtrack(
-        log, table_voice=Voice(name="table", basis=basis),
+        log, support_voice=Voice(name="table", basis=basis),
         body_voices={}, fs=22050.0, eta_audio=1.0, tail=0.5, events=events)
     assert np.all(np.isfinite(audio))
     assert diag["raw_peak"] > 0.0             # non-silent
     assert diag["e6_holds"]                   # Σ kicks ≤ η·Σ rigid loss
     assert diag["n_admitted"] == events.n_events
+    # Default noise transient: bursts rendered, ledger charge included in the
+    # SAME inequality; disabling it strictly reduces the admitted energy
+    # (uncapped run: charge ratio = 1 + noise_frac²).
+    assert diag["n_noise_bursts"] >= 1
+    assert diag["per_voice_peak"]["noise"] > 0.0
+    audio0, diag0 = render_soundtrack(
+        log, support_voice=Voice(name="table", basis=basis),
+        body_voices={}, fs=22050.0, eta_audio=1.0, tail=0.5, events=events,
+        noise_frac=0.0)
+    assert diag0["e6_holds"] and diag0["n_noise_bursts"] == 0
+    assert diag0["cum_kick_energy_J"] < diag["cum_kick_energy_J"]
+    if diag["n_capped"] == 0 and diag0["n_capped"] == 0:
+        assert np.isclose(diag["cum_kick_energy_J"],
+                          (1.0 + 0.35 ** 2) * diag0["cum_kick_energy_J"],
+                          rtol=1e-9)

@@ -1,0 +1,111 @@
+{
+  "run_id": "shelf__coevoet__h0.001",
+  "benchmark": "B7",
+  "scene": "shelf",
+  "mode": "coevoet",
+  "flavor": "rest",
+  "params": {
+    "eta": 0.95,
+    "beta": 0.25,
+    "h": 0.001,
+    "duration_s": 4.0,
+    "damping_scale": 1.0,
+    "restitution": 0.15,
+    "material": "default",
+    "causal_gating": false
+  },
+  "n_steps": 4000,
+  "wall_time_total_s": 41.63452379102819,
+  "wall_time_ms_per_step": {
+    "mean": 9.5966357355,
+    "p50": 5.990228999999999,
+    "p95": 27.979246149999994,
+    "p99": 40.38156341999999,
+    "max": 58.463916999999995
+  },
+  "rubric_pass": false,
+  "invariant_max_violation_J": 0.0,
+  "energy_totals": {
+    "cum_E_loss_final_J": 198.39537643233788,
+    "cum_E_budget_eta_final_J": 188.47560761072097,
+    "cum_E_injected_final_J": 114.06844367201991,
+    "cum_E_extracted_final_J": 23.922731633614355,
+    "E_modal_peak_J": 42.5144675966318,
+    "ratio_injected_over_budget": 0.605215948726998
+  },
+  "injection_signal": {
+    "peak_rate_W": 42514.4675966318,
+    "temporal_concentration_herfindahl": 0.18799308560662153,
+    "spectral_centroid_Hz": 250.15840298635086,
+    "n_distinct_kick_events": 11
+  },
+  "bodies": [
+    {
+      "name": "book_0",
+      "mass_kg": 1.3,
+      "max_tilt_deg": 89.99999999994975,
+      "drift_m": 0.09478689477916083,
+      "max_penetration_mm": 35.113433782543645,
+      "tail_y_settle_mm": 1.3901713755010565,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "book_1",
+      "mass_kg": 1.3,
+      "max_tilt_deg": 89.99999999938827,
+      "drift_m": 0.020594423317923344,
+      "max_penetration_mm": 35.314443986472284,
+      "tail_y_settle_mm": 3.6631593644033296,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "book_2",
+      "mass_kg": 1.3,
+      "max_tilt_deg": 89.99999564271374,
+      "drift_m": 0.1362891056983441,
+      "max_penetration_mm": 35.092143048031865,
+      "tail_y_settle_mm": 1.659440450270895,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "book_3",
+      "mass_kg": 1.3,
+      "max_tilt_deg": 89.99999590548907,
+      "drift_m": 0.23079212229224347,
+      "max_penetration_mm": 27.36486388292672,
+      "tail_y_settle_mm": 0.9052625054359019,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "book_4",
+      "mass_kg": 1.3,
+      "max_tilt_deg": 89.99999999992197,
+      "drift_m": 0.05124176662152975,
+      "max_penetration_mm": 35.420831707388174,
+      "tail_y_settle_mm": 8.784899013366418,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    },
+    {
+      "name": "drop",
+      "mass_kg": 8.0,
+      "max_tilt_deg": 8.148285478205345,
+      "drift_m": 0.00903940123493687,
+      "max_penetration_mm": 2.57925000000013,
+      "tail_y_settle_mm": 3.3847033130170736,
+      "rubric_pass": false,
+      "cum_J_normal": 0.0,
+      "cum_J_tangential": 0.0
+    }
+  ],
+  "status": "ok"
+}

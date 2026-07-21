@@ -12,10 +12,12 @@ Import layering: everything here is importable without warp; only
 from .audio_basis import (
     AudioBasis,
     build_box_audio_basis,
+    build_shell_audio_basis,
     build_table_audio_basis,
     load_audio_basis,
     phi_at_xz,
     save_audio_basis,
+    split_degenerate_pairs,
 )
 from .bank import render_modes_lfilter, render_modes_reference, resonator_coeffs
 from .events import (
@@ -26,7 +28,12 @@ from .events import (
     settle_arm_index,
 )
 from .render import AudioLedger, Voice, render_soundtrack, write_wav
-from .shaping import half_sine_spectrum, hertz_tau, impulse_kernel
+from .shaping import (
+    contact_noise_burst,
+    half_sine_spectrum,
+    hertz_tau,
+    impulse_kernel,
+)
 
 __all__ = [
     "AudioBasis",
@@ -35,7 +42,9 @@ __all__ = [
     "SoundLog",
     "Voice",
     "build_box_audio_basis",
+    "build_shell_audio_basis",
     "build_table_audio_basis",
+    "contact_noise_burst",
     "extract_impulses",
     "filter_settle",
     "half_sine_spectrum",
@@ -49,5 +58,6 @@ __all__ = [
     "render_soundtrack",
     "resonator_coeffs",
     "save_audio_basis",
+    "split_degenerate_pairs",
     "write_wav",
 ]

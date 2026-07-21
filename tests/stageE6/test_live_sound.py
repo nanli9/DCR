@@ -206,15 +206,21 @@ def test_settle_prominence_breakthrough():
 
 
 class _StubEngine:
+    fs = 44100.0
+
     def __init__(self):
         self.pushed = []
         self.chokes = []
+        self.noise = []
 
     def push_kicks(self, t_sim, kicks):
         self.pushed.append((t_sim, kicks))
 
     def push_choke(self, t_sim, key, choked):
         self.chokes.append((t_sim, key, choked))
+
+    def push_noise(self, t_sim, samples):
+        self.noise.append((t_sim, samples))
 
 
 def test_live_tap_dinner_headless():
@@ -227,7 +233,7 @@ def test_live_tap_dinner_headless():
 
     rng = np.random.default_rng(0)
     r = 6
-    table_basis = AudioBasis(
+    support_basis = AudioBasis(
         name="synthetic", kind="grid",
         omega=2 * np.pi * np.linspace(200.0, 2000.0, r),
         zeta=np.full(r, 5e-3), weight=np.full(r, 1.0),
@@ -235,7 +241,7 @@ def test_live_tap_dinner_headless():
         length=2.2, width=1.1, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
 
     engine = _StubEngine()
-    tap = LiveExcitationTap(handle.world, engine, table_basis=table_basis)
+    tap = LiveExcitationTap(handle.world, engine, support_basis=support_basis)
     for _ in range(108):                          # 0.9 s: impact at ~0.32 s
         handle.world.step()
     tap.detach()
@@ -247,6 +253,12 @@ def test_live_tap_dinner_headless():
     g_all = np.concatenate([g for _, kicks in engine.pushed
                             for _, g in kicks])
     assert np.all(np.isfinite(g_all)) and np.any(g_all != 0.0)
+    # Contact-noise transient (default noise_frac): one burst per emitted
+    # event, finite, and charged inside the same (held) ledger inequality.
+    assert tap.noise_pushed == tap.events_emitted
+    assert len(engine.noise) == tap.noise_pushed
+    assert all(np.all(np.isfinite(s)) and np.any(s != 0.0)
+               for _, s in engine.noise)
     # Settle muting (default on): the t≈0 placement-gap clinks are swallowed;
     # everything played is at/after the pot impact (~0.33 s).
     assert tap.events_muted > 0
@@ -267,7 +279,7 @@ def test_live_tap_low_drop_prominence_arming():
 
     rng = np.random.default_rng(0)
     r = 4
-    table_basis = AudioBasis(
+    support_basis = AudioBasis(
         name="synthetic", kind="grid",
         omega=2 * np.pi * np.linspace(200.0, 1500.0, r),
         zeta=np.full(r, 5e-3), weight=np.full(r, 1.0),
@@ -275,7 +287,7 @@ def test_live_tap_low_drop_prominence_arming():
         length=2.2, width=1.1, n_grid_x=N_GRID_X, n_grid_z=N_GRID_Z)
 
     engine = _StubEngine()
-    tap = LiveExcitationTap(handle.world, engine, table_basis=table_basis)
+    tap = LiveExcitationTap(handle.world, engine, support_basis=support_basis)
     for _ in range(60):                           # 0.5 s
         handle.world.step()
     tap.detach()
@@ -316,7 +328,7 @@ def test_live_tap_pushes_chokes_for_body_voices():
         phi_corners=np.ones((8, r)), corner_signs=corner_signs)
 
     engine = _StubEngine()
-    tap = LiveExcitationTap(handle.world, engine, table_basis=None,
+    tap = LiveExcitationTap(handle.world, engine, support_basis=None,
                             body_bases={pot_idx: pot_basis})
     for _ in range(108):                          # 0.9 s
         handle.world.step()
@@ -329,6 +341,35 @@ def test_live_tap_pushes_chokes_for_body_voices():
     assert any(flag for _, _, flag in engine.chokes)   # landed & loaded
     assert engine.chokes[-1][2] is True           # at rest: choked
     assert tap._loadgate.loaded[pot_idx]
+
+
+def test_engine_noise_overlap_add():
+    """Noise bursts mix sample-accurately and spill across block boundaries
+    (no stream needed — the callback is driven directly; gain=1 with tiny
+    amplitudes keeps the tanh soft limiter linear to ~1e-10)."""
+    from dcr.sound.live import LiveSoundEngine
+
+    fs, frames, amp = 44100.0, 64, 1e-3
+    engine = LiveSoundEngine(fs=fs, blocksize=frames, gain=1.0)
+
+    def run_block():
+        out = np.zeros((frames, 1), dtype=np.float32)
+        engine._callback(out, frames, None, False)
+        return out[:, 0].astype(np.float64)
+
+    # Burst at offset 0 (100 samples: spills 36 into block 2) + a second
+    # burst 16 samples later (spills 16 + 100 − 64 = 52 into block 2).
+    engine.push_noise(0.0, amp * np.ones(100))
+    engine.push_noise(16.0 / fs, amp * np.ones(100))
+    y1, y2, y3 = run_block(), run_block(), run_block()
+
+    expect = np.zeros(3 * frames)
+    expect[0:100] += amp
+    expect[16:116] += amp
+    got = np.concatenate([y1, y2, y3])
+    assert np.allclose(got, expect, atol=1e-8)
+    assert engine.noise_played == 2
+    assert np.all(y3 == 0.0) or np.allclose(y3, 0.0)   # tail fully drained
 
 
 # ---------------------------------------------------------------------------

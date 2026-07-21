@@ -34,7 +34,12 @@ from numpy.typing import NDArray
 from .audio_basis import AudioBasis, phi_at_corner, phi_at_xz
 from .bank import render_modes_lfilter
 from .events import ImpulseEvents, LoadedTracker, SoundLog, extract_impulses
-from .shaping import half_sine_spectrum, hertz_tau, impulse_kernel
+from .shaping import (
+    contact_noise_burst,
+    half_sine_spectrum,
+    hertz_tau,
+    impulse_kernel,
+)
 
 
 @dataclass
@@ -86,8 +91,10 @@ class AudioLedger:
 @dataclass
 class Voice:
     """One synthesizer voice: a basis plus a listening gain. Grid-kind voices
-    receive the table-side excitation of every event; corner-kind voices are
-    keyed by solver body index (`body_voices` in `render_soundtrack`)."""
+    receive the SUPPORT-side excitation of every event (the scene's deformable
+    slab — dinner table, road, ledge, shelf board, cargo slab); corner-kind
+    voices are keyed by solver body index (`body_voices` in
+    `render_soundtrack`)."""
 
     name: str
     basis: AudioBasis
@@ -144,7 +151,7 @@ def _render_voice_phasor(
     # loaded on the support would otherwise keep ringing with free-air ζ —
     # audibly wrong (real contact chokes the ring; part of why everything
     # sounded like a sustained "ting"). Constant choked ζ is a render-side
-    # contact-damping heuristic: no stiffness/frequency shift, table voice
+    # contact-damping heuristic: no stiffness/frequency shift, support voice
     # never choked, gate = LoadedTracker hysteresis on the logged support
     # forces. Ledger unaffected — choking only removes modal energy faster,
     # so the admitted kick energy remains the §15-form upper bound.
@@ -207,7 +214,7 @@ def _render_voice_phasor(
 def render_soundtrack(
     log: SoundLog,
     *,
-    table_voice: Voice | None,
+    support_voice: Voice | None,
     body_voices: dict[int, Voice] | None = None,
     fs: float = 44100.0,
     eta_audio: float = 1.0,
@@ -221,11 +228,13 @@ def render_soundtrack(
     zeta_contact: float | None = 0.08,
     choke_load_on: float = 0.25,
     choke_load_off: float = 0.10,
+    noise_frac: float = 0.35,
+    noise_seed: int = 2026,
 ) -> tuple[NDArray[np.float64], dict]:
     """Render the logged run to a mono soundtrack.
 
     Every impact excites BOTH sides of its contact with the same impulse
-    magnitude (Newton's third law): the table voice at the corner's world
+    magnitude (Newton's third law): the support voice at the corner's world
     (x, z), and the impacting body's own voice (if registered) at its
     body-frame corner. One ledger admittance per event covers the combined
     EFFECTIVE (kernel-filtered) kick energy, processed in time order against
@@ -235,9 +244,19 @@ def render_soundtrack(
 
     `zeta_contact`: choked modal ζ applied to a BODY voice while its body
     carries support load (`_render_voice_phasor` DEVIATION note; gate =
-    `LoadedTracker` hysteresis at `choke_load_on/off` × m·g). The table voice
-    — the permanent support — is never choked. None disables (pure-LTI path
-    for every voice, the pre-choke behavior).
+    `LoadedTracker` hysteresis at `choke_load_on/off` × m·g). The support voice
+    — permanently loaded by construction — is never choked. None disables
+    (pure-LTI path for every voice, the pre-choke behavior).
+
+    `noise_frac`: per-event contact-noise transient level (`shaping.
+    contact_noise_burst` DEVIATION note; 0 disables). Accounting and mix are
+    one knob, consistently: the burst is charged to the ledger as
+    e_noise = noise_frac² · e_kick (admitted TOGETHER with the modal kick, so
+    γ covers both and the §15-form bound covers the whole played program),
+    and its output amplitude is γ · noise_frac · ‖w ⊙ ĝ‖ (the event's own
+    listening-weighted effective-kick norm, gains folded) — i.e. the
+    noise:modal loudness ratio equals noise_frac by construction.
+    `noise_seed` makes renders reproducible.
     """
     body_voices = body_voices or {}
     tau_ref_per_body = tau_ref_per_body or {}
@@ -263,10 +282,12 @@ def render_soundtrack(
                     choke_toggles[b].append(
                         (int(round(k * log.h_sub * fs)), flag))
 
-    for v in ([table_voice] if table_voice else []) + list(body_voices.values()):
+    for v in ([support_voice] if support_voice else []) + list(body_voices.values()):
         v._splats.clear()
 
     # Time-ordered sweep: deposit each substep's budget, then admit its events.
+    rng_noise = np.random.default_rng(int(noise_seed))
+    noise_splats: list[tuple[int, NDArray[np.float64]]] = []
     ev_i = 0
     for k in range(log.n_substeps):
         ledger.deposit(loss[k])
@@ -276,32 +297,44 @@ def render_soundtrack(
             tau = hertz_tau(events.v_impact[ev_i],
                             tau_ref=tau_ref_per_body.get(body_i, tau_ref),
                             v_ref=v_ref)
-            g_table = g_body = None
+            g_support = g_body = ge_support = ge_body = None
             e_kick = 0.0
-            if table_voice is not None:
-                g_table = j * phi_at_xz(table_voice.basis,
+            if support_voice is not None:
+                g_support = j * phi_at_xz(support_voice.basis,
                                         float(events.x[ev_i]),
                                         float(events.z[ev_i]))
-                g_eff = g_table * half_sine_spectrum(table_voice.basis.omega,
-                                                     tau)
-                e_kick += 0.5 * float(g_eff @ g_eff)
+                ge_support = g_support * half_sine_spectrum(
+                    support_voice.basis.omega, tau)
+                e_kick += 0.5 * float(ge_support @ ge_support)
             bv = body_voices.get(body_i)
             if bv is not None:
                 g_body = j * phi_at_corner(bv.basis, events.off[ev_i])
-                g_eff = g_body * half_sine_spectrum(bv.basis.omega, tau)
-                e_kick += 0.5 * float(g_eff @ g_eff)
-            gamma = ledger.admit(e_kick)
+                ge_body = g_body * half_sine_spectrum(bv.basis.omega, tau)
+                e_kick += 0.5 * float(ge_body @ ge_body)
+            # Noise transient charged with the kick (docstring: γ covers both).
+            e_noise = float(noise_frac) ** 2 * e_kick
+            gamma = ledger.admit(e_kick + e_noise)
             if gamma > 0.0:
                 k0, w = impulse_kernel(float(events.t[ev_i]), tau, fs)
-                if g_table is not None:
-                    table_voice._splats.append((k0, w, gamma * g_table))
+                s_out2 = 0.0                 # event output scale ‖w ⊙ ĝ‖²
+                if g_support is not None:
+                    support_voice._splats.append((k0, w, gamma * g_support))
+                    wg = support_voice.gain * support_voice.basis.weight * ge_support
+                    s_out2 += float(wg @ wg)
                 if g_body is not None:
                     bv._splats.append((k0, w, gamma * g_body))
+                    wg = bv.gain * bv.basis.weight * ge_body
+                    s_out2 += float(wg @ wg)
+                if noise_frac > 0.0 and s_out2 > 0.0:
+                    burst = contact_noise_burst(tau, fs, rng_noise)
+                    noise_splats.append(
+                        (k0, gamma * float(noise_frac)
+                         * np.sqrt(s_out2) * burst))
             ev_i += 1
 
     master = np.zeros(n_samples, dtype=np.float64)
     per_voice_peak: dict[str, float] = {}
-    voice_items = (([(None, table_voice)] if table_voice else [])
+    voice_items = (([(None, support_voice)] if support_voice else [])
                    + list(body_voices.items()))
     n_choke_toggles = 0
     for bidx, v in voice_items:
@@ -314,6 +347,16 @@ def render_soundtrack(
             track = v.gain * _render_voice(v, n_samples, fs)
         per_voice_peak[v.name] = float(np.max(np.abs(track))) if track.size else 0.0
         master += track
+
+    if noise_splats:
+        noise_track = np.zeros(n_samples, dtype=np.float64)
+        for k0, s in noise_splats:
+            lo = max(k0, 0)
+            hi = min(k0 + s.shape[0], n_samples)
+            if hi > lo:
+                noise_track[lo:hi] += s[lo - k0:hi - k0]
+        per_voice_peak["noise"] = float(np.max(np.abs(noise_track)))
+        master += noise_track
 
     peak = float(np.max(np.abs(master))) if master.size else 0.0
     if peak > 0.0 and normalize_peak > 0.0:
@@ -330,6 +373,7 @@ def render_soundtrack(
         "raw_peak": peak,
         "per_voice_peak": per_voice_peak,
         "n_choke_toggles": n_choke_toggles,
+        "n_noise_bursts": len(noise_splats),
         "fs": fs,
         "n_samples": n_samples,
     }

@@ -2,6 +2,17 @@
 
 Each entry carries its generating command, commit and machine, reproduced verbatim from the project's results ledger. Commit identifiers read `<commit>`: a searchable hash would identify the authors, so they are restored for the camera-ready version. The code those commits name is in `code_snapshot.zip`.
 
+> **Supersession note (R4, trapezoidal `W_g`).** The reservoir supply now uses
+> the trapezoidal gravity work `W_g = ½ m g·(v⁻+v⁺) h` (foundation §15), so free
+> ballistic motion credits **zero** supply. Ledger excerpts below that predate
+> this fix report the older displacement-form counts — most consequentially the
+> augmented-Lagrangian host at **23 of 24** cells and the implicit host's
+> **−5.7×10⁻⁴ J** worst margin. Those were dominated by the symplectic ½mh²g²
+> integrator artifact; the current, paper-reported values are **3 of 24** (AVBD,
+> worst +6.7 J), **9 of 24** (XPBD), **0 of 24** (impulse, worst margin exactly
+> 0). See `CLAIMS_INDEX.md` and `data/eq2_utilization.csv` for the live numbers.
+
+
 ### E-S1b — the SYMMETRIC three-solver matrix (the plan's actual acceptance test)
 
 The plan's E-S1 acceptance criterion is that *"the three-solver table in the

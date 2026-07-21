@@ -462,6 +462,47 @@ OPEN:
 - Prepared the self-contained six-reviewer table, area-chair verdict, supplement assessment, and ranked pre-submission actions; all review phases are complete.
 - The generic plan checker could not parse this repository's custom multi-project plan (`0/0 phases`); manual phase audit confirms current review phases 11–14 are complete.
 
+# 2026-07-20 Current-artifact six-reviewer rerun
+
+- Activated the file-based review plan and locked the user-specified PDF/video.
+- Both artifacts changed after the last completed panel; all earlier scores were marked stale.
+- Began phase 15: reconstructing and visually auditing the seven-page PDF and complete 44.77-second MP4 before launching six isolated reviewers.
+- Extracted all 7,348 words and rendered all seven PDF pages; read the full method, results, limitations, conclusion, and references.
+- Launched isolated reviewers 1–3 on physics/energy, contact numerics, and novelty/significance while the primary reviewer continued the artifact audit.
+- Visually inspected all seven rendered pages; layout and six-page body compliance are clean, with only high information density and a missing visible paper ID as submission-readiness concerns.
+- Rechecked the official live MIG 2026 CFP and froze its short-paper scope, page rule, review criteria, supplement allowance, anonymity requirement, and unique-paper-ID rule for this panel.
+- Inspected the complete MP4 via full decode, ordered frames, and a two-second contact sheet. The video is technically clean, anonymous, visually legible, and scientifically candid about both stabilization and lost legitimate motion.
+- Completed phase 15 after confirming font embedding, absence of PDF attachments, and unchanged artifact hashes; phase 16 (six isolated reviews) is in progress.
+- Reviewers 1 and 3 returned independent weak-accept scores (both 5/7, confidence 4/5) and converged on an unprompted theorem/indexing inconsistency. Launched reviewers 4 and 5 as slots became available; all reports remain sealed from one another.
+- Reviewer 2 returned `4/7` borderline/lean reject (confidence 4/5), adding a schedule-matched-reference concern. Reviewer 6 was launched in the freed slot; all six panel assignments are now underway or complete.
+- Reviewer 4 returned `3/7` weak reject (confidence 4/5), driven chiefly by the missing ledger/code/data promised by the paper. Four reports are complete; reviewers 5 and 6 remain in progress.
+- Reviewer 5 returned `5/7` weak accept (confidence 4/5), emphasizing practitioner value and clearer target/guarantee/observation terminology. Five reports are complete; only the senior generalist remains.
+- Reviewer 6 returned `5/7` weak accept (confidence 4/5). Final panel: `5,4,5,3,5,5`, mean `4.50/7`, median `5/7`, four weak accepts versus one borderline/lean reject and one weak reject.
+- Reconciled all reports into a borderline weak-accept scientific verdict, conditional on repairing the guarantee/indexing statement and attaching the promised reproducibility archive; prepared prioritized pre-submission advice.
+- Rechecked both SHA-256 values after all six reviews; neither frozen artifact changed. Marked phases 15–18 complete and finalized the self-contained panel report.
+
+# 2026-07-20 20:05 PDF + unchanged-video audit
+
+- Activated the file-based review workflow for the user's six-reviewer request.
+- Locked the current PDF at `4aea9e00...` and the MP4 at `30a862fa...`.
+- The MP4 is byte-identical to the prior panel artifact, but the PDF changed from `276cc375...`; marked all earlier paper scores stale and began phase 19.
+- Started phase 20 in parallel with artifact reconstruction: six reviewers receive only the frozen PDF/MP4 and a common 1–7 review scale; earlier planning/review files are explicitly off limits.
+- Extracted the full PDF text, checked fonts/images, rendered all seven pages, and inspected a full contact sheet. The six-body-page plus references-only layout is visually clean, though information-dense.
+- Read the abstract, contribution framing, method chronology, and strict-bound proof. The new PDF materially repairs the old theorem/indexing ambiguity by proving Eq. (2) directly with same-substep credit and debit.
+- Completed the main text audit through conclusion. Corrected the metric count distinction (budget violations `9/24, 3/24, 0/24`; incident-ratio flags `8/24, 2/24, 0/24`) and recorded the evaluation strengths plus remaining supply, control, accuracy, contact-validity, and reproducibility limitations.
+- Inspected pages 1–2 at original rendered resolution; both are clean and legible. Flagged the absence of a visible paper ID for later verification against the live CFP.
+- Inspected pages 3–4 at original resolution. No visual defects; the revised proof and Figure 2 metric distinction are materially clearer than the stale reviewed artifact.
+- Inspected pages 5–6 at original resolution. The evaluation and limitations are cleanly rendered, with no evidence-hidden-in-tiny-print issue beyond normal short-paper density.
+- Inspected the references-only page 7 and fully decoded/re-sampled the unchanged 44.77-second MP4. The supplement remains technically clean and scientifically candid, but it visualizes only the XPBD shelf examples.
+- Rechecked the official live MIG 2026 CFP. Confirmed the 4–6 content-page rule, rubric, supplement allowance, strong venue fit, anonymity requirement, and unique-paper-ID requirement.
+- Finished the attachment/metadata/anonymity check. Neither artifact exposes an author identity; the PDF contains no embedded ledger/archive, confirming that the promised reproducibility material is absent from the supplied packet.
+- Marked phase 19 complete after a full text, page, video, metadata, packaging, hash, and live-CFP audit; phase 20 remains in progress with isolated reviewers.
+- Reopened the scientific consistency audit after directly comparing Figure 2 cells with the new prose. Confirmed a severe stale-figure/new-text conflict: heatmap `8/23/0`, AVBD max `15 J` versus prose `9/3/0`, AVBD max `6.7 J`; this must be treated as an acceptance blocker until the authoritative dataset is identified and every dependent claim is regenerated.
+- Zoom-audited Table 1. Confirmed that `H_ii` is undefined and the displayed XPBD weight cannot be unambiguously verified; recorded this as a technical-clarity/reproducibility blocker rather than assuming the implementation itself is wrong.
+- Five of six isolated reports are complete: scores `3,3,3,3,5`, all confidence `4/5` (four weak rejects, one weak accept). Reviewer 6 remains isolated and in progress; no report was shown to another reviewer.
+- Reviewer 6 returned `2/7` reject and independently confirmed the Figure 2/prose mismatch. Final panel is `3,3,3,3,5,2` (mean `3.17`, median `3`; five reject, one weak accept; all confidence `4/5`).
+- Reconciled the six reports with the primary artifact audit, rechecked both hashes unchanged, and marked phases 20–22 complete. Final advice: do not submit the current PDF; repair the authoritative data/figure/prose chain first, then address notation, artifact packaging, and the highest-value physical/evaluation controls.
+
 # 2026-07-20 Q-round (plan §9) — response to the 4.17/7 video panel
 
 Order: Q0 → Q1 → (Q2+Q3+Q4+Q7 as one tex pass) → full-audit rebuild →

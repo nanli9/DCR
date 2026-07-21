@@ -1,0 +1,1 @@
+[run_one] truck__energy_prescribed_patch__b0.1: 800 steps, wall=104.40s, rubric=FAIL, cum_E_injected=2662.402 J, §15 violation=0.00e+00 J

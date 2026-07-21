@@ -145,7 +145,12 @@ Rayleigh thud; steel ζ=3e-4 rings; plastic 8e-3 dull; soft 2.5e-2 dead) — a
 render-side constant-ζ override, DEVIATION-noted in audio_basis.py, since the
 scene's single Rayleigh fit would make every material thud. Material/
 thickness changes rebuild the table basis on first use (~10–20 s eigsh,
-then cached).
+then cached). The soft tabletop (E = 50 MPa) puts all 64 eigenmodes below the
+150 Hz crossover → 0 modes in band → the table voice goes silent (physically
+right: a rubbery slab doesn't ring; bodies still sound). `build_dinner_audio`
+drops the voice and prints a note; a 0-mode grid basis also round-trips
+through the npz cache as a `(n_pts, 0)` array (fixed 2026-07-13 — the loader
+previously collapsed it to `None` and the live tap asserted on first impact).
 Tests: `tests/stageE6/test_live_sound.py` — phasor synth ≡ reference bank,
 streaming tracker ≡ offline extractor, live tap on the real scene (stub
 engine, headless), real-stream smoke (skips sandboxed/CI).
@@ -256,3 +261,161 @@ resident q-block instead of dead-ending.
 
 Still out of scope: XPBD-native staging, box-box (body-body) impact rows —
 documented follow-ups.
+
+## Shell (Rayleigh ring) basis for cup + pot (2026-07-13)
+
+The remaining "unreal" offender was geometry class: a cup is a shell, not a
+plate. Its slab proxy rang at 9 kHz with two modes — a pure sine "ting".
+`build_shell_audio_basis` replaces the eigensolve for open-vessel bodies
+with Rayleigh's closed-form inextensional ring ("wine-glass") modes,
+
+    ω_n = rim_factor · n(n²−1)/√(n²+1) · (t/R²)·√(E′/12ρ),   n ≥ 2,
+
+R/H from the collision proxy, t the real wall thickness, E′ = E/(1−ν²);
+exact ring-shape mass normalization (A_n = 1/√(m·½(1+1/n²))), radiation
+weight from the radial rms over the side-wall area (the wall is the
+radiator). Emits the same corners-kind `AudioBasis`, so events/choke/
+ledger/live all work unchanged. `KIND_SPEC` selects `basis="shell"` for cup
+(f₁ = 1671 Hz, 4 partials — the mug register, vs 9057 Hz × 2 before) and
+pot (rim_factor 2.0 for the closed base → f₁ = 536 Hz, 9 partials — the
+dutch-oven clang register, vs 1659 Hz slab ping). Plates/cutlery stay on
+the slab basis (a plate IS a plate; a fork is a bar). DEVIATIONs disclosed
+in the builder docstring: free-ring formula + rim_factor stiffening, one
+standing mode per n (corner-antinode phase; the sin partner has corner
+nodes; handle-split doublets unmodeled), κ = vertical-tap→rim coupling
+efficiency (cup 0.6, pot 0.8).
+
+A physically-correct consequence worth knowing: the default dinner drop
+lands the pot FLAT — four equal simultaneous corner impulses — and sampling
+cos(nθ) at 4 symmetric corners cancels every n except multiples of 4. So a
+flat drop gives wood thump + a brief n=4 ~2.9 kHz "clack" (−19 dB under the
+table voice), while an off-center drop (`--drop-xz 0.55 0.18`) rings the
+real n=2 clang: onset 490–590 Hz band 0.050 → 0.156, n=3 ×24. That matches
+reality (axisymmetric impacts don't excite rim flexure) and is the first
+render where the E6 cap actively gates: the edge-impact rattle capped 24
+events (γ<1) with the cumulative bound holding (17.97 ≤ 25.47 J).
+
+Tests: shell series matches the hand formula to 1e-12, ratio law, band cap,
+corner-phase/coupling (n=2 alternation, n=3 node, κ linearity), rim_factor
+scaling — tests/stageE6 26 pass.
+
+## Render-quality pass (2026-07-13, third): attack noise + doublet warble
+
+Two render-side fixes to the remaining "robotic" character (excitation,
+event extraction, band split untouched; the ledger inequality still verifies
+on the real run: 6.46 ≤ 25.67 J, 0/814 capped, 3 s log).
+
+**Attack noise** (`shaping.contact_noise_burst`). A pure sum of damped
+sines is the "struck tuning fork" artifact — real impacts carry a broadband
+micro-collision transient (surface roughness + the dense unresolved
+high-mode continuum a truncated bank cannot produce; cf. van den Doel, Kry
+& Pai 2001's noise-driven contact textures). Each played event now also
+splats a unit-energy noise burst: white noise one-pole low-passed at
+f_c ≈ 1/τ (the half-sine kernel's ≈ −10 dB corner, so burst brightness
+follows the same Hertz τ(v) law — fast/hard = short/bright), exponential
+envelope over clip(4τ, 1.5 ms, 8 ms). One knob, `noise_frac` (offline
+`--noise`, live `--sound-noise`, default 0.35, 0 disables), covers BOTH
+sides consistently: the ledger admits e_kick + noise_frac²·e_kick in one
+γ (§15-form bound covers the whole played program), and the burst's output
+amplitude is γ·noise_frac·‖w ⊙ ĝ‖ — the event's own listening-weighted
+effective-kick norm — so noise:modal loudness = noise_frac by construction.
+Bursts are rng-seeded (deterministic offline; per-event random detail also
+breaks the identical-repeat artifact live). The live engine mixes bursts
+sample-accurately with the kick timeline and carries block-boundary spill
+in an overlap buffer.
+
+**Doublet warble** (`audio_basis.split_degenerate_pairs` + shell pairs).
+A real vessel's asymmetry (handle, wall variation) splits each degenerate
+mode pair by ~0.1–1% and rotates the nodal lines off the strike point; the
+resulting slow beat ("warble") is a large part of why struck ceramic/metal
+sounds alive. The shell basis now emits BOTH cos/sin partners per ring
+order, split by `doublet_detune` (cup 3e-3 → ~3–5 Hz beat at the 1.7 kHz
+fundamental; pot 2e-3) with a per-order nodal rotation χ_n ∈ [0.2, 0.5] rad
+so both partners couple at the corners (pair coupling power = the legacy
+antinode sample — redistributed, not louder). Box bases get the same
+treatment post-eigensolve: near-degenerate pairs of the (near-)square slab
+proxy are pushed to the target split (a symmetric proxy's exact degeneracy
+never beats). Splits/rotations are deterministic low-discrepancy sequences
+(cache-reproducible); `doublet_detune=0` restores the old single-partner
+bases. Cup 4 → 8 modes, pot 9 → 18; KIND_SPEC carries the detunes so cache
+hashes rebuild.
+
+Both features are render-layer plausibility choices, DEVIATION-noted at
+their definitions — NOT contributions, and NOT scrape/roll synthesis (the
+burst is impact-gated by the same normal-row events as the modal kicks).
+
+Tests: burst unit-energy/determinism/duration-clamps/Hertz-brightness
+(spectral centroid ×2 monotone), pair-split mean/order/triple-cap
+invariants, shell doublet split ∈ [δ/2, δ] with pair mean on the Rayleigh
+series and both partners corner-coupled, end-to-end noise ledger charge
+(= (1+noise_frac²)× the noise-free admitted energy, uncapped) — 29 pass +
+device-ring parity.
+
+## Scene generalization (2026-07-13): `--sound` on every scene
+
+`--sound` was dinner-only; it now works on **all five** viser scenes
+(`--scene cargo|truck|ledge|shelf|dinner`, still `--solver avbd`, cpu hook tap
+or cuda ring tap). Nothing in the excitation, event extraction, band split or
+ledger changed — only the *instruments* are now chosen per scene.
+
+**Support voice.** The grid voice is the scene's deformable slab, not "the
+table": `dcr/sound` renamed `table_basis`/`table_voice` → `support_basis`/
+`support_voice` (engine key `"support"`). `scripts/sound_voices.
+build_scene_audio` builds it from whatever geometry + material the scene was
+built with — extents read off the scene builder's own signature
+(`UnifiedViser._support_geometry`), thickness from the live knob, E/ρ from the
+material knob — so the audio slab stays the instrument the sim actually rang,
+with no per-scene constants duplicated in the viewer. The cache key is the
+geometry+material itself, so the offline render and the live viewer share one
+eigensolve per (slab, material); a cold build prints a "one-off, 10–60 s" note
+rather than looking hung. Measured bands (scene defaults):
+
+| scene | slab | modes ≥ 150 Hz |
+|---|---|---|
+| truck | 2.5 × 1.5 m wood road | 60, 183–1943 Hz |
+| ledge | 1.2 × 0.8 m stone ledge | 64, 155–5360 Hz |
+| shelf | 0.8 × 0.3 m plastic board | 63, 166–3125 Hz |
+| cargo | 0.8 × 0.4 m wood slab | 64, 216–13063 Hz |
+| dinner | 2.2 × 1.1 m DCR table | 53, 151–828 Hz |
+
+`_AUDIO_SUPPORT_ZETA` now covers every material in the knob (glass/aluminum
+2e-4 brightest, steel/titanium 3e-4, concrete 1.2e-2, wood/dcr_table = the
+sim's Rayleigh law, plastic 8e-3, soft 2.5e-2, rubber 8e-2 → dead).
+`--sound-support-fmin` exposes the band-split crossover for a big/soft slab
+whose plate modes all sit low (at the default 150 Hz every scene above has a
+healthy band, so it is not needed in practice).
+
+**Body voices.** `KIND_SPEC` gained the other scenes' objects, each with its
+own E/ν/ρ/ζ/thickness/τ_ref (so they sound like what they are): wooden
+**crate** (12 mm plank walls, ζ 2e-2 — a knock, not a ring), PVC **cone**
+(ζ 6e-2, long τ → a dull "pock"), solid **lumber**, granite **pedestal** /
+**pillar** / **boulder** (ζ 5–8e-3, short bright τ → a hard clack), and
+**book** (ζ 9e-2, τ 2.5 ms — a paper block is acoustically nearly dead; the
+attack-noise transient carries the thwack). Bodies map to instruments by
+longest name prefix, with aliases for the dropped impactors (`resolve_kind`:
+`crate_rest_0` → crate, `drop_heavy` → crate, `drop_book` → book). A body with
+no entry is **silent by design** (candles, cargo cubes — wax and foam don't
+ring); its hits still ring the support voice and still fire the noise burst.
+
+**Verified** (1.2 s headless run per scene, real bases, live tap on a stub
+engine — every scene emits events, fires noise bursts, and the E6 inequality
+holds):
+
+| scene | voices | events | E6 (kick ≤ η·loss) |
+|---|---|---|---|
+| dinner | 24 | 443 | 7.67 ≤ 25.0 J, 0 capped |
+| truck | 13 | 916 | 96.0 ≤ 317.7 J, 0 capped |
+| ledge | 6 | 369 | 230.1 ≤ 473.1 J, 0 capped |
+| shelf | 7 | 240 | 1.13 ≤ 31.9 J, 0 capped |
+| cargo | 1 | 419 | 1.34 ≤ 1.35 J, 14 capped |
+
+Honest notes carried over: **box-box rows are still unlogged**, so a body that
+rests on another body rather than on the slab never sounds — on ledge the three
+pillars stand on the pedestal, so they are silent voices (only pedestal +
+boulder + ledge are heard), and the upper lumber blocks only sound when they
+strike the road. The cargo scene has no named rigid bodies, so it is the
+support slab + attack noise alone (its ledger is also the one place the cap
+actively gates: 14/430 events, soft cubes dissipate little). Tests:
+`tests/stageE6/test_scene_voices.py` (name→instrument map, KIND_SPEC/alias
+integrity, per-scene support geometry vs the builder signature) — 54 stageE6
+tests pass.

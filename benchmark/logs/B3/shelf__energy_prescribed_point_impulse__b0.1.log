@@ -1,0 +1,1 @@
+[run_one] shelf__energy_prescribed_point_impulse__b0.1: 800 steps, wall=23.16s, rubric=FAIL, cum_E_injected=60.566 J, §15 violation=0.00e+00 J

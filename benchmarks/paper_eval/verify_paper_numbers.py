@@ -74,8 +74,8 @@ def main() -> int:
     chk("E_mod ungoverned 1555.6 J",
         abs(arm("ungoverned", "e_modal_peak_J") - 1555.6) < 0.1,
         f"{arm('ungoverned', 'e_modal_peak_J'):.1f}")
-    chk("E_mod governed 29.26 J",
-        abs(arm("governed", "e_modal_peak_J") - 29.26) < 0.01,
+    chk("E_mod governed 29.56 J",
+        abs(arm("governed", "e_modal_peak_J") - 29.56) < 0.01,
         f"{arm('governed', 'e_modal_peak_J'):.2f}")
     chk("E_mod reference 7.92 J",
         abs(arm("oracle", "e_modal_peak_J") - 7.92) < 0.01,
@@ -108,17 +108,17 @@ def main() -> int:
 
     chk("energy error 196x -> 3.7x (reference)",
         abs(acc("oracle", "ungoverned_E_err_x") - 196.5) < 0.5
-        and abs(acc("oracle", "governed_E_err_x") - 3.696) < 0.01,
+        and abs(acc("oracle", "governed_E_err_x") - 3.733) < 0.01,
         f"{acc('oracle', 'ungoverned_E_err_x'):.1f} -> "
         f"{acc('oracle', 'governed_E_err_x'):.3f}")
     chk("energy error 189x -> 3.6x (xpbd fixed point)",
         abs(acc("xpbd_converged", "ungoverned_E_err_x") - 189.2) < 0.5
-        and abs(acc("xpbd_converged", "governed_E_err_x") - 3.558) < 0.01,
+        and abs(acc("xpbd_converged", "governed_E_err_x") - 3.594) < 0.01,
         f"{acc('xpbd_converged', 'ungoverned_E_err_x'):.1f} -> "
         f"{acc('xpbd_converged', 'governed_E_err_x'):.3f}")
-    chk("Linf 6.5 -> 14.3 mm (governed is WORSE)",
+    chk("Linf 6.5 -> 14.2 mm (governed is WORSE)",
         abs(1e3 * acc("oracle", "ungoverned_linf_m") - 6.5) < 0.06
-        and abs(1e3 * acc("oracle", "governed_linf_m") - 14.3) < 0.06
+        and abs(1e3 * acc("oracle", "governed_linf_m") - 14.19) < 0.06
         and acc("oracle", "governed_linf_m") > acc("oracle", "ungoverned_linf_m"),
         f"{1e3 * acc('oracle', 'ungoverned_linf_m'):.2f} -> "
         f"{1e3 * acc('oracle', 'governed_linf_m'):.2f} mm")
@@ -145,45 +145,30 @@ def main() -> int:
         f"{sag('oracle', 'pen_over_sag_x'):.2f} / "
         f"{sag('xpbd_converged', 'pen_over_sag_x'):.2f}")
 
-    # ---- R5.2: Table 2 augmented-Lagrangian rows ---------------------------
-    want = {0.7: (1.43, 1.17, 0.729), 1.0: (3.11, 1.39, 0.6016)}
-    rel = {}
-    with open(os.path.join(X1, "projection_validity_avbd.csv")) as fh:
-        for r in csv.DictReader(fh):
-            rx = float(r["relax"])
-            gap, imp, gmin = want[rx]
-            tag = f"table({rx})"
-            # The P-round page squeeze removed Table 2's AVBD rows, so the
-            # clamp counts are no longer printed and asserting them "in tex"
-            # became a stale check that failed for two rounds. What the tex
-            # DOES still print for this host is checked below: the absolute
-            # worst gaps, the "within 1.4x" claim, and the relative ratios.
-            rel[rx] = (float(r["gap_viol_post_max_m"])
-                       / float(r["gap_viol_pre_max_m"]))
-            chk(f"{tag} impulse and lambda-variance within 1.4x of steady",
-                float(r["impulse_next_over_steady"]) <= 1.4
-                and (float(r["lam_var_clamped_median"])
-                     / float(r["lam_var_free_median"])) <= 1.4,
-                f"{float(r['impulse_next_over_steady']):.3f}x / "
-                f"{float(r['lam_var_clamped_median']) / float(r['lam_var_free_median']):.3f}x")
-            chk(f"{tag} worst gap {gap} mm",
-                abs(1e3 * float(r["gap_viol_post_max_m"]) - gap) < 0.006,
-                f"{1e3 * float(r['gap_viol_post_max_m']):.3f}")
-            chk(f"{tag} impulse ratio {imp}x",
-                abs(float(r["impulse_next_over_steady"]) - imp) < 0.006,
-                f"{float(r['impulse_next_over_steady']):.3f}")
-            chk(f"{tag} gamma_min {gmin}",
-                abs(float(r["gamma_min"]) - gmin) < 0.001,
-                f"{float(r['gamma_min']):.4f}")
-            chk(f"{tag} momentum unchanged across projection",
-                float(r["dP_across_projection_max"]) == 0.0,
-                f"{float(r['dP_across_projection_max']):.3e}")
-
-    # The printed cross-host comparison: AVBD an order of magnitude gentler in
-    # absolute terms, comparable in relative terms (3.1 and 5.5x vs 3.5-12.6x).
-    chk("avbd relative effect 3.1x and 5.5x",
-        abs(rel[0.7] - 3.1) < 0.05 and abs(rel[1.0] - 5.5) < 0.05,
-        f"{rel[0.7]:.2f}x / {rel[1.0]:.2f}x")
+    # ---- R5.2: Table 2 augmented-Lagrangian rows (trapezoidal-W_g reframe) --
+    # After the §15 gravity-supply fix the AVBD host materially overdraws only
+    # at the starved dinner 1.0 4x1 cell (+6.7 J); its other R>1 cell (dinner
+    # 0.7 4x1) satisfies the invariant outright, so the clamp is inert there.
+    # (The former block asserted a 1.4/3.1 mm pair and a "within 1.4x" claim,
+    # both of which were artifacts of the displacement-form supply.)
+    avbd = {float(r["relax"]): r for r in csv.DictReader(
+        open(os.path.join(X1, "projection_validity_avbd.csv")))}
+    chk("avbd 0.7 4x1 clamp inert (holds the invariant, R>1 notwithstanding)",
+        int(float(avbd[0.7]["n_clamped"])) == 0,
+        f"n_clamped={avbd[0.7]['n_clamped']}")
+    r10 = avbd[1.0]
+    chk("avbd 1.0 4x1 worst gap 1.8 mm (vs XPBD 21.6)",
+        abs(1e3 * float(r10["gap_viol_post_max_m"]) - 1.809) < 0.01,
+        f"{1e3 * float(r10['gap_viol_post_max_m']):.3f}")
+    chk("avbd 1.0 4x1 gamma_min 0.879",
+        abs(float(r10["gamma_min"]) - 0.8788) < 0.001,
+        f"{float(r10['gamma_min']):.4f}")
+    chk("avbd 1.0 4x1 no measurable corrective impulse",
+        float(r10["impulse_next_over_steady"]) == 0.0,
+        f"{float(r10['impulse_next_over_steady']):.3f}")
+    chk("avbd 1.0 4x1 momentum unchanged across projection",
+        float(r10["dP_across_projection_max"]) == 0.0,
+        f"{float(r10['dP_across_projection_max']):.3e}")
     with open(os.path.join(X1, "projection_validity.csv")) as fh:
         xr = [(float(r["gap_viol_post_max_m"]) / float(r["gap_viol_pre_max_m"]),
                float(r["impulse_next_over_steady"] or "nan"),
@@ -197,21 +182,21 @@ def main() -> int:
     # 5.5x against this range and calls them "comparable", which a floor of 3.1
     # supports more strongly than a floor of 3.5.
     glo, ghi = min(g for g, _, _ in xr), max(g for g, _, _ in xr)
-    chk("xpbd relative effect spans 3.1-12.6x",
-        abs(glo - 3.1) < 0.05 and abs(ghi - 12.6) < 0.05,
+    chk("xpbd relative effect spans 3.1-12.5x",
+        abs(glo - 3.1) < 0.05 and abs(ghi - 12.47) < 0.05,
         f"{glo:.2f}-{ghi:.2f}x")
     if tex is None:
         _skipped.append("tex prints the corrected 3.1-12.6x range "
                         "(no paper source: pass --tex)")
     else:
-        chk("tex prints the corrected 3.1-12.6x range (both sites)",
-            tex.count(r"$3.1$--$12.6\times$") == 2
-            and r"$3.5$--$12.6\times$" not in tex,
-            f"{tex.count(r'$3.1$--$12.6\times$')} site(s) corrected, "
-            f"{tex.count(r'$3.5$--$12.6\times$')} stale")
-    chk("xpbd worst impulse 8.7x, worst lambda variance 58x",
-        abs(max(i for _, i, _ in xr if i == i) - 8.693) < 0.006
-        and abs(max(v for _, _, v in xr if v == v) - 58.5) < 0.5,
+        chk("tex prints the 3.1-12.5x XPBD range",
+            tex.count(r"$3.1$--$12.5\times$") == 1
+            and r"$3.1$--$12.6\times$" not in tex,
+            f"{tex.count(r'$3.1$--$12.5\times$')} site(s), "
+            f"{tex.count(r'$3.1$--$12.6\times$')} stale")
+    chk("xpbd worst impulse 8.9x, worst lambda variance 62x",
+        abs(max(i for _, i, _ in xr if i == i) - 8.915) < 0.006
+        and abs(max(v for _, _, v in xr if v == v) - 61.63) < 0.5,
         f"{max(i for _, i, _ in xr if i == i):.3f}x / "
         f"{max(v for _, _, v in xr if v == v):.1f}x")
 

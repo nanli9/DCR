@@ -103,7 +103,14 @@ def test_network_invariant_holds_and_upper_rings():
 # --------------------------------------------------------------------------- #
 # 3. over-relaxed / stiff network injects without the clamp; bounded with it   #
 # --------------------------------------------------------------------------- #
-_INJECT = dict(iters=4, subs=1, relax=1.0, drop=0.02, E=3.0e6)
+# Retuned for the trapezoidal-W_g supply (foundation §15; the free-fall phantom
+# fix): the previous marginal config (drop=0.02, E=3e6) injected only ~2×10⁻⁵ J
+# above budget, which was the displacement-form gravity artifact rather than a
+# real over-injection — the corrected accounting absorbs it (max_net_excess<0).
+# A genuinely harder stiff impact still over-injects through the truncation
+# artifact (max_net_excess≈1.2 J ≫ max_deposit≈0.25 J), so the clamp still has
+# something to bite. See tests/avbd_native/test_gravity_supply_trapezoidal.py.
+_INJECT = dict(iters=2, subs=1, relax=1.0, drop=0.05, E=1.0e7)
 
 
 def test_network_injects_without_clamp():

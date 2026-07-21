@@ -147,11 +147,50 @@ def phi_at_corner(basis: AudioBasis, off_a: NDArray[np.float64]) -> NDArray[np.f
 # Builders
 # ---------------------------------------------------------------------------
 
+_GOLDEN = 0.6180339887498949     # frac((k+1)·φ): deterministic per-pair jitter
+_PLASTIC = 0.7548776662466927    # second low-discrepancy stream (rotations)
+
+
 def _rayleigh_zeta(omega: NDArray[np.float64], alpha0: float,
                    alpha1: float) -> NDArray[np.float64]:
     """ζ_i = α₀/(2ω_i) + α₁ω_i/2 — diagonal of D_q over 2ω (Eq. 7)."""
     w = np.maximum(omega, 1e-12)
     return alpha0 / (2.0 * w) + alpha1 * w / 2.0
+
+
+def split_degenerate_pairs(
+    omega: NDArray[np.float64],
+    detune: float,
+) -> NDArray[np.float64]:
+    """Push near-degenerate adjacent mode pairs apart to a small relative
+    split, symmetrically about the pair mean (ascending order preserved).
+
+    # DEVIATION (doublets, render-side; disclosed in docs/stageE6): a
+    # symmetric proxy (square slab) has (near-)exactly repeated eigenvalues
+    # whose superposition never beats; real objects' asymmetries (handle,
+    # warp, thickness variation) split each degenerate pair by ~0.1–1%, and
+    # the resulting slow beat ("warble") is a large part of why struck
+    # ceramic/metal sounds alive. Per-pair split δ_k = detune·(0.5 + 0.5·
+    # frac((k+1)·φ)) — deterministic (golden-ratio sequence), so cached
+    # bases are reproducible. detune = 0 disables (exact old behavior).
+    """
+    w = np.asarray(omega, dtype=np.float64).copy()
+    if detune <= 0.0 or w.shape[0] < 2:
+        return w
+    i = k = 0
+    while i + 1 < w.shape[0]:
+        mid = 0.5 * (w[i] + w[i + 1])
+        delta = float(detune) * (0.5 + 0.5 * ((k + 1) * _GOLDEN % 1.0))
+        if mid > 0.0 and (w[i + 1] - w[i]) < delta * mid:
+            hi = mid * (1.0 + delta / 2.0)
+            if i + 2 < w.shape[0]:               # degenerate triple: stay
+                hi = min(hi, w[i + 2] * (1.0 - 1e-9))  # strictly below third
+            w[i], w[i + 1] = mid * (1.0 - delta / 2.0), hi
+            k += 1
+            i += 2
+        else:
+            i += 1
+    return w
 
 
 def build_table_audio_basis(
@@ -271,9 +310,13 @@ def build_box_audio_basis(
     cells: tuple[int, int, int] = (8, 2, 8),
     thickness: float | None = None,
     density: float | None = None,
+    doublet_detune: float = 2.5e-3,
     name: str = "box",
 ) -> AudioBasis:
     """Free-free audio basis for a rigid box proxy (plate / cup / utensil).
+    `doublet_detune` splits near-degenerate pairs of the (near-)square proxy
+    so they beat like a real, slightly asymmetric object
+    (`split_degenerate_pairs` DEVIATION note; 0 disables).
 
     Solves Eq. 6 on the box's tet mesh with NO Dirichlet BCs. eigsh uses a
     NEGATIVE shift σ (K − σM = K + |σ|M is SPD) so shift-invert works on the
@@ -327,7 +370,7 @@ def build_box_audio_basis(
     f_hz = omega_all / (2.0 * np.pi)
     keep = (f_hz >= fmin_hz) & (f_hz <= 0.45 * fs)
     kept = np.where(keep)[0][:int(num_modes)]
-    omega = omega_all[kept]
+    omega = split_degenerate_pairs(omega_all[kept], float(doublet_detune))
     zeta = np.full(omega.shape, float(zeta_const), dtype=np.float64)
 
     # Signed φ_y at the 8 corners (body frame), free-free: all DOFs are free,
@@ -355,7 +398,131 @@ def build_box_audio_basis(
                   youngs=youngs, poisson=poisson, zeta_const=zeta_const,
                   num_modes=num_modes, fs=fs, fmin_hz=fmin_hz,
                   cells=list(cells), thickness=t_full, density=rho,
-                  radiation_v=2)
+                  doublet_detune=doublet_detune, radiation_v=2)
+    return AudioBasis(
+        name=name, kind="corners", omega=omega, zeta=zeta, weight=weight,
+        phi_corners=phi_corners, corner_signs=corner_signs,
+        params_json=json.dumps(params, sort_keys=True))
+
+
+def build_shell_audio_basis(
+    *,
+    half_extents: tuple[float, float, float],
+    thickness: float,
+    youngs: float,
+    poisson: float,
+    density: float,
+    zeta_const: float,
+    num_modes: int = 8,
+    rim_factor: float = 1.0,
+    kappa: float = 0.4,
+    doublet_detune: float = 2.5e-3,
+    fs: float = 44100.0,
+    fmin_hz: float = 60.0,
+    name: str = "shell",
+) -> AudioBasis:
+    """Closed-form SHELL basis for open, cup/pot-like bodies — Rayleigh's
+    inextensional ring ("wine-glass") modes instead of a slab eigensolve.
+
+    A cup is a shell, not a plate: its audible ring is the rim flexure of a
+    cylinder, whose frequencies scale with the RADIUS as the length scale.
+    The slab proxy (`build_box_audio_basis`) puts a 3 mm ceramic cup at
+    ~9 kHz with two modes — a pure sine "ting"; the ring series for the same
+    cup starts ~1.7 kHz with the classic inharmonic mug partials. Rayleigh's
+    ring formula (Theory of Sound §233; rectangular wall section, plate
+    modulus E′ = E/(1−ν²)):
+
+        ω_n = rim_factor · n(n²−1)/√(n²+1) · (t/R²) · √(E′/(12ρ)),  n ≥ 2
+
+    with R = (hx+hz)/2 and height H = 2·hy read from the COLLISION proxy
+    (bounding size ≈ real object), t = the real wall thickness (same
+    audio-geometry DEVIATION as the box builder).
+
+    # DEVIATION (shell model, render-side; disclosed in docs/stageE6):
+    # - free-ring formula; `rim_factor` is the documented boundary-condition
+    #   stiffening for closed-bottom / thick-walled vessels (a pot's base
+    #   raises rim modes ~2×; an open cup is ≈ the free ring, factor 1).
+    # - each ring order n contributes its DEGENERATE PAIR (cos/sin standing
+    #   waves), split by `doublet_detune` and rotated by a per-order nodal
+    #   offset χ_n ∈ [0.2, 0.5] rad (both deterministic low-discrepancy
+    #   sequences — `split_degenerate_pairs` DEVIATION note): a real vessel's
+    #   asymmetry (handle, wall variation) both detunes the pair (the mug
+    #   "warble" beat) and rotates the nodal lines off the strike point so
+    #   BOTH partners couple. doublet_detune = 0 restores the old
+    #   single-partner basis (χ = 0, cos partner only — the sin partner then
+    #   has nodes at all four proxy corners and is dropped).
+    # - `kappa` ∈ (0,1] is the vertical-tap → rim-flexure coupling
+    #   efficiency (a base impact excites rim modes through the wall; the
+    #   ring model has no closed form for it): φ_y(corner) =
+    #   κ · A_n · cos(n(θ_c−π/4)), uniform along the height (ring model).
+    # Mass normalization is exact for the ring shape: with radial w = cos nθ
+    # and inextensional tangential v = −sin(nθ)/n over shell mass
+    # m = ρt(2πRH + πR²),  A_n = 1/√(m·½(1+1/n²)); the listening weight uses
+    # the radial (wall-normal) rms A_n/√2 over the side area S = 2πRH — the
+    # wall is the radiator (`radiation_weight`).
+    """
+    hx, hy, hz = (float(v) for v in half_extents)
+    radius = 0.5 * (hx + hz)
+    height = 2.0 * hy
+    t = float(thickness)
+    e_plate = float(youngs) / max(1.0 - float(poisson) ** 2, 1e-9)
+    base = (t / max(radius ** 2, 1e-12)) * np.sqrt(e_plate / (12.0 * density))
+
+    n_orders = np.arange(2, 2 + int(num_modes), dtype=np.float64)
+    omega_orders = (float(rim_factor) * base
+                    * n_orders * (n_orders ** 2 - 1.0)
+                    / np.sqrt(n_orders ** 2 + 1.0))
+    if doublet_detune > 0.0:
+        # Degenerate cos/sin pair per order: split ±δ_n/2 about the ring
+        # frequency, nodal rotation χ_n (docstring DEVIATION; deterministic
+        # low-discrepancy sequences, so cached bases are reproducible).
+        k = np.arange(n_orders.shape[0], dtype=np.float64)
+        delta = float(doublet_detune) * (0.5 + 0.5 * ((k + 1) * _GOLDEN % 1.0))
+        chi_ord = 0.2 + 0.3 * ((k + 1) * _PLASTIC % 1.0)
+        n_ring = np.repeat(n_orders, 2)
+        omega_all = (np.repeat(omega_orders, 2)
+                     * (1.0 + np.repeat(delta, 2) / 2.0
+                        * np.tile([-1.0, 1.0], n_orders.shape[0])))
+        is_sin = np.tile([False, True], n_orders.shape[0])
+        chi = np.repeat(chi_ord, 2)
+    else:
+        n_ring, omega_all = n_orders, omega_orders
+        is_sin = np.zeros(n_ring.shape[0], dtype=bool)
+        chi = np.zeros(n_ring.shape[0], dtype=np.float64)
+    f_hz = omega_all / (2.0 * np.pi)
+    keep = (f_hz >= fmin_hz) & (f_hz <= 0.45 * fs)
+    n_ring, omega = n_ring[keep], omega_all[keep]
+    is_sin, chi = is_sin[keep], chi[keep]
+
+    m_shell = density * t * (2.0 * np.pi * radius * height
+                             + np.pi * radius ** 2)
+    amp = 1.0 / np.sqrt(m_shell * 0.5 * (1.0 + 1.0 / n_ring ** 2))
+    zeta = np.full(omega.shape, float(zeta_const), dtype=np.float64)
+    weight = radiation_weight(amp / np.sqrt(2.0), omega,
+                              2.0 * np.pi * radius * height)
+
+    # Signed φ_y at the 8 proxy corners: azimuth of the (sx, sz) corner,
+    # standing pair phased about the diagonal (χ_n nodal rotation, docstring
+    # DEVIATION); top and bottom corners sample identically (uniform-height
+    # ring model, DEVIATION).
+    corner_signs = np.array([[sx, sy, sz]
+                             for sy in (-1.0, 1.0)
+                             for sx in (-1.0, 1.0)
+                             for sz in (-1.0, 1.0)], dtype=np.float64)
+    phi_corners = np.zeros((8, omega.shape[0]), dtype=np.float64)
+    for ci, s in enumerate(corner_signs):
+        theta = np.arctan2(s[2], s[0])
+        phase = n_ring * (theta - np.pi / 4.0) - chi
+        phi_corners[ci, :] = (float(kappa) * amp
+                              * np.where(is_sin, np.sin(phase),
+                                         np.cos(phase)))
+
+    params = dict(kind="shell", half_extents=[hx, hy, hz],
+                  thickness=t, youngs=youngs, poisson=poisson,
+                  density=density, zeta_const=zeta_const,
+                  num_modes=num_modes, rim_factor=rim_factor, kappa=kappa,
+                  doublet_detune=doublet_detune,
+                  fs=fs, fmin_hz=fmin_hz, radiation_v=2)
     return AudioBasis(
         name=name, kind="corners", omega=omega, zeta=zeta, weight=weight,
         phi_corners=phi_corners, corner_signs=corner_signs,
@@ -392,13 +559,16 @@ def load_audio_basis(path: str) -> AudioBasis:
     gm = d["grid_meta"]
     phi_grid = d["phi_grid"]
     phi_corners = d["phi_corners"]
+    # Absent-array sentinel is the (0, 0) placeholder — test shape[0], not
+    # .size: a legitimately empty band saves as (n_pts, 0) / (8, 0) and must
+    # round-trip as an array so the kind→array invariant survives the cache.
     return AudioBasis(
         name=str(d["name"]), kind=str(d["kind"]),
         omega=d["omega"], zeta=d["zeta"], weight=d["weight"],
-        phi_grid=(phi_grid if phi_grid.size else None),
+        phi_grid=(phi_grid if phi_grid.shape[0] else None),
         length=float(gm[0]), width=float(gm[1]),
         n_grid_x=int(gm[2]), n_grid_z=int(gm[3]),
-        phi_corners=(phi_corners if phi_corners.size else None),
+        phi_corners=(phi_corners if phi_corners.shape[0] else None),
         corner_signs=(d["corner_signs"] if d["corner_signs"].size else None),
         params_json=str(d["params_json"]),
     )

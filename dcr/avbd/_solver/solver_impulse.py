@@ -792,6 +792,7 @@ class SolverImpulse:
         X, Q, V, W_ang = self._X, self._Q, self._V, self._W
         n = X.shape[0]
         x_prev = X.copy()
+        v_prev = V.copy()   # §15 trapezoidal gravity work (see _psv_commit)
 
         # ---- §15 energy snapshot (pre-solve) ---------------------------------
         if self._modal and self._psv_ledger is None:
@@ -839,7 +840,7 @@ class SolverImpulse:
         if not rows:
             self._commit_free(h, v_free, w_free, qdot_free, adot_free)
             if _psv:
-                self._psv_commit(h, x_prev, E_rig_pre, E_modal_pre)
+                self._psv_commit(h, x_prev, v_prev, E_rig_pre, E_modal_pre)
             return
 
         m = len(rows)
@@ -940,7 +941,7 @@ class SolverImpulse:
 
         self._commit_free(h, v_free, w_free, qdot_free, adot_free)
         if _psv:
-            self._psv_commit(h, x_prev, E_rig_pre, E_modal_pre)
+            self._psv_commit(h, x_prev, v_prev, E_rig_pre, E_modal_pre)
 
     def _commit_free(self, h, v_new, w_new, qdot_new, adot_new) -> None:
         """Velocity commit + symplectic-Euler position integration (paper Eq. 1;
@@ -980,19 +981,27 @@ class SolverImpulse:
             E += ka + pa
         return E
 
-    def _psv_commit(self, h, x_prev, E_rig_pre, E_modal_pre) -> None:
+    def _psv_commit(self, h, x_prev, v_prev, E_rig_pre, E_modal_pre) -> None:
         """§15 ledger update, mirroring SolverXPBD._substep_cpu: the reservoir's
         only funding is contact-dissipated rigid energy = gravity work − ΔKE."""
         from .passivity import rigid_mechanical_energy, passivity_gamma
         E_rig_post = rigid_mechanical_energy(
             self._V, self._W, self._Q[:, [3, 0, 1, 2]], self._mass,
             self._invIl, Il=self._psv_Il)
+        # DEVIATION (paper Eq. (3); foundation §15): trapezoidal gravity work
+        # ½ m g·(v⁻+v⁺) h, NOT the displacement form m g·(x⁺−x⁻). Under
+        # symplectic Euler x⁺=x⁻+h v⁺, so the displacement form exceeds the
+        # KE-consistent gravity work by ½ m h²|g|² per body per substep — a
+        # phantom supply that credits free ballistic motion. The velocity-
+        # trapezoidal form is the gravity work consistent with the symplectic
+        # KE update and nets exactly zero for contact-free motion (asserted in
+        # tests/avbd_native/test_gravity_supply_trapezoidal.py).
         grav_work = 0.0
         for i in range(self._X.shape[0]):
             if self._invm[i] == 0.0:
                 continue
-            grav_work += self._mass[i] * float(
-                self.gravity @ (self._X[i] - x_prev[i]))
+            grav_work += self._mass[i] * 0.5 * float(
+                self.gravity @ (v_prev[i] + self._V[i])) * h
         rigid_loss = (E_rig_pre - E_rig_post) + grav_work
         e_modal_new = self._modal_energy_total()
         budget = self._psv_ledger.deposit(rigid_loss)

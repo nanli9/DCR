@@ -75,6 +75,10 @@ def main() -> int:
                     help="choked modal ζ for body voices while they carry "
                     "support load (contact-damping choke, render.py "
                     "DEVIATION; 0 disables)")
+    ap.add_argument("--noise", type=float, default=0.35,
+                    help="contact-noise transient level: noise:modal "
+                    "loudness ratio, charged to the E6 ledger as "
+                    "noise²·e_kick (shaping.py DEVIATION; 0 disables)")
     ap.add_argument("--out", default="exports/sound/dinner_impact.wav")
     ap.add_argument("--basis-cache", default="data/audio_basis")
     ap.add_argument("--rebuild-basis", action="store_true")
@@ -143,19 +147,22 @@ def main() -> int:
             print(f"[events] settle-muted {n_muted} placement/sag clinks; "
                   f"first played event at t={t0_play:.3f}s")
     audio, diag = render_soundtrack(
-        log, table_voice=Voice(name="table", basis=da.table_basis,
-                               gain=args.table_gain),
+        log, support_voice=(Voice(name="table", basis=da.support_basis,
+                                  gain=args.table_gain)
+                            if da.support_basis is not None else None),
         body_voices=body_voices, fs=args.fs, eta_audio=args.eta_audio,
         tail=args.tail, tau_ref=args.tau_ref, events=events,
         tau_ref_per_body=da.tau_ref_per_body,
-        zeta_contact=(args.zeta_contact if args.zeta_contact > 0 else None))
+        zeta_contact=(args.zeta_contact if args.zeta_contact > 0 else None),
+        noise_frac=args.noise)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     write_wav(args.out, audio, args.fs)
     print(f"[wav] {args.out}  ({diag['n_samples'] / args.fs:.1f}s)")
     print(f"[E6] events={diag['n_events']} capped={diag['n_capped']} "
           f"min_gamma={diag['min_gamma']:.3f} "
-          f"choke_toggles={diag['n_choke_toggles']}")
+          f"choke_toggles={diag['n_choke_toggles']} "
+          f"noise_bursts={diag['n_noise_bursts']}")
     print(f"[E6] kick energy {diag['cum_kick_energy_J']:.4g} J  <=  "
           f"eta_audio * rigid loss {args.eta_audio} * "
           f"{diag['cum_rigid_loss_J']:.4g} J : "
