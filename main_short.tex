@@ -64,30 +64,22 @@ energetic cost of that truncation. Running one transcribed contact row through
 three fixed-budget solver formulations --- position-based (XPBD),
 augmented-Lagrangian (AVBD), and an implicit sequential-impulse realization ---
 over an identical 24-cell scene\,$\times$\,relaxation\,$\times$\,budget sweep,
-we observe behaviour that differs sharply across the three tested
-implementations. Measured against the gross
-rigid-side loss (a scene-wide, gravity-corrected quantity, not a per-contact
-dissipation), the position-based host overdraws by up to $4.4\times10^{7}$~J
---- $1.2\times10^{5}$ times the incident rigid kinetic energy in the most
-starved cells --- the augmented-Lagrangian host in $3$ of $24$ cells by at most
-$6.7$~J, and the implicit realization never: a catastrophic pathology beside a
-small and localized one, five orders of magnitude apart, which the customary
-ratio-to-incident-energy diagnostic compresses into a single number. An iteration-budget sweep
-identifies the position-based amplification as a truncation artifact, decaying
-toward an implicit high-iteration reference computed in the same code path,
-closing the gap
-by six orders of magnitude. Since that regime is unaffordable at interactive
-budgets we add a deliberately minimal fail-safe: a cumulative modal-storage
-bound funded by the measured gross rigid-side loss, maintained by a reservoir
-ledger and a projection of the realized modal state, whose cost we measure
-rather than assume. The loop guarantees that bound unconditionally --- for any
-host and any contact solve, up to a stated accounting tolerance --- and the
-realized margins sit at the roundoff floor ($1.1\times10^{-13}$~J) in all 90
-measured cells ($78$ distinct configurations), including the $1{\times}8$ and
-$2{\times}4$ budgets at which interactive solvers are commonly deployed; what it
-costs is contact validity: worst-case post-projection penetration $21.6$~mm
+we find the injection is formulation-dependent. Measured against the gross
+rigid-side loss (a scene-wide, gravity-corrected quantity), the position-based
+host overdraws by up to $4.4\times10^{7}$~J ($1.2\times10^{5}$ times the
+incident rigid kinetic energy), the augmented-Lagrangian host by at most
+$6.7$~J in $3$ of $24$ cells, and the implicit realization never. An
+iteration-budget sweep identifies the position-based amplification as a
+truncation artifact, decaying six orders of magnitude toward an implicit
+high-iteration reference in the same code path; at equal cost, iterations beat
+substeps ($K{=}32,S{=}1$ stays bounded; $K{=}4,S{=}8$ overdraws). Since
+convergence is unaffordable at interactive budgets we add a deliberately minimal
+fail-safe: a cumulative modal-storage bound funded by the measured gross
+rigid-side loss, guaranteed unconditionally (Prop.~\ref{prop:guarantee}) and
+realized at the roundoff floor in all $90$ measured cells. Its cost is contact
+validity, measured not assumed: post-projection penetration up to $21.6$~mm
 ($72\%$ of the board's thickness) at the adversarial $4{\times}1$ corner,
-$9.8$~mm at the deployed budgets.
+$9.8$~mm at the deployed $1{\times}8$/$2{\times}4$ budgets.
 \end{abstract}
 
 \begin{CCSXML}
@@ -361,7 +353,8 @@ peak modal energy / peak incident rigid kinetic energy, log scale diverging at
 $1$ --- a severity diagnostic. XPBD exceeds $1$ in $8/24$ cells, AVBD in
 $2/24$, the implicit realization in $0/24$. \textbf{Bottom:} the invariant
 itself --- the signed margin of \eqref{eq:invariant} in joules, symmetric-log,
-diverging at $0$; positive values violate. The two panels disagree on AVBD.
+diverging at $0$; positive values violate. The two panels disagree on AVBD, and
+on XPBD by one cell.
 Hatched rows mark a relaxation axis the host does not consume, bit-identical
 by construction (\S\ref{sec:matrix}).}
 \label{fig:matrix}
@@ -426,7 +419,7 @@ $371$~J); the augmented-Lagrangian host in $2$ of $24$ --- both at the starved
 $4{\times}1$ corner of the table scene, worst $1.70$ --- so it is not
 unconditionally benign either. The ordering is scene-dependent and it inverts:
 worst-over-scenes at $4{\times}1$ the position-based host is five orders of
-magnitude more energetic ($1.2\times10^{5}$ vs $1.70$), yet on the table scene
+magnitude more energetic in the ratio $R$ ($1.2\times10^{5}$ vs $1.70$), yet on the table scene
 itself the augmented-Lagrangian host is the worse ($1.18$ and $1.70$ against a
 position-based worst of $0.37$). Neither host dominates across scenes.
 
@@ -443,8 +436,8 @@ cells against $R>1$ in $8$, the augmented-Lagrangian host in $3$ against $2$,
 and the implicit host in neither ($0/24$, worst margin at the roundoff floor).
 Each metric catches a cell the other misses, so neither subsumes the other.
 What orders the failures is magnitude: the position-based overdraw reaches
-$4.4\times10^{7}$~J, seven orders past the largest augmented-Lagrangian one
-($6.7$~J, at the starved $4{\times}1$ table corner where $R=1.70$), itself past
+$4.4\times10^{7}$~J, seven orders past the largest augmented-Lagrangian one in
+energy ($6.7$~J, at the starved $4{\times}1$ table corner where $R=1.70$), itself past
 the implicit host's exact zero --- three regimes the ratio-to-incident-energy
 diagnostic compresses into a single number.
 
@@ -585,7 +578,8 @@ in the stiff cluster, ${\sim}200\times$ the substep rate, against $0.0\%$ for
 both references. A single scalar cannot redistribute energy across the spectrum:
 $\gamma$ corrects the \emph{amount} ($1555.6\to29.3$~J), leaves the character
 intact ($99.6\to97.7\%$), and scales the legitimate sag down with the noise
-($24.1\to5.9$~mm against $20.0$).
+($24.1\to5.9$~mm against $20.0$); the first-line remedy is band-limiting the
+co-solved basis to the representable band, not a scalar.
 
 \paragraph*{Contact validity.}
 Since $\gamma<1$ shrinks the sag $\mathbf{U}_y^{\!\top}\mathbf{q}$,
@@ -650,8 +644,9 @@ and ledge, both hosts), so enforcement is not free where the budget is tight.
 
 A separate device-resident path (NVIDIA RTX 4090), carrying the ledger
 read-only as a monitor rather than enforcing it, reaches $5.3$--$9.4$~ms/step at
-$16{\times}4$ across four scenes: shelf and ledge meet a $120$~Hz budget with
-margin, a road slab sits at the boundary, the table does not, and all four meet
+$16{\times}4$ across four scenes --- the sweep's three plus a larger road slab:
+shelf and ledge meet a $120$~Hz budget with margin, the road sits at the
+boundary, the table does not, and all four meet
 it at $16{\times}2$ or below (per-scene factors in the supplement). We make no
 unqualified real-time claim, and a device-resident \emph{enforced} $\gamma$ does
 not exist in this work, so governed device timings lie outside our measurements
