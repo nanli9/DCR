@@ -263,23 +263,21 @@ the gravity work, and only an inelastic velocity change funds the reservoir.
 Substep-boundary endpoints tile the timeline exactly, so no rigid energy change
 escapes the accounting.
 
-\paragraph*{Two objects, stated once.} Conflating them is the easiest way to
-misread what follows. \textbf{(i)~The printed invariant} is
-\eqref{eq:invariant} exactly as written: a cumulative, gross-loss-funded storage
+\paragraph*{Two objects.} \textbf{(i)~The printed invariant} is
+\eqref{eq:invariant} exactly as written: a cumulative storage
 ceiling on the modal subsystem whose supply is \emph{measured, not prescribed}
 --- the right-hand side is the measured loss of \eqref{eq:derig}, never a tuned
-constant or a fraction of incident energy. It is not contact-port passivity and
-not a signed per-interface transfer bound: it constrains a scalar reservoir, not
-a port. The \emph{gross} sum ignores substeps in which the rigid subsystem
-\emph{gains} energy, so those cannot cancel earlier credits, and energy returned
-and re-dissipated counts as fresh supply (\S\ref{sec:limits} measures both).
+constant or a fraction of incident energy. It constrains a scalar reservoir, not
+a contact port, so it is neither port passivity nor a signed per-interface
+bound. The \emph{gross} sum ignores substeps in which the rigid subsystem
+\emph{gains} energy, and counts energy returned and re-dissipated as fresh
+supply (\S\ref{sec:limits} measures both).
 \textbf{(ii)~The enforced recursion} is the per-substep loop below --- credit,
-test, project, debit --- and it maintains \eqref{eq:invariant} exactly, not a
-relaxation of it: because the reservoir is credited \emph{before} the projection
-test, the same-substep deposit that funds a legitimate rise in modal energy is
-already inside the budget the test enforces, so no granularity slack is
-required. Proposition~\ref{prop:guarantee} proves this; the only give is a
-per-substep accounting tolerance, which the governed runs realize at the
+test, project, debit --- and maintains \eqref{eq:invariant} exactly, not a
+relaxation: crediting the reservoir \emph{before} the projection test puts the
+same-substep deposit that funds a legitimate rise already inside the budget, so
+no granularity slack is required. Proposition~\ref{prop:guarantee} proves this;
+the only give is a per-substep accounting tolerance, realized at the
 $10^{-13}$~J roundoff floor.
 
 \paragraph*{Enforcement.} A reservoir $B$ accumulates the supply and is debited
@@ -374,7 +372,7 @@ by construction (\S\ref{sec:matrix}).}
 \setlength{\tabcolsep}{3.2pt}
 \caption{Host differences (above the rule) and settings held identical (below
 it). Entries are read from the implementation, with source anchors in the
-supplemental ledger.}
+supplemental ledger. $H_{ii}$: midpoint modal-operator diagonal.}
 \label{tab:solvers}
 \begin{tabular}{@{}lp{1.62cm}p{1.62cm}p{1.62cm}@{}}
 \toprule
@@ -445,7 +443,7 @@ cells against $R>1$ in $8$, the augmented-Lagrangian host in $3$ against $2$,
 and the implicit host in neither ($0/24$, worst margin at the roundoff floor).
 Each metric catches a cell the other misses, so neither subsumes the other.
 What orders the failures is magnitude: the position-based overdraw reaches
-$4.4\times10^{7}$~J, five orders past the largest augmented-Lagrangian one
+$4.4\times10^{7}$~J, seven orders past the largest augmented-Lagrangian one
 ($6.7$~J, at the starved $4{\times}1$ table corner where $R=1.70$), itself past
 the implicit host's exact zero --- three regimes the ratio-to-incident-energy
 diagnostic compresses into a single number.
@@ -710,9 +708,10 @@ is not energy-safe, and how unsafe differs sharply across the three tested
 implementations: worst-case modal-to-incident ratios are $1.2\times10^{5}$,
 $1.70$ and $0.53$ on the same 24 cells. The position-based amplification is a
 truncation artifact convergence removes; the augmented-Lagrangian overdraft we
-measure but do not explain. Where convergence is unaffordable, a cumulative
-storage bound funded by measured gross rigid-side loss holds in every measured
-cell, at a quantified cost to contact validity.
+measure but do not explain. Prefer the implicit or augmented-Lagrangian host,
+which stay within budget; where a position-based host is fixed and convergence
+unaffordable, a cumulative storage bound funded by measured gross rigid-side loss
+holds in every measured cell, at a measured cost to contact validity.
 
 % PAGE GATE (do not remove): the page carrying this label is the last body
 % page. The CFP allows 4-6 content pages EXCLUDING references, so
