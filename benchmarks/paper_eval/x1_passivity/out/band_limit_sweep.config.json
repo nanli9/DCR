@@ -1,0 +1,29 @@
+{
+  "figure": "band_limit_sweep.csv",
+  "stage": "X0",
+  "git_sha": "9a9d430",
+  "generated_utc": "2026-07-21T09:13:03+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "shelf",
+    "ledge",
+    "dinner"
+  ],
+  "solvers": [
+    "xpbd"
+  ],
+  "note": "Reviewer response: band-limit the co-solved basis (exclude the stiff cluster via n_modes_local=0, run_robustness_ablation.py's own definition) across the full sweep and remeasure R and the Eq.(2) margin with run_eq2_utilization.one(). full-basis values read from eq2_utilization.csv. Tests whether band-limiting the co-solve is sufficient to remove the injection or only reduces it (the shelf 4x1 cell keeps 584 J overdrawn even so)."
+}
