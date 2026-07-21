@@ -18,15 +18,15 @@ The bottom row is in JOULES, not a ratio, and that is deliberate. A ratio needs
 a denominator, and every available denominator misleads somewhere: dividing by
 the supply accumulated SO FAR explodes in the opening substeps (a 0.13 J lead
 became "U = 20"), while dividing by the run's TOTAL supply hides real
-violations whose peak came early (AVBD violates in 23/24 cells with that ratio
-below 1). The signed joule margin is the quantity the verdict is actually made
-on, it needs no denominator, and it keeps the severity ordering visible:
-XPBD overdraws by up to 4.4e7 J, AVBD by at most 15 J.
+violations whose peak came early. The signed joule margin is the quantity the
+verdict is actually made on, it needs no denominator, and it keeps the severity
+ordering visible: XPBD overdraws by up to 4.4e7 J, AVBD by at most 6.7 J.
 
 Reading the two rows together is the point. The panel's central criticism was
-that the paper measured R and claimed Eq. (2). Where they agree (XPBD: 8/24
-either way) the diagnostic was fine; where they diverge (AVBD: R flags 2 cells,
-Eq. (2) is violated in 23) the diagnostic was the wrong instrument.
+that the paper measured R and claimed Eq. (2). Where they agree (XPBD: R>1 in
+8/24, the margin positive in 9/24) the diagnostic was close; where they diverge
+(AVBD: R flags 2 cells, the Eq. (2) margin flags 3) the ratio was the wrong
+instrument.
 
 A symmetric-log colour scale is used for the margin so that both the 1e-3 J and
 the 1e7 J ends stay legible on one axis.
