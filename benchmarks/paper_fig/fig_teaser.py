@@ -51,7 +51,7 @@ ARMS = ("off", "on", "ref")
 ARM_COLOR = {"off": PALETTE["clamp_off"], "on": PALETTE["native"],
              "ref": "#333333"}
 ARM_LABEL = {"off": "ungoverned", "on": "governed (containment)",
-             "ref": "XPBD self-reference"}
+             "ref": "XPBD self-ref."}
 
 
 def _eng(v: float) -> str:
@@ -196,7 +196,7 @@ def build(case, frame_logged, *, figsize):
         for sp in ax.spines.values():
             sp.set_linewidth(0.4)
             sp.set_color("0.72")
-        ax.set_title(ARM_LABEL[arm], fontsize=6.6, color=ARM_COLOR[arm],
+        ax.set_title(ARM_LABEL[arm], fontsize=5.7, color=ARM_COLOR[arm],
                      pad=2.0, fontweight="bold")
         ax.text(0.5, -0.035, f"peak $E_{{\\rm mod}}$ "
                              f"{_eng(peaks[arm]['e_mod_peak_J'])} J",
