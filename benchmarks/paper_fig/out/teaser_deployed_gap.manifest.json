@@ -1,0 +1,165 @@
+{
+  "case": "deployed",
+  "note": "production-like interactive budget 1x8, relax 0.7",
+  "commit": "db0647a",
+  "scene": "shelf",
+  "solver": "xpbd",
+  "budget": "1x8",
+  "budget_label": "production-like interactive budget",
+  "budget_semantics": "KxS = K constraint iterations per substep, S substeps per 1/120 s frame",
+  "converged": "500x1",
+  "relax": 0.7,
+  "material": "builder default (E=0.5 GPa)",
+  "material_params": {},
+  "settle": 8,
+  "nframes": 100,
+  "h": 0.008333333333333333,
+  "stepper": "symplectic",
+  "eta": 1.0,
+  "projection": "gap-preserving (eq. 5)",
+  "bodies": [
+    {
+      "name": "book_0",
+      "avbd_idx": 0,
+      "half": [
+        0.018,
+        0.04,
+        0.03
+      ],
+      "color": [
+        0.8,
+        0.2,
+        0.2
+      ],
+      "kind": "book",
+      "is_impactor": false
+    },
+    {
+      "name": "book_1",
+      "avbd_idx": 1,
+      "half": [
+        0.018,
+        0.04,
+        0.03
+      ],
+      "color": [
+        0.2,
+        0.55,
+        0.25
+      ],
+      "kind": "book",
+      "is_impactor": false
+    },
+    {
+      "name": "book_2",
+      "avbd_idx": 2,
+      "half": [
+        0.018,
+        0.04,
+        0.03
+      ],
+      "color": [
+        0.2,
+        0.25,
+        0.75
+      ],
+      "kind": "book",
+      "is_impactor": false
+    },
+    {
+      "name": "book_3",
+      "avbd_idx": 3,
+      "half": [
+        0.018,
+        0.04,
+        0.03
+      ],
+      "color": [
+        0.72,
+        0.52,
+        0.12
+      ],
+      "kind": "book",
+      "is_impactor": false
+    },
+    {
+      "name": "book_4",
+      "avbd_idx": 4,
+      "half": [
+        0.018,
+        0.04,
+        0.03
+      ],
+      "color": [
+        0.55,
+        0.22,
+        0.55
+      ],
+      "kind": "book",
+      "is_impactor": false
+    },
+    {
+      "name": "drop_book",
+      "avbd_idx": 5,
+      "half": [
+        0.06,
+        0.035,
+        0.08
+      ],
+      "color": [
+        0.45,
+        0.12,
+        0.12
+      ],
+      "kind": "book",
+      "is_impactor": true
+    }
+  ],
+  "grid": [
+    21,
+    11
+  ],
+  "support_thickness": 0.03,
+  "peaks": {
+    "off": {
+      "e_mod_peak_J": 22351.99892100022,
+      "e_imp_peak_J": 28.95102507909968,
+      "bystander_rise_mm": [
+        67.9294653236866,
+        67.96975806355476,
+        35.81317514181137,
+        93.26592460274696,
+        92.77649596333504
+      ],
+      "clamps": 0,
+      "steps": 864
+    },
+    "on": {
+      "e_mod_peak_J": 30.168889134766818,
+      "e_imp_peak_J": 28.95102507909968,
+      "bystander_rise_mm": [
+        -0.06521865725517273,
+        -0.0749342143535614,
+        -0.08101388812065125,
+        -0.08609890937805176,
+        -0.09085983037948608
+      ],
+      "clamps": 839,
+      "steps": 864
+    },
+    "ref": {
+      "e_mod_peak_J": 8.223580660384274,
+      "e_imp_peak_J": 27.44733758365345,
+      "bystander_rise_mm": [
+        9.073272347450256,
+        12.618467211723328,
+        13.443376868963242,
+        20.98742127418518,
+        32.38746151328087
+      ],
+      "clamps": 0,
+      "steps": 108
+    }
+  },
+  "generated_by": "benchmarks/paper_fig/record_teaser.py"
+}

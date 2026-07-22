@@ -19,7 +19,8 @@ Beats (target 45--55 s):
   4. 29--37 s band-limited basis: removing the stiffest modal cluster is
               necessary but not sufficient (6/8 injecting cells still overdraw).
   5. 37--46 s governor containment (bounded, not faithful) + a true-scale
-              penetration cross-section: the guarantee's measured price.
+              penetration cross-section attributing the residue across three
+              arms: governor off / whole-state scale / surface-preserving.
   6. 46--55 s decision card: implicit control if the architecture is flexible;
               else audit the XPBD shared block/basis/iterations; governor only as
               last-resort containment.
@@ -28,6 +29,10 @@ Every on-screen number is read LIVE from the frozen Stage-B CSVs under
 benchmarks/paper_eval/x1_passivity/out/ (and the teaser pose manifests), so the
 video cannot drift from the paper's evidence. The 3-D beats reuse the
 bit-identical locked-camera helpers in make_teaser_video.py.
+
+The governed arm is the SHIPPED projection (eq. 5, gap-preserving), recorded as
+teaser_deployed_gap.npz. The frozen teaser_deployed.npz holds the superseded
+whole-state scale and is left untouched for fig_teaser.py.
 
 Run (needs ffmpeg on PATH):
   .venv/bin/python benchmarks/paper_fig/make_short_video.py
@@ -116,16 +121,28 @@ def band_pairs():
 
 
 def penetration_mm():
-    """Governed contact-gap penetration (max), true-scale, from projection CSVs.
+    """Worst end-of-substep contact-gap violation, shelf 4x1, in three arms.
 
-    4x1 shelf and the deployed budget. Source: projection_validity*.csv (C5).
+    Source: projection_validity_arms_r07.csv -- the arm sweep that separates
+    the truncated solve's OWN penetration (governor off) from what a projection
+    adds on top of it. End-of-substep is the only arm-comparable metric: the
+    ungoverned arm has no post-projection state.
+
+    Returns (ungoverned, whole-state scale, preserved, worst preserved cell).
+    The last is the shipped projection's worst over both scenes (ledge 4x1),
+    which the decision card quotes as the guarantee's price.
     """
-    p41 = max(float(r["gap_viol_post_max_m"])
-              for r in _rows("projection_validity.csv")
-              if int(r["iters"]) == 4 and int(r["substeps"]) == 1) * 1e3
-    pdep = max(float(r["gap_viol_post_max_m"])
-               for r in _rows("projection_validity_deployed.csv")) * 1e3
-    return p41, pdep
+    rows = _rows("projection_validity_arms_r07.csv")
+
+    def cell(scene, arm):
+        return max(float(r["gap_viol_end_max_m"]) for r in rows
+                   if r["scene"] == scene and r["arm"] == arm
+                   and int(r["iters"]) == 4 and int(r["substeps"]) == 1) * 1e3
+
+    worst_pres = max(float(r["gap_viol_end_max_m"])
+                     for r in rows if r["arm"] == "gap") * 1e3
+    return cell("shelf", "ungov"), cell("shelf", "radial"), \
+        cell("shelf", "gap"), worst_pres
 
 
 # --------------------------------------------------------------------------- #
@@ -337,17 +354,17 @@ def beat_penetration(wr, seconds=5.0, quick=False):
     bound contains energy, but the contact is not kept valid. Drawn as a
     labelled cross-section (NOT a painter's-algorithm render, which cannot
     depth-order penetration honestly -- see render3d.py)."""
-    p41, pdep = penetration_mm()
+    p_un, p_scale, p_pres, _ = penetration_mm()
     import matplotlib.pyplot as plt
     hold = int((seconds if not quick else 2.0) * FPS)
     fig = new_fig()
-    _title(fig, "The governor's price: contact validity",
-           sub="the cumulative storage bound contains energy; it does not keep "
-               "contact valid")
+    _title(fig, "Where the penetration comes from",
+           sub="the bound contains energy; the contact residue is the truncated "
+               "row's -- a projection amplifies it")
     # true-scale cross-section, units mm, equal aspect
     ax = fig.add_axes([0.08, 0.15, 0.84, 0.58]); ax.set_facecolor(BG)
     ax.set_aspect("equal")
-    d = p41
+    d = p_pres          # the SHIPPED projection's depth (eq. 5), drawn to scale
     W = 190.0
     # board: top surface at y=0, 30 mm thick
     board = mpatches.Rectangle((-W / 2, -SUPPORT_THICKNESS_MM), W,
@@ -373,30 +390,43 @@ def beat_penetration(wr, seconds=5.0, quick=False):
             fontsize=13, color=FG, zorder=5)
     # the surface line, on top, so the impactor is visibly cut by it
     ax.plot([-W / 2, W / 2], [0, 0], color="#d8cfb8", lw=1.6, zorder=5)
-    # penetration dimension, tied to the corner
-    xd = -34.0
+    # penetration dimension, tied to the corner but drawn OUTSIDE the board:
+    # at true scale 8 mm is a thin wedge, so an in-board dimension collides
+    # with the surface line and the board label.
+    xd = -W / 2 - 14.0
     ax.plot([xd, 8.0], [-d, -d], color=UNSAFE, lw=0.8, ls=(0, (3, 2)), zorder=6)
     ax.annotate("", xy=(xd, -d), xytext=(xd, 0),
                 arrowprops=dict(arrowstyle="<->", color=UNSAFE, lw=2.0),
                 zorder=6)
-    ax.text(xd - 5, -d / 2, f"{p41:.1f} mm", ha="right", va="center",
+    ax.text(xd - 6, -d / 2, f"{p_pres:.1f} mm", ha="right", va="center",
             fontsize=18, color=UNSAFE, fontweight="bold")
-    ax.text(xd - 5, -d - 5, f"{p41 / SUPPORT_THICKNESS_MM * 100:.0f}% of board "
-            f"($4{{\\times}}1$)", ha="right", va="top", fontsize=12, color=DIM)
-    # deployed-budget penetration, as a secondary reference on the right
-    xr = W / 2 + 12
-    ax.annotate("", xy=(xr, -pdep), xytext=(xr, 0),
-                arrowprops=dict(arrowstyle="<->", color=DIM, lw=1.6), zorder=6)
-    ax.text(xr + 5, -pdep / 2, f"{pdep:.1f} mm\ndeployed", ha="left",
-            va="center", fontsize=12, color=DIM)
-    ax.set_xlim(-W / 2 - 46, W / 2 + 58)
+    ax.text(xd - 6, -d - 7, f"preserving the\nobserved surface,\neq. (5)  "
+            f"[{p_pres / SUPPORT_THICKNESS_MM * 100:.0f}% of board]",
+            ha="right", va="top", fontsize=12, color=DIM, linespacing=1.5)
+    # the two reference depths, to scale, so the attribution is visible: what
+    # the truncated row opens on its own, and what the superseded whole-state
+    # scale amplified it to.
+    xr = W / 2 + 6
+    for depth, lab, col in ((p_un, "governor off\n(truncated row)", DIM),
+                            (p_scale, "whole-state scale\n(superseded)",
+                             "#a8443a")):
+        ax.plot([-W / 2, W / 2], [-depth, -depth], color=col, lw=1.2,
+                ls=(0, (5, 3)), zorder=6)
+        ax.text(xr, -depth, f"{depth:.1f} mm  {lab}", ha="left", va="center",
+                fontsize=11.5, color=col, linespacing=1.35, zorder=6)
+    ax.set_xlim(-W / 2 - 82, W / 2 + 96)
     ax.set_ylim(-SUPPORT_THICKNESS_MM - 8, 52)
     ax.set_axis_off()
-    fig.text(0.5, 0.075,
-             "Modal energy is bounded in every measured cell -- yet the contact "
-             "sinks up to 72% through the board. Containment, not a fix.",
-             ha="center", va="center", fontsize=16, color=FG)
-    fig.text(0.5, 0.028, "true scale  ---  projection_validity.csv",
+    fig.text(0.5, 0.088,
+             f"With the governor off the truncated row already opens "
+             f"{p_un:.1f} mm. Scaling the whole state amplified that to "
+             f"{p_scale:.1f} mm;",
+             ha="center", va="center", fontsize=15.5, color=FG)
+    fig.text(0.5, 0.049,
+             f"preserving the contact-observed surface, {p_pres:.1f} mm. "
+             f"Still containment, not a fix.",
+             ha="center", va="center", fontsize=15.5, color=FG)
+    fig.text(0.5, 0.014, "true scale  ---  projection_validity_arms_r07.csv",
              ha="center", va="center", fontsize=11, color=DIM,
              family="monospace")
     wr.add(fig, times=hold)
@@ -411,7 +441,7 @@ def beat_decision(wr, seconds=9.0, quick=False):
     r_32x1 = next(r for k, r in it if k == 32)
     m_4x8 = next(mj for e, r, mj in sub if e == 32)
     still = [p for p in band_pairs() if p[2] > 1.0]
-    p41, _ = penetration_mm()
+    *_, worst_pres = penetration_mm()
     import matplotlib.pyplot as plt
     hold = int((seconds if not quick else 2.5) * FPS)
     fig = new_fig()
@@ -430,8 +460,8 @@ def beat_decision(wr, seconds=9.0, quick=False):
          ACCENT),
         ("3", "Need a hard energy guarantee?",
          "The cumulative storage bound contains modal energy -- last resort.",
-         f"holds in 90/90 cells, but costs up to {p41:.1f} mm penetration + "
-         f"worse trajectory. Containment, not a fix.", UNSAFE),
+         f"holds in 90/90 cells, but still leaves up to {worst_pres:.1f} mm "
+         f"penetration + a worse trajectory. Containment, not a fix.", UNSAFE),
     ]
     y = 0.72
     for num, q, a, note, col in rows:
@@ -466,7 +496,7 @@ def main():
 
     if shutil.which("ffmpeg") is None:
         raise SystemExit("ffmpeg not found on PATH")
-    for case in ("steel", "deployed"):
+    for case in ("steel", "deployed_gap"):
         if not os.path.exists(os.path.join(OUT, f"teaser_{case}.npz")):
             raise SystemExit(f"missing out/teaser_{case}.npz -- run "
                              f"record_teaser.py --case {case} first")
@@ -478,11 +508,12 @@ def main():
     # animated (beat_sim), so the panel height is the sim layout's 0.345.
     aspect_2 = ((1.0 - 2 * 0.035 - 0.018) / 2 * W_IN) / (0.345 * H_IN)
     aspect_3 = ((1.0 - 2 * 0.035 - 2 * 0.018) / 3 * W_IN) / (0.345 * H_IN)
-    npz0, _ = _load("deployed")
+    npz0, _ = _load("deployed_gap")
     settle = int(npz0["off/settle"])
     START = settle + 20
     xlim2, ylim2 = global_bounds(("steel",), aspect_2, frame_lo=START)
-    xlim3, ylim3 = global_bounds(("deployed",), aspect_3, frame_lo=START)
+    xlim3, ylim3 = global_bounds(("deployed_gap",), aspect_3,
+                                 frame_lo=START)
     RANGE = (START, npz0["off/pos"].shape[0])
     # the soft-board animation stops at logged frame 63: past it the ungoverned
     # run drives a book through the board, which a painter's renderer cannot
@@ -529,13 +560,14 @@ def main():
             seconds=1.0 if q else 2.5,
             sub="soft shelf, E = 0.5 GPa  ·  1x8  ·  ungoverned / governed / "
                 "self-reference")
-        beat_sim(wr, "deployed", ("off", "on", "ref"), xlim=xlim3, ylim=ylim3,
+        beat_sim(wr, "deployed_gap", ("off", "on", "ref"), xlim=xlim3,
+                 ylim=ylim3,
                  aspect=aspect_3, step=step, repeat=repeat,
                  hold_end=1.0 if q else 3.5, frame_range=RANGE_SOFT,
                  title="bounded, but not faithful",
-                 subtitle="ungoverned, governed, and the host's own "
-                          "high-iteration self-reference - three independent "
-                          "runs, dropped onto the soft board",
+                 subtitle="ungoverned, governed by the surface-preserving "
+                          "projection, and the host's own high-iteration "
+                          "self-reference - three independent runs",
                  end_note="the bound removes the spurious launch and takes the "
                           "legitimate motion with it: the governed books "
                           "under-move the self-reference")

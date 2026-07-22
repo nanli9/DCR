@@ -2464,3 +2464,99 @@ reference peak (radial: 96%).
 - **`projection_validity.csv` was clobbered** by a default-`--out` smoke test
   during this session and restored with `git checkout`. The harness now takes
   `--arms`; any future arm sweep MUST pass an explicit `--out`.
+
+---
+
+### R8d — Figure 1 and the supplementary video re-cut onto the shipped projection (2026-07-22)
+
+R8c made the gap-preserving projection the paper's method but left both
+*rendered* artifacts on the superseded whole-state arm. Both are now regenerated.
+Machine: Apple M-series (darwin 24.2.0), same as R8c.
+
+```sh
+# new frozen trace: the deployed teaser case, governed by eq. (5)
+.venv/bin/python benchmarks/paper_fig/record_teaser.py \
+    --case deployed --gap-preserving --out teaser_deployed_gap
+# Figure 1
+.venv/bin/python benchmarks/paper_fig/fig_teaser.py \
+    --case deployed_gap --name fig_teaser
+cp benchmarks/paper_fig/out/fig_teaser.pdf paper/figures/fig_teaser.pdf
+# supplementary video
+.venv/bin/python benchmarks/paper_fig/make_short_video.py
+```
+
+`record_teaser.py` gained `--gap-preserving`; it is applied ONLY on the governed
+arm, because the gap path computes its own scale internally and the module-level
+`passivity_gamma` pin that keeps the un-governed arm unperturbed would not
+neutralize it. `teaser_deployed.npz` (whole-state) is left frozen and untouched.
+
+#### Figure 1, deployed 1×8, governed panel
+
+| quantity | whole-state (was) | **preserving (now)** | reference |
+|---|---:|---:|---:|
+| peak E_mod [J] | 29.49 | **30.17** | 8.22 |
+| peak bystander rise [mm] | +3.3 … +4.3 | **−0.1 (no book leaves rest)** | +9.1 … +32.4 |
+| bystander rise at the rendered frame [mm] | −0.0 … +0.8 | **−1.9 … −3.0** | +0.2 … +18.7 |
+| clamped substeps | 704/864 | **839/864** | 0/108 |
+
+Caption edits: `$29.5$~J` → `$30.2$~J`; "they stay within $1$~mm of rest" →
+"no book leaves rest" (the books now follow the preserved sag *down* instead of
+being pinned); the governed arm is now attributed to `\eqref{eq:gamma}`.
+"the reference lifts one book $19$~mm, the governed run none" is unchanged and
+still exact (18.7 mm at the rendered frame). Visually the governed impactor now
+comes to rest on the board instead of hanging airborne — closer to the reference.
+
+**These six numbers were previously unchecked.** `verify_paper_numbers.py` now
+pins them, including `manifest["projection"]`, which is the direct guard against
+a rendered artifact drifting off the shipped method again. 49 passed, 0 failed.
+Page gate: body ends p. 6, 7 pages, 0 overfull.
+
+#### Video (`benchmarks/paper_fig/out/mig_short_video.mp4`, 53.3 s)
+- Beat 5's 3-D governed arm now reads `teaser_deployed_gap.npz`.
+- Beat 5b re-cut from "the governor's price: 21.6 mm" to the three-arm
+  attribution: 6.2 mm governor off, 21.6 mm whole-state (marked superseded),
+  **8.3 mm** preserving, drawn to scale. Source CSV switched from
+  `projection_validity.csv` to `projection_validity_arms_r07.csv`, on
+  `gap_viol_end_max_m` — the only arm-comparable metric, since the ungoverned
+  arm has no post-projection state.
+- The decision card now quotes the shipped method's worst cell, **17.8 mm**
+  (ledge 4×1), not 21.6 mm. Its verdict is unchanged: containment, not a fix.
+
+#### Finding: the preserving projection is not dominant on every metric
+In the deployed 1×8 cell it is *more* destructive to the bystanders than the
+whole-state scale (peak rise +3.3…+4.3 mm → −0.1 mm, clamps 704 → 839/864),
+while being far more accurate on the board deflection it preserves (Linf 96% →
+29.7% of the reference peak, above). Cause: at 1×8 nearly every clamped substep
+falls to **rung 2**, which sets `q̇ ← 0`. Rung 2 is provably no worse than
+radial γ on the *position* scale (`β ≥ γ`, asserted in the tests) but strictly
+more destructive on the velocity, so a rung-2-dominated cell can lose more
+motion than a whole-state scale would. The paper's claims are unaffected — the
+penetration claim is per-cell penetration (1.2–12.9× in 8/8) and the accuracy
+claim is shelf 8×2 — but this regime is not characterized in the paper and
+belongs with the other rung-2 future work (one-sided constraints,
+load-weighted subspace selection).
+
+#### Still stale after this entry
+`docs/mig2026_decision_table.md` was corrected here (penetration, trajectory and
+margin rows), but the **assembled supplement bundle in `supplement/` has not been
+regenerated**: its README still reports the pre-animation 52.0 s runtime and its
+`DECISION_TABLE.md`/`LEDGER_EXCERPTS.md` predate R8c. `make_supplement.py`'s
+video paragraph was updated in this pass, but the builder **refuses to assemble**
+— its claim-index guard fires on seven anchors that the R8c §4 rewrite removed:
+
+| claim row | dead anchor | status in the paper now |
+|---|---|---|
+| §3.1 substep refinement | `it is $3.13$, overdrawing by $481$~J` | reworded, still present (drop `it is `) |
+| §4 worst realized ratio | `falls to $1.22$ (position-based) and $0.87$` | replaced by $1.15$/$1.70$ vs $1.21$/$1.31$ |
+| §3.2 E1b neighborhood | `every injecting cell overdraws in all $16$` | present, now sentence-initial `Every` |
+| §4.1 Table 1 validity | `1.24 / \textbf{21.6}` | table is now the 3-arm decomposition |
+| §4.1 AVBD projection | `$1.8$~mm against $21.6$` | **claim removed** from the paper |
+| §4.1 accuracy | `falls $196{\times}\to3.7{\times}$` | now `$196{\times}$ to $3.6{\times}$` (gap arm) |
+| §4.1 deployed accuracy | `$2823{\times}\to3.7{\times}$` | **claim removed** from the paper |
+
+Five are re-anchorings; two are claims the paper no longer makes, so those rows
+must be dropped or repointed rather than patched. Rows for the new gap-arm data
+(`governed_accuracy_gap.csv`, `projection_validity_arms_*.csv`,
+`solver_matrix_gap.csv`) also need adding. The guard doing this is correct
+behaviour — it is the reason the bundle has not silently shipped stale claims —
+but it means the bundle needs a deliberate pass, not a rerun.

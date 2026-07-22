@@ -783,7 +783,9 @@ ungoverned versus the host's own high-iteration self-reference (500x1) on a
 steel board, at identical camera and true scale; (3) the same 32 contact-row
 evaluations spent as iterations (32x1, holds) versus substeps (4x8, overdraws);
 (4) the band-limited basis, necessary but not sufficient; (5) the last-resort
-storage bound as containment, with a true-scale penetration cross-section; and
+storage bound as containment, governed by the shipped surface-preserving
+projection (Eq. 5), with a true-scale penetration cross-section that attributes
+the residue across three arms — governor off, whole-state scale, preserving; and
 (6) a decision card. It was rendered headlessly from frozen traces and the
 bundled result CSVs — no interactive capture — by
 `benchmarks/paper_fig/make_short_video.py`.

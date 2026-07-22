@@ -345,6 +345,46 @@ def main() -> int:
         all(float(r["clamp_std_ms"]) < float(r["clamp_ms"]) for r in res),
         "4/4")
 
+    # ---- R8d: Fig. 1 is rendered from the SHIPPED projection ---------------
+    # Until 2026-07-22 the teaser's governed panel came from the superseded
+    # whole-state scale, and none of its caption numbers were checked. The
+    # first check below is the guard against that regressing; the rest pin the
+    # caption. The rendered instant is logged frame 50 (fig_teaser --frame).
+    tzr = os.path.join(_ROOT, "benchmarks", "paper_fig", "out",
+                       "teaser_deployed_gap")
+    if os.path.isfile(tzr + ".manifest.json"):
+        import json
+
+        import numpy as np
+        man = json.load(open(tzr + ".manifest.json"))
+        pk = man["peaks"]
+        chk("Fig.1 recorded with the shipped projection",
+            man.get("projection", "").startswith("gap-preserving"),
+            man.get("projection", "(absent)"))
+        chk("Fig.1 ungoverned throws books 93 mm",
+            abs(max(pk["off"]["bystander_rise_mm"]) - 93.3) < 0.1,
+            f"{max(pk['off']['bystander_rise_mm']):.1f} mm")
+        chk("Fig.1 governed peak E_mod 30.2 J",
+            abs(pk["on"]["e_mod_peak_J"] - 30.2) < 0.05,
+            f"{pk['on']['e_mod_peak_J']:.2f} J")
+        chk("Fig.1 governed: no book leaves rest",
+            max(pk["on"]["bystander_rise_mm"]) <= 0.0,
+            f"{max(pk['on']['bystander_rise_mm']):+.1f} mm peak rise")
+        z = np.load(tzr + ".npz")
+        s = int(z["off/settle"])
+        byst = np.asarray([not b["is_impactor"] for b in man["bodies"]],
+                          dtype=bool)
+        def lift(a):                                          # noqa: E306
+            p = z[f"{a}/pos"]
+            return float(np.max((p[s + 50, :, 1] - p[s - 1, :, 1])[byst]) * 1e3)
+        chk("Fig.1 reference lifts one book 19 mm at the rendered frame",
+            abs(lift("ref") - 19.0) < 0.5, f"{lift('ref'):.1f} mm")
+        chk("Fig.1 governed lifts none at the rendered frame",
+            lift("on") <= 0.0, f"{lift('on'):+.1f} mm")
+    else:
+        _skipped.append("Fig. 1 caption numbers (run record_teaser.py --case "
+                        "deployed --gap-preserving --out teaser_deployed_gap)")
+
     # ---- report ------------------------------------------------------------
     for line in _ok:
         print(f"  ok   {line}")

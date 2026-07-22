@@ -13,27 +13,30 @@
 ## 1. The idea in one paragraph
 
 One offline analysis per asset (tet mesh + material → generalized eigenproblem →
-modes, frequencies, damping, radiation weights) feeds **three** consumers at
-runtime, band-split by what each can represent:
+modes, frequencies, damping, radiation weights) produces one provenance-tracked
+**modal asset**. One timestamped contact-excitation contract then feeds three
+consumer-specific runtime states, selected by what each renderer and device can
+represent:
 
 | consumer | band | rate | coupling |
 |---|---|---|---|
-| visible motion | sub-Nyquist modes (≲ substep rate / 4) | sim rate (120–480 Hz) | one-way *or* two-way co-solve |
-| audio | 20 Hz – 20 kHz | 44.1/48 kHz | open-loop from logged excitation |
-| haptics | ~30–500 Hz | 1–3 kHz | open-loop from the same excitation |
+| visible motion | solver-feedback-eligible low modes | sim rate (120–480 Hz) | one-way *or* two-way co-solve |
+| audio | audible modes selected by the acoustic renderer | 44.1/48 kHz | open-loop from logged excitation |
+| haptics | modes selected through a target-device transfer profile | device/control rate (typically 1–3 kHz or higher internally) | open-loop from the same excitation |
 
 The excitation stream is shared, so what you hear, see shake, and feel are the
 same physical event. This is the E6 architecture (`dcr/sound/`) generalized: the
-audio bank is a *renderer* of the contact-excitation stream exactly as the viewer
-is a renderer of the displacement stream. **The band-split rule is the
-correctness spine**: never co-solve a mode the substep rate cannot represent —
-that is the documented stiff-row injection failure mode, and it is the subject of
-the MIG short paper.
+audio and haptic banks are separately clocked renderers of the event stream, not
+consumers of one sim-rate modal state. Their selections may overlap—the same
+physical mode can correctly be visible, audible, and tactile. The **strict split
+is the solver-feedback gate**: never co-solve a mode the substep rate/integrator
+cannot represent. That is the documented stiff-row injection failure mode and
+the correctness spine of the proposed compiler.
 
 ## 2. Why the visual tier is the hard/optional one
 
-Industry does not two-way couple reduced modal models. Five stacked reasons, three
-of which this repo has *measured*:
+Production engines rarely expose two-way coupled reduced modal models for ordinary
+props. Five stacked reasons, three of which this repo has *measured*:
 
 1. **Payoff asymmetry.** Stiff-prop vibration is millimetre-scale. One-way
    (detect contact → ring the modes, no back-reaction) captures nearly all the
@@ -66,11 +69,12 @@ the two-way co-solve only where the paper's operating guide says it is safe
 (implicit modal weight, or converged iterations), with the governor as the
 fail-safe. The MIG paper is, in effect, the safety datasheet for that tier.
 
-The governor's own cost — up to 21.6 mm of penetration where it is load-bearing —
-is the practitioner's main objection to that fail-safe, and it now has a
-measured successor: see `gap_preserving_projection.md` (same bound, penetration
-down 4.4–12.8× on three of four cells, unchanged in the one cell where the
-surface being preserved is itself the artifact).
+The governor's own cost—up to 21.6 mm of penetration where it is load-bearing—is
+the practitioner's main objection to that fail-safe, and it now has a measured
+successor: see `gap_preserving_projection.md`. Reviewer-safe wording is important:
+the successor preserves selected affordable **surface displacements**, not
+contact velocity or complementarity, and cannot preserve a surface state whose
+minimum elastic energy already exceeds the ledger ceiling.
 
 ## 3. Game audio today, and where modal synthesis fits
 
@@ -129,22 +133,29 @@ derived *defaults*, designer-overridable knobs (per-mode gain/damping curves,
 material presets, an audition tool). The pitch is "no more authoring 40 impact
 variations per prop," not "the simulation replaces you."
 
-## 5. Haptics — mostly easy, with one real step
+## 5. Haptics — reusable excitation, substantial device work
 
-The same excitation, band-passed to roughly 30–500 Hz, drives the actuator.
+The same excitation can drive a haptic renderer, but a universal 30–500 Hz
+band-pass is not a sufficient device model. The renderer should apply a measured
+or vendor-supplied actuator transfer profile, then enforce amplitude, slew,
+thermal/duty-cycle, latency, and comfort limits.
 
-- **Wideband actuators** (DualSense voice coil, high-quality LRAs) can take the
-  band-passed waveform almost directly.
+- **Wideband actuators** (voice coils and suitable broadband devices) can receive
+  an equalized waveform within their measured operating envelope.
 - **Narrowband LRAs** (~170–250 Hz resonance) cannot reproduce a waveform: render
   the **amplitude envelope** of the band onto the actuator's resonance instead.
 - **Perceptual mapping** matters: vibrotactile sensitivity peaks near 250 Hz, so
   level mapping should be perceptual, not linear in energy.
+- **Spatial mapping** matters: a modal response at the simulated contact must be
+  mapped to the actuator location(s), not treated as a global scalar rumble.
 - Export targets: Apple AHAP, DualSense, Interhaptics/Razer, OpenXR haptics.
 
-Precedent: event-based haptics work (Kuchenbecker et al.; VerroTouch) showed that
-*measured transients* feel dramatically better than canned rumble. Audio→haptics
-middleware exists (Lofelt → Meta, Interhaptics); **nothing shipped is
-geometry+material-first**, which is the gap this pipeline would fill.
+This is a promising integration target, not an unoccupied research category.
+The AHI already synchronized audio and haptics from one force profile; ACME
+targeted automatically acquired visual/haptic/auditory object models; Hasti
+generated synchronized tactile and modal-audio feedback from visual material
+representations. The narrower gap here is a structural-modal, rate-certified,
+device-calibrated authoring path—not “the first shared audio/haptic excitation.”
 
 ## 6. Suggested v1 scope (post-MIG)
 
@@ -171,3 +182,88 @@ Impacts only, one-way visual tier, audio + haptics from the shared excitation:
 
 Three of the pipeline's pieces are therefore already built; what is missing is the
 authoring flow, the fidelity work of §4, and the haptics mapping of §5.
+
+## 8. Novelty assessment — honest version
+
+### What is established prior art
+
+- Shared contact excitation for synchronized audio and haptics: DiFilippo and
+  Pai, [The AHI (UIST 2000)](https://doi.org/10.1145/354401.354437).
+- Automatically acquired visual, haptic, and auditory virtual-object models:
+  Pai et al., [ACME / Scanning Physical Interaction Behavior](https://sensorimotor.cs.ubc.ca/2001/08/01/acme/).
+- A unified representation used for visual dynamics, haptic display, and modal
+  sound, including perceptual evaluation: Sterling and Lin,
+  [Integrated multimodal interaction using texture representations](https://www.sciencedirect.com/science/article/pii/S0097849315001715).
+- Low-rate scene contact expanded into a high-rate micro-contact process whose
+  displacement drives touch and whose impulses drive modal audio: Chan, Tymms,
+  and Colonnese, [Hasti (World Haptics 2021)](https://www.ncolonnese.com/research/Hasti/whc2021_sc_ct_nc_final.pdf).
+- Automatic geometry/material-to-modal-audio analysis, including runtime LOD and
+  asynchronous scheduling: Rausch, Hentschel, and Kuhlen,
+  [Level-of-Detail Modal Analysis](https://diglib.eg.org/items/fa784fd2-78c9-400d-a376-2381c750bb33).
+
+Therefore the broad claims “one asset feeds sight, sound, and touch,” “one event
+feeds several rates,” and “geometry/material automatically produces modal audio”
+are not novel.
+
+### The defensible contribution
+
+> A rate-aware structural-modal asset compiler that records physical provenance,
+> certifies which modes may feed back into a low-rate dynamics solver, and emits
+> separately clocked, calibrated visual, audio, and haptic render packages from
+> one excitation semantics.
+
+The potentially new part is the **executable safety and authoring contract**:
+
+1. an explicit numerical eligibility test for the two-way band, motivated by the
+   measured under-resolved shared-row failure;
+2. automatic consumer manifests recording selection, rate, damping, units,
+   transfer function, and fallback policy per mode;
+3. one versioned excitation schema with deterministic timing and coordinate
+   conventions across all renderers;
+4. tests that reject an asset when an unrepresentable mode leaks into the
+   coupled solver, instead of relying on an artist or integrator to notice;
+5. designer-overridable material/fidelity controls that remain traceable to the
+   generated physical defaults.
+
+This is systems/tooling novelty, not a new eigensolver, modal synthesizer,
+multirate architecture, or general multisensory principle.
+
+## 9. Practitioner-value gates
+
+The practitioner case is plausible but not yet demonstrated by the repository's
+audio prototype alone. A credible v1 evaluation should pass all of these gates:
+
+1. **Asset ingestion:** report success/failure and repair time on a varied set of
+   real production meshes—open surfaces, bad topology, thin parts, composites,
+   collision/render-mesh mismatches—not only clean tetrahedral examples.
+2. **Authoring:** compare time and iteration count against a conventional
+   sample/event workflow; include an audition UI, presets, overrides, and a clear
+   fallback when the physical model is a poor fit.
+3. **Dynamics:** naive all-mode co-solve versus certified feedback band versus
+   one-way rendering; report stability, trajectory/contact error, and runtime.
+4. **Audio:** measured or listener-rated comparison against recordings; separate
+   modal ring, attack residual, radiation, and fitted damping ablations.
+5. **Haptics:** at least one wideband and one narrowband target, each with measured
+   transfer/equalization, saturation/latency logs, and a perceptual study.
+6. **Cross-modal consistency:** synchronized versus deliberately mismatched
+   excitation/material conditions, testing recognition, realism, and preference.
+7. **Scalability:** simultaneous-asset/voice budgets, cache/build times, memory,
+   deterministic rebuilds, and graceful LOD/fallback behavior.
+
+Useful go/no-go evidence is not merely “all three outputs play.” It is measurable
+authoring-time reduction without worse perceived quality, plus automatic
+prevention of the unstable configuration documented by the MIG work.
+
+## 10. Publication and product positioning
+
+- Keep the MIG short paper focused on the coupling failure, operating envelope,
+  and the governor evidence it actually validates; do not add the full pipeline
+  claim to that paper.
+- Develop this as a separate systems/demo or long-paper track. Lead with the
+  compiler contract and workflow result, then treat the three renderers as its
+  consumers.
+- Say **one analyzed asset + one excitation contract**, not “one modal state
+  shipped to three renderers.” Audio and haptics require their own clocks and
+  states.
+- Treat the gap-preserving governor as the safety mechanism for the optional
+  two-way tier, not as evidence that every modal asset is safe to co-solve.

@@ -1038,3 +1038,46 @@ edit. Committed-core body is done.
   The guard aborts before writing, so `supplement/` is intact (still references
   the old 52.0 s render). Awaiting user decision: sync the 4 anchors to the new
   prose and reship, or wait until the paper revision is committed.
+
+## 2026-07-21 Stage G — current PDF + `mig_short_video.mp4` panel
+
+- Started a clean six-reviewer MIG short-paper assessment of the exact PDF/video pair supplied by the user.
+- Marked all earlier panel scores stale because they reviewed older paper builds and/or `teaser_video.mp4`, not the current `mig_short_video.mp4` packet.
+- Activated artifact freezing, full paper/video inspection, live-rubric verification, isolated comprehension-first reviews, and area-chair synthesis.
+- Frozen current hashes: PDF `51b436f...`; video `97035c0c...`. Extracted all paper text, rendered all seven pages, and sampled the full video every two seconds for a beat-level visual audit.
+- Initial packet check: body occupies pages 1–6 with references on page 7; both artifacts render cleanly and the video clearly communicates the failure, allocation/band-limit diagnostics, guardrail cost, and operating guide.
+- Verified the live official MIG 2026 call: the packet fits the 4–6 body-page short-paper rule, physics/interactive simulation scope, and <200 MB supplement rule. Froze the six official review criteria for all reviewers. The only visible submission-readiness defect is the missing unique paper ID, which cannot be assigned before EasyChair opens on July 25.
+- Launched isolated Reviewers 1–3 on energy accounting, contact numerics, and novelty/significance. R3 returned 5/7 weak accept at confidence 4/5 with correct comprehension; launched R4 on evaluation/reproducibility in the freed slot. No report has been shown to another reviewer.
+- R1 returned 5/7 weak accept at confidence 4/5 after independently validating the printed scalar theorem but flagging incomplete contact-run energy closure, especially for the 6.7 J AVBD claim. Launched R5 on presentation/practitioner/video in the freed slot; all reports remain isolated.
+- Completed G1: every PDF page and all six video beats were inspected at full resolution, both artifacts decode without errors, and hashes remained stable. G2 is in progress with three reviews returned or underway and later reviewers launched only into freed slots.
+- R5 returned 6/7 accept at confidence 4/5 and independently confirmed the video’s equal-cost wording conflict. Launched R6 as the senior/generalist reviewer in the freed slot. Three reviewers remain active; all reports are still isolated.
+- R4 returned 5/7 weak accept at confidence 4/5, contingent on actually supplying the numerical ledger and keeping cross-host/energy-safety claims narrow. R2 and R6 remain in progress.
+- R6 returned 5/7 weak accept at confidence 4/5, emphasizing missing-ledger reproducibility and the need to demonstrate the decisive result with a timestep-resolved, deployment-faithful basis. R2 is the final report outstanding.
+- R2 returned 5/7 weak accept at confidence 4/5. Final panel: `5,5,5,5,6,5`, mean 5.17, median 5, unanimous accept-side, all confidence 4/5.
+- Rechecked both hashes after the sixth report; the frozen PDF/video did not change. Adjudicated the reports, confirmed the equation/proposition are not fatal, verified the video equal-cost contradiction and notation/reproducibility issues, and completed G2–G4.
+
+## 2026-07-22 Split-state governor + unified-pipeline audit
+
+- Began a fresh advisory audit of the proposed quasi-static/contact-nullspace governor and the material-to-visual/audio/haptics modal pipeline.
+- Split the work into algebra/KKT correctness, active-set and runtime feasibility, repository delta, primary-literature novelty, and practitioner-value positioning. No implementation changes are authorized or planned.
+- Initial derivation check: the `Λ`-orthogonal displacement split is exact under an SPD modal stiffness and consistent selected rows. Rung 1 is a valid energy-metric projection and should remove projection-induced gap changes on those rows, but it does not preserve contact velocity/complementarity. Rung 2 is a sensible lexicographic fallback, not the same KKT projection.
+- Located the repository’s existing R8 feasibility probe, future multimodal pipeline plan, mature modal sound subsystem, and audio bases for a precise implemented-versus-proposed audit.
+- Found that the split-state helpers are already present in `passivity.py`. Began auditing wiring, numerical rank handling, tests, and whether the active-row solve is practical at the table’s 200-row/24-mode scale.
+- Inspected the complete two-rung implementation and all repository references. Confirmed that it is currently behind `_psv_gap_preserving = False`, while a unit-test suite and a dedicated comparison probe are present.
+- Identified the main implementation risk: an active-row-space `m × m` least-squares solve despite only `r` modal degrees of freedom; this needs rank-space optimization and timing evidence.
+- Audited the XPBD call site and algebraic unit tests. Confirmed that active rows are selected by positive current-substep multipliers and that the test suite proves the narrow linear-algebra properties but not trajectory-level contact validity, velocity consistency, device parity, or performance.
+- Read the existing full A/B probe and frozen CSV. The split-state policy materially lowers worst penetration in three of four cells (about 2.7×, 3.0×, and 4.4×), but gives only about 1.05× improvement in the starved ledge 4×1 cell where rung 2 dominates.
+- Verified provenance and tests: the A/B manifest and current repository are both at `6044b1b`; all 29 dedicated gap-preserving tests pass.
+- Read the full future-pipeline design note. Reframed the architecture as one analyzed asset plus one excitation contract feeding separate consumer-rate states; isolated the implementable novelty in automated partitioning, calibration, validation, and authoring rather than modal synthesis itself.
+- Inventoried the modality code: audio has an implemented/tested path; haptics does not yet have an equivalent runtime/export layer. A narrower search is needed because a generated HTML file polluted the first grep.
+- Audited the Stage-E6 architecture and audio-basis builder. Confirmed a genuine rate-separated live/offline sound path, but also substantial hand-authored material/shape/fidelity logic that limits any current “fully automatic” claim.
+- Re-ran a clean source-only haptics search and inventoried audio APIs/tests. Confirmed that haptics is currently a design proposal, while audio offers a reusable consumer architecture.
+- Began a primary-source novelty review. Found direct multimodal precedents (Sterling–Lin and Hasti), automatic geometry/material modal-audio analysis (Rausch et al.), and mature visual/haptic/audio modal components; narrowed any defensible novelty to the explicit rate-partitioned asset/runtime contract and its validation.
+- Extended the review to multirate systems, contemporary multimodal assets, and Hasti’s evaluation. Confirmed that multi-rate synchronized consumers are prior art, while actuator-specific calibration and the solver-feedback gate remain plausible differentiators.
+- Benchmarked the governor factorization. A direct whitened `m×r` solve was about 20× faster at 200×24 and materially more accurate under duplicated rows than the current `m×m` normal-equation path.
+- Detected concurrent, uncommitted evolution of the governor toward multiplier-prioritized rows plus new v2 results. Paused instrumentation, preserved all changes, and switched to a read-only delta audit.
+- Audited the priority-prefix v2 and its frozen CSV. It improves the shelf cases markedly, but changes the method into a lexicographic heuristic, leaves the starved ledge case nearly unchanged, and currently has one `holds=False` result requiring regeneration/verification.
+- Re-ran the concurrently expanded unit suite: 31/31 pass. Coverage now includes the prefix policy and strict ceiling landing, but remains algebraic rather than full-contact/trajectory validation.
+- Re-ran all four v2 arms in memory with timing/row instrumentation. Current code passes both ledger checks, uses at most 24 active rows in these scenes, costs about 0.03–0.09 ms median per projection, and confirms that preserved-row coverage predicts the observed gap improvement.
+- Located still earlier direct precedents: AHI shares one force profile across audio/haptics, and ACME automatically acquired visual/haptic/auditory object models. Broad shared-excitation/automatic-multisensory novelty is conclusively ruled out.
+- Completed H1–H4. Final assessment: the governor is a real, measurable improvement with narrow contact claims and remaining velocity/trajectory validation; the broad pipeline is prior art, while the solver-safe rate-aware compiler/runtime contract is the viable narrow novelty and practitioner story.

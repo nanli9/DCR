@@ -38,18 +38,30 @@ contacts) and **`q_qsᵀ K q_⊥ = 0`** (K-orthogonal). Hence
 `E(q_qs + s·q_⊥, s·q̇) = E_qs + s²(E⁺ − E_qs)` — the same degree-2 homogeneity
 the shipped γ exploits, so every rung is closed-form:
 
-| rung | condition | action | contact surface |
+The precise KKT statement needs an objective. Rung 1 is the solution of the
+energy-whitened proximal problem
+
+```
+min  ½‖K¹ᐟ²(q'−q)‖² + ½‖q̇'−q̇‖²
+s.t. U_c q' = d,   E(q',q̇') ≤ Ē.
+```
+
+Without this metric, “the constrained projection” is underspecified.
+
+| rung | condition | action | selected displacement rows |
 |---|---|---|---|
 | 1 | `E_qs ≤ Ē` | `s = √((Ē−E_qs)/(E⁺−E_qs))` | **preserved exactly** |
 | 1b | prefix fits | keep largest λ-ordered prefix (bisection; `E_qs(k)` is monotone) | preserved on kept rows |
 | 2 | nothing fits | `β = √(Ē/E_qs)`, `q̇ ← 0` | shrunk by `1−β`, but `β ≥ γ` always |
 
-**Prop. 4.1 survives verbatim.** Its proof only needs the projected state to land
-in `{E ≤ E⁻+B}` with the same credit-before-test ordering; it never constrained
-the *direction* of projection. Rung 2 is always feasible, so the ladder is
-unconditional — unlike both R8 variants. With no active rows the whole thing
-reduces **exactly** to the shipped radial γ (asserted in the tests): the current
-governor is the "preserve nothing" special case.
+**The scalar-ledger induction survives.** Its proof only needs the projected state
+to land in `{E ≤ E⁻+B}` with the same credit-before-test ordering; it never
+constrained the *direction* of projection. If Prop. 4.1 or its lemma explicitly
+names radial γ-scaling, that statement/lemma must be revised—the induction itself
+is unchanged. Rung 2 is always feasible, so the ladder is unconditional unlike
+both R8 variants. With no active rows the whole thing reduces **exactly** to the
+shipped radial γ (asserted in the tests): the current governor is the “preserve
+nothing” special case.
 
 ## Results — full A/B runs, XPBD, relax 0.7, η=1
 
@@ -154,3 +166,37 @@ own penetration by 2.4–47.6×; preserving the observed surface, by 1.0–6.3×
 converged budgets no clamp fires at all and all three arms are identical. The
 corrective transient does **not** improve, and ledge 4×1 remains unfixable by
 any bound-respecting projection (its observed surface costs 340× the ceiling).
+
+## Reviewer-safe interpretation and remaining validation
+
+What is proved:
+
+- Rung 1 preserves `U_c q` for the selected rows and lands inside the same scalar
+  modal-energy ceiling.
+- Empty `U_c` reduces to the original radial governor.
+- Rung 2 is always energy-feasible, and on the selected displacement vector
+  retains at least the common fraction retained by radial scaling (`β ≥ γ`).
+
+What is not proved:
+
+- “Zero penetration” globally. Rung 1 causes zero **projection-induced position-
+  gap change on its selected rows**; pre-existing solve residuals and omitted or
+  misclassified rows remain.
+- Contact validity. The current policy scales `q̇`, so it does not preserve
+  `U_c q̇`, complementarity, the solved contact impulse, or the next-substep
+  corrective transient.
+- Optimality of rung 1b. A multiplier- or gap-prioritized prefix is a
+  lexicographic row-selection policy, not the all-row KKT solution or a proof of
+  penetration/impulse optimality.
+- Momentum preservation merely because only modal coordinates are written. That
+  requires the retained basis to be mass-orthogonal to the relevant rigid
+  translation/rotation modes (and is not meaningful for a fixed support in the
+  same way as a free body).
+
+Before using “contact-consistent” as a method claim, measure post-projection
+`U_c q̇`, complementarity, next-step impulse, active-set churn, and trajectory
+error against the trusted high-budget/FEM reference. A natural ablation is the
+analogous kinetic split: preserve the minimum-norm contact-visible velocity and
+scale only its nullspace component where the enlarged mandatory energy floor is
+affordable. Until then, “selected-height-preserving scalar-energy governor” is
+the accurate name.

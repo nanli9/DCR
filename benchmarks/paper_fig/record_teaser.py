@@ -138,17 +138,23 @@ def _scene_meta(H) -> dict:
 
 
 def run_arm(K, S, relax, material, *, governed, nframes, settle=SETTLE,
-            ledger_live=True):
+            ledger_live=True, gap_preserving=False):
     """One arm, recorded frame by frame.
 
     governed=False + ledger_live=True is the paper 3.1 un-governed
     measurement: accounting runs, gamma is pinned to 1.0, physics unperturbed.
+
+    gap_preserving selects the shipped projection (eq. 5) over the superseded
+    whole-state scale. It is applied ONLY on the governed arm: the gap path
+    computes its own scale internally, so the gamma pin below would not
+    neutralize it, and the un-governed arm must stay unperturbed.
     """
     t0 = time.perf_counter()
     H, sol = _build(K, S, relax, material)
     apply_passivity(sol, "xpbd", enable=bool(governed or ledger_live), eta=1.0)
     if governed:
         sol._psv_monitor_only = False     # ACTIVE projection (matrix ON column)
+        sol._psv_gap_preserving = bool(gap_preserving)
 
     orig_gamma = _psv_mod.passivity_gamma
     if not governed:
@@ -225,6 +231,9 @@ def main():
                     help="override the case budget, e.g. 1x8 / 2x4")
     ap.add_argument("--relax", type=float, default=None,
                     help="override the case modal relaxation")
+    ap.add_argument("--gap-preserving", action="store_true",
+                    help="governed arm uses the shipped gap-preserving "
+                         "projection (eq. 5) instead of the whole-state scale")
     ap.add_argument("--verify-unperturbed", action="store_true",
                     help="assert the live-ledger OFF arm is bit-identical to a "
                          "ledger-free OFF arm (paper 3.1 non-perturbation)")
@@ -249,7 +258,8 @@ def main():
             "off": (K, S, False),
             "on":  (K, S, True),
             "ref": (CK, CS, False)}.items():
-        a = run_arm(k, s, relax, material, governed=gov, nframes=args.nframes)
+        a = run_arm(k, s, relax, material, governed=gov, nframes=args.nframes,
+                    gap_preserving=args.gap_preserving)
         arms[name] = a
         lm = " ".join(f"{v:.1f}" for v in a["launch_mm"])
         print(f"  {name:4s} xpbd {k}x{s} gov={int(gov)}: "
@@ -296,6 +306,8 @@ def main():
         material_params=material or {},
         settle=SETTLE, nframes=args.nframes, h=1.0 / 120.0,
         stepper="symplectic", eta=1.0,
+        projection=("gap-preserving (eq. 5)" if args.gap_preserving
+                    else "whole-state scale"),
         bodies=m["bodies"], grid=list(m["grid"]),
         support_thickness=0.03,
         peaks={a: dict(e_mod_peak_J=arms[a]["e_mod_peak"],

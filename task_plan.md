@@ -467,3 +467,49 @@ Discipline honored: every on-screen number → frozen source; ledger never calle
 EasyChair opens 2026-07-25; final supplement re-hash with the ID. Then **Stage
 G**: six isolated reviewers on final PDF + video + supplement vs the `32f2951d`
 fallback.
+
+## 2026-07-21 Stage G — current PDF + `mig_short_video.mp4` six-reviewer panel
+
+Goal: Review the exact current `paper/main_short.pdf` and
+`benchmarks/paper_fig/out/mig_short_video.mp4` using six isolated MIG
+short-paper reviewer simulations, then give an unbiased area-chair-style
+accept/reject recommendation and prioritized advice.
+
+| Phase | Status | Task |
+|---|---|---|
+| G1 | completed | Freeze artifact hashes; reconstruct and visually inspect every PDF page and all video beats; verify the live official MIG short-paper rubric. |
+| G2 | completed | Run six isolated reviewers with comprehension checks before scoring and no access to prior panel notes or one another's reports. |
+| G3 | completed | Fact-check the six reports against the frozen artifacts and adjudicate disagreements or reviewer misreads. |
+| G4 | completed | Synthesize score distribution, supplement impact, accept/reject advice, and highest-impact revisions; compare cautiously with the `32f2951d` fallback. |
+
+Decision rules: judge only the supplied PDF/video pair; use the focused
+short-paper bar; keep reviewer reports isolated until synthesis; distinguish
+scientific merit from fixable submission-readiness defects; disclose that all
+six reviewers are AI simulations, not human peer reviewers.
+
+### Stage G errors
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| Initial multi-file planning patch used a stale `progress.md` context line and failed atomically. | 1 | Reapply separate patches against the exact current file tails; no partial edit occurred. |
+| First Stage G findings append used a visually matching but stale tail context and failed atomically. | 1 | Re-read the exact tail and patch against its final two lines; no partial edit occurred. |
+
+## 2026-07-22 Split-state governor + unified multimodal pipeline audit
+
+Goal: Determine whether the proposed contact-height-preserving split-state
+governor is mathematically correct and practically likely to reduce the current
+projection artifacts, and assess whether the proposed material-to-visual/audio/
+haptics modal pipeline is novel and useful to practitioners.
+
+| Phase | Status | Task |
+|---|---|---|
+| H1 | completed | Derived the energy-metric projection; audited feasibility, velocity/contact limits, numerical conditioning, active-set policy, and measured runtime. |
+| H2 | completed | Inspected the implemented E6 audio/band-split path and separated shipped components from the proposed haptic/authoring/compiler work. |
+| H3 | completed | Compared against primary visual, audio, haptic, multirate, and multisensory-pipeline precedents through 2026. |
+| H4 | completed | Synthesized separate method and pipeline verdicts, validation gates, and safe paper/product positioning. |
+
+Decision rules: distinguish exact algebra from engineering feasibility; preserve
+the paper’s narrow scalar-ledger claim; do not call preservation of selected
+surface displacements “contact validity” unless velocity/complementarity are
+also preserved; treat literature-search absence as evidence rather than proof;
+do not edit solver or manuscript code in this advisory task.

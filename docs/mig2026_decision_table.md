@@ -15,9 +15,9 @@ honestly rather than recommending it. Ready to drop into the body at Stage E.
 | more-iter XPBD trajectory | fixed point 34% of ref peak (formulation gap) | `selfconvergence*.csv` (R4) |
 | block condensation | worse at 8×2/16×4/32×1; injects where serial holds | `e6a1_block_condensation.csv` (E6a-1) |
 | implicit control | 0/24, converged at K=2 | `eq2_utilization.csv`, `k_convergence.csv` |
-| governor energy | Eq.(2) holds unconditionally, 90 cells ≤1.1×10⁻¹³ J | Prop.; `eq2_utilization.csv` governed |
-| governor penetration | 21.6 mm (72% board) @4×1; 9.8 mm deployed | `projection_validity*.csv` (E-S3), R5.4 |
-| governor trajectory | L∞ 33%→71% of ref peak (worse) | `governed_accuracy*.csv` (R5.1b) |
+| governor energy | Eq.(2) holds unconditionally, 90 cells ≤3.6×10⁻¹⁵ J | Prop.; `solver_matrix_gap.csv`, `solver_matrix_deployed_gap.csv` (R8c) |
+| governor penetration | 8.3 mm @shelf 4×1, 17.8 mm @ledge 4×1 — vs 6.2/8.8 mm with the governor OFF, and 21.6/21.2 mm under the superseded whole-state scale | `projection_validity_arms_r07.csv` (R8c) |
+| governor trajectory | L∞ 33%→46% of ref peak (worse; 71% under whole-state scaling) | `governed_accuracy_gap.csv` (R8c) |
 | governor cost | +0.9–3.4% @16×4; +6.6–34% deployed | R7 timings, E-C6 |
 
 ## LaTeX (Table 1)
@@ -43,8 +43,8 @@ $\to3.6\,\mu$m by $K{=}64$ & approaches ref; $34\%$ residual & fixed host,
 budget affordable \\[2pt]
 shared-block condensation & \emph{not} a fix; worse at $8{\times}2$--$32{\times}1$
 & --- & --- & \textbf{not recommended} \\[2pt]
-cumulative governor & holds Eq.~\eqref{eq:invariant} ($\le10^{-13}$~J) & $21.6$~mm
-pen.\ ($72\%$ board) & $L_\infty$ $71\%$ of ref & last resort, containment only \\[2pt]
+cumulative governor & holds Eq.~\eqref{eq:invariant} ($\le10^{-15}$~J) & $17.8$~mm
+pen.\ (worst cell) & $L_\infty$ $46\%$ of ref & last resort, containment only \\[2pt]
 ungoverned direct row & overdraws up to $4.4{\times}10^{7}$~J ($9/24$) & --- &
 diverges & the diagnosed failure \\
 \bottomrule

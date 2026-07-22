@@ -2175,3 +2175,228 @@ implicit/velocity path is the *observed control* (one implementation), not a
 solver-class ranking. It ends on the operating-guide decision rule, not the
 guardrail (§12: "no longer end as if the governor were the main product"). The
 video is a visualization of the evidence, not a contribution.
+
+## 2026-07-21 Stage G — frozen current paper/video review
+
+### Artifact lock and initial paper reconstruction
+
+- PDF: `paper/main_short.pdf`, SHA-256 `51b436f1c1c20069051487056e5f07820194e91c1448de04eb48ab0fc65826eb`, 734,737 bytes, generated 2026-07-21 22:03:38 PDT, seven letter-size pages, all fonts embedded. The ACM metadata says “7 pages”; the visible body runs through page 6 and references occupy page 7.
+- Video: `benchmarks/paper_fig/out/mig_short_video.mp4`, SHA-256 `97035c0c08b0ffdd326b0eea7ec860ec0b8c31cf1266f24b13072cbd8f59632e`, 53.2667 s, 1,598 frames at 30 fps, 1920×1080 H.264/yuv420p, 1,451,244 bytes, no audio stream and no title/author/comment metadata reported by `ffprobe`.
+- The paper is explicitly a diagnostic/operating-guide short paper, not a claim that the two-way rigid–modal row is new. Its central empirical claim is that one tested fixed-budget XPBD implementation catastrophically overdraws a scene-wide gross rigid-side energy-loss envelope in certain shared-modal contact configurations, while one AVBD and one stiffness-aware implicit implementation are milder controls.
+- Evidence visible so far includes: three scenes × two relaxations × four schedules; direct invariant margins as well as incident-energy ratios; same-path iteration and self-convergence ladders; equal-row-count iteration-vs-substep allocation; warm-start, modal-band, deterministic perturbation, and serial-vs-block-condensation ablations; complementarity diagnostics; and a post-hoc scalar governor with quantified contact/trajectory harm.
+- The guardrail proposition appears deliberately narrow: it maintains the printed scalar storage ledger by construction, but the paper expressly disclaims contact-port passivity, whole-system stability, contact accuracy, and a production-ready cure. Reported governed contact damage reaches 21.6 mm penetration (72% of board thickness), so the guardrail is framed as containment only.
+- Initial review risks to test independently: causal generalization from one implementation per formulation with unmatched compliance/cost/warm start; whether gross scene-wide rectified rigid loss is a physically meaningful supply; whether the diagnostic contribution is novel/significant enough without a new contact method; whether a 500-iteration self-reference is an adequate accuracy reference; and whether the packet is reproducible without the separately mentioned ledger/data supplement.
+
+### Initial visual audit
+
+- All seven PDF pages render cleanly with no visible clipping, broken glyphs, overlap, or blank content. Pages 1–6 contain the paper body; page 7 contains only references, consistent with a six-content-page short-paper layout if MIG excludes references from the limit. Page 4 is the densest and Figure 3 uses small annotations, but the main visual hierarchy remains coherent at full-page viewing.
+- Figure 1 works as a candid teaser: identical-view ungoverned/governed/XPBD-self-reference panels are paired with a modal-energy trace and explicitly show that containment also suppresses legitimate motion. Figures 2–3 carry substantial quantitative evidence but demand close reading.
+- The 53.3-second video has six clear beats: two-way modal-row schematic; animated steel-board failure against a 500×1 XPBD self-reference; equal-cost iterations-vs-substeps curve; band-limit necessary-but-insufficient panel; animated ungoverned/governed/self-reference containment plus a 21.6 mm penetration cross-section; and a three-branch operating guide ending “The governor is a safety net, not the product.”
+- The supplement is scientifically candid and directly reinforces the paper’s diagnostic framing. It is silent/no-audio and relies on small secondary text and plot labels that may be hard to read in a reduced conference-review player; its value is primarily comprehension, not new validation.
+
+### Live MIG 2026 rubric (official site checked 2026-07-21)
+
+- The official MIG 2026 call defines short papers as focused results, emerging ideas, or concise technical contributions and lists physics-based animation plus interactive simulation as in scope.
+- The official format is 4–6 pages excluding references. The current packet’s six body pages plus one references page is compliant on length.
+- The official criteria are originality, technical quality, clarity, significance, reproducibility where applicable, and MIG relevance. Supplementary video is encouraged up to 200 MB; the 1.45 MB video is compliant.
+- Review copies must be anonymous and contain the unique submission ID assigned by EasyChair. The PDF is anonymous but currently has no visible paper ID. Because the official submission window opens 2026-07-25, this is a mandatory pre-upload fix rather than a scientific rejection reason at the current 2026-07-21 stage.
+
+### High-resolution page audit, pages 1–2
+
+- Page 1 is visually polished and unusually candid for a short paper, but the abstract is dense and number-heavy. The teaser is legible at full-page size; its smaller schematic labels and trace annotations will require zoom in many review interfaces.
+- Page 2 cleanly distinguishes the adopted two-way row from the paper’s contribution and states the three claimed contributions. The rendered gap equation is `C = y_c - (y_rest + U_y^T q)`, so the printed derivative `∂C/∂q = -U_y` is consistent; any sign-error complaint based on text extraction would be a reviewer misread.
+- The paper repeatedly and visibly narrows the invariant: scene-wide gross rigid-side kinetic loss corrected for gravity, not dissipation, not signed interface work, not contact-port passivity. This candor strengthens clarity but also makes the physical significance of the bound the central judgment call.
+
+### High-resolution page audit, pages 3–4
+
+- Page 3 is text-dense but readable. It openly discloses that the three implementations differ in unknown, modal contact weight, warm start, and relaxation, and calls the cross-host comparison “as-deployed rather than compliance-matched.” That prevents an unfair universal solver-ranking claim, but it also limits causal attribution.
+- A 400-dpi check confirms that the printed XPBD contact-weight expression is literally `1/(H_ii h^2 - 1)`. It is not self-contained: `H_ii` is not defined in the visible paper and the denominator/sign are difficult to sanity-check. The complete host/parameter table is deferred to an unprovided supplement, making this a likely technical-clarity/reproducibility question rather than a demonstrated code error.
+- Page 4’s heatmaps/control strip and three-part operating-envelope figure are visually clean at full resolution and support the headline narrative. The captions are very long and repeat much of the body, while several plot annotations require zoom; this is density, not a rendering defect.
+- The same-path XPBD evidence is much stronger causally than the cross-host strip: iterations reduce energy ratio and gap error, complementarity clears later, warm start does not help, equal row counts allocated to substeps can still inject, and block condensation follows a distinct worse path. The paper appropriately avoids claiming convergence to the implicit discretization, noting a nonzero XPBD fixed-point gap.
+
+### High-resolution page audit, pages 5–6
+
+- The scalar projection and Proposition 4.1 are readable and internally coherent at the level printed: crediting nonnegative supply before the test, scaling the quadratic modal state to `E_mod^- + B`, and debiting only positive realized storage changes maintains a nonnegative reservoir and telescopes to Eq. (2). This establishes only the stated storage ceiling; it does not repair the physical meaning of the supply or contact validity.
+- Table 1 is a strong negative-result inclusion: it exposes clamp frequency, median/max post-projection gap, corrective impulse, and multiplier variance instead of presenting the governor as a clean fix. The table covers only two starved budgets in two scenes, so the worst-case cost is clear but broader governed-path behavior is not.
+- The FEM paragraph validates the reduced representation rather than the governed contact algorithm: it reports timestep convergence, frequency agreement, and spatial falloff against an unreduced reference, while the Limitations section explicitly leaves governed-path FEM validation for future work.
+- Runtime reporting is honest but not a real-time demonstration: CPU overhead is 0.23–0.41 ms at 16×4 and proportionally much larger at deployed low budgets; the paper explicitly disclaims an enforced device-resident implementation and unqualified real-time claims.
+- The conclusion gives a useful ordered operating guide and keeps the implicit-host observation implementation-specific. Overall presentation is dense but coherent, with the main residual reproducibility dependency being the unseen supplemental ledger/host table rather than a visible formatting problem.
+
+### High-resolution audit, page 7 and animated comparison
+
+- Page 7 contains references only and has substantial whitespace, but all 18 entries are readable and the bibliography covers the closest modal-contact, XPBD/AVBD, energy-projection, energy-tank, and recent energy-safe/contact work named by the paper. The page is not a content overflow.
+- The animated “bounded, but not faithful” video comparison is effective at full resolution: three identical-view runs, current modal energies/book motion, shared trace, true-scale disclaimer, and a direct warning that legitimate motion is suppressed. The visual makes the contact/trajectory tradeoff harder to miss than the paper alone.
+
+### High-resolution video audit, beats 1–3
+
+- The opening schematic makes the target workflow and shared-row bottleneck understandable without narration. Its final question precisely matches the paper rather than overselling a new solver.
+- The steel-board animation uses identical reset states and true scale, labels the ungoverned and 500×1 self-reference runs, and shows the entire energy trace. It is strong qualitative corroboration of the severe shelf failure, although it remains one scene family and a self-reference rather than external physical ground truth.
+- The equal-row-count curve clearly explains the most actionable result: at 32 row evaluations, 32×1 iterations reaches `R=0.30` while 4×8 substeps remains at `R=3.13` and +481 J. This materially improves practitioner comprehension and is probably the supplement’s strongest decision-oriented frame.
+
+### High-resolution video audit, beats 4–6
+
+- The band-limit panel clearly shows paired full-basis and truncated-basis values for all eight injecting cells. Its message is appropriately nuanced: removing the stiff cluster reduces the ratio by 2–3 orders but leaves 6/8 cells overdrawn, so it is necessary in this setup but not sufficient.
+- The final operating-guide card is exceptionally aligned with the paper: implicit/velocity control if architecture is flexible; audit and favor iterations/band limiting if XPBD is fixed; scalar storage projection only for a hard containment guarantee. It explicitly says “not a solver ranking, not a governor method” and ends “The governor is a safety net, not the product.”
+- The video therefore strengthens clarity and significance but does not close the main scientific gaps: it adds no compliance- or wall-clock-matched baseline, independent physical validation, multi-machine replication, or reviewer-accessible numerical ledger.
+
+### Video-specific fact check
+
+- The true-scale penetration cross-section is clear and candid: 21.6 mm versus a 30 mm board, with the deployed 9.8 mm value also marked. It directly supports the “containment, not a fix” interpretation.
+- One fixable wording inconsistency is visible in the equal-row beat: the video subtitle calls iterations versus substeps “at equal cost” and its held note says “Equal cost,” while the paper explicitly says equal `K·S` row evaluations are **not** equally costly because substeps repeat contact generation and integration. Relabel this “equal contact-row evaluations” or “equal row budget” before submission; the plotted experiment itself remains valid.
+
+### Targeted novelty cross-check (primary sources)
+
+- Hauser, Shen, and O’Brien (Graphics Interface 2003) already put contact/manipulation constraints directly into an interactive modal framework and derived rigid-plus-modal contact response. This confirms the manuscript’s correct choice not to claim the two-way modal row itself as new.
+- Wei et al. (arXiv 2026) address the broader phenomenon that finite-iteration partitioned coupling can inject energy and provide an any-budget passivity certificate for bilateral port-Hamiltonian coupling; You et al. (arXiv 2026) provide energy-controllable integration for full elastodynamic contact. These raise the novelty bar for broad “energy-safe finite-budget coupling” claims, but neither inspected abstract targets this paper’s exact fixed-budget unilateral XPBD/shared-modal-row diagnostic and operating guide.
+- A targeted current search found no exact duplicate of the manuscript’s empirical question or its specific scene-wide modal-storage ledger. Absence of a search hit is not proof of novelty; the defensible novelty is the measured failure map/mechanism/operating guide, not modal contact, energy tanks, or energy control in general.
+
+### Isolated Stage G reviewer returns (sealed from remaining reviewers)
+
+- R3, novelty/significance: **5/7 weak accept**, confidence **4/5**. Comprehension checks passed. The reviewer found the carefully isolated shared-row failure and actionable operating guide sufficiently original/significant for a focused MIG short paper, while stressing that novelty is an empirical case study rather than a new row, solver, or energy-control principle. Main limits: one unmatched implementation per host, gross rather than port-level supply, narrow normal-only regime, no governed FEM/device validation, incomplete two-file reproducibility, and potential overgeneralization of the tested block approximation. Video impact: modestly raises the score by making the failure and guardrail cost unmistakable.
+- R1, physics/energy accounting: **5/7 weak accept**, confidence **4/5**. Comprehension checks passed. The reviewer independently verified the gap sign, gravity-work sign, radial projection, and Proposition 4.1 induction, finding no fatal theorem error. The main technical risk is incomplete energy closure: the ledger omits compliance/constraint/stabilization reservoirs, so `4.4×10^7 J` convincingly shows catastrophic ledger overdraw but the mild AVBD `6.7 J` should be called measured-ledger overdraw unless omitted contact energy is bounded. Other limits: unresolved high-frequency basis, approximate block ablation, unmatched hosts, missing numerical supplement, and no governed FEM. Video impact: slight raise.
+- R5, presentation/practitioner/video: **6/7 accept**, confidence **4/5**. Comprehension checks passed. The reviewer found no acceptance-critical flaw and judged the diagnostic exceptionally actionable and well-supported for a short paper. It independently caught the video’s “equal cost” error against the paper’s explicit not-equally-costly statement, and also flagged dense page-4/abstract presentation, silent text-heavy pacing, categorical video wording, lack of a portable residual stopping rule, and the “production-like” label versus 11–126 ms baselines. Video impact: raises the score despite those fixable issues.
+- R4, evaluation/reproducibility: **5/7 weak accept**, confidence **4/5**. Comprehension checks passed. The reviewer found the within-XPBD causal evidence convincing and no fatal flaw, but treated the absent ledger/commands/complete parameter table/full heatmap/perturbation definitions as acceptance-critical reproducibility material. Further concerns: unmatched cross-host controls, no port/total-energy claim, ambiguous `h=1/120` under substeps, no wall-clock matching, under-resolved modal spectrum, limited FEM/governed validation, and single-machine precision. Video impact: no score change because it animates existing shelf results without filling those gaps.
+- R6, senior/generalist: **5/7 weak accept**, confidence **4/5**. Comprehension checks passed and no fatal contradiction was found. The reviewer judged the focused diagnosis and operating guide valuable, conditional on the promised numerical ledger being supplied and the modal-basis/timestep-fidelity concern being clarified. Decision-critical risks: Eq. (2) is a chosen scene-wide accounting policy rather than physical passivity, the deployed-timestep FEM ratio is only 0.38, and 99.6% of one excess case lies above 20 kHz; the paper still needs a decisive timestep-resolved basis case. Other limits are unmatched hosts, narrow contact regime, equilibrium-destroying projection, and CPU-only runtime. Video impact: slight raise.
+- R2, contact/numerics: **5/7 weak accept**, confidence **4/5**. Comprehension checks passed. The reviewer found the within-XPBD finite-budget diagnosis convincing and no fatal flaw, while limiting the cross-host recommendation. Main issues: ambiguous `h=1/120` semantics and compliance rescaling under `K×S`; Figure 3(b) plots only primal gaps while the dual residual is prose-only; one-scene convergence ladder; high-frequency-basis dependence; approximate rather than exact block solve; no wall-clock matching; gross/nonlocal supply; and missing reproducibility details. Video impact: slight raise.
+
+### Stage G reconciliation and area-chair calibration
+
+- Final scores in reviewer order R1–R6: `5, 5, 5, 5, 6, 5`; mean **5.17/7**, median **5/7**. Vote characterization: five weak accepts and one accept; every confidence score is **4/5**. All comprehension checks were accurate and all six reviewers independently inspected the complete frozen PDF/video pair.
+- Unanimous scientific verdict: no reviewer found a fatal algebraic or factual contradiction in the narrow result. Equation (1)’s sign is correct, and Proposition 4.1 enforces the printed scalar modal-storage ledger under the stated update order. The paper’s strongest evidence is the same-path iteration/complementarity ladder plus the 32×1-versus-4×8 equal-row-budget inversion, not the unmatched three-host strip.
+- Area-chair recommendation: **weak accept / lean accept under the focused MIG short-paper bar**, not a secure accept. The contribution clears that bar as a carefully controlled negative result and operating guide, not as a new contact row, solver, passivity theorem, or accurate governor.
+- Consensus acceptance risks, in priority order: (1) incomplete contact-run energy closure makes “real injection” and “energy-safe” too broad, especially for the 6.7 J AVBD margin; (2) the numerical ledger/commands/full host table/full heatmaps are not in the supplied two-file packet; (3) the decisive practical claim should be repeated or foregrounded with a timestep-resolved/FEM-faithful retained basis, because one excess is 99.6% above 20 kHz and deployment-step FEM amplitude is only 0.38; (4) cross-host controls are unmatched and support implementation observations only; (5) `h=1/120` and compliance scaling under substeps are ambiguous; (6) the tested block condensation uses a diagonal rigid-body approximation and cannot rule out exact coupled blocks.
+- Verified fixable artifact defects: the video says “equal cost” although only row evaluations are equal; the paper leaves `H_ii` undefined in the printed `1/(H_ii h^2 - 1)` contact weight; Figure 3(b) does not plot the prose-reported inactive-row multiplier residual; the review copy lacks its future EasyChair paper ID; and the abstract/page-4 captions are overly dense.
+- Video consensus: net positive for comprehension and significance (four reviewers explicitly raised or slightly raised, one no-change, none lowered). It makes the true-scale failure and 21.6 mm guardrail cost credible, but does not add independent validation or replace the numerical supplement.
+- Cautious fallback comparison: the prior `32f2951d` simulated panel averaged 4.50/7, while this clean current panel averages 5.17/7 (+0.67). Because the artifacts, framing, video, and reviewer instances differ, this is directional calibration rather than a statistically meaningful acceptance gain.
+
+## 2026-07-22 Split-state governor + unified multimodal pipeline audit
+
+### Initial algebra verdict
+
+- With `Λ ≻ 0`, `d = U_c q`, and a fixed selected row set, the proposed quasi-static component is mathematically sound: `q_qs = Λ⁻¹ U_cᵀ(U_cΛ⁻¹U_cᵀ)^+d`; `q_⊥ = q-q_qs` lies in `ker U_c`; and `q_qsᵀΛq_⊥ = 0`, so potential energy splits exactly.
+- Rung 1 is the radial projection in the **energy-whitened metric** on the affine displacement-preserving subspace, provided that this proximal objective is stated explicitly. It is not the unique “proper KKT projection” without specifying a metric/objective.
+- Rung 1 preserves `U_c q` for the selected rows, hence adds zero **projection-induced position-gap change** there. It does not preserve `U_c qdot`, contact impulses, complementarity, or rows omitted/misclassified by the active set; “contact-height preserving” is accurate, while “contact-valid” is not yet justified.
+- If `E_qs > Ebar`, preserving the full displacement vector is infeasible. Rung 2 (`β q_qs`, zero velocity) is always energy-feasible and `β ≥ γ` because `E⁺ ≥ E_qs`; it therefore preserves a larger common fraction of the selected surface displacement than whole-state radial scaling. But it is a separate lexicographic policy (maximize a common displacement scale), not the solution of the same hard-height KKT problem.
+- The formula after `q_qs` is closed form, but obtaining `q_qs` is active-set-dependent dense rank-revealing linear algebra. With 16–24 modes and up to hundreds of rows this should be implemented in modal/rank space via QR/SVD/eigendecomposition, not as a fresh `m×m` pseudoinverse; runtime, rank tolerance, and active-set churn are first-order engineering questions.
+
+### Repository context located
+
+- The repository already contains the current radial ledger in `dcr/avbd/_solver/passivity.py`, a prior R8 feasibility probe in `benchmarks/paper_eval/x1_passivity/probe_r8_feasibility.py`, a parked contact-consistent-governor track in `docs/mig2026_short_paper_plan.md`, and an explicit future multimodal asset-pipeline document in `docs/future_work_modal_asset_pipeline.md`.
+- Audio is not merely aspirational: `dcr/sound/` contains analysis, event logging, modal banks, live/render paths and tests; numerous frozen `data/audio_basis/*.npz` assets exist. The novelty question is therefore about the automated cross-consumer contract, band/rate policy, and validation—not about first adding modal audio to the repository.
+
+### Implementation discovery
+
+- `dcr/avbd/_solver/passivity.py` already contains `quasi_static_split` and `gap_preserving_projection` implementing the proposed two-rung policy. The legacy `passivity_gamma` is still present, so the next audit question is wiring/default behavior rather than derivation alone.
+- The implementation currently forms the redundant `m×m` Schur matrix and calls `np.linalg.lstsq`; this is mathematically serviceable for consistent rows but potentially the wrong hot-path shape when `m=200` and `r=24`. A rank-space factorization and measured overhead are needed before calling the runtime cost negligible.
+- The existing `probe_r8_feasibility.py` addresses earlier deviation-referenced and band-selective floors, not the new contact-row minimum-energy split. Its prior infeasibility concern is exactly what Rung 2 resolves by relaxing heights; it does not answer how often the new Rung 1 is feasible on the actual altered trajectory.
+
+### Implementation wiring audit
+
+- The split-state governor is implemented, but it is opt-in: `solver_xpbd.py` initializes `_psv_gap_preserving = False`. The shipped/default path therefore remains the radial governor unless a benchmark or caller flips the private flag.
+- The two-rung implementation matches the stated formulas and retains radial scaling only as a numerical fallback. It reports an energy-equivalent `gamma_eff`, not a literal common state scale on rung 1.
+- The current quasi-static solve constructs `S = U_c K^{-1} U_c^T` and calls `lstsq` on the resulting `m × m` matrix. Since `rank(S) ≤ r` and the paper reaches roughly `m=200, r=24`, this is avoidably expensive and potentially tolerance-sensitive; a rank-space solve/weighted pseudoinverse should be benchmarked before calling the runtime cost “two closed-form lines.”
+- The implementation comment “β ≥ γ, so penetration ≤ radial” is valid only for the selected linear displacement rows under the common-scale interpretation. It does not establish total geometric penetration, contact complementarity, or next-step impulse behavior.
+- A dedicated test file and a `probe_gap_preserving.py` benchmark already exist. The next question is empirical coverage: how often rung 1 versus rung 2/fallback occurs on the four paper trajectories, and what it does to gap, trajectory, impulses, and runtime.
+
+### Solver integration and test coverage
+
+- The XPBD host extracts only support rows whose accumulated normal multiplier satisfies `lam > tol`, after the velocity solve, then projects the modal state. This is a reasonable definition of “load-bearing” for the prototype, but the multiplier is reset each substep by default, so row-set churn and threshold sensitivity are plausible trajectory-level effects.
+- The code measures maximum penetration before applying the modal projection. Any reported `_last_max_penetration` therefore cannot by itself verify the governor’s post-projection gap claim; the comparison probe must recompute the post-projection geometry explicitly.
+- Unit tests establish empty-set equivalence, `K`-orthogonality, selected-row displacement preservation, two-rung energy feasibility, rank-deficient synthetic rows, and inertness. They do not yet test full-solver active-set extraction, post-projection geometric gaps, contact velocity, complementarity/next-step corrective impulse, row churn, float32/device parity, zero/near-zero modes, or runtime.
+- The test phrase “rung 2 is never worse than radial” should remain narrowly scoped to the selected linear displacement vector. A larger preserved `|U_c q|` can be better or worse geometrically depending on sign, pre-existing penetration, rigid-body motion, and omitted rows.
+
+### Existing full-trajectory A/B evidence
+
+- `out/gap_preserving.csv` is already a four-cell, full-trajectory comparison rather than a frozen-trajectory counterfactual. Both radial and split-state arms satisfy the repository’s scalar ledger checks in all four cells.
+- Shelf `4×1`: worst post-projection violation falls from **21.59 mm to 7.93 mm** (about 2.7×); rung 1 occurs 53/102 clamps (52%), rung 2 49/102.
+- Shelf `8×2`: **6.43 mm to 2.14 mm** (about 3.0×); rung 1 occurs 178/190 clamps (94%), rung 2 11, numerical fallback 1.
+- Ledge `4×1`: **21.19 mm to 20.15 mm** (only about 1.05×); rung 1 occurs 44/102 clamps (43%), rung 2 58. This is the clearest counterexample to describing the method as eliminating the governor artifact under severely starved budgets.
+- Ledge `8×2`: **4.08 mm to 0.931 mm** (about 4.4×); rung 1 occurs 152/153 clamps (99%), rung 2 once, and maximum clamp-induced violation is only about 0.0028 mm.
+- Practical interpretation: the method is effective when the budget can afford the quasi-static contact component, and its own rung histogram is a useful health signal. If rung 2 is frequent, the method is chiefly a less-damaging fallback rather than a contact-preserving projection.
+- The current probe still lacks trajectory error against a trusted reference, `U_c qdot` change, complementarity/next-step impulse, active-set stability, per-step factorization time, and device/runtime results. Peak modal energy alone is not an accuracy metric.
+- Verification on the current repository head (`6044b1b`) passed all **29** dedicated gap-preserving tests. The frozen A/B manifest records the same head, so the inspected CSV corresponds to the implementation reviewed here.
+
+### Unified-pipeline design-note audit
+
+- The proposal is more precise than “one modal state”: it is one offline modal asset plus a shared contact-excitation/event stream, with **consumer-specific runtime states and rates**. Audio cannot literally consume a 120–480 Hz state for 20 kHz output; it must run its own high-rate resonator bank. Haptics likewise uses a higher control/update loop than its useful vibration band.
+- The repository plan correctly treats one-way visual ringing as the v1/default tier and two-way co-simulation as optional. This keeps the pipeline idea separate from the risky shared-row mechanism diagnosed by the short paper.
+- Implemented pieces are substantial but incomplete: modal analysis/steppers, contact excitation logging, an audio resonator/render path, and paper-derived rate guidance exist. Missing practitioner-critical pieces include a robust import/compiler contract, material/damping presets, radiation/attack modeling, actuator transfer/calibration, haptic export, authoring/audition UI, performance budgets, and cross-modal validation.
+- The strongest potentially publishable claim is therefore not “modes drive graphics, sound, and haptics”; it is a reproducible **rate-aware asset compiler and runtime contract** that automatically partitions a provenance-tracked modal asset, prevents unrepresentable modes from entering a two-way solver, and emits calibrated consumer packages from one excitation semantics.
+- Several categorical claims in the design note require literature/product verification before publication, especially “industry does not two-way couple reduced modal models” and “nothing shipped is geometry+material-first.” They are not needed for a strong systems pitch.
+
+### Repository modality inventory
+
+- The sound path is compact but concrete: `audio_basis.py`, event/logger modules, modal bank, shaping, offline render, live output, documentation, and Stage-E6 tests are present.
+- No haptic renderer/export subsystem appears in the corresponding file inventory. The repository does contain prior haptic literature references in deformed-normal code, so haptics is a proposed third consumer, not an implemented “small final step.”
+- A broad text search was polluted by an embedded base64 HTML artifact; follow-up searches must exclude generated HTML/media to avoid treating encoded payloads as repository evidence.
+
+### Implemented audio path versus pipeline claim
+
+- Stage E6 already enforces the key architectural separation: a low, sim-representable co-solved band and a 44.1 kHz open-loop audio bank driven by logged contact excitation. It has offline and live paths, event aggregation, basis caching, damping/radiation heuristics, attack shaping, ledgering, and CPU/device staging tests.
+- The audio code itself repeatedly labels modal synthesis as standard and its fidelity as plausible rather than measured. This is the right novelty discipline for a future paper.
+- The band cutoff is currently partly hand-set (`fmin_hz`, e.g. 150 Hz) and the audio assets use consumer-specific approximations/material overrides. A truly unified compiler must make the split rule explicit from actual simulation substep/integration limits, record why each mode went to each consumer, and either share or deliberately version material/provenance fields.
+- The present audio pipeline demonstrates feasibility, but not yet the promised “material in, analysis automatic” experience: shape-class-specific builders, collision-proxy corrections, per-kind constants, radiation heuristics, contact choke, doublet detuning, and shell formulas contain substantial expert-authored logic. That is valuable engineering, but the automation claim should be evaluated against this hidden authoring cost.
+
+### Haptics implementation delta
+
+- A source-only search confirms that the only haptics-related implementation references are deformed-normal evaluation inspired by Barbič–James; there is no AHAP/OpenXR/DualSense/actuator rendering code or haptic test suite.
+- Calling haptics “mostly easy” understates the work. The shared excitation is reusable, but a practitioner-ready path still needs actuator identification/equalization, saturation and slew limits, signal/envelope choice per actuator, latency scheduling, handle/contact spatial mapping, safety/comfort limits, device-specific exports, and perceptual validation.
+- The sound subsystem’s API/test inventory is mature enough to serve as a template for a haptic consumer, which is a favorable engineering fact; it does not make the third modality scientifically validated yet.
+
+### Primary-literature novelty check — first pass
+
+- The broad “unified visual/audio/haptic pipeline” idea is not new. Sterling and Lin’s 2015/2016 integrated multimodal system used normal/relief maps as one representation for visual rigid-body behavior, haptic display, and modal sound, with user studies on multimodal cohesion (`doi:10.1016/j.cag.2015.10.010`).
+- Hasti (Chan, Tymms, Colonnese, IEEE World Haptics 2021) is especially close at the architecture level: conventional visual material/geometry maps feed a real-time micro-contact simulation; its displacements drive vibrotactile actuators and its impulse stream drives modal sound synthesis. It also includes an exploratory perceptual study. This directly precludes novelty for “same event/material representation produces synchronized touch and sound.”
+- Rausch, Hentschel, and Kuhlen (VRIPHYS 2015) already compute modal sound data from object geometry and material at runtime, with level-of-detail geometry and asynchronous prioritization. Therefore “automatic material/geometry to modal audio asset” is established prior art.
+- Older primary work separately establishes modal constrained visual deformation (Hauser–Shen–O’Brien 2003), reduced-deformable haptic contact (Barbič–James 2008), and sound generated from physically based deformable motion (O’Brien–Cook–Essl 2001). The ingredients and most pairwise bridges are mature.
+- The surviving novelty opportunity is narrower: structural-mode **rate partitioning across three consumers**, grounded by a measured failure of co-solving under-resolved modes, plus an end-to-end compiler/runtime contract and evaluation. The search so far found no exact match for that combined rule, but absence of a hit is not proof.
+
+### Rate separation, practitioner evidence, and current novelty pressure
+
+- Multi-rate multimodal architecture itself is established: haptic literature has long run graphics/physics and haptic loops at different rates, and Hasti explicitly converts 60–200 Hz macro contact positions into a 44.1 kHz micro-contact simulation whose displacements and impulses drive touch and sound. Therefore “different consumer rates from one interaction” is not a novelty claim.
+- Hasti’s eight-participant exploratory study averaged over 85% texture identification and performed best in the combined audio+haptic condition. Sterling–Lin likewise report improved task ease/cohesion from a unified multimodal representation. These are encouraging evidence that coherent multisensory rendering can be useful, though neither proves production workflow value.
+- Hasti also exposes why the proposed haptic band cannot be a universal fixed range: tested voice-coil and LRA devices produced perceptually distinct results, and the paper names uncompensated actuator frequency response as a limitation. The compiler should consume a measured/device-profile transfer function rather than assume every target reproduces 30–500 Hz directly.
+- Recent object-centric work such as ObjectFolder already packages visual, auditory, and tactile representations into a uniform asset, while modern geometry/material-to-sound datasets and modal pipelines further crowd the broad asset-unification claim. The differentiator must be executable correctness and workflow evidence, not simply bundling modalities.
+- Exclusive “mode ownership” is not required across senses: the same physical mode may appropriately be visible, audible, and tactile. The strict partition is specifically between modes allowed to **feed back into the low-rate dynamics** and modes rendered open-loop. Each sensory renderer should apply its own overlapping transfer/selection function.
+
+### Quasi-static solve microbenchmark
+
+- A local current-head microbenchmark confirms that the formula is cheap only after choosing the right factorization. The existing `m×m` normal/Schur solve took about **1.40 ms** at `m=200,r=24`; solving the whitened thin system `A = U_c Λ^{-1/2}`, `x=A^+d`, `q_qs=Λ^{-1/2}x` took about **0.071 ms**—roughly **20× faster** on this machine. At 40–48 rows and 16 modes the direct form was about 2× faster (roughly 0.024–0.026 ms).
+- The thin solve is also numerically better because the current `S=A A^T` construction squares the condition number. In a 200-row/24-mode duplicated-row stress case, current relative displacement residual was about `1e-8` versus `7e-15` for the direct whitened least-squares solve, with otherwise matching states.
+- Recommendation: formulate and implement the solver in whitened modal space with a thin rank-revealing SVD/QR or `lstsq(A,d)`. Then the runtime claim can honestly be “one small rank-space solve plus closed-form scaling,” not “two closed-form lines.”
+
+### Concurrent worktree change detected
+
+- During a read-only instrumentation attempt, `passivity.py`, `solver_xpbd.py`, and the benchmark changed relative to the implementation first inspected: the current call now passes per-row multiplier priorities and the benchmark accepts extra keyword arguments. New `gap_preserving_v2` outputs also appeared.
+- These are pre-existing/concurrent user changes, so they will not be modified or reverted. Earlier v1 algebra and frozen `gap_preserving.csv` observations remain valid for that snapshot, but the final implementation verdict must inspect the new priority-prefix policy and v2 results before citing current behavior.
+
+### Priority-prefix v2 audit
+
+- The concurrent v2 adds a third policy: when the full selected displacement vector is unaffordable, sort rows by descending current multiplier and preserve the largest affordable prefix. This eliminates almost all rung-2 use in the frozen v2 runs and materially improves shelf `4×1` (worst gap **21.59→4.86 mm**, versus 7.93 mm in v1). It does not rescue ledge `4×1` (**21.19→20.08 mm**).
+- Other v2 worst-gap results are strong: shelf `8×2` **6.43→0.501 mm** and ledge `8×2` **4.08→0.931 mm**. The policy therefore makes the well-resolved shelf cell substantially better than v1 while leaving the already-good ledge `8×2` essentially unchanged.
+- Rung 1b is not the KKT solution of the original all-height constraint; it is a **lexicographic active-row selection heuristic**. Its defensible statement is “preserve the largest affordable multiplier-prioritized prefix,” not “contact-height preserving” globally or “penetration optimal.” Omitted rows can move non-radially.
+- Multiplier magnitude is a plausible load priority but can inherit solver ordering, compliance, warm-start, and active-set noise. A weighted geometric/impulse objective or ablation over priority definitions is needed before elevating this heuristic to a general method.
+- The v2 shelf `4×1` CSV reports `passive=True` but `holds=False`. Even if this is only cumulative-accounting roundoff and a later uncommitted micro-scale addresses it, the frozen result does not yet support an unconditional “all ledger checks pass” claim. It must be regenerated and independently verified.
+- Prefix bisection calls the current ill-conditioned `m×m` split repeatedly. This strengthens, rather than weakens, the need for a thin whitened factorization and measured end-to-end overhead.
+- The current expanded test suite passes **31/31** tests and now includes one synthetic prefix-priority case plus a strict ceiling-roundoff test. It still does not cover full-trajectory velocity/complementarity/impulse behavior, alternative row priorities, prefix numerical monotonicity under ill-conditioning, or runtime.
+
+### Current in-memory v2 verification
+
+- Re-running the four gap-preserving arms in memory after the strict micro-scale change makes both ledger checks pass in all four cells, while reproducing the frozen v2 gap numbers. The earlier shelf `4×1 holds=False` was therefore fixed in current code, but the on-disk v2 CSV remains stale and should not be cited until regenerated.
+- Actual clamp-time active sets are much smaller than the 200 support-row worst case: shelf median about 20–22, max 24; ledge median 4–8, max 8. Measured projection cost on this CPU was modest: median **0.032–0.094 ms**, p95 **0.068–0.157 ms**, maximum 0.325 ms across these runs.
+- This corrects the runtime risk calibration: the current factorization is not a blocker on the tested trajectories. The thin whitened solve remains the cleaner and more robust formulation—especially for future larger active sets and prefix repetition—but optimization is a hardening task, not a prerequisite for demonstrating value here.
+- Median preserved-row fraction on clamp calls was about 80% for shelf `4×1`, 50% for ledge `4×1`, and 100% in both `8×2` cells. This aligns exactly with the outcome: the method is strong when nearly all loaded rows are affordable and weak when half the ledge rows must be sacrificed.
+
+### Earlier synchronized multisensory precedents
+
+- DiFilippo and Pai’s AHI (UIST 2000) already rendered tightly synchronized haptic and auditory stimuli from the **same contact-force profile**, with a latency study. Shared excitation is therefore a foundational design pattern, not a new contribution.
+- Pai et al.’s ACME/“Scanning Physical Interaction Behavior of 3D Objects” (SIGGRAPH 2001) explicitly targeted automatically acquired models for visual, haptic, and auditory virtual-object feedback. It is data-driven rather than the proposed material/FEM compiler, but makes a broad “automatic multisensory object asset” novelty claim untenable.
+- These precedents sharpen the positioning: the pipeline can still be a useful and potentially publishable engineering system, but only if it claims a specific new contract—structural modal provenance, solver-safe feedback gating, overlapping calibrated sensory transfer functions, and an end-to-end authoring/runtime evaluation.
+
+### Final advisory verdict
+
+- **Governor:** mathematically sound and empirically useful as a less-destructive admissible projection. It is not a contact solve and does not justify “zero penetration,” “contact valid,” or “word-for-word proof” language. The exact claim is zero projection-induced displacement change on selected affordable rows; the scalar ledger induction carries over after replacing the projection-feasibility lemma.
+- The original clean two-rung method gives meaningful but regime-dependent improvement; the concurrent priority-prefix version improves the shelf cases further, at the cost of a heuristic row-selection policy. The starved ledge `4×1` cell remains a hard negative result. This should be presented as a health-monitored safety governor, with preserved-row/rung statistics exposed.
+- **Pipeline:** the broad architecture is not genuinely novel—automatic multisensory assets, shared contact excitation, modal audio, multimodal visual/haptic/audio systems, and multi-rate loops all have direct precedents. A narrower contribution may be novel: a rate-aware structural-modal compiler whose explicit safety contract determines which modes may feed back into dynamics and emits calibrated, separately clocked sensory renderers from one provenance/event model.
+- **Practitioner value:** potentially high, because it can reduce duplicate authoring and sensory mismatch, but the current repository proves audio architecture rather than a production pipeline. Adoption evidence must include import success on messy assets, authoring-time reduction, designer override/audition workflow, device calibration, runtime budgets, failure diagnostics, and a multisensory user study.
+- Recommended scope separation: keep the MIG short paper focused on the diagnosed coupling failure and containment lesson; treat the governor as a validated follow-up or compact extension only if contact/trajectory evidence fits, and develop the unified pipeline as a separate systems/demo/long-paper contribution.
