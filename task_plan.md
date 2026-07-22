@@ -413,7 +413,7 @@ to code branches.
 | C-Fig1 | complete | Teaser + schematic (`fig_teaser.py`, height 2.05) | DONE: schematic strip + "governed (containment)" relabel, staged |
 | C-Fig3 | complete | Operating envelope (`fig_operating_envelope.py`) | DONE: R-vs-K + 32×1/4×8/warm-start annot, complementarity, E6a-1 serial-vs-block |
 | D | complete | North-star text: title→conclusion→abstract→intro¶1–2→contrib→headings | DONE: gate met — all 5 reader Qs answerable from title+abstract+conclusion |
-| E | in_progress | Rebuild 6-page body per §6 storyboard | body ends p.6 ✓; done: Fig2/Fig3 swapped, host table→supp, device removed, prior-art→1¶, verify_paper_numbers 32/0; REMAINING: reorder (bound after results), Table 1 insert, limitations polish |
+| E | complete | Rebuild 6-page body per §6 storyboard | DONE: reorg (failure §3 before bound/proof §4), E1/E1b/E6a-1 integrated into body prose, counts consolidated (72/60/90 in §4), Limitations compressed to 3¶, terminology swept; Table 1 = fallback (prose decision rule + supplement note, plan §11 E-item-3); gates PASS: body p.6, refs p.7, 0 overfull, verify_paper_numbers 32/0 |
 | F | pending | E0 packet (clean-checkout smoke) + video (§12, ~2/3 new footage) | smoke passes; hashes frozen |
 | G | pending | 6 isolated reviewers, comprehension Qs before scores; ≤1 rewrite; compare vs 32f2951d fallback | keep the stronger packet |
 

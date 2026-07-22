@@ -904,3 +904,50 @@ verifier exit 0. Independent anonymity re-scan of the final zip: 0 deanon hits,
   conclusion's prose decision rule); (3) limitations consolidation. Then Stage F
   (E0 packet re-run + video per §12) and Stage G (6 isolated reviewers vs the
   32f2951d fallback).
+
+## 2026-07-21 Stage E COMPLETE — 6-page body rebuilt (reorg + evidence + compression)
+
+All edits in `paper/main_short.tex`; built + page-gated after every meaningful
+edit. Committed-core body is done.
+
+- **Structural reorder (plan §11 Stage E item 1 — the big one).** Split old §2
+  "The row and the cumulative bound": the row + invariant + supply definitions +
+  the two diagnostics stay up front as §2 "The row and the invariant it must
+  respect" (light; `sec:row`); the enforcement loop, `eq:gamma`, Prop + proof
+  moved AFTER Results into a new §4 "A last-resort guardrail" (keeps `sec:bound`
+  label, so the L174/L498 refs still resolve). New section order: Intro → §2 row+
+  invariant → §3 "The failure at a fixed budget" (matrix, kconv) → §4 guardrail
+  (+ `sec:validity` cost) → §5 "Fidelity and runtime" (gt, cost) → Limitations →
+  Conclusion. Empirical failure now precedes the bound/proof, as the plan wants.
+  Also moved the governed-sweep result ("all 72 cells hold") out of §3.1 into §4
+  where the governor is defined.
+- **Evidence integrated into body prose** (was only in captions/abstract):
+  - E1 → one-line control note folded into §3.1 "ratio is not the invariant"
+    ("gravity/no-contact audit puts the control floor <1e-3 J … 6.7 J is real
+    injection, not accounting noise").
+  - E1b → replaced the old single-setting "Not a knife-edge configuration" ¶ with
+    the 16/16 sign-robustness + log-spread 0.31–0.70 + equal-row-inversion +
+    scene-dependence ensemble; 4.4e7 J now stated as the max of a 2.2–4.5e7 J
+    neighborhood (abstract/§3.1/conclusion already agreed).
+  - E6a-1 → new §3.2 ¶ "Condensing the shared rows is not the fix" (cites Fig 3c;
+    R=12.5/66.5 at 32×1 block vs serial 0.30/0.09), with the required diagonal-
+    rigid-body-block disclosure. Vocabulary lock held (only serial-vs-block varies).
+- **Count consolidation (plan §8):** 72/60/90/18 gathered into the §4 "governor
+  holds" ¶; removed the duplicate governed-18 result from §3.2.
+- **Limitations** compressed 4¶→3¶ ("Stability is not accuracy" / "Scope of the
+  row" / "Supply and coverage"); all recycling/partition/coverage caveats kept.
+- **Table 1 = FALLBACK (plan §11 E-item-3 sanctioned).** Page 6 was full to the
+  line; the decision table (~18 lines) would not fit without gutting evidence, so
+  the conclusion keeps the ordered decision rule in prose and `sec:validity` notes
+  the decision table lives in the supplement. **Stage F TODO: make_supplement.py
+  must bundle `docs/mig2026_decision_table.md`.**
+- **Terminology sweep clean:** no "explicit modal"; every "passiv*" is literature
+  or negated; bare "XPBD" only names the family/host/prior-work/defined-terms
+  (softened abstract "catastrophic XPBD amplification" → "this … amplification");
+  8/24 (incident-ratio) vs 9/24 (strict Eq.2 margin) distinct everywhere.
+- **Exit gate MET:** body ends p.6, refs p.7, 0 overfull, all refs resolve,
+  `verify_paper_numbers` 32/0. Visual read-through of all 6 pages: coherent, both
+  figures legible.
+- Next: **Stage F** (E0 supplement re-assemble incl. the decision table + E1/E1b/
+  E6a-1 CSVs; video §12; \acmSubmissionID after EasyChair opens Jul 25), then
+  **Stage G** (6 isolated reviewers vs the 32f2951d fallback).
