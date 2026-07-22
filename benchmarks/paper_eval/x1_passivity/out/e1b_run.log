@@ -1,0 +1,33 @@
+### E1b neighborhood robustness (arm64, Darwin): 6 cells x (12 physical + 4 row-order) ###
+
+[worst_shelf] xpbd shelf r1.0 4x1: unperturbed R=10962.1 (frozen 10962.1) OK
+  physical  margin: pos 100%  med +2.697e+05  IQR [+1.393e+05,+3.007e+05]  range [+9.023e+04,+3.128e+05]  log10-spread 0.54
+  physical  ratio : pos 100%>0  med 9829  range [3288,1.14e+04]
+  roworder  margin: pos 100%  med +3.058e+05  range [+1.893e+05,+4.536e+05]  (3s)
+
+[worst_ledge] xpbd ledge r1.0 4x1: unperturbed R=119534 (frozen 119534) OK
+  physical  margin: pos 100%  med +3.736e+07  IQR [+2.808e+07,+4.211e+07]  range [+2.175e+07,+4.492e+07]  log10-spread 0.31
+  physical  ratio : pos 100%>0  med 1.009e+05  range [5.737e+04,1.21e+05]
+  roworder  margin: pos 100%  med +3.115e+07  range [+3.018e+07,+4.103e+07]  (5s)
+
+[guardrail] xpbd shelf r0.7 4x1: unperturbed R=6333.22 (frozen 6333.22) OK
+  physical  margin: pos 100%  med +1.572e+05  IQR [+8.158e+04,+1.738e+05]  range [+3.823e+04,+1.781e+05]  log10-spread 0.67
+  physical  ratio : pos 100%>0  med 5592  range [1367,6491]
+  roworder  margin: pos 100%  med +2.064e+05  range [+1.813e+05,+2.182e+05]  (3s)
+
+[pair_4x8] xpbd shelf r0.7 4x8: unperturbed R=3.12914 (frozen 3.12914) OK
+  physical  margin: pos 100%  med +491.5  IQR [+475.4,+718.9]  range [+403,+2023]  log10-spread 0.70
+  physical  ratio : pos 100%>0  med 6.998  range [2.307,17.59]
+  roworder  margin: pos 100%  med +455.1  range [+448.7,+471.3]  (22s)
+
+[pair_32x1] xpbd shelf r0.7 32x1: unperturbed R=0.300305 (frozen 0.3) OK
+  physical  margin: pos 0%  med -9.576e-16  IQR [-9.576e-16,-9.576e-16]  range [-9.576e-16,+0]  log10-spread 1.74
+  physical  ratio : pos 100%>0  med 0.2992  range [0.2442,0.3393]
+  roworder  margin: pos 0%  med -9.576e-16  range [-9.576e-16,-9.576e-16]  (22s)
+
+[dinner_xpbd] xpbd dinner r1.0 4x1: unperturbed R=0.372141 (frozen 0.372141) OK
+  physical  margin: pos 0%  med -8.327e-16  IQR [-8.327e-16,-8.327e-16]  range [-8.327e-16,+0]  log10-spread 1.20
+  physical  ratio : pos 100%>0  med 0.2868  range [0.1741,0.3727]
+  roworder  margin: pos 0%  med -8.327e-16  range [-8.327e-16,-8.327e-16]  (17s)
+
+wrote /Users/nan/Desktop/DCR/benchmarks/paper_eval/x1_passivity/out/e1b_neighborhood.csv

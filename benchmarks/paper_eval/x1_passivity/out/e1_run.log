@@ -1,0 +1,90 @@
+### E1 accounting audit: 72 control cells (arm64, Darwin); floor vs the 6.7 J AVBD effect ###
+  resting_no_impact xpbd    shelf    4x1 relax=0.7: margin=      +1458 J  supply=    0.3238 J  modal_gain=      9572 J  VIOLATES
+  resting_no_impact xpbd    shelf    8x2 relax=0.7: margin=     +9.735 J  supply=    0.3991 J  modal_gain=     37.11 J  VIOLATES
+  resting_no_impact xpbd    shelf   16x4 relax=0.7: margin= -7.935e-14 J  supply=    0.5928 J  modal_gain=    0.3855 J  holds
+  resting_no_impact xpbd    shelf   32x8 relax=0.7: margin=         +0 J  supply=    0.7946 J  modal_gain=    0.5258 J  holds
+  resting_no_impact xpbd    ledge    4x1 relax=0.7: margin=       +207 J  supply=   0.08586 J  modal_gain=      2703 J  VIOLATES
+  resting_no_impact xpbd    ledge    8x2 relax=0.7: margin=    +0.1399 J  supply=    0.0768 J  modal_gain=     3.608 J  VIOLATES
+  resting_no_impact xpbd    ledge   16x4 relax=0.7: margin= -6.609e-13 J  supply=   0.07878 J  modal_gain=  0.009904 J  holds
+  resting_no_impact xpbd    ledge   32x8 relax=0.7: margin=         +0 J  supply=   0.08633 J  modal_gain=   0.01773 J  holds
+  resting_no_impact xpbd    dinner   4x1 relax=0.7: margin= -1.172e-14 J  supply=    0.3352 J  modal_gain=    0.1839 J  holds
+  resting_no_impact xpbd    dinner   8x2 relax=0.7: margin=         +0 J  supply=    0.3434 J  modal_gain=    0.1879 J  holds
+  resting_no_impact xpbd    dinner  16x4 relax=0.7: margin= -6.615e-14 J  supply=    0.3461 J  modal_gain=    0.1895 J  holds
+  resting_no_impact xpbd    dinner  32x8 relax=0.7: margin=         +0 J  supply=    0.3468 J  modal_gain=      0.19 J  holds
+Warp 1.13.0 initialized:
+   CUDA not enabled in this build
+   Devices:
+     "cpu"      : "arm"
+   Kernel cache:
+     /Users/nan/Library/Caches/warp/1.13.0
+Module dcr.avbd._solver.kernels_6dof dcb8251 load on device 'cpu' took 5.32 ms  (cached)
+  resting_no_impact avbd    shelf    4x1 relax=0.7: margin= -0.0009768 J  supply=      36.4 J  modal_gain=  0.008089 J  holds
+  resting_no_impact avbd    shelf    8x2 relax=0.7: margin=  -0.001254 J  supply=     44.74 J  modal_gain=   0.02658 J  holds
+  resting_no_impact avbd    shelf   16x4 relax=0.7: margin= -0.0004965 J  supply=     47.58 J  modal_gain=   0.02872 J  holds
+  resting_no_impact avbd    shelf   32x8 relax=0.7: margin= -7.142e-05 J  supply=     47.59 J  modal_gain=    0.5884 J  holds
+  resting_no_impact avbd    ledge    4x1 relax=0.7: margin=   -0.03507 J  supply=     57.63 J  modal_gain=    0.8073 J  holds
+  resting_no_impact avbd    ledge    8x2 relax=0.7: margin=  -0.003943 J  supply=     27.84 J  modal_gain=    0.3811 J  holds
+  resting_no_impact avbd    ledge   16x4 relax=0.7: margin= -0.0003072 J  supply=     27.86 J  modal_gain=   0.08478 J  holds
+  resting_no_impact avbd    ledge   32x8 relax=0.7: margin=         +0 J  supply=   0.06239 J  modal_gain=   0.03475 J  holds
+  resting_no_impact avbd    dinner   4x1 relax=0.7: margin= -0.0007976 J  supply=     33.01 J  modal_gain=   0.02157 J  holds
+  resting_no_impact avbd    dinner   8x2 relax=0.7: margin= -0.0008304 J  supply=     40.97 J  modal_gain=   0.03144 J  holds
+  resting_no_impact avbd    dinner  16x4 relax=0.7: margin= -0.0004354 J  supply=      39.7 J  modal_gain=   0.03246 J  holds
+  resting_no_impact avbd    dinner  32x8 relax=0.7: margin= -0.0001005 J  supply=     39.69 J  modal_gain=    0.2226 J  holds
+  resting_no_impact impulse shelf    4x1 relax=0.7: margin=         +0 J  supply=    0.1494 J  modal_gain=   0.08717 J  holds
+  resting_no_impact impulse shelf    8x2 relax=0.7: margin=         +0 J  supply=    0.2068 J  modal_gain=    0.1469 J  holds
+  resting_no_impact impulse shelf   16x4 relax=0.7: margin=         +0 J  supply=    0.3587 J  modal_gain=    0.3019 J  holds
+  resting_no_impact impulse shelf   32x8 relax=0.7: margin=         +0 J  supply=     0.607 J  modal_gain=     0.555 J  holds
+  resting_no_impact impulse ledge    4x1 relax=0.7: margin=   -0.00348 J  supply=   0.07505 J  modal_gain=  0.000278 J  holds
+  resting_no_impact impulse ledge    8x2 relax=0.7: margin=         +0 J  supply=   0.06813 J  modal_gain= 0.0003942 J  holds
+  resting_no_impact impulse ledge   16x4 relax=0.7: margin=         +0 J  supply=   0.06499 J  modal_gain= 0.0006821 J  holds
+  resting_no_impact impulse ledge   32x8 relax=0.7: margin=         +0 J  supply=    0.0644 J  modal_gain=  0.002224 J  holds
+  resting_no_impact impulse dinner   4x1 relax=0.7: margin= -0.0004918 J  supply=    0.2434 J  modal_gain=    0.1558 J  holds
+  resting_no_impact impulse dinner   8x2 relax=0.7: margin=         +0 J  supply=    0.3145 J  modal_gain=     0.228 J  holds
+  resting_no_impact impulse dinner  16x4 relax=0.7: margin=         +0 J  supply=    0.3762 J  modal_gain=     0.292 J  holds
+  resting_no_impact impulse dinner  32x8 relax=0.7: margin=         +0 J  supply=    0.4173 J  modal_gain=    0.3349 J  holds
+  modal_freevib  xpbd    shelf    4x1 relax=0.7: margin=      +4339 J  supply=    0.3168 J  modal_gain= 4.025e+04 J  VIOLATES
+  modal_freevib  xpbd    shelf    8x2 relax=0.7: margin=       +104 J  supply=    0.3686 J  modal_gain=     283.9 J  VIOLATES
+  modal_freevib  xpbd    shelf   16x4 relax=0.7: margin=    +0.9969 J  supply=    0.2095 J  modal_gain=     1.153 J  VIOLATES
+  modal_freevib  xpbd    shelf   32x8 relax=0.7: margin=    +0.9942 J  supply=     0.588 J  modal_gain=    0.2534 J  VIOLATES
+  modal_freevib  xpbd    ledge    4x1 relax=0.7: margin=     +580.3 J  supply=   0.09833 J  modal_gain=      7217 J  VIOLATES
+  modal_freevib  xpbd    ledge    8x2 relax=0.7: margin=     +1.262 J  supply=   0.09289 J  modal_gain=     2.158 J  VIOLATES
+  modal_freevib  xpbd    ledge   16x4 relax=0.7: margin=     +0.999 J  supply=    0.1013 J  modal_gain=  0.005662 J  VIOLATES
+  modal_freevib  xpbd    ledge   32x8 relax=0.7: margin=    +0.9977 J  supply=    0.1184 J  modal_gain=         0 J  VIOLATES
+  modal_freevib  xpbd    dinner   4x1 relax=0.7: margin=     +0.989 J  supply=     0.508 J  modal_gain=    0.2027 J  VIOLATES
+  modal_freevib  xpbd    dinner   8x2 relax=0.7: margin=    +0.9972 J  supply=    0.5334 J  modal_gain=   0.05827 J  VIOLATES
+  modal_freevib  xpbd    dinner  16x4 relax=0.7: margin=    +0.9965 J  supply=    0.5441 J  modal_gain=    0.1668 J  VIOLATES
+  modal_freevib  xpbd    dinner  32x8 relax=0.7: margin=    +0.9947 J  supply=    0.5662 J  modal_gain=    0.2173 J  VIOLATES
+  modal_freevib  avbd    shelf    4x1 relax=0.7: margin=    +0.9544 J  supply=     36.42 J  modal_gain=   0.01632 J  VIOLATES
+  modal_freevib  avbd    shelf    8x2 relax=0.7: margin=    +0.9868 J  supply=     44.74 J  modal_gain=         0 J  VIOLATES
+  modal_freevib  avbd    shelf   16x4 relax=0.7: margin=    +0.9964 J  supply=     47.59 J  modal_gain=  0.007473 J  VIOLATES
+  modal_freevib  avbd    shelf   32x8 relax=0.7: margin=    +0.9941 J  supply=     47.61 J  modal_gain=     0.188 J  VIOLATES
+  modal_freevib  avbd    ledge    4x1 relax=0.7: margin=    +0.9647 J  supply=     57.64 J  modal_gain=    0.6115 J  VIOLATES
+  modal_freevib  avbd    ledge    8x2 relax=0.7: margin=    +0.9957 J  supply=     27.87 J  modal_gain=    0.1315 J  VIOLATES
+  modal_freevib  avbd    ledge   16x4 relax=0.7: margin=    +0.9987 J  supply=     27.85 J  modal_gain=  0.007757 J  VIOLATES
+  modal_freevib  avbd    ledge   32x8 relax=0.7: margin=    +0.9977 J  supply=   0.07427 J  modal_gain=         0 J  VIOLATES
+  modal_freevib  avbd    dinner   4x1 relax=0.7: margin=    +0.9928 J  supply=     33.01 J  modal_gain=    0.0104 J  VIOLATES
+  modal_freevib  avbd    dinner   8x2 relax=0.7: margin=    +0.9963 J  supply=     40.98 J  modal_gain=         0 J  VIOLATES
+  modal_freevib  avbd    dinner  16x4 relax=0.7: margin=     +0.996 J  supply=      39.7 J  modal_gain=  0.002198 J  VIOLATES
+  modal_freevib  avbd    dinner  32x8 relax=0.7: margin=    +0.9946 J  supply=      39.7 J  modal_gain=     0.204 J  VIOLATES
+  modal_freevib  impulse shelf    4x1 relax=0.7: margin=   +0.03289 J  supply=    0.1738 J  modal_gain=   0.09458 J  VIOLATES
+  modal_freevib  impulse shelf    8x2 relax=0.7: margin=   +0.06306 J  supply=    0.2423 J  modal_gain=    0.1791 J  VIOLATES
+  modal_freevib  impulse shelf   16x4 relax=0.7: margin=    +0.1019 J  supply=    0.4099 J  modal_gain=    0.3551 J  VIOLATES
+  modal_freevib  impulse shelf   32x8 relax=0.7: margin=    +0.1564 J  supply=    0.6744 J  modal_gain=    0.6176 J  VIOLATES
+  modal_freevib  impulse ledge    4x1 relax=0.7: margin=  -0.002187 J  supply=   0.07512 J  modal_gain= 2.802e-05 J  holds
+  modal_freevib  impulse ledge    8x2 relax=0.7: margin=  +0.006345 J  supply=   0.06579 J  modal_gain= 4.442e-05 J  VIOLATES
+  modal_freevib  impulse ledge   16x4 relax=0.7: margin=   +0.02035 J  supply=   0.06487 J  modal_gain= 0.0004344 J  VIOLATES
+  modal_freevib  impulse ledge   32x8 relax=0.7: margin=   +0.04655 J  supply=   0.06448 J  modal_gain=  0.001888 J  VIOLATES
+  modal_freevib  impulse dinner   4x1 relax=0.7: margin=   +0.06838 J  supply=      0.28 J  modal_gain=    0.1895 J  VIOLATES
+  modal_freevib  impulse dinner   8x2 relax=0.7: margin=    +0.1076 J  supply=    0.3807 J  modal_gain=    0.2926 J  VIOLATES
+  modal_freevib  impulse dinner  16x4 relax=0.7: margin=    +0.1612 J  supply=    0.4692 J  modal_gain=    0.3786 J  VIOLATES
+  modal_freevib  impulse dinner  32x8 relax=0.7: margin=    +0.2298 J  supply=    0.5342 J  modal_gain=    0.4348 J  VIOLATES
+
+--- accounting floor vs the 6.7 J AVBD effect (modal_freevib: margin net of the ~1 J kick) ---
+  xpbd    resting_no_impact: worst floor +1458 J (shelf 4x1) [!! 6.7 J]
+  xpbd    modal_freevib    : worst floor +4338 J (shelf 4x1) [!! 6.7 J]
+  avbd    resting_no_impact: worst floor +0 J (ledge 32x8) [<< 6.7 J]
+  avbd    modal_freevib    : worst floor -0.001348 J (ledge 16x4) [<< 6.7 J]
+  impulse resting_no_impact: worst floor +0 J (shelf 4x1) [<< 6.7 J]
+  impulse modal_freevib    : worst floor -0.7702 J (dinner 32x8) [!! 6.7 J]
+
+wrote /Users/nan/Desktop/DCR/benchmarks/paper_eval/x1_passivity/out/e1_accounting_audit.csv

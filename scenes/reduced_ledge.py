@@ -18,6 +18,8 @@ balance on a flat surface rather than a rounded rock.
 """
 from __future__ import annotations
 
+import math
+
 from dcr.avbd.world import AVBDDCRWorld
 
 from scenes.reduced_scene_common import (
@@ -45,6 +47,10 @@ def build_reduced_ledge(
     impactor_mass: float = 50.0,
     impactor_drop_height: float = 0.8,
     impactor_v0: float = 0.0,
+    # E1b neighborhood-robustness perturbations (rewrite plan §9); default-inert.
+    impactor_dx: float = 0.0,
+    impactor_dz: float = 0.0,
+    impactor_tilt: float = 0.0,          # radians, small rotation about x
     rayleigh_alpha0: float = 2.0,
     rayleigh_alpha1: float = 1.0e-5,
     modal_impedance_scale: float = 1.0,
@@ -91,10 +97,14 @@ def build_reduced_ledge(
 
     # ---- The boulder: drops onto the ledge off to the side (impactor). ----
     br = 0.08
+    _t = 0.5 * float(impactor_tilt)
     impactor_idx = add(
         "boulder", float(impactor_mass), (br, br, br),
-        (0.30, top + br + float(impactor_drop_height), 0.0),
-        (0.42, 0.38, 0.32), "boulder", friction=0.5,
+        (0.30 + float(impactor_dx),
+         top + br + float(impactor_drop_height),
+         0.0 + float(impactor_dz)),
+        (0.42, 0.38, 0.32), "boulder",
+        quat=(math.cos(_t), math.sin(_t), 0.0, 0.0), friction=0.5,
         vel=(0.0, float(impactor_v0), 0.0))
     resting_xz.append((0.30, 0.0))
 

@@ -16,6 +16,8 @@ heavy tome) as the dropped weight.
 """
 from __future__ import annotations
 
+import math
+
 from dcr.avbd.world import AVBDDCRWorld
 
 from scenes.reduced_scene_common import (
@@ -43,6 +45,14 @@ def build_reduced_shelf(
     impactor_mass: float = 6.0,
     impactor_drop_height: float = 0.5,
     impactor_v0: float = 0.0,
+    # E1b neighborhood-robustness perturbations (rewrite plan §9). All three
+    # default to 0.0 and are byte-inert at the default; they exist only so the
+    # deterministic perturbation ensemble can offset the impactor in x/z and
+    # tilt it about x without editing solver state (which the solver re-reads
+    # from the build-time pose each step).
+    impactor_dx: float = 0.0,
+    impactor_dz: float = 0.0,
+    impactor_tilt: float = 0.0,          # radians, small rotation about x
     rayleigh_alpha0: float = 3.0,
     rayleigh_alpha1: float = 1.0e-5,
     modal_impedance_scale: float = 1.0,
@@ -85,10 +95,14 @@ def build_reduced_shelf(
     # shelf's free end. Flat, wide book shape; thematically a book, not a
     # crate. This is the controllable impactor. ----
     drop_h = (0.06, 0.035, 0.08)
+    _t = 0.5 * float(impactor_tilt)
     impactor_idx = add(
         "drop_book", float(impactor_mass), drop_h,
-        (0.22, top + drop_h[1] + float(impactor_drop_height), 0.0),
-        (0.45, 0.12, 0.12), "book", friction=0.5,
+        (0.22 + float(impactor_dx),
+         top + drop_h[1] + float(impactor_drop_height),
+         0.0 + float(impactor_dz)),
+        (0.45, 0.12, 0.12), "book",
+        quat=(math.cos(_t), math.sin(_t), 0.0, 0.0), friction=0.5,
         vel=(0.0, float(impactor_v0), 0.0))
 
     contact_zones = [(0.22, 0.0)] + resting_xz

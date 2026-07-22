@@ -1,0 +1,18 @@
+### E6a-1 block-condensation ablation (arm64, Darwin), relax=0.7 ###
+# serial = _support_block False (paper path); block = _support_block True (condensation)
+
+--- shelf: full-rollout ladder ---
+   4x1: serial R=     6333.2 margin= +1.738e+05  |  block R=     3888.5 margin= +1.067e+05  |  R_serial/R_block=  1.63 | cost 0.21/0.22s
+   8x2: serial R=     53.731 margin=      +1824  |  block R=     364.95 margin= +1.053e+04  |  R_serial/R_block= 0.147 | cost 0.53/0.61s
+  16x4: serial R=    0.43658 margin= -9.298e-16  |  block R=     2.5716 margin=     +117.1  |  R_serial/R_block=  0.17 | cost 2.06/2.33s
+  32x1: serial R=    0.30031 margin= -9.576e-16  |  block R=     12.513 margin=     +312.8  |  R_serial/R_block= 0.024 | cost 1.29/1.35s
+  one-step delta @first-contact (4x1, identical pre-state): serial ΔE=+758.2 J | block ΔE=+724.7 J
+
+--- ledge: full-rollout ladder ---
+   4x1: serial R=      56266 margin= +2.082e+07  |  block R=      58157 margin= +2.183e+07  |  R_serial/R_block= 0.967 | cost 0.27/0.41s
+   8x2: serial R=     47.453 margin= +1.941e+05  |  block R=     949.24 margin= +5.341e+05  |  R_serial/R_block=  0.05 | cost 0.97/1.04s
+  16x4: serial R=    0.21994 margin= -7.385e-15  |  block R=     7.8853 margin=      +5800  |  R_serial/R_block=0.0279 | cost 3.33/3.53s
+  32x1: serial R=   0.086989 margin= -8.382e-15  |  block R=     66.461 margin= +2.414e+04  |  R_serial/R_block=0.00131 | cost 1.61/1.92s
+  one-step delta @first-contact (4x1, identical pre-state): serial ΔE=+37.01 J | block ΔE=+631.4 J
+
+wrote /Users/nan/Desktop/DCR/benchmarks/paper_eval/x1_passivity/out/e6a1_block_condensation.csv

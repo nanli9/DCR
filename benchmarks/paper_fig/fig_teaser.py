@@ -50,7 +50,7 @@ CAM = dict(eye=(1.00, 0.40, 0.62), target=(-0.05, 0.065, 0.0), fov_deg=34.0)
 ARMS = ("off", "on", "ref")
 ARM_COLOR = {"off": PALETTE["clamp_off"], "on": PALETTE["native"],
              "ref": "#333333"}
-ARM_LABEL = {"off": "ungoverned", "on": "governed",
+ARM_LABEL = {"off": "ungoverned", "on": "governed (containment)",
              "ref": "XPBD self-reference"}
 
 
@@ -138,6 +138,28 @@ def render_arm(ax, npz, man, arm, frame, *, aspect, xlim, ylim,
     return ax
 
 
+def _schematic(fig, y0, y1):
+    """The plan's Fig. 1 schematic: existing XPBD rigid body + a small modal
+    vector -> one shared contact row per support -> a fixed local budget K.
+    Drawn as a thin strip of boxes and arrows in figure-fraction coords."""
+    import matplotlib.patches as mp
+    ax = fig.add_axes([0.02, y0, 0.96, y1 - y0]); ax.axis("off")
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+    boxes = [(0.005, 0.30, "XPBD rigid\nbody", "#f0f0f0"),
+             (0.185, 0.135, "$+\\;\\mathbf{q}\\in\\mathbb{R}^{16}$", None),
+             (0.40, 0.30, "shared\ncontact rows", "#fde9d9"),
+             (0.72, 0.28, "fixed $K$\niterations", "#fdecec")]
+    for (x, w, txt, fc) in boxes:
+        if fc is not None:
+            ax.add_patch(mp.FancyBboxPatch(
+                (x, 0.14), w, 0.72, boxstyle="round,pad=0.01",
+                linewidth=0.6, edgecolor="0.4", facecolor=fc))
+        ax.text(x + w / 2, 0.5, txt, ha="center", va="center", fontsize=5.6)
+    for x0, x1 in [(0.345, 0.395), (0.705, 0.715)]:
+        ax.annotate("", xy=(x1, 0.5), xytext=(x0, 0.5),
+                    arrowprops=dict(arrowstyle="->", lw=0.7, color="0.35"))
+
+
 def build(case, frame_logged, *, figsize):
     npz, man = _load(case)
     settle = int(npz["off/settle"])
@@ -153,7 +175,9 @@ def build(case, frame_logged, *, figsize):
     # any taller and the frame is padded with empty space, which on a
     # column-width teaser is space the text needs back
     ph = 0.66
-    p_bot = (H - 0.23 - ph) / H          # room for the caption strip + titles
+    # reserve extra top room (0.50") for the schematic strip added below
+    p_bot = (H - 0.50 - ph) / H
+    _schematic(fig, p_bot + ph / H + 0.045, 0.955)
     tr_bot, tr_h = 0.28 / H, 0.40 / H
     aspect = pw / ph
 
@@ -226,7 +250,7 @@ def main():
     ap.add_argument("--case", default="deployed")
     ap.add_argument("--frame", type=int, default=50, help="logged frame index")
     ap.add_argument("--width", type=float, default=3.4)
-    ap.add_argument("--height", type=float, default=1.76)
+    ap.add_argument("--height", type=float, default=2.05)
     ap.add_argument("--preview", action="store_true")
     ap.add_argument("--name", default="fig_teaser")
     ap.add_argument("--eye", default=None, help="camera eye 'x,y,z' (tuning)")

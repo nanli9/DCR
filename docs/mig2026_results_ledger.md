@@ -2154,3 +2154,116 @@ Validation: shelf 0.7 4×1 reproduces the paper exactly (R_band **22.14**, margi
 magnitude, but **6 of the 8** full-basis injecting cells still overdraw — worst
 ledge 1.0 4×1 at R **3354**, margin **+1.24×10⁶ J**. Band-limiting the co-solve
 is necessary but not sufficient; the bound remains the residual backstop.
+
+## E1 — gravity / no-contact accounting audit (rewrite plan §9, 2026-07-21)
+
+Harness `benchmarks/paper_eval/x1_passivity/run_e1_accounting_audit.py`
+(`out/e1_accounting_audit.csv`). Measurement-only by construction: same live
+ledger + `passivity_gamma≡1.0` (dead actuator) contract as R1. Two no-injection
+controls, all 3 hosts × 3 scenes × the 4 sweep budgets, relax 0.7:
+- **resting_no_impact** — impactor raised 50 m (builder drop-height kwarg), so
+  NO impact event; standing books/utensils rest on the modal support under real
+  contact. Any margin here is accounting residual, not injection.
+- **modal_freevib** — resting_no_impact + a ~1 J modal-velocity kick; margin net
+  of the kick isolates energy the free modal stepper CREATES.
+
+Purpose: is the paper's 6.7 J AVBD overdraft (worst AVBD cell, dinner 4×1) above
+the accounting floor? **Result — YES, by 3–4 orders:**
+- **AVBD floor**: resting_no_impact margin −8×10⁻⁴…+0 J across all scenes/budgets
+  (at the dinner scene specifically: −7.98×10⁻⁴…−1.0×10⁻⁴ J, all HOLD);
+  modal_freevib net-of-kick ≤ −1.3×10⁻³ J (decays the kick). Floor ≪ 6.7 J.
+- **Impulse floor**: resting_no_impact 0…−4.9×10⁻⁴ J (all HOLD); modal_freevib
+  net-of-kick decays. Floor ≪ 6.7 J.
+- **Verdict**: the 6.7 J AVBD overdraft is a genuine impact-driven contact
+  effect, not accounting noise; **the cross-host control claim STANDS and needs
+  no narrowing.** The W_g gravity correction leaves ballistic/resting supply
+  small (shelf/ledge 0.08–0.8 J; the AVBD dinner 33–41 J is legitimate resting-
+  utensil settling, not a leak).
+- **Off-floor (moot)**: the bare position-based (XPBD) symplectic modal stepper
+  amplifies energy even from resting-contact settling (+1458 J shelf 4×1) and a
+  1 J kick (→+4338 J) at starved budgets — its "floor" is not meaningful, but
+  this is fully consistent with its in-regime 4.4×10⁷ J catastrophe, and the
+  amplification itself vanishes with budget (holds at 16×4 / 32×8). XPBD is the
+  injector under study, so its floor does not gate any control claim.
+
+## E1b — neighborhood-robustness audit of the headline XPBD cells (plan §9)
+
+Harness `run_e1b_neighborhood.py` (`out/e1b_neighborhood.csv`, 100 rows).
+Deterministic, **no RNG, no seed sweep, no p-value** — a local
+neighborhood-robustness audit. Perturbations delivered via builder kwargs read
+at build (post-build solver-state edits do NOT propagate — the solver re-reads
+the build-time pose each step, verified). Added **default-inert** kwargs
+`impactor_dx/dz/tilt` to `scenes/reduced_shelf.py` + `reduced_ledge.py` (dinner
+already has `pot_drop_xz`); non-perturbation proof: every cell's unperturbed run
+reproduces its frozen `eq2_utilization.csv` ratio exactly (e.g. shelf 0.7 4×1
+R=6333.22, ledge 1.0 4×1 R=119534).
+
+Two cohorts kept SEPARATE: **physical** (12 variants — drop height ±1/2%, normal
+speed ±0.03 m/s, contact x/z ±1.5 mm, tilt ±0.01 rad; dinner has no tilt so 10)
+and **row-order** (4 deterministic `sol._support` permutations, verified to
+change the GS result).
+
+**Result — every headline result is robust; the sign never flips:**
+
+| cell | frozen R | inject? | m>0 frac | margin range (J) | log10 spread |
+|---|---|---|---|---|---|
+| worst_shelf (shelf 1.0 4×1) | 10962 | yes | **16/16** | 9.0×10⁴–3.1×10⁵ | 0.54 |
+| worst_ledge (ledge 1.0 4×1) | 119534 | yes | **16/16** | 2.2×10⁷–**4.5×10⁷** | 0.31 |
+| guardrail (shelf 0.7 4×1) | 6333 | yes | **16/16** | 3.8×10⁴–1.8×10⁵ | 0.67 |
+| pair_4×8 (shelf 0.7 4×8) | 3.13 | yes | **16/16** | 403–2023 | 0.70 |
+| pair_32×1 (shelf 0.7 32×1) | 0.300 | **holds** | **0/16** | ≈0 (roundoff) | — |
+| dinner_xpbd (dinner 1.0 4×1) | 0.372 | **holds** | **0/16** | ≈0 (roundoff) | — |
+
+- The catastrophic XPBD injection is **not a knife-edge**: all four injecting
+  cells overdraw in every one of their 16 perturbations, magnitude spread < 1
+  order of magnitude (log10 0.31–0.70).
+- The **equal-row inversion is robust**: 32×1 holds (ratio 0.244–0.339, all <1)
+  while 4×8 injects (ratio 2.31–17.6), across the whole neighborhood.
+- The **scene-dependence is robust**: XPBD never injects on dinner.
+- **Precision (plan §13):** the 4.4×10⁷ J headline is the neighborhood MAXIMUM;
+  the ensemble spans **2.2–4.5×10⁷ J** (ratio 0.57–1.21×10⁵). Report as "up to
+  4.4×10⁷ J (neighborhood 2.2–4.5×10⁷ J)", not a bare six-digit maximum.
+
+## E6a-1 — shared-row block-condensation ablation (plan §9 E6a-1, 2026-07-21)
+
+Harness `run_e6a1_block_condensation.py` (`out/e6a1_block_condensation.csv`).
+Vocabulary lock (claim sheet §3a): ablates ONLY variable 3 — serial per-row
+support projection (`_support_block=False`, the paper path) vs joint block
+condensation (`_support_block=True`, `_project_support_block`) — holding the
+implicit-midpoint restoring step, modal weight, budget, compliance, relaxation,
+warm-start and row definitions fixed. Disclosure: the block path preserves the
+active-row compliant fixed point but uses a **diagonal rigid-body block
+approximation** and a **different convergence path**; it is an ablation, not a
+behaviour-identical toggle. Measurement-only (ledger live, gamma≡1).
+
+Full-rollout ladder, relax 0.7, R = peak modal / peak incident rigid KE:
+
+| scene | budget | serial R | block R | serial/block | serial margin | block margin |
+|---|---|---|---|---|---|---|
+| shelf | 4×1 | 6333 | 3889 | 1.63 (block better) | +1.74e5 | +1.07e5 |
+| shelf | 8×2 | 53.7 | 365 | 0.15 (block worse) | +1824 | +1.05e4 |
+| shelf | 16×4 | **0.437 holds** | 2.57 inj | 0.17 | −9e-16 | +117 |
+| shelf | 32×1 | **0.300 holds** | 12.5 inj | 0.024 | −1e-15 | +313 |
+| ledge | 4×1 | 56266 | 58157 | 0.97 (≈equal) | +2.08e7 | +2.18e7 |
+| ledge | 8×2 | 47.5 | 949 | 0.05 (block worse) | +1.94e5 | +5.34e5 |
+| ledge | 16×4 | **0.220 holds** | 7.89 inj | 0.028 | −7e-15 | +5800 |
+| ledge | 32×1 | **0.087 holds** | 66.5 inj | 0.001 | −8e-15 | +2.41e4 |
+
+One-step delta at the FIRST contact substep (identical pre-state, 4×1): shelf
+serial +758 J vs block +725 J (≈equal); ledge serial +37 J vs block **+631 J**
+(block injects 17× more in the very first contact step).
+
+**Verdict (E6a interpretation matrix, plan §9): block condensation does NOT
+remove the failure.** It is comparable at the most starved 4×1 corner (slightly
+better on shelf, ≈equal on ledge) but markedly **worse** at every higher budget,
+where the SERIAL path converges/holds (16×4, 32×1) while block keeps injecting.
+So:
+- The failure is **not** caused by the serial row-wise treatment being
+  un-condensed; condensing the rows (with this diagonal-body approximation) does
+  not fix it and converges to a worse fixed point.
+- The result **confirms the truncation thesis**: the serial path converges with
+  iterations (holds at 16×4/32×1). The recommendation is unchanged — spend the
+  budget on iterations in the serial path; do **not** switch to block
+  condensation. No "block solve fixes XPBD" claim is licensed (it would be false).
+- Result reproduced across **2 scenes and 4 budgets**, so it exceeds the
+  "one-cell causal probe" bar even though the recommendation did not change.

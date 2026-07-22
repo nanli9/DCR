@@ -690,3 +690,217 @@ checksums, smoke test exit 0 reproducing the frozen digits exactly, bundled
 verifier exit 0. Independent anonymity re-scan of the final zip: 0 deanon hits,
 0 commit-hash tokens over 179 text members. Deadline: submit ≥ 24 h before
 **2026-08-07 23:59 AoE**.
+
+# 2026-07-21 Current PDF + video six-reviewer audit
+
+- Activated the file-based review workflow for the user's requested six-reviewer panel.
+- Confirmed that both supplied artifacts exist and that the PDF was regenerated after the prior completed panel; prior scores will not be reused.
+- Began phase 23: freeze hashes, reconstruct the paper, and inspect all paper/video evidence before opening the isolated reviewer rounds.
+- Locked the PDF at `6907a3bb...` and the video at `30a862fa...`; extracted the full paper, rendered seven pages, and fully decoded the 1,343-frame video without error.
+- A domain-restricted search did not index the live CFP; switched to a broad conference-title search while retaining official-site-only evidence.
+- Located the official MIG 2026 homepage and followed its own Call for Papers link; the browser cache missed the target, so the exact official page will be fetched read-only instead of retrying the failed click.
+- Retrieved the exact official CFP after the sandboxed proxy path failed. Froze its 4–6-page short-paper rule, supplement allowance, anonymity/ID rule, and six review criteria as the common panel rubric.
+- Read all 7,412 extracted words and completed a claim/equation/results/limitations consistency pass. The main figure/prose counts now agree; the principal remaining concerns are implementation-vs-formulation attribution, severe projection-induced contact error, absent promised reproducibility material in the supplied packet, and one categorical AVBD claim in the conclusion.
+- Launched isolated reviewers 1–3 on energy accounting, contact numerics, and novelty/significance. They were barred from prior reviews and repository history.
+- Visually inspected pages 1–2 at original render resolution; they are clean and legible, with a strong evidence-forward teaser, but no visible unique paper ID.
+- Visually inspected pages 3–4; the proof, implementation table, and two-metric matrix are clean, internally consistent, and dense but readable.
+- Visually inspected pages 5–6; all evidence renders cleanly and the body fits the six-page limit, while the AVBD conclusion overstatement remains the clearest internal wording defect.
+- Inspected the references-only page and a uniformly sampled contact sheet spanning the entire video. The supplement is polished and candid but visually covers only XPBD shelf examples, not the cross-formulation matrix or worst contact-validity cost.
+- Audited the video's first 18 seconds at 1 fps; the comparison is causally legible and temporally synchronized, with only secondary text approaching small-player readability limits.
+- Audited seconds 18–36 at 1 fps; the soft-board example and renderer limitation are presented transparently, and the supplement supports boundedness while openly showing loss of fidelity.
+- Audited the final 8.77 seconds at 1 fps; the invariant plot and final qualification card are accurate and anonymous.
+- Completed phase 23. All pages, frames via full decode and 1 fps audit, metadata, format, hashes, and official rules are frozen; phase 24 (six isolated reviews) is in progress.
+- Confirmed zero PDF attachments and anonymous XMP metadata.
+- Reviewer 3 returned independently at 4/7 (borderline leaning reject, confidence 4/5). Launched Reviewer 4 on evaluation/reproducibility in the freed slot; no report was exposed to another reviewer.
+- Reviewer 2 returned independently at 3/7 (weak reject, confidence 4/5). Launched Reviewer 5 on practical value, presentation, and video in the freed slot; reports remain sealed from all other reviewers.
+- Verified Reviewer 2's two internal wording findings directly in the frozen PDF: “equal cost” contradicts the body’s unequal-cost disclosure, and the abstract's formulation-level attribution is broader than the one-implementation-per-class design.
+- Reviewer 1 returned independently at 3/7 (weak reject, confidence 4/5), finding the proposition algebra sound but questioning discrete supply semantics and long-horizon boundedness. Launched Reviewer 6, the senior generalist, in the freed slot.
+- Reviewers 5 and 4 returned independently: 5/7 weak accept and 3/7 weak reject, both confidence 4/5. Five reports are complete; only the isolated senior-generalist report remains.
+- Reviewer 6 returned independently at 5/7 weak accept, confidence 4/5. Final panel scores are `3,3,4,3,5,5` (mean 3.83, median 3.5; three weak rejects, one borderline leaning reject, two weak accepts).
+- Reconciled every report against the frozen PDF/video. Consensus is strong on venue fit, phenomenon value, proof plausibility, candor, implementation confounds, weak physical meaning of the global observer, contact-validity cost, and missing artifact; disagreement is whether the empirical diagnosis alone clears the short-paper bar.
+- Rechecked both artifact hashes unchanged, marked phases 24–26 complete, and prepared the self-contained weak-reject/borderline recommendation plus paper/video revision priorities.
+
+# 2026-07-21 Immediate six-reviewer rerun
+
+- User requested a complete rerun. Reopened the review workflow and marked every previous score stale pending a fresh artifact lock.
+- Began phase 27; the live official MIG rubric verified earlier today remains the common standard, but all artifact findings and reviewer judgments will be regenerated independently.
+- Locked the new PDF at `32f2951d...` and unchanged video at `30a862fa...`; fully decoded the MP4 and extracted/rendered all seven new PDF pages.
+- Diffed the new build against the prior reviewed extraction. It directly fixes three former panel criticisms (implementation-specific abstract framing, equal-row-count wording, and categorical AVBD conclusion) and adds a warm-start ablation; phase 27 visual/text audit continues.
+- Read the revised method/results/conclusion. The paper also adds a full band-limited injecting-cell result (6/8 remain, worst +1.24e6 J), materially addressing a prior generality objection while leaving the core contact-validity and one-implementation limitations unchanged.
+- Launched isolated rerun reviewers 1–3 on energy accounting, numerics, and novelty; none received the delta or previous panel output.
+- Inspected new pages 1–2 at original resolution; the repaired abstract is cleanly typeset and page layout remains submission-ready apart from the absent assigned paper ID.
+- Inspected new pages 3–4; the added warm-start evidence is readable and causes no overlap, clipping, or new heatmap inconsistency.
+- Inspected new pages 5–6; band-limited evidence and the corrected AVBD conclusion render cleanly, with the six-page body intact.
+- Inspected references page and revalidated the unchanged full video/contact sheet. Completed phase 27 and moved the six-reviewer rerun into phase 28.
+- Immediate rerun: sealed Reviewer 2 completed at **4/7 (borderline), confidence 4/5**.
+- Immediate rerun: sealed Reviewer 3 completed at **5/7 (weak accept), confidence 4/5**.
+- Immediate rerun: sealed Reviewer 1 completed at **4/7 (borderline), confidence 4/5**.
+- Immediate rerun: Reviewers 4 and 5 are running as isolated clean-room reviews; Reviewer 6 was launched into the freed clean-room slot.
+- Immediate rerun: sealed Reviewer 4 completed at **4/7 (borderline), confidence 4/5**.
+- Immediate rerun: sealed Reviewer 5 completed at **5/7 (weak accept), confidence 4/5**. Reviewer 6 remains in progress.
+- Immediate rerun: sealed Reviewer 6 completed at **5/7 (weak accept), confidence 4/5**.
+- Immediate rerun panel complete: scores `4, 4, 5, 4, 5, 5`, mean/median `4.50/4.5`, all confidence `4/5`; reconciled verdict is borderline/weak accept leaning accept under the focused short-paper bar.
+- Rechecked the frozen PDF/video hashes after all six reports; both remain unchanged. Completed phases 28–30 and prepared the self-contained rerun report.
+
+# 2026-07-21 Rewrite-plan amendment integration
+
+- User authorized direct edits to the rewrite plan only. Restored the file-based planning context and began phases 39–42.
+- Locked the correction that the configured XPBD baseline already uses an implicit-midpoint modal restoring step; the integrated plan will test shared-row block coupling separately from any stiffness-aware contact-weight counterfactual.
+- The manuscript, benchmark implementation, figures, and video remain out of scope for this turn.
+- Integrated E1b into the evidence plan as a deterministic paired perturbation audit, with separate physical and row-order cohorts and no population-statistics claim.
+- Replaced the ambiguous E6 with E6a-1 shared-row condensation, feasibility-gated E6a-2 stiffness-aware contact weighting, an outcome interpretation matrix, and a replicated E6b method gate.
+- Moved priority/fallback rules into Stage B/G, added corresponding acceptance checks, and replaced the appended override section with a concise integrated-amendment audit trail.
+- Completed a structural readback: all numbered sections are present, E1b/E6a/E6b are in the main evidence sequence, the Stage B/G gates are coherent, and Section 14 explicitly distinguishes a major paper rewrite from a technical restart.
+- Final validation passed: tracked planning-file diffs have no whitespace errors, the rewritten plan has no trailing whitespace, and only the requested plan plus the planning logs were touched during this integration turn. Phases 39--42 are complete.
+- Began phases 31–35 for a structural rewrite plan centered on the fixed-host XPBD practitioner. Recorded the diagnostic-versus-method decision rule and the intended solver-choice hierarchy; no manuscript or benchmark source has been changed.
+- Inventoried the current short-paper structure and evidence/visual footprint. Confirmed that the main structural change is to move the empirical XPBD failure and practitioner decision path ahead of the governor/proof, while treating AVBD/impulse as controls.
+- Audited the exact abstract, introduction, contribution list, limitations, and conclusion. Identified the missing first-page answer to “why retain XPBD?” and the need to reorder both contributions and conclusion around a solver-choice operating guide.
+- Confirmed the six-page body gate and inventoried reusable generated figures. Established a three-visual priority that favors the practitioner workflow and XPBD operating envelope over a co-equal three-solver narrative.
+- Checked current full-FEM/reduced evidence and existing solver infrastructure. Classified the current fidelity result as sufficient motivation evidence, a modal/full-space cost comparison as optional, and an XPBD-host/implicit-modal hybrid as the method-paper stop/go experiment rather than a required diagnostic rewrite.
+- Mapped the current content by rendered page and drafted the target page inversion: practitioner failure first, operating envelope in the middle, and the governor/proof only after its fixed-host necessity is established.
+- Audited mechanism-related assets. Identified an exact-host iteration-matrix analysis and a frequency-cutoff-by-iteration ladder as the two highest-value scientific additions, while explicitly excluding a nonmatching device-Jacobi spectral-radius result from the short-paper evidence.
+- Verified that the key practitioner/mode-reduction references and automated page/build gates already exist. No new literature search is required for the rewrite plan; final bibliography metadata and repeated page/overfull checks remain explicit release gates.
+- Completed phases 31–35 and created `docs/mig2026_practitioner_diagnostic_rewrite_plan.md`: a 615-line executable plan covering paper identity, claim/nonclaim matrix, six-page storyboard, figure and video redesign, required/optional experiments, method-paper stop/go criteria, rewrite order, reproducibility packet, and adversarial re-review gates.
+- Confirmed via git status that the planning work changed only the new plan and the three persistent planning logs; `paper/main_short.tex` and `paper/main_short.pdf` remain untouched.
+- Began phases 36–38 to review the user's modified practitioner-diagnostic rewrite plan read-only. The assessment will separate critical scientific/logic issues from optional editorial refinements.
+- Read the complete modified plan. The prior 14-section structure remains coherent; the material addition is section 15, which adds variance/replication, a minimal hybrid ablation, deadline/fallback prioritization, and a metric-count safeguard. Began validating its panel references and feasibility assumptions.
+- Verified the amendment's committee citations and “non-negotiable pair” wording against the saved six-reviewer report. Located the exact XPBD and impulse solver implementations for a feasibility audit of the proposed minimal modal-weight ablation.
+- Compared the XPBD and impulse modal-update maps. Found that the proposed E6a conflates three possible changes (modal integrator, row effective mass, and dense support block solve); it needs a precise counterfactual definition before it can serve as causal evidence.
+- Verified the frozen paper harness already enables XPBD's implicit-midpoint modal step. Concluded that section 15's “explicit modal-block integration” wording is the one material technical defect in the amendment and drafted a cleaner two-factor E6a definition.
+- Completed the full coherence review with exact line locations. The amended plan is strong overall; only E6a's causal variable and E1b's deterministic perturbation protocol require correction before execution.
+- Completed phases 36–38 without editing the user's plan or manuscript. Final assessment: retain section 15, correct E6a because baseline XPBD already uses implicit-midpoint modal restoration, define E1b as an explicit perturbation ensemble rather than a seed rerun, and then execute the committed-core/fallback schedule.
+
+# 2026-07-21 EXECUTE practitioner-diagnostic rewrite
+
+- Read the rewrite plan in full + skimmed findings/task_plan/progress. Confirmed
+  branch layout by git: 3-host sweep on `impulse-native-constraint`
+  (`benchmarks/paper_eval/x1_passivity/`), paper on orphan worktree `paper/`
+  (`c15457c`). Verified fallback PDF `32f2951dd1446708…` and snapshotted it to
+  scratchpad (also recoverable via `git show c15457c:main_short.pdf`).
+- Inventoried the harness: 38 frozen CSVs in `out/`; every C1–C5 headline number
+  has a real source file. Located E6a-1 infrastructure (`_support_block` in
+  `SolverXPBD`) and confirmed E1/E1b harnesses do not exist yet.
+- **Stage A COMPLETE.** Wrote `docs/mig2026_claim_sheet.md` (C1–C5 → one frozen
+  source each; nonclaims hard filter; terminology rules; self-audit table).
+  Baseline terminology audit of `main_short.tex`: passivity prose clean, 8/24 vs
+  9/24 distinct, DCR/real-time clean; 3 residuals logged for Stage E. Three
+  claims flagged as pending Stage-B evidence (E1b, E6a-1, E1). No manuscript or
+  solver file touched this stage.
+- Next: Stage B — build + freeze E1 (accounting audit), E1b (deterministic
+  perturbation ensemble), E6a lock + E6a-1 (serial-row vs `_support_block`).
+
+## 2026-07-21 Stage B — E1 + E1b COMPLETE
+
+- **E1 accounting audit** (`run_e1_accounting_audit.py`): reused R1's live-ledger
+  + neutered-gamma contract. Two no-injection controls (resting_no_impact,
+  modal_freevib) × 3 hosts × 3 scenes × 4 budgets. **AVBD/impulse accounting
+  floor ≤ 10⁻³ J, 3–4 orders below the 6.7 J AVBD effect** — including the dinner
+  scene where the 6.7 J lives (AVBD −8×10⁻⁴ J). The cross-host control claim
+  STANDS, no narrowing. Bonus: the bare XPBD symplectic modal stepper amplifies
+  even resting-settle/kick energy at starved budgets (off-floor, moot, vanishes
+  with budget) — consistent with its 4.4e7 J catastrophe.
+  - Traps hit + fixed: (1) accidentally clobbered the frozen `eq2_utilization.csv`
+    by running R1 with default `--out` → restored from git; **all my Stage-B
+    harnesses use distinct `--out`.** (2) `cargo_material=None` does NOT remove
+    the standing books (48 support contacts remain) → relabeled "freefall" as the
+    honest "resting_no_impact"; shelf modal gravity is 0.0 so a strict no-contact
+    run is a trivial floor. (3) dinner builder uses `pot_drop_height`/`pot_v0_y`,
+    not `impactor_*`.
+- **E1b neighborhood robustness** (`run_e1b_neighborhood.py`): deterministic, no
+  RNG/seed/p-value. **All four injecting headline cells inject in 16/16
+  perturbations** (12 physical + 4 row-order, cohorts separate), margin log-spread
+  0.31–0.70; **equal-row inversion robust** (32×1 holds ∀, 4×8 injects ∀);
+  **scene-dependence robust** (XPBD never injects on dinner). The 4.4e7 J headline
+  is the max of a **2.2–4.5e7 J** neighborhood — round to that precision.
+  - Discovery: post-build DCR-body AND solver-state (`_X`,`_pos`) edits do NOT
+    propagate (solver re-reads build-time pose each step). Perturbations must go
+    through builder kwargs. `sol._support` permutation DOES propagate (row-order
+    cohort). Added **default-inert** `impactor_dx/dz/tilt` to shelf+ledge builders
+    (dinner already has `pot_drop_xz`); verified byte-identical at defaults
+    (shelf 4×1 R=6333.22 reproduces).
+- Frozen in `docs/mig2026_results_ledger.md` (E1, E1b sections) and claim sheet.
+- Uncommitted code changes on `impulse-native-constraint`: 2 new harnesses, 2
+  default-inert builder edits. Not committed yet (holding for a checkpoint).
+
+## 2026-07-21 Stage B — E6a lock + E6a-1 COMPLETE; Stage B closed
+
+- **E6a vocabulary lock**: claim sheet §3a. Three variables kept separate;
+  E6a-1 ablates ONLY variable 3 (serial vs block row treatment). Baseline
+  integrator stays implicit-midpoint (nonclaim 9).
+- **E6a-1** (`run_e6a1_block_condensation.py`): serial (`_support_block=False`,
+  paper path) vs block condensation (`_support_block=True`), 2 scenes × 4
+  budgets + a first-contact one-step delta. **Block does NOT cure the injection**
+  — comparable at 4×1, markedly WORSE at 8×2/16×4/32×1 where the serial path
+  converges/holds (shelf 32×1 serial R=0.30 holds, block R=12.5 injects; ledge
+  32×1 serial 0.087 holds, block 66.5 injects). One-step first-contact delta
+  (identical pre-state): ledge serial +37 J vs block +631 J. Refutes "block solve
+  fixes XPBD"; CONFIRMS the truncation thesis (serial converges with iterations).
+  Recommendation unchanged: iterate the serial path. Reproduced 2 scenes × 4
+  budgets, so above the one-cell-probe bar.
+- **E6a-2 DEFERRED** (stretch): feasibility gate not run; E6a interpretation
+  reported from E6a-1 alone with the E6a-2 column left un-inferred (plan rule).
+- **Stage B exit gate MET**: E1/E1b/E6a-1 frozen in the ledger; the E6a-1
+  negative result reported honestly, not rescued; no one-cell claim; all numbers
+  frozen. Fixed a real one-step-audit bug (twin builds diverge by frame 10 → use
+  the first-contact substep where pre-states are byte-identical).
+- Next: E4 is "Next"-tier but Stages C–G (the rewrite) are committed core and
+  take priority. Moving to Stage C (recompose Figs 1–3 + decision Table 1); E4
+  slots into Table 1's matched-cost row.
+
+## 2026-07-21 Stage C — Figure 2 + Table 1 done (Fig 1/Fig 3 pending)
+
+- **Figure 2 recomposed** (`benchmarks/paper_fig/fig_xpbd_map.py` →
+  `fig_xpbd_map.pdf`, staged to `paper/figures/`): XPBD-centered dual heatmap
+  (R diagnostic + Eq.2 margin invariant, 24 cells) + a compact 3-implementation
+  control strip (XPBD/AVBD/implicit: cells R>1|Eq2, worst margin, worst R) with
+  the E1 floor note. Caption discipline "one implementation each; not
+  compliance-/cost-matched." Visually verified legible. The full 3-solver 72-cell
+  heatmap (`fig_s1_solver_matrix.py`) is kept for the supplement.
+- **Table 1 drafted** (`docs/mig2026_decision_table.md`): LaTeX + full provenance.
+  Rows in plan §5 order (implicit / more-iterations / block-condensation /
+  governor / ungoverned). The block-condensation row reports E6a-1's NEGATIVE
+  result ("not a fix; worse at deployable budgets"), not a recommendation.
+- **Paper build still intact**: `main_short.tex` UNTOUCHED; only a new figure PDF
+  + reference docs added. Fallback `32f2951d` preserved. The text rewrite
+  (Stages D–E) is the next focused effort and will edit main_short.tex with
+  build-gate checks after each edit.
+- **Pending Stage C**: Fig 1 (teaser + schematic), Fig 3 (operating envelope:
+  R/margin vs K, complementarity vs K, band/E6a-1; annotate 32×1/4×8 + warm-start).
+- **Uncommitted on `impulse-native-constraint`**: 3 new harnesses (E1/E1b/E6a-1),
+  2 default-inert builder edits, 1 new figure generator; + docs (claim sheet,
+  decision table, ledger E1/E1b/E6a-1 sections), planning files. Paper worktree:
+  1 new staged figure PDF. Nothing committed (per base rule: commit only when
+  asked) — a checkpoint commit is available on request.
+
+## 2026-07-21 Stage D COMPLETE + Stage E in progress — paper reframed, 6 pages
+
+- **Stage D (north-star text) DONE**, all edits in `paper/main_short.tex`:
+  - Title → "When Modal Contact Rows Fail in Fixed-Budget XPBD: Diagnosis and an
+    Operating Guide" (plan §1 preferred).
+  - Abstract → 6-sentence practitioner blueprint with the frozen numbers,
+    reflecting E1 (control floor <1e-3 J), E1b (4.4e7 = max of 2.2–4.5e7 J
+    neighborhood), and E6a-1 (block condensation does NOT fix it).
+  - Intro ¶1–2 → practitioner audience + why-modes-vs-full-space + the WHY-TWO-WAY
+    argument (one-way double-counts energy; vibration-affects-contact) + the dense
+    shared-q trap + explicit scope ("if architecture unconstrained prefer implicit;
+    target is the fixed XPBD host").
+  - Contributions → reordered (workflow+failure / mechanism+guide / guardrail).
+  - Conclusion → ordered decision rule (plan §5), ending on the durable warning;
+    E6a-1 negative folded in ("nor condensing the shared support rows … removes it").
+  - Keywords → dropped "passivity". Prior-art 2¶ → 1 compact "Related work" ¶.
+  - **Exit gate MET**: title+abstract+teaser+conclusion answer all 5 reader Qs.
+- **Stage E (partial)**: swapped Fig 2 → `fig_xpbd_map`, Fig 3 →
+  `fig_operating_envelope` (figure*, updated captions); moved the host-difference
+  Table 1 (`tab:solvers`) to the supplement (critical differences folded into
+  prose, both refs fixed); removed the monitor-only device-GPU paragraph.
+  **Page gate PASS: body ends p.6, 7 pages, 0 overfull, refs resolve,
+  verify_paper_numbers 32/0.** Paper is length-valid + coherently reframed —
+  NOT a broken intermediate.
+- **Fallback preserved**: `git show c15457c:main_short.pdf` = 32f2951d (untouched).
+  Current `main_short.pdf` is the new reframed build (uncommitted on `paper`).
+- **REMAINING Stage E**: (1) structural reorder — move the empirical failure
+  before the bound/proof (§2↔§3; needs care with eq:invariant forward-refs);
+  (2) insert decision Table 1 (needs ~15 lines recovered, or keep as the
+  conclusion's prose decision rule); (3) limitations consolidation. Then Stage F
+  (E0 packet re-run + video per §12) and Stage G (6 isolated reviewers vs the
+  32f2951d fallback).

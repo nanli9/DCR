@@ -274,3 +274,173 @@ Decision rules: the earlier PDF hash `276cc375...` and its scores are stale;
 judge only the current PDF plus the unchanged MP4; apply a short-paper bar;
 keep reviewer conclusions isolated until synthesis; disclose that the six
 reviews are AI simulations rather than human peer review.
+
+## 2026-07-21 Current PDF + video six-reviewer audit
+
+Goal: Review the exact current `paper/main_short.pdf` and
+`benchmarks/paper_fig/out/teaser_video.mp4` with six independent MIG
+short-paper reviewer simulations, then synthesize an unbiased area-chair-style
+accept/reject recommendation and concrete revision advice.
+
+| Phase | Status | Task |
+|---|---|---|
+| 23 | completed | Lock both artifacts; extract and visually inspect every PDF page plus the complete video and metadata. |
+| 24 | completed | Run six isolated reviewer assessments on the frozen artifacts using one common MIG short-paper rubric and score scale. |
+| 25 | completed | Reconcile factual findings, scores, disagreements, and the supplement's evidentiary impact. |
+| 26 | completed | Deliver a self-contained verdict and prioritized pre-submission advice. |
+
+Decision rules: do not reuse stale scores from prior artifact hashes; judge only
+the supplied PDF/video; apply a short-paper rather than regular-paper bar; keep
+reviewer reports isolated until synthesis; disclose that these are simulated AI
+reviews rather than human peer review.
+
+### 2026-07-21 audit errors
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| First append patch targeted a heading seen in a combined/truncated multi-file output rather than the actual end of `task_plan.md`. | 1 | Read the file tail directly and append against its verified final lines. |
+| Domain-restricted search returned no indexed result for the live MIG 2026 short-paper criteria. | 1 | Broaden the search to the conference title/domain, then follow only links on the official conference site. |
+| The official homepage's Call for Papers link returned a browser cache-miss error. | 1 | Retrieve that exact official URL read-only with `curl`; do not repeat the failing browser click. |
+| Sandboxed `curl` tried an unavailable local proxy at `127.0.0.1:7890`. | 1 | Re-ran the same read-only official-page fetch with approved network escalation; retrieval succeeded. |
+
+## 2026-07-21 Immediate six-reviewer rerun
+
+Goal: Re-run the complete six-reviewer MIG short-paper process on the exact
+current `paper/main_short.pdf` and `benchmarks/paper_fig/out/teaser_video.mp4`,
+without reusing any prior score or report.
+
+| Phase | Status | Task |
+|---|---|---|
+| 27 | completed | Freeze current artifact hashes and reconstruct any PDF/video delta since the previous panel. |
+| 28 | completed | Run six new isolated reviewer simulations with the same official short-paper rubric and score scale. |
+| 29 | completed | Reconcile factual claims, votes, disagreements, and video impact against the newly frozen artifacts. |
+| 30 | completed | Deliver a self-contained new verdict and revision priorities. |
+
+Decision rules: reviewers may inspect only the newly frozen PDF/video; they must
+not read planning files, source, repository data, previous reports, or one
+another's output; reuse the official rubric verified earlier today but never
+reuse prior artifact conclusions.
+
+## 2026-07-21 Practitioner-diagnostic short-paper rewrite plan
+
+Goal: Redesign the six-content-page MIG short paper around the strongest
+defensible thesis: adding a small modal state to an existing fixed-budget XPBD
+rigid-body host is attractive but a direct two-way contact transcription is not
+automatically energy-safe; give practitioners an evidence-backed decision path
+from implicit coupling, through band-limiting and iteration allocation, to a
+last-resort cumulative guardrail.
+
+| Phase | Status | Task |
+|---|---|---|
+| 31 | completed | Map the current short-paper source, figures, evidence, and page budget onto the new practitioner audience and thesis. |
+| 32 | completed | Define the exact claim hierarchy, contribution language, alternatives, and material to retain, demote, move, or remove. |
+| 33 | completed | Produce a six-page section/figure storyboard plus essential and optional experiment and video changes. |
+| 34 | completed | Define an executable rewrite order with build, consistency, artifact, and simulated-review gates. |
+| 35 | completed | Deliver the detailed rewrite plan, including stop/go criteria for diagnostic versus method-paper scope. |
+
+Decision rules: do not relabel the existing radial governor as a primary method;
+do not claim all XPBD implementations are unsafe; distinguish modes from full-space
+XPBD deformables; treat AVBD and impulse as controls; recommend the governor only
+after implicit coupling, representable-band selection, and adequate local iteration;
+preserve the six-content-page limit and keep essential evidence in the paper rather
+than relying on an unavailable supplement.
+
+## 2026-07-21 Review of user-modified rewrite plan
+
+Goal: Review the user's current
+`docs/mig2026_practitioner_diagnostic_rewrite_plan.md` read-only and determine
+whether its scope, scientific priorities, six-page structure, and diagnostic/
+method stop-go logic remain strong and internally consistent.
+
+| Phase | Status | Task |
+|---|---|---|
+| 36 | completed | Read the complete modified plan and identify material changes or newly introduced assumptions. |
+| 37 | completed | Assess reviewer-facing motivation, scientific feasibility, experiment priority, page-budget coherence, and overclaim risk. |
+| 38 | completed | Deliver an evidence-based verdict with required fixes, optional improvements, and recommended next action. |
+
+Decision rules: do not edit the user's plan or manuscript; distinguish factual or
+logical defects from personal preference; judge the plan as an execution document
+for a MIG short paper rather than as finished paper prose.
+
+## 2026-07-21 Integration of rewrite-plan amendments
+
+Goal: Apply the reviewed amendments directly to
+`docs/mig2026_practitioner_diagnostic_rewrite_plan.md`, resolving the XPBD
+modal-ablation ambiguity and turning the appended second opinion into one
+internally consistent execution plan.
+
+| Phase | Status | Task |
+|---|---|---|
+| 39 | completed | Restore planning context and lock the exact user-modified plan as the sole edit target. |
+| 40 | completed | Integrate deterministic neighborhood-robustness evidence and split the causal/modal experiments into precisely defined E6a/E6b routes. |
+| 41 | completed | Integrate deadline priorities, fallback comparison, and audit checks into the main execution stages; collapse the override appendix into an amendment record. |
+| 42 | completed | Verify terminology, experiment dependencies, stop/go logic, and the major-rewrite implications; report the result without modifying the manuscript. |
+
+Decision rules: baseline XPBD already uses an implicit-midpoint modal restoring
+step, so never describe it as explicit modal integration; distinguish shared-row
+block condensation from stiffness-aware contact weighting; require a discrete-
+equation feasibility gate before the latter; treat one-scene probes as local causal
+evidence only; use deterministic perturbations rather than RNG seeds unless actual
+randomness is introduced; preserve the frozen current PDF only as a simulated-panel
+calibration fallback, not as an acceptance-probability estimate.
+
+## 2026-07-21 EXECUTE the practitioner-diagnostic rewrite
+
+Goal: Execute `docs/mig2026_practitioner_diagnostic_rewrite_plan.md` (the sole
+authority) to convert `paper/main_short.tex` from a governor-centered
+three-solver survey into a fixed-budget-XPBD practitioner diagnostic + operating
+guide. Deadline: MIG 2026 short paper, 2026-08-07 AoE (core with margin for
+Stage G).
+
+Branch layout (confirmed by git): code + 3-host sweep harness on
+`impulse-native-constraint`; paper LaTeX on orphan worktree `paper/` (branch
+`paper`, HEAD `c15457c`). Fallback PDF `32f2951d…` preserved (committed at
+`c15457c`; snapshot in scratchpad). Never commit code to `paper` or paper text
+to code branches.
+
+| Stage | Status | Task | Exit gate |
+|---|---|---|---|
+| A | complete | Freeze claim sheet (§4 C1–C5 + nonclaims), lock terminology | no bare-XPBD result attribution; no unqualified passivity |
+| B-E1 | complete | Gravity/rigid-only/modal-free accounting audit per host+schedule; freeze residual vs 6.7 J AVBD effect | DONE: AVBD/impulse floor ≤1e-3 J ≪ 6.7 J; claim STANDS |
+| B-E1b | complete | Freeze headline cells, then 8–12 paired deterministic perturbations (row-order kept separate); no p-values | DONE: 16/16 inject, log-spread ≤0.7; 4.4e7=max of 2.2–4.5e7 J |
+| B-E6a lock | complete | Lock 3-var vocabulary (integrator=impl.midpoint / contact weight / serial-vs-block) in writing | DONE: claim sheet §3a |
+| B-E6a-1 | complete | Serial support-row XPBD vs `_support_block` condensation: frozen-state audit + rollout, one scene/one budget smoke | DONE: block≠cure; worse at higher budgets; 2 scenes×4 budgets |
+| B-E6a-2 | deferred | Stiffness-aware contact-weight counterfactual — ONLY if discrete-eq feasibility gate passes | DEFERRED (stretch): gate not run; E6a-2 column left un-inferred |
+| B-E4 | next | Matched-wall-clock compare (more-iters / trunc-basis / implicit / governor) at 1 shelf + 1 ledge | energy/penetration/traj/cost reported |
+| C | complete | Recompose Figs 1–3 + guardrail Table 1 BEFORE prose | DONE: all 3 figs staged + table drafted |
+| C-Fig2 | complete | XPBD-centered map + 3-impl control strip (`fig_xpbd_map.py`) | DONE: rendered, staged to paper/figures |
+| C-Table1 | complete | Decision table drafted (`docs/mig2026_decision_table.md`) | DONE: LaTeX + provenance; block row = E6a-1 negative |
+| C-Fig1 | complete | Teaser + schematic (`fig_teaser.py`, height 2.05) | DONE: schematic strip + "governed (containment)" relabel, staged |
+| C-Fig3 | complete | Operating envelope (`fig_operating_envelope.py`) | DONE: R-vs-K + 32×1/4×8/warm-start annot, complementarity, E6a-1 serial-vs-block |
+| D | complete | North-star text: title→conclusion→abstract→intro¶1–2→contrib→headings | DONE: gate met — all 5 reader Qs answerable from title+abstract+conclusion |
+| E | in_progress | Rebuild 6-page body per §6 storyboard | body ends p.6 ✓; done: Fig2/Fig3 swapped, host table→supp, device removed, prior-art→1¶, verify_paper_numbers 32/0; REMAINING: reorder (bound after results), Table 1 insert, limitations polish |
+| F | pending | E0 packet (clean-checkout smoke) + video (§12, ~2/3 new footage) | smoke passes; hashes frozen |
+| G | pending | 6 isolated reviewers, comprehension Qs before scores; ≤1 rewrite; compare vs 32f2951d fallback | keep the stronger packet |
+
+Priority menu: committed core = A, C–G, E0, E1, E1b, E6a lock, E6a-1. Next = E4.
+Stretch = E2, E3, E6a-2. Dropped = E5. Method route E6b only under §2 stop/go.
+
+Decision rules (binding): every claim → one frozen source; §4 nonclaims are a
+hard filter; keep 8/24 (incident-ratio) and 9/24 (strict ledger-margin) distinct;
+never call the scalar ledger passivity; never call the modal restoring step
+explicit; one-cell results are causal probes not recommendations; round
+magnitudes (incl. 4.4e7 J) to E1b precision; a negative result is a valid result;
+video is ~2/3 new footage started as soon as Stage B data lands; page 2 must argue
+WHY two-way; the dense shared-q paragraph is the generality bridge; do not name
+engines in motivation without verification. Plan wins over expedience; when the
+plan is silent, propose and mark the choice.
+
+### Stage A — complete (2026-07-21)
+
+- Wrote `docs/mig2026_claim_sheet.md`: C1–C5 each mapped to one frozen source
+  under `benchmarks/paper_eval/x1_passivity/out/` + ledger §; nonclaims as hard
+  filter; terminology rules; self-audit table.
+- **Three claims flagged pending Stage B**: C2-robustness (E1b), C3-mechanism
+  (E6a-1), cross-control accounting narrowing (E1). Paper must not assert
+  neighborhood-robust failure / serial-row cure / AVBD-contact-injection until
+  frozen.
+- Terminology baseline on current `main_short.tex`: passivity prose already
+  clean (all literature or negated); 8/24 vs 9/24 already correctly distinct;
+  DCR/real-time clean. Residuals logged for Stage E: L354 caption bare-"XPBD
+  exceeds 1 in 8/24" → qualify; L94 keyword "passivity" → reconsider; L377
+  Table-1 "modal weight: explicit" → lock as contact-weight (E6a lock).
