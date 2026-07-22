@@ -344,6 +344,16 @@ class SolverXPBD:
         self._warm_start_lam = False
         self._psv_Il = None      # cached body-local inertia = inv(invIl) (§15 clamp)
         self._E_rig_pre = 0.0
+        # GAP-PRESERVING PROJECTION (post-MIG follow-up, NOT the paper default).
+        # When True the §15 clamp lands on a different admissible point: one that
+        # holds the ACTIVE contact rows' observed surface U_c·q fixed where the
+        # budget affords it, instead of scaling the whole state radially and
+        # opening up to 21.6 mm of penetration (paper §3.3). Default OFF keeps
+        # every frozen paper number bit-identical — the enforced bound is the
+        # same either way (passivity.gap_preserving_projection).
+        self._psv_gap_preserving = False
+        self._psv_gap_lam_tol = 0.0   # row counts as load-bearing when lam > tol
+        self._psv_gap_info: dict | None = None   # last projection's rung/scale
         # Cargo (Stage 4): augmented modal vector Q = [q_support; a_cargo…].
         self._cargo: dict = {}        # body_idx -> cargo body model
         self._cargo_a: dict = {}      # body_idx -> (k,) amplitude
@@ -1259,18 +1269,52 @@ class SolverXPBD:
                                                self._mq, self._kq)
             e_modal_new = ke_new + pe_new
             budget = self._psv_ledger.deposit(rigid_loss)   # reservoir += η·loss
-            gamma = passivity_gamma(e_modal_new, self._E_modal_pre, budget,
-                                    tol=self._psv_ledger.tol)
-            if gamma < 1.0:
-                # project the over-shot modal state onto the passive manifold
-                self._q = self._q * gamma
-                self._qdot = self._qdot * gamma
-                e_modal_new = gamma * gamma * e_modal_new
-                self.last_modal_KE = gamma * gamma * ke_new
-                self.last_modal_PE = gamma * gamma * pe_new
+            if self._psv_gap_preserving:
+                # Follow-up path (opt-in): same bound, admissible point chosen to
+                # hold the load-bearing surface fixed. See passivity.py.
+                from .passivity import gap_preserving_projection
+                U_c, lam_c = self._active_support_rows()
+                q_n, qd_n, gamma, info = gap_preserving_projection(
+                    self._q, self._qdot, self._kq, self._mq, U_c,
+                    self._E_modal_pre, budget, tol=self._psv_ledger.tol,
+                    row_priority=lam_c)
+                self._psv_gap_info = info
+                if gamma < 1.0:
+                    self._q, self._qdot = q_n, qd_n
+                    self.last_modal_KE, self.last_modal_PE = modal_mech_energy(
+                        qd_n, q_n, self._mq, self._kq)
+                    e_modal_new = self.last_modal_KE + self.last_modal_PE
+            else:
+                gamma = passivity_gamma(e_modal_new, self._E_modal_pre, budget,
+                                        tol=self._psv_ledger.tol)
+                if gamma < 1.0:
+                    # project the over-shot modal state onto the passive manifold
+                    self._q = self._q * gamma
+                    self._qdot = self._qdot * gamma
+                    e_modal_new = gamma * gamma * e_modal_new
+                    self.last_modal_KE = gamma * gamma * ke_new
+                    self.last_modal_PE = gamma * gamma * pe_new
             dE_modal = e_modal_new - self._E_modal_pre
             self._psv_ledger.commit(dE_modal, budget, gamma,
                                     e_modal_now=e_modal_new)
+
+    def _active_support_rows(self):
+        """((m,r) U_y stack, (m,) λ) for the LOAD-BEARING support rows.
+
+        A row is load-bearing when its accumulated normal multiplier survived the
+        position solve (`sc.lam > tol`); λ is reset to 0 each substep unless
+        `_warm_start_lam`, so this is the current substep's active set, which is
+        exactly what the gap-preserving projection must hold fixed. Grazing rows
+        (λ = 0) are excluded so the preserved set stays thin — on the table scene
+        200 rows would otherwise reach rank r and pin the whole state.
+        """
+        tol = self._psv_gap_lam_tol
+        act = [sc for sc in self._support if sc.lam > tol]
+        if not act:
+            return (np.zeros((0, int(np.asarray(self._q).size)), dtype=np.float64),
+                    np.zeros(0, dtype=np.float64))
+        return (np.asarray([sc.U_y for sc in act], dtype=np.float64),
+                np.asarray([sc.lam for sc in act], dtype=np.float64))
 
     # -- contact generation -------------------------------------------------
     def _collect_contacts(self) -> list[_Contact]:

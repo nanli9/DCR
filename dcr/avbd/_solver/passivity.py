@@ -230,6 +230,196 @@ def passivity_gamma(e_modal_new: float, e_modal_old: float,
     return float(np.sqrt(max(0.0, ceiling / max(e_modal_new, 1e-300))))
 
 
+def quasi_static_split(q, Kq, U_c, rcond: float = 1e-10):
+    """Split q into the part the ACTIVE contact rows observe and the rest.
+
+    Foundation §15 (the bound this serves) + §6 (the quadratic-cap machinery).
+    Given active support rows U_c (m,r) whose observed surface displacements are
+    d = U_c q, return the minimum-elastic-energy state realizing the SAME d:
+
+        q_qs = argmin ½ qᵀKq   s.t.  U_c q = d
+             = K⁻¹U_cᵀy,   (U_c K⁻¹ U_cᵀ) y = d,      E_qs = ½ dᵀy
+
+    and the remainder q_perp = q − q_qs. Two properties make the projection in
+    `gap_preserving_projection` closed-form; both are asserted in
+    tests/avbd_native/test_gap_preserving.py:
+
+      (1) U_c q_perp = 0        — the remainder is INVISIBLE to the active rows,
+                                  so scaling it cannot move the contact surface;
+      (2) q_qsᵀ K q_perp = 0    — K-orthogonality, so
+                                  PE(q_qs + s q_perp) = E_qs + s² PE(q_perp)
+                                  with no cross term.
+
+    Returns (q_qs, q_perp, E_qs). With no active rows this degenerates to
+    (0, q, 0), which makes the caller reduce EXACTLY to the radial γ of
+    `passivity_gamma` — the existing governor is the "preserve nothing" case.
+
+    Kq: (r,) diagonal (mass-normalized modes ⇒ Kq = ω²) or (r,r). Rank-deficient
+    or redundant row sets (200 table rows on 24 modes) are handled by lstsq, so
+    the caller never has to filter for independence.
+    """
+    q = np.asarray(q, dtype=np.float64)
+    Kq = np.asarray(Kq, dtype=np.float64)
+    U = np.asarray(U_c, dtype=np.float64)
+    if U.ndim != 2 or U.shape[0] == 0:
+        return np.zeros_like(q), q.copy(), 0.0
+    # K⁻¹U_cᵀ — diagonal K is the solver's case (modal_analysis returns ω²).
+    if Kq.ndim == 1:
+        Kinv_Ut = (U / np.where(Kq > 0.0, Kq, np.inf)).T        # zero-stiffness ⇒ drop
+    else:
+        Kinv_Ut = np.linalg.pinv(Kq, rcond=rcond) @ U.T
+    d = U @ q
+    S = U @ Kinv_Ut                                             # m×m Schur-like
+    y = np.linalg.lstsq(S, d, rcond=rcond)[0]
+    q_qs = Kinv_Ut @ y
+    E_qs = 0.5 * float(d @ y)
+    # E_qs is a minimum of a PSD form, so it cannot be negative; lstsq roundoff on
+    # a near-singular S can make it -1e-30. Clamp rather than propagate a sign.
+    return q_qs, q - q_qs, max(E_qs, 0.0)
+
+
+def largest_feasible_prefix(q, Kq, U_c, ceiling: float, rcond: float = 1e-10):
+    """Largest k such that preserving the FIRST k rows of U_c costs ≤ ceiling.
+
+    Adding a constraint can only raise the constrained minimum, so
+    k ↦ E_qs(U_c[:k]) is monotone non-decreasing and a bisection is exact.
+    Callers pass U_c pre-sorted by load (descending λ), so the surviving prefix
+    is the most load-bearing subset the budget can afford: the rows where a
+    lifted surface would cost the largest corrective impulse are the ones kept.
+
+    Returns (k, q_qs, q_perp, E_qs) for that prefix; k=0 gives the trivial split.
+    """
+    m = int(np.asarray(U_c).shape[0])
+    lo, best = 0, (0, np.zeros_like(np.asarray(q, dtype=np.float64)),
+                   np.asarray(q, dtype=np.float64).copy(), 0.0)
+    hi = m
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        q_qs, q_perp, e_qs = quasi_static_split(q, Kq, U_c[:mid], rcond=rcond)
+        if e_qs <= ceiling:
+            best, lo = (mid, q_qs, q_perp, e_qs), mid
+        else:
+            hi = mid - 1
+    return best
+
+
+def gap_preserving_projection(q, qdot, Kq, Mq, U_c, e_modal_old: float,
+                              budget: float, tol: float = 1e-12,
+                              row_priority=None):
+    """Project (q,q̇) into the admissible set WITHOUT moving the contact surface
+    where that is affordable (foundation §15; §6 for the quadratic cap).
+
+    # DEVIATION (from the shipped radial γ of `passivity_gamma`, foundation §15):
+    # the radial projection scales the whole state, so it shrinks the sag
+    # U_y·q that resting bodies are standing on and opens up to 21.6 mm of
+    # penetration (paper §3.3, Table 2). The bound itself never required a
+    # RADIAL projection — Prop. 4.1 only needs the post-projection state to land
+    # in {E ≤ E⁻+B} with the same credit-before-test ordering. This routine keeps
+    # the guarantee and chooses a different admissible point: the one that
+    # preserves what the active contacts currently see.
+    #
+    # Ladder (first feasible rung wins); Ē = e_modal_old + budget:
+    #   rung 1  E_qs ≤ Ē :  q ← q_qs + s·q_perp,  q̇ ← s·q̇,
+    #                       s = √((Ē − E_qs)/(E⁺ − E_qs))
+    #                       ⇒ U_c q unchanged EXACTLY: zero clamp-induced gap.
+    #   rung 1b E_qs > Ē but a λ-ordered PREFIX fits: preserve the most
+    #                       load-bearing rows exactly and treat the rest as
+    #                       remainder. Measured: this is what rescues the cells
+    #                       where the full active set alone overdraws.
+    #   rung 2  no prefix fits :  q ← β·q_qs,  q̇ ← 0,   β = √(Ē/E_qs)
+    #                       ⇒ surface shrinks by (1−β), but β ≥ γ ALWAYS
+    #                         (E_qs ≤ E⁺), so it is never worse than radial.
+    # Rung 2 is always feasible, so the ladder is unconditional and Prop. 4.1
+    # survives verbatim. `passivity_gamma` is kept as the numerical fallback for
+    # a degenerate solve (non-finite output), not as a feasibility fallback.
+    #
+    # row_priority: optional (m,) per-row load (the support multipliers λ). When
+    # given, rows are sorted by descending λ before the prefix search, so the
+    # rows carrying real load are the ones preserved. Without it the given row
+    # order is used, and rung 1b degenerates to the plain rung-1/rung-2 pair.
+
+    Returns (q_new, qdot_new, gamma_eff, info) where gamma_eff = √(E⁺_post/E⁺) is
+    the ENERGY-equivalent scale — it reduces to the radial γ when no rows are
+    active, so ledger bookkeeping (`n_clamped`, α history) keeps its meaning.
+    info: dict with rung, s/beta, E_qs, and the ceiling, for the probe harness.
+    """
+    q = np.asarray(q, dtype=np.float64)
+    qdot = np.asarray(qdot, dtype=np.float64)
+    Kq = np.asarray(Kq, dtype=np.float64)
+    Mq = np.asarray(Mq, dtype=np.float64)
+    ke, pe = modal_mech_energy(qdot, q, Mq, Kq)
+    e_new = ke + pe
+    ceiling = e_modal_old + budget
+    info = {"rung": 0, "scale": 1.0, "E_qs": 0.0, "ceiling": ceiling,
+            "e_new": e_new}
+    if e_new <= ceiling + tol:
+        return q, qdot, 1.0, info                       # inert: identical to γ=1
+    if ceiling <= 0.0:
+        info["rung"] = 2
+        return np.zeros_like(q), np.zeros_like(qdot), 0.0, info
+
+    U = np.asarray(U_c, dtype=np.float64)
+    if row_priority is not None and U.ndim == 2 and U.shape[0] > 1:
+        U = U[np.argsort(-np.asarray(row_priority, dtype=np.float64))]
+    q_qs, q_perp, e_qs = quasi_static_split(q, Kq, U)
+    info["E_qs"] = e_qs
+    info["n_rows"] = int(U.shape[0]) if U.ndim == 2 else 0
+    info["n_preserved"] = info["n_rows"] if e_qs <= ceiling else 0
+
+    if e_qs > ceiling and info["n_rows"] > 1:
+        # ---- rung 1b: keep the largest affordable λ-ordered prefix ---------
+        k, q_qs_k, q_perp_k, e_qs_k = largest_feasible_prefix(q, Kq, U, ceiling)
+        if k > 0:
+            q_qs, q_perp, e_qs = q_qs_k, q_perp_k, e_qs_k
+            info["n_preserved"] = k
+
+    if e_qs <= ceiling:
+        # ---- rung 1: contact surface preserved EXACTLY --------------------
+        # E(s) = E_qs + s²(E⁺ − E_qs) ≤ ceiling. The denominator is > 0 because
+        # e_new > ceiling ≥ e_qs here.
+        s = float(np.sqrt(max(0.0, (ceiling - e_qs) / max(e_new - e_qs, 1e-300))))
+        s = min(1.0, s)
+        q_out, qd_out = q_qs + s * q_perp, s * qdot
+        info["rung"] = 1 if info["n_preserved"] == info["n_rows"] else 11
+        info["scale"] = s
+    else:
+        # ---- rung 2: even the load-bearing sag alone overdraws ------------
+        # Keep as much of it as the ceiling affords; the ring and all kinetic
+        # energy go. β ≥ γ_radial always, so penetration ≤ the radial case.
+        beta = float(np.sqrt(max(0.0, ceiling / max(e_qs, 1e-300))))
+        beta = min(1.0, beta)
+        q_out, qd_out = beta * q_qs, np.zeros_like(qdot)
+        info["rung"], info["scale"] = 2, beta
+
+    ke2, pe2 = modal_mech_energy(qd_out, q_out, Mq, Kq)
+    e_post = ke2 + pe2
+    if not np.isfinite(e_post):
+        # Numerical fallback ONLY (singular split, non-finite lstsq): never a
+        # feasibility fallback — rung 2 is feasible by construction.
+        g = passivity_gamma(e_new, e_modal_old, budget, tol=tol)
+        info["rung"], info["scale"] = -1, g
+        return q * g, qdot * g, g, info
+    if e_post > ceiling:
+        # The ladder's s/β put the energy AT the ceiling analytically, so any
+        # excess here is lstsq roundoff in the split. Land it exactly on the
+        # ceiling with one radial micro-scale (γ_fix ≈ 1 − 1e-9): without this
+        # the residue accumulates and the cumulative ledger drifts off its
+        # roundoff floor (measured 1.1e-9 J of drift over 105 clamps vs 1e-13 J
+        # for the shipped projection — an accounting artifact, but the bound's
+        # exactness is the whole point). A LARGE correction would mean the split
+        # itself is wrong, so that case is recorded as the fallback rung.
+        g_fix = float(np.sqrt(max(0.0, ceiling) / max(e_post, 1e-300)))
+        if g_fix < 0.99:
+            g = passivity_gamma(e_new, e_modal_old, budget, tol=tol)
+            info["rung"], info["scale"] = -1, g
+            return q * g, qdot * g, g, info
+        q_out, qd_out = q_out * g_fix, qd_out * g_fix
+        ke2, pe2 = modal_mech_energy(qd_out, q_out, Mq, Kq)
+        e_post = ke2 + pe2
+    gamma_eff = float(np.sqrt(max(0.0, e_post) / max(e_new, 1e-300)))
+    return q_out, qd_out, min(1.0, gamma_eff), info
+
+
 @dataclass
 class PassivityLedger:
     """RESERVOIR energy ledger for the closed-system invariant (foundation §15).

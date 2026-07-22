@@ -2267,3 +2267,89 @@ So:
   condensation. No "block solve fixes XPBD" claim is licensed (it would be false).
 - Result reproduced across **2 scenes and 4 budgets**, so it exceeds the
   "one-cell causal probe" bar even though the recommendation did not change.
+
+---
+
+## R8b — gap-preserving projection (POST-MIG follow-up, 2026-07-22)
+
+**NOT a paper number.** Nothing in `main_short.tex` depends on this section
+except one Limitations sentence (§5, "Stability is not accuracy"), which cites
+the 4.4–12.8× range and the ledge exception below. Everything else here is
+future work. Default is **OFF** (`sol._psv_gap_preserving`), so every frozen
+number in this ledger is unaffected — verified: `tests/avbd_native/` 233 passed
+/ 30 skipped, `verify_paper_numbers.py --tex paper/main_short.tex` 32/32, and
+the probe's radial arm reproduces E-S3's clamp counts (107/108, 171/216, 97/108,
+178/216) and its 21.589 mm worst case exactly.
+
+Machine: macOS 15.2, Apple M4 (arm64), CPython 3.12.12. Commit 6044b1b (+ the
+working-tree implementation committed with this entry). Generating command:
+
+```
+.venv/bin/python benchmarks/paper_eval/x1_passivity/probe_gap_preserving.py \
+    --nframes 100 --out gap_preserving
+```
+Out: `benchmarks/paper_eval/x1_passivity/out/gap_preserving.csv`.
+Design + derivation: `docs/gap_preserving_projection.md`.
+
+**What it is.** The shipped γ scales the whole modal state radially, shrinking the
+load-bearing sag and opening up to 21.6 mm (E-S3). The successor projects along
+the directions the *active contact rows cannot see*: with `d = U_c q`, the
+minimum-elastic-energy state realizing the same `d` is `q_qs = K⁻¹U_cᵀy`,
+`(U_c K⁻¹U_cᵀ)y = d`, `E_qs = ½dᵀy`, and the remainder `q_⊥ = q − q_qs` satisfies
+`U_c q_⊥ = 0` and `q_qsᵀKq_⊥ = 0`. Hence `E(q_qs + s q_⊥, s q̇) = E_qs + s²(E⁺−E_qs)`
+and every rung is closed-form. Rung 1 (`E_qs ≤ Ē`) preserves the surface exactly;
+rung 1b keeps the largest λ-ordered prefix that fits (bisection — `E_qs(k)` is
+monotone in k); rung 2 (`β = √(Ē/E_qs)`, `q̇ ← 0`) is always feasible, so the
+ladder is unconditional and **Prop. 4.1 holds verbatim** — its proof constrains
+only that the projected state land in `{E ≤ E⁻+B}`, never the direction. With no
+active rows it reduces EXACTLY to the shipped γ.
+
+**This distinguishes it from both R8 variants gated NO-GO on 2026-07-19**:
+band-selective was effective but infeasible in up to 37.8 % of clamp substeps;
+deviation-referencing was feasible but only ÷1.1. This one is both, because the
+preserved reference is what the contacts observe *now*, not a fixed subspace.
+
+Full A/B runs (each arm its own trajectory — NOT the per-substep counterfactual
+that limited the R8 probe). XPBD, relax 0.7, η=1, 100 frames + 8 settle:
+
+| cell | worst penetration radial → gap | median | rung 1 (zero-gap) | rung 1b | rung 2 | invariant |
+|---|---|---|---|---|---|---|
+| shelf 4×1 | 21.59 → **4.86 mm** (4.44×) | 1.244 → 0.292 mm | 50/105 (47.6 %) | 55 | 0 | holds both arms |
+| shelf 8×2 | 6.43 → **0.50 mm** (12.83×) | 0.214 → 0.012 mm | 155/200 (77.5 %) | 45 | 0 | holds both arms |
+| ledge 4×1 | 21.19 → 20.08 mm (1.06×) | 0.078 → 0.052 mm | 34/87 (39.1 %) | 51 | 2 | holds both arms |
+| ledge 8×2 | 4.08 → **0.93 mm** (4.38×) | 0.070 → 0.016 mm | 166/167 (99.4 %) | 1 | 0 | holds both arms |
+
+Peak modal energy is unchanged-to-lower in every gap arm (shelf 8×2 29.56 → 29.0 J),
+so the gain is not bought with stored energy. Numerical fallbacks: 0.
+
+**Mechanism check (pre-rung-1b instrumentation).** Splitting clamp-induced
+violation by row: rung 1 induced **0.0000 mm** on active AND inactive rows in
+every cell; 100 % of the residual comes from the rungs that cannot preserve the
+surface. Clamp-induced worst case fell 15.45 → 4.69 mm (shelf 4×1), 5.94 → 2.09 mm
+(shelf 8×2), 3.23 → **0.003 mm** (ledge 8×2), 14.40 → 13.31 mm (ledge 4×1).
+
+**Why ledge 4×1 does not improve — and why that is correct.** At its two worst
+substeps the quasi-static energy of the observed surface is **199× and 148× the
+whole ceiling** (`E_qs = 6.5×10⁴ J` vs a 325 J budget; 0 of 8 rows affordable, so
+both fall to rung 2). That surface is *itself* the injection artifact — a 65 kJ
+deformation in a scene whose measured rigid supply is three orders smaller — and
+no bound-respecting projection can preserve it. The median substep in the same
+cell is `E_qs/ceiling = 0.66` (affordable), which is why the median still
+improves. **The paper's §3.3/§5 penetration limitation therefore stands as
+written for the adversarial regime.**
+
+**Implementation subtlety worth keeping.** The first version accepted post-
+projection energy within `max(tol, 1e-9·Ē)` of the ceiling. Analytically the rungs
+land *at* the ceiling, but lstsq roundoff left a per-substep residue that
+accumulated to **1.06×10⁻⁹ J** over 105 clamps on shelf 4×1 — five orders above
+the shipped projection's 1×10⁻¹³ J floor, enough to trip `PassivityLedger.holds()`.
+Not real injection, but exactness is the point. Landing the result on the ceiling
+with one radial micro-scale (`γ_fix ≈ 1−10⁻⁹`) restores it: the gap arm now sits
+at **1.07×10⁻¹⁴ J**, better than radial's 9.9×10⁻¹⁴ J. A *large* correction would
+mean the split is wrong, so that case is recorded as the fallback rung instead.
+
+**Not yet measured (blocking any stronger claim):** 4 cells, XPBD only, relax 0.7
+only, one machine, N=1 per cell; AVBD/impulse hosts and relax 1.0 unmeasured;
+Table 2's corrective-impulse and λ-variance columns unmeasured for the gap arm;
+active-set chatter uncharacterized; per-clamp cost (an m×m solve, m ≤ 8 observed)
+unmeasured; gross-supply exposure may grow if preserved sag springs back.
