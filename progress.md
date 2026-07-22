@@ -980,3 +980,29 @@ edit. Committed-core body is done.
   one 3-D beat has the pose risk + 2-D fallback), then final `make_supplement.py`
   run; then **Stage G** (6 isolated reviewers, comprehension Qs before scores,
   compare vs the 32f2951d fallback, ≤1 rewrite cycle).
+
+## 2026-07-21 (session 2) — teaser label fix + density/length reduction
+
+- **Teaser fixed** (`fig_teaser.py`, commit 0910037): the three panel titles
+  overflowed their ~1-inch panels and collided ("governed (containment)XPBD
+  self-reference"). Shortened "XPBD self-reference"→"XPBD self-ref." and dropped
+  the title font 6.6→5.7pt; all three now fit cleanly. Regenerated + copied to
+  paper/figures (paper commit ffaf08e).
+- **Density/length** (paper commit ffaf08e): reduced the body from a packed 6
+  pages (0 slack) to end partway down p.6 (~5.5 content-pages), less dense:
+  proof→induction sketch, (1)-(7) loop→compact prose, spectral/accuracy/contact
+  blocks tightened, §5.1/§5.2→headline facts. Gate PASS (0 overfull), verify
+  32/0, check_claims 0.
+- **References-packing wall (documented):** cutting BELOW ~5.5 pages pushes the
+  18-entry bibliography onto a sparse p.7 that trips a ~1.3pt "\vbox too high
+  while \output active" overfull (acmart last-page balancing). Tried \raggedbottom,
+  the `balance` package, figure-shrink, and deeper prose cuts — all re-triggered
+  it. The current length is the SHORTEST that keeps the references page
+  non-sparse. A firm 5.0 with 0 overfull needs either trimming ~2 citations
+  (scholarship call — deferred to the user) or moving §4.1/§5 detail wholesale to
+  the supplement (a larger restructure). Over-cuts (intro/§2/abstract/§3.1/§4/§5
+  merge) were made then REVERTED once they broke the gate.
+- **Video boot prompt written**: `prompts/mig_short_video_boot.md` — self-
+  contained Stage-F video task for a fresh session (reads the asset inventory,
+  the §12 storyboard, the pose risk + 2-D fallback, and the final supplement
+  re-run). This is the user-requested "clear prompt to start in the new session."
