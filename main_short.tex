@@ -485,23 +485,15 @@ admissible set by a single scalar,
   \sqrt{\frac{\Emod^{-} + B}{\Emod^{+}}}\right),
 \label{eq:gamma}
 \end{equation}
-with $\Emod^{\mp}$ the modal energy before and after the solve. One substep of
-the governed loop, identical in all three hosts, then reads:
-{\footnotesize\emph{(1)}~snapshot $E_{\mathrm{rig}}^{-}$ (pure KE, all bodies),
-$\Emod^{-}$, $\mathbf{x}^{-}$; \emph{(2)}~predict (gravity), generate contacts
-at the predicted pose; \emph{(3)}~position solve ($K$ iterations), then velocity
-solve --- \emph{the contact solve}; \emph{(4)}~form
-$\dErig=(E_{\mathrm{rig}}^{-}\!-\!E_{\mathrm{rig}}^{+})+W_g$, i.e.\
-\eqref{eq:derig}, post-solve; \emph{(5)}~credit
-$B \leftarrow B + \eta\max(\dErig,0)$, same substep; \emph{(6)}~if
-$\Emod^{+} > \Emod^{-} + B$, scale the state by $\gamma$ of \eqref{eq:gamma};
-\emph{(7)}~debit $B \leftarrow \max(B-\max(\Delta\Emod,0),\,0)$ --- contact is
-\textbf{not} re-solved.\par}
-The form \eqref{eq:gamma} is closed because $\Emod$ is quadratic: scaling
-$\mathbf{q}$ and $\dot{\mathbf{q}}$ together scales both terms by $\gamma^2$, so
-it bounds total energy, not velocity alone. It is inert whenever the solve is
-within budget ($\gamma{=}1$, bit-identical trajectories) and never re-solves
-contact (step~7).
+with $\Emod^{\mp}$ the modal energy before and after the solve. Each substep runs
+identically in all three hosts: snapshot $E_{\mathrm{rig}}^{-},\Emod^{-}$;
+predict and run the contact solve; form $\dErig$ (\eqref{eq:derig}, post-solve)
+and credit $\eta\max(\dErig,0)$ to $B$ in the \emph{same} substep; if
+$\Emod^{+}>\Emod^{-}+B$, scale the state by $\gamma$; debit $B$ --- contact is
+\textbf{not} re-solved. The form \eqref{eq:gamma} is closed because $\Emod$ is
+quadratic: scaling $\mathbf{q}$ and $\dot{\mathbf{q}}$ together scales both terms
+by $\gamma^2$, so it bounds total energy, not velocity alone, and is inert
+whenever the solve is within budget ($\gamma{=}1$, bit-identical trajectories).
 
 \begin{proposition}\label{prop:guarantee}
 For any $\eta\in(0,1]$ and any host, the loop maintains $B\ge0$ and guarantees
@@ -510,20 +502,14 @@ up to an accounting tolerance $n\epsilon$ over $n$ substeps ($\epsilon$ the
 per-test tolerance, $10^{-12}$~J).
 \end{proposition}
 
-\noindent\emph{Proof.} Write $c_k=\eta\max(\dErig^{\,k},0)$ for the substep
-credit and $B_k$ for the reservoir after substep $k$, and carry two invariants:
-$B_k\ge0$ and $(\Emod^{k}-\Emod^{0})+B_k\le\sum_{j\le k}c_j$. Both hold at
-$k{=}0$ ($B_0=\Emod^{0}=0$). The credit (step~5) enters $B$ \emph{before} the
-test, so step~6 applies the largest $\gamma$ with
-$\gamma^{2}\Emod^{+}\le\Emod^{-}+B_{k-1}+c_k$; as $\Emod$ is quadratic in the
-state, realized storage is at most $\Emod^{-}+B_{k-1}+c_k$, i.e.\ the realized
-gain $\Delta\Emod\le B_{k-1}+c_k$. The debit (step~7) sets
-$B_k=\max(B_{k-1}+c_k-\max(\Delta\Emod,0),\,0)$, keeping $B_k\ge0$; and in either
-branch $(\Emod^{k}-\Emod^{0})+B_k\le(\Emod^{k-1}-\Emod^{0})+B_{k-1}+c_k$, so the
-second invariant follows by induction. Since $B_n\ge0$, this is
-$\Emod^{n}-\Emod^{0}\le\sum_{k\le n}c_k$ --- \eqref{eq:invariant} itself, not a
-relaxation: the same-substep credit absorbs the granularity term a naive
-telescoping would otherwise leave.
+\noindent\emph{Proof sketch.} Carry two invariants over substeps, with
+$c_k=\eta\max(\dErig^{\,k},0)$: $B_k\ge0$ and
+$(\Emod^{k}-\Emod^{0})+B_k\le\sum_{j\le k}c_j$ (both hold at $k{=}0$). Crediting
+$c_k$ \emph{before} the test caps realized storage at $\Emod^{-}+B_{k-1}+c_k$
+(as $\Emod$ is quadratic), so $\Delta\Emod\le B_{k-1}+c_k$; the debit keeps
+$B_k\ge0$, and both invariants follow by induction. Since $B_n\ge0$ this is
+\eqref{eq:invariant} itself, not a relaxation --- the same-substep credit
+absorbs the granularity term a naive telescoping would leave.
 
 \paragraph*{The governor holds.} Turned on, all $72$ sweep executions ($60$
 distinct configurations, the implicit host's relaxation pairs bit-identical) and
@@ -569,20 +555,15 @@ degrades --- $\|d-d^{\text{ref}}\|_\infty$ goes from $6.5$~mm ($33\%$ of the
 reference peak) to $14.2$~mm ($71\%$): the governor is a safety envelope, not an
 accuracy device. At the deployed $1{\times}8$ cell energy gives
 $2823{\times}\to3.7{\times}$ and the trajectory improves ($108\to96\%$ of
-reference peak), but $96\%$ is still not faithful, and the $500{\times}1$
-reference is converged in iteration count, not schedule-matched to the governed
-$S{>}1$ runs.
+reference peak), though $96\%$ is still not faithful.
 
-This also explains how a $196\times$ energy error coexists with a peak deflection
-only $1.2\times$ too large: the excess is neither kinetic ($0.3\%$) nor
-low-frequency. The shelf spectrum is bimodal (ten bending modes below $2.1$~kHz,
-six stiff above $20$~kHz) and $99.6\%$ of the ungoverned energy sits in the stiff
-cluster, ${\sim}200\times$ the substep rate, against $0.0\%$ for both references.
-A single scalar cannot redistribute energy across the spectrum: $\gamma$ corrects
-the \emph{amount} ($1555.6\to29.3$~J), leaves the character intact
-($99.6\to97.7\%$), and scales the legitimate sag down with the noise
-($24.1\to5.9$~mm against $20.0$) --- so the first-line remedy is band-limiting
-the co-solved basis, not a scalar.
+This is why a $196\times$ energy error coexists with a peak deflection only
+$1.2\times$ too large: $99.6\%$ of the excess sits in the shelf's stiff mode
+cluster above $20$~kHz (${\sim}200\times$ the substep rate), which a single
+scalar cannot separate from the legitimate low-frequency sag --- $\gamma$ removes
+the \emph{amount} but not the character ($99.6\to97.7\%$ above the cut), scaling
+the sag ($24.1\to5.9$~mm against $20.0$) down with the noise. The first-line
+remedy is band-limiting the basis, not a scalar.
 
 \paragraph*{Contact validity.}
 Since $\gamma<1$ shrinks the sag $\mathbf{U}_y^{\!\top}\mathbf{q}$,
@@ -593,50 +574,38 @@ reproduce the independent sweep exactly).
 
 Median post-projection penetration is $0.07$--$1.24$~mm, but the worst case
 reaches $21.6$~mm, a $3.1$--$12.5\times$ increase over its pre-scale value ---
-$72\%$ of the $30$~mm board thickness, and against the unclamped scene at either
-reference (resting sag $1.7$--$2.4$~mm) it is $9$--$13\times$ the sag and
-$1.05$--$1.08\times$ the board's peak dynamic deflection: a visible
-interpenetration where the projection is most load-bearing. Contact recovers on
-the next substep rather than accumulating, but that correction costs a normal
-impulse up to $8.9\times$ the steady-state value and multiplier variance up to
-$62\times$ higher. Net rigid momentum is unchanged across the projection ---
-exactly zero drift, verified numerically --- necessarily so since
+$72\%$ of the $30$~mm board thickness, and $1.05$--$1.08\times$ the board's peak
+dynamic deflection: a visible interpenetration where the projection is most
+load-bearing. Contact recovers on the next substep, but at a normal impulse up to
+$8.9\times$ the steady-state value and multiplier variance up to $62\times$
+higher; rigid momentum is unchanged (exactly zero, verified), since
 \eqref{eq:gamma} writes only modal state. On the augmented-Lagrangian host the
-same instrumentation fires only at its one materially-overdrawing cell ($+6.7$~J,
-the starved $4{\times}1$ table corner), where the projection is an order of
-magnitude gentler --- $1.8$~mm against $21.6$, a single clamped substep against
-near-continuous firing, no measurable corrective impulse: the hosts differ in the
-scale of the correction, not its character (full rows, and a decision table over
-these options against energy, contact, trajectory and cost, in the supplement).
+projection is an order of magnitude gentler --- at its one materially-overdrawing
+cell ($+6.7$~J) it opens $1.8$~mm against $21.6$, a single clamped substep, no
+measurable corrective impulse (full rows, and a decision table over these
+options, in the supplement).
 
 % =====================================================================
 \section{Fidelity and runtime}
 % =====================================================================
 \subsection{The reduced response against a full-FEM reference}
 \label{sec:gt}
-Modes are worth using only if the reduced response is faithful. On the ledge
-scene we compare the reduced arm against an unreduced FEM solve on the
-\emph{same} discrete operator (the basis is
-$\mathrm{eigsh}(\mathbf{K},\mathbf{M})$ of the operator the reference
-integrates), so discretization bias cancels. The reduced-to-reference
-peak-deflection ratio rises monotonically $0.38\to0.54\to0.79\to0.88$ as $h$
-refines $1/120\to1/960$, plateauing near $0.9$; the residual ${\sim}10\%$ is
-$k{=}24$ mode truncation on a thick slab, not a coupling error --- the ring
-frequency agrees to $0.4\%$ ($78.0$ vs $78.3$~Hz) and the far-field falloff
-tracks the reference at Spearman $\rho=0.89$ with no fitted attenuation, in the
-small-displacement regime.
+Modes are worth using only if the reduced response is faithful. Against an
+unreduced FEM solve on the \emph{same} discrete operator (so discretization bias
+cancels), the reduced ledge response tracks the reference: the peak-deflection
+ratio rises $0.38\to0.54\to0.79\to0.88$ as $h$ refines $1/120\to1/960$ (the
+residual ${\sim}10\%$ is $k{=}24$ truncation, not coupling error), the ring
+frequency agrees to $0.4\%$ ($78.0$ vs $78.3$~Hz), and the far-field falloff
+tracks at Spearman $\rho=0.89$ with no fitted attenuation.
 
 \subsection{Runtime cost}
 \label{sec:cost}
-On the CPU host at $16{\times}4$, over ten repetitions of $100$ frames, the
-baseline step costs $11.0$--$125.6$~ms by scene and host and the ledger adds
-$0.23$--$0.41$~ms ($0.9$--$3.4\%$) on shelf and ledge (on the table its spread
-exceeds its mean, so we bound it only by ${\sim}1.4$~ms; the percentage is the
-portable quantity). At the deployed $1{\times}8$ and $2{\times}4$ schedules the
-absolute cost stays comparable ($0.30$--$2.22$~ms) but the smaller baseline lifts
-it to $6.6$--$34.3\%$: enforcement is not free where the budget is tight. We make
-no unqualified real-time claim; a device-resident \emph{enforced} $\gamma$ does
-not exist here, so governed device timings lie outside our measurements
+On the CPU host the ledger adds $0.23$--$0.41$~ms at $16{\times}4$ ---
+$0.9$--$3.4\%$ on an $11$--$126$~ms baseline (the table scene's cost sits below
+its run-to-run variance, so we report the percentage). It is larger where the
+budget is tight: at the deployed $1{\times}8$/$2{\times}4$ schedules the same
+${\sim}0.3$--$2.2$~ms is $6.6$--$34.3\%$. We make no unqualified real-time claim;
+an \emph{enforced} device-resident $\gamma$ does not exist here
 (\S\ref{sec:limits}).
 
 % =====================================================================
