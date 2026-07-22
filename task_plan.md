@@ -455,7 +455,7 @@ supplementary video and ship it in the E0 supplement.
 | 1 | complete | Read §12, asset inventory, claim sheet, decision table, and the three pipeline scripts. |
 | 2 | complete | Decide beat 3 = 2-D equal-cost curve panel (not 3-D poses); penetration = true-scale 2-D cross-section. |
 | 3 | complete | Write `make_short_video.py` reusing the teaser's locked-camera 3-D beats + 4 new 2-D beats reading live from frozen CSVs. |
-| 4 | complete | Inspect every beat at high-res; fix schematic layout, alloc label clip, penetration clarity; trim to 52.0 s. |
+| 4 | complete | Inspect every beat at high-res; fix schematic layout, alloc label clip, penetration clarity; trim to 53.3 s. |
 | 5 | complete | Verify: in 45–55 s window, 1.0 MB (<200 MB), `-map_metadata -1` (no identity), six beats end on decision card. |
 | 6 | complete | Repoint `make_supplement.py` to `mig_short_video.mp4`, rewrite §5; re-run → scan PASS, 63/63 checksums, smoke PASSED. |
 

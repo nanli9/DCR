@@ -1,7 +1,7 @@
 # MIG 2026 — Supplementary Video Asset Inventory (Stage F, video)
 
 > **BUILT 2026-07-21.** `benchmarks/paper_fig/make_short_video.py` →
-> `out/mig_short_video.mp4` (52.0 s, 1920×1080, H.264, no audio, 1.0 MB,
+> `out/mig_short_video.mp4` (53.3 s, 1920×1080, H.264, no audio, 1.0 MB,
 > metadata-stripped). Six §12 beats, ends on the decision card (not the
 > governor). Every on-screen number is read live from the frozen Stage-B CSVs.
 > **Beat-3 decision: 2-D curve panel, not 3-D poses** — the claim is an incident

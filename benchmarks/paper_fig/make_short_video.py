@@ -58,7 +58,7 @@ import matplotlib.patches as mpatches
 # different scenes.
 from benchmarks.paper_fig.make_teaser_video import (          # noqa: E402
     OUT, FPS, W_IN, H_IN, DIM, BG, FG, ARM_COLOR,
-    _load, global_bounds, new_fig, Writer, card, beat_sim, beat_freeze)
+    _load, global_bounds, new_fig, Writer, card, beat_sim)
 
 X1 = os.path.join(_ROOT, "benchmarks", "paper_eval", "x1_passivity", "out")
 SUPPORT_THICKNESS_MM = 30.0        # = 0.03 m board (record_teaser SUPPORT_THICKNESS)
@@ -474,16 +474,19 @@ def main():
     q = args.quick
     step = 4 if q else 1
     repeat = 1 if q else 2
-    # locked 3-D framing, shared with the teaser video
+    # locked 3-D framing, shared with the teaser video. Each comparison beat is
+    # animated (beat_sim), so the panel height is the sim layout's 0.345.
     aspect_2 = ((1.0 - 2 * 0.035 - 0.018) / 2 * W_IN) / (0.345 * H_IN)
-    aspect_3f = ((1.0 - 2 * 0.035 - 2 * 0.018) / 3 * W_IN) / (0.40 * H_IN)
+    aspect_3 = ((1.0 - 2 * 0.035 - 2 * 0.018) / 3 * W_IN) / (0.345 * H_IN)
     npz0, _ = _load("deployed")
     settle = int(npz0["off/settle"])
     START = settle + 20
     xlim2, ylim2 = global_bounds(("steel",), aspect_2, frame_lo=START)
-    xlim3f, ylim3f = global_bounds(("steel", "deployed"), aspect_3f,
-                                   frame_lo=START)
+    xlim3, ylim3 = global_bounds(("deployed",), aspect_3, frame_lo=START)
     RANGE = (START, npz0["off/pos"].shape[0])
+    # the soft-board animation stops at logged frame 63: past it the ungoverned
+    # run drives a book through the board, which a painter's renderer cannot
+    # depth-order honestly (the penetration beat that follows states it in mm).
     RANGE_SOFT = (START, settle + 64)
 
     tmp = tempfile.mkdtemp(prefix="mig_short_video_")
@@ -503,18 +506,14 @@ def main():
             sub="steel shelf  ·  1 iteration x 8 substeps  ·  relaxation 0.7")
         beat_sim(wr, "steel", ("off", "ref"), xlim=xlim2, ylim=ylim2,
                  aspect=aspect_2, step=step, repeat=repeat,
-                 hold_end=0.5 if q else 1.2, frame_range=RANGE,
+                 hold_end=1.0 if q else 3.5, frame_range=RANGE,
                  title="steel board, 1 iteration x 8 substeps",
                  subtitle="ungoverned vs the host's own high-iteration "
                           "self-reference - the only honest baseline for "
-                          "how much the row injects")
-        beat_freeze(wr, "steel", ("off", "ref"), 36,
-                    xlim=xlim3f, ylim=ylim3f, aspect=aspect_3f,
-                    title="the launch is spurious",
-                    message="the self-reference leaves the books within 0.1 mm "
-                            "of rest: every millimetre the ungoverned run moves "
-                            "them is truncation energy, not physics",
-                    seconds=1.5 if q else 3.5)
+                          "how much the row injects",
+                 end_note="the launch is spurious: the self-reference leaves "
+                          "the books within 0.1 mm of rest, so every millimetre "
+                          "the ungoverned run moves them is truncation energy")
 
         # --- beat 3: equal-cost iteration vs substep allocation ---------
         beat_alloc(wr, seconds=8.0, quick=q)
@@ -530,13 +529,16 @@ def main():
             seconds=1.0 if q else 2.5,
             sub="soft shelf, E = 0.5 GPa  ·  1x8  ·  ungoverned / governed / "
                 "self-reference")
-        beat_freeze(wr, "deployed", ("off", "on", "ref"), 50,
-                    xlim=xlim3f, ylim=ylim3f, aspect=aspect_3f,
-                    title="bounded, but not faithful",
-                    message="the bound removes the spurious launch and takes "
-                            "the legitimate motion with it: the governed books "
-                            "under-move the self-reference",
-                    seconds=1.5 if q else 4.0)
+        beat_sim(wr, "deployed", ("off", "on", "ref"), xlim=xlim3, ylim=ylim3,
+                 aspect=aspect_3, step=step, repeat=repeat,
+                 hold_end=1.0 if q else 3.5, frame_range=RANGE_SOFT,
+                 title="bounded, but not faithful",
+                 subtitle="ungoverned, governed, and the host's own "
+                          "high-iteration self-reference - three independent "
+                          "runs, dropped onto the soft board",
+                 end_note="the bound removes the spurious launch and takes the "
+                          "legitimate motion with it: the governed books "
+                          "under-move the self-reference")
         beat_penetration(wr, seconds=5.0, quick=q)
 
         # --- beat 6: decision card --------------------------------------

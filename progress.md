@@ -1007,7 +1007,7 @@ edit. Committed-core body is done.
   the §12 storyboard, the pose risk + 2-D fallback, and the final supplement
   re-run). This is the user-requested "clear prompt to start in the new session."
 - **Stage-F video BUILT (2026-07-21)**: `benchmarks/paper_fig/make_short_video.py`
-  → `out/mig_short_video.mp4` (52.0 s, 1920×1080, H.264, no audio, 1.0 MB,
+  → `out/mig_short_video.mp4` (53.3 s, 1920×1080, H.264, no audio, 1.0 MB,
   `-map_metadata -1` so no author/title identity). Six §12 beats: (1) extension
   schematic; (2) spurious launch (steel, ungoverned vs 500×1 self-ref); (3)
   equal-cost allocation `32×1` (R=0.30 holds) vs `4×8` (R=3.13, +481 J); (4)
@@ -1022,3 +1022,19 @@ edit. Committed-core body is done.
   `mig_short_video.mp4`, §5 prose rewritten to the six-beat diagnostic. Re-run:
   scan PASS (0 leaks), **63/63 checksums**, **smoke test PASSED**, 1.60 MiB zip.
   Paper text untouched (the paper does not reference the video by name).
+- **Beats 2 & 5 made ANIMATED (2026-07-21, user feedback)**: the "bounded, but
+  not faithful" beat was a static freeze — user asked to see the impactor drop.
+  Both comparison beats now use the animated `beat_sim` (impactor descends →
+  launch/containment plays out), each conclusion folded into the end-note on the
+  final held frame. Duration 52.0 → **53.3 s** (still in the 45–55 s window),
+  1.5 MB, metadata still clean. Verified frame-by-frame (t=35.6 s mid-drop →
+  t=38.6 s ungoverned launched +58 mm airborne, governed/self-ref +0 mm).
+- **BLOCKER — supplement bundle NOT yet regenerated for the animated video**:
+  `make_supplement.py` refuses because `paper/main_short.tex` has a large
+  **uncommitted** revision (338 ins / 321 del, NOT from the video work) that
+  reworded 4 claims (`\to`→"to", "every"→"Every", sentence splits), breaking the
+  CLAIMS drift-guard on anchors `it is $3.13$…$481$ J`, `every injecting cell…
+  all $16$`, `falls $196{\times}\to3.7{\times}$`, `$2823{\times}\to3.7{\times}$`.
+  The guard aborts before writing, so `supplement/` is intact (still references
+  the old 52.0 s render). Awaiting user decision: sync the 4 anchors to the new
+  prose and reship, or wait until the paper revision is committed.

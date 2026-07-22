@@ -776,7 +776,7 @@ Full invocations are listed with each entry in `LEDGER_EXCERPTS.md`.
 
 ## 5. Video
 
-`mig_short_video.mp4` (52.0 s, 1920x1080, H.264, no audio) is a six-beat
+`mig_short_video.mp4` (53.3 s, 1920x1080, H.264, no audio) is a six-beat
 practitioner diagnostic that follows the paper's structure: (1) the cheap modal
 extension to a fixed-budget XPBD rigid host; (2) the spurious bystander launch —
 ungoverned versus the host's own high-iteration self-reference (500x1) on a
