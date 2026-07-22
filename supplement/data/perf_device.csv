@@ -1,5 +1,0 @@
-scene,device,budget,nb,modes,baseline_ms,coupling_ms,clamp_ms,worst_ms,std_ms,modal_overhead_ms,clamp_overhead_ms,steps_per_s,rt_factor_120hz,realtime_120hz,captured,clamp_captured,clamp_gain,clamp_cap,clamp_passive
-dinner,cuda:0,16x4,25,24,9.3477,9.2002,9.2114,9.3153,0.037008,-0.14748,0.011214,108.69,0.90577,False,True,True,,,
-ledge,cuda:0,16x4,5,16,7.0369,6.8235,6.5118,7.2462,0.49571,-0.21345,-0.31168,146.55,1.2213,True,True,True,,,
-shelf,cuda:0,16x4,6,16,5.3153,5.6374,5.289,5.7664,0.05802,0.32209,-0.34835,177.39,1.4782,True,True,True,,,
-truck,cuda:0,16x4,12,21,8.2844,8.8712,8.6827,10.151,0.64256,0.58683,-0.18851,112.72,0.93937,False,True,True,,,

@@ -84,22 +84,25 @@ BUNDLE: dict[str, list[tuple[str, str]]] = {
     "§3.2 robustness ablation and worst-cell ladder": [
         (X1, "robustness_ablation.csv"), (X1, "k_convergence_ledge_worst.csv"),
     ],
+    "§3.1--§3.2 accounting, robustness, mechanism controls (E1/E1b/E6a-1)": [
+        (X1, "e1_accounting_audit.csv"), (X1, "e1b_neighborhood.csv"),
+        (X1, "e6a1_block_condensation.csv"),
+    ],
     "§3.1/§3.5 reviewer-response ablations (warm-start, band-limit)": [
         (X1, "warm_start_ablation.csv"), (X1, "band_limit_sweep.csv"),
     ],
-    "§3.3 cost of enforcement (Table 2)": [
+    "§4.1 cost of enforcement (Table 1)": [
         (X1, "projection_validity.csv"), (X1, "projection_validity_avbd.csv"),
         (X1, "governed_accuracy.csv"),
     ],
-    "§3.4 reduced response against a full-FEM reference": [
+    "§5.1 reduced response against a full-FEM reference": [
         (X3, "ledge_convergence.csv"), (X3, "ledge_falloff.csv"),
     ],
-    "§3.5 runtime cost": [
-        (X5, "perf_reps_summary.csv"), (X5, "perf_device.csv"),
-        (X5, "perf_device_budget.csv"),
+    "§5.2 runtime cost (CPU; the device monitor path is out of the short paper)": [
+        (X5, "perf_reps_summary.csv"),
         (X5, "perf_reps_1x8_summary.csv"), (X5, "perf_reps_2x4_summary.csv"),
     ],
-    "§4 limitations: supply partition and long-horizon recycling": [
+    "§6 limitations: supply partition and long-horizon recycling": [
         (X1, "supply_partition.csv"), (X1, "long_horizon.csv"),
     ],
 }
@@ -109,6 +112,7 @@ BUNDLE: dict[str, list[tuple[str, str]]] = {
 LEDGER_SECTIONS = [
     "### E-S1b", "## E-S2", "## E-S3", "## E-C6", "### E-C6", "## E-C9",
     "### E-C9e",
+    "## E1 ", "## E1b", "## E6a-1",
     "## R1", "## R3", "## R4", "## R5", "## R7",
 ]
 
@@ -221,15 +225,15 @@ M = "run_solver_matrix.py"
 E = "run_eq2_utilization.py"
 CLAIMS: list[tuple[str, str, str, str, str]] = [
     # (paper site, printed quantity, data file, generating command, tex anchor)
-    ("§2, Table 1", "one row law instantiated at 48 / 40 / 200 support rows",
+    ("§2", "one row law instantiated at 48 / 40 / 200 support rows",
      "scene_spec.csv", "make_scene_spec.py",
      r"$48$ such rows on the shelf"),
-    ("§2, Table 1", "modal rank r = 16 / 16 / 24 (realized basis size)",
+    ("§2", "modal rank r = 16 / 16 / 24 (realized basis size)",
      "scene_spec.csv", "make_scene_spec.py",
-     r"$16$ (shelf), $16$ (ledge), $24$ (table)"),
+     r"modal rank $16/16/24$ (shelf/ledge/table)"),
     ("§3.1, Fig. 2 top", "R > 1 in 8/24 (XPBD), 2/24 (AVBD), 0/24 (impulse)",
      "solver_matrix.csv", M,
-     r"XPBD exceeds $1$ in $8/24$ cells"),
+     r"XPBD: $R{>}1$ in $8/24$"),
     ("§3.1", "worst R = 1.19534e5 at ledge, relax 1.0, 4x1",
      "solver_matrix.csv", M, r"worst case $1.19534\times10^{5}$"),
     ("§3.1", "peak modal 4.44e7 J against an incident 371 J",
@@ -245,8 +249,13 @@ CLAIMS: list[tuple[str, str, str, str, str]] = [
                             "(trapezoidal W_g, foundation §15)",
      "eq2_utilization.csv", f"{E} --check-frozen",
      r"the augmented-Lagrangian host in $3$ against $2$"),
-    ("§3.1", "governed: all 72 cells satisfy Eq. (2); worst ratio 1.22 / 0.87",
-     "solver_matrix.csv", M, r"falls to $1.22$ (XPBD) and $0.87$ (AVBD)"),
+    ("§3.1", "E1 gravity/no-contact accounting audit: AVBD/impulse control "
+             "floor <= 1e-3 J, 3-4 orders below the 6.7 J effect; the cross-host "
+             "control claim stands",
+     "e1_accounting_audit.csv", "run_e1_accounting_audit.py",
+     r"control floor below $10^{-3}$~J on"),
+    ("§4", "governed: all 72 cells satisfy Eq. (2); worst ratio 1.22 / 0.87",
+     "solver_matrix.csv", M, r"falls to $1.22$ (position-based) and $0.87$"),
     ("§3.2, Fig. 3", "XPBD 2.96e4 (K=1) -> 0.300 (K=32); reference 0.2735; "
                      "implicit max-min 6.8e-4 over K=2...500",
      "k_convergence.csv", "run_k_convergence.py",
@@ -259,84 +268,80 @@ CLAIMS: list[tuple[str, str, str, str, str]] = [
              "trajectories differ by 6.8 mm (34% of reference peak)",
      "selfconvergence.csv", "run_selfconvergence.py",
      r"plateaus by $K\approx64$ at $0.2996$"),
+    ("§3.2", "E6a-1 shared-row block condensation does NOT cure the injection: "
+             "comparable at 4x1, worse at every higher budget where the serial "
+             "path holds (R=12.5/66.5 at 32x1 block vs 0.30/0.09 serial); "
+             "diagonal-body approximation, different convergence path; "
+             "2 scenes x 4 budgets",
+     "e6a1_block_condensation.csv", "run_e6a1_block_condensation.py",
+     r"$R=12.5$ and $66.5$ at"),
     ("§3.2", "deployed 1x8 / 2x4: XPBD violates 6/6 (worst R = 2282), "
-             "AVBD 1/6 by <= 0.011 J, impulse 0/6",
+             "AVBD 1/6, impulse 0/6",
      "eq2_deployed.csv", f"{E} --budgets 1x8,2x4 --relaxes 0.7 --out eq2_deployed",
      r"worst $R=2282$"),
-    ("§3.2", "governed at the deployed budgets: all 18 satisfy Eq. (2), "
-             "worst R = 1.023",
+    ("§4", "governed at the deployed budgets: all 18 satisfy Eq. (2)",
      "solver_matrix_deployed.csv",
      f"{M} --budgets 1x8,2x4 --relaxes 0.7 --out solver_matrix_deployed",
-     r"(worst $R = 1.023$)"),
-    ("§3.2", "not a knife-edge: 24/24 perturbed configurations violate, "
-             "R spans 2.5 to 4.7e5; excluding the stiff cluster leaves 584 J",
-     "robustness_ablation.csv", "run_robustness_ablation.py",
-     r"$R$ spanning $2.5$ to $4.7\times10^{5}$"),
-    ("§3.5", "band-limit the co-solve across the sweep: 6 of 8 injecting cells "
-             "still overdraw (worst ledge 4x1 +1.24e6 J); shelf 4x1 R 6333->22.1, "
+     r"$18$ deployed cells of \S\ref{sec:kconv} satisfy"),
+    ("§3.2", "E1b neighborhood-robustness: each injecting headline cell overdraws "
+             "in 16/16 deterministic perturbations (12 physical + 4 row-order, "
+             "cohorts separate), sign never flips, log10 spread 0.31-0.70; the "
+             "4.4e7 J worst case is the max of a 2.2-4.5e7 J band",
+     "e1b_neighborhood.csv", "run_e1b_neighborhood.py",
+     r"every injecting cell overdraws in all $16$"),
+    ("§3.2", "band-limit the co-solve across the sweep: 6 of 8 injecting cells "
+             "still overdraw (worst ledge +1.24e6 J); shelf 4x1 R 6333->22.1, "
              "584 J still overdrawn",
      "band_limit_sweep.csv", "probe_band_limit_sweep.py",
      r"$6$ of $8$ injecting cells still overdraw"),
     ("§3.1", "warm-start ablation: carrying lambda across substeps leaves the "
              "position-based footprint unchanged (R>1 in the same 8/24 cells, "
-             "worst 1.20e5 either way), and worse at 4x1 (3.1x)",
+             "worst 1.20e5), and worse at 4x1 (3.1x)",
      "warm_start_ablation.csv", "probe_warm_start_ablation.py",
-     r"$1.20\times10^{5}$ either way"),
-    ("§3.3, Table 2", "post-projection contact validity, XPBD: clamp counts, "
+     r"the same $8/24$ cells, worst $1.20\times10^{5}$"),
+    ("§4.1, Table 1", "post-projection contact validity, XPBD: clamp counts, "
                       "gap violation med/max, corrective impulse, lambda variance",
      "projection_validity.csv", "run_projection_validity.py",
      r"1.24 / \textbf{21.6}"),
-    ("§3.3", "AVBD projection at its one materially-overdrawing cell (dinner "
+    ("§4.1", "AVBD projection at its one materially-overdrawing cell (dinner "
              "1.0 4x1, +6.7 J): 1.8 mm, single clamped substep, no corrective "
              "impulse; the other R>1 cell holds the invariant (clamp inert)",
      "projection_validity_avbd.csv", "run_projection_validity_avbd.py",
-     r"it opens $1.8$~mm against the position-based host's $21.6$"),
-    ("§3.3", "accuracy at shelf 8x2: 1555.6 J -> 29.56 J against 7.92 J; "
+     r"$1.8$~mm against $21.6$"),
+    ("§4.1", "accuracy at shelf 8x2: 1555.6 J -> 29.56 J against 7.92 J; "
              "energy error 196x -> 3.7x; trajectory 6.5 mm -> 14.2 mm "
              "(governed peak +1% under trapezoidal W_g)",
      "governed_accuracy.csv", "run_governed_accuracy.py",
      r"falls $196{\times}\to3.7{\times}$"),
-    ("§3.3", "deployed 1x8: energy 2823x -> 3.7x, trajectory 108% -> 96%",
+    ("§4.1", "deployed 1x8: energy 2823x -> 3.7x, trajectory 108% -> 96%",
      "governed_accuracy_1x8.csv",
      "run_governed_accuracy.py --scene shelf --cell 1x8 --relax 0.7 "
      "--out governed_accuracy_1x8",
      r"$2823{\times}\to3.7{\times}$"),
-    ("§3.3", "governed projection at deployed budgets: worst penetration 9.8 mm",
-     "projection_validity_deployed.csv",
-     "run_projection_validity.py --scenes shelf,ledge --budgets 1x8,2x4 "
-     "--relax 0.7 --out projection_validity_deployed",
-     r"worst penetration $9.8$~mm against $21.6$"),
-    ("§3.4", "reduced/reference peak-deflection ratio 0.38 -> 0.88 as h "
+    ("§5.1", "reduced/reference peak-deflection ratio 0.38 -> 0.88 as h "
              "refines; ring frequency agrees to 0.4% (78.0 vs 78.3 Hz)",
      "ledge_convergence.csv", "(x3_ground_truth harness; see ledger)",
      r"$0.38\to0.54\to0.79\to0.88$"),
-    ("§3.4", "far-field falloff tracks the reference at Spearman rho = 0.89",
+    ("§5.1", "far-field falloff tracks the reference at Spearman rho = 0.89",
      "ledge_falloff.csv", "(x3_ground_truth harness; see ledger)",
      r"Spearman $\rho=0.89$"),
-    ("§3.5", "CPU: baseline 11.0-125.6 ms; ledger adds 0.23-0.41 ms "
+    ("§5.2", "CPU: baseline 11.0-125.6 ms; ledger adds 0.23-0.41 ms "
              "(0.9-3.4%) where it resolves above run-to-run variance",
      "perf_reps_summary.csv",
      "run_perf_reps.py --only shelf,ledge,dinner --reps 10 --frames 100",
      r"$0.23$--$0.41$~ms"),
-    ("§3.5", "deployed 1x8/2x4: absolute 0.30-2.22 ms, percentage 6.6-34.3% "
+    ("§5.2", "deployed 1x8/2x4: absolute 0.30-2.22 ms, percentage 6.6-34.3% "
              "(shelf/ledge, baseline shrinks); table scene 7-12% faster governed",
      "perf_reps_1x8_summary.csv",
      "run_perf_reps.py --budgets 1x8,2x4 --only shelf,ledge,dinner",
      r"$6.6$--$34.3\%$"),
-    ("§3.5", "device-resident monitor path: 5.3-9.4 ms/step at 16x4 "
-             "(baseline_ms per scene; the 'road slab' is the truck scene)",
-     "perf_device.csv", "(x5_perf device harness; see ledger)",
-     r"$5.3$--$9.4$~ms/step"),
-    ("§3.5", "all four scenes meet a 120 Hz budget at 16x2 or below",
-     "perf_device_budget.csv", "(x5_perf device harness; see ledger)",
-     r"at $16{\times}2$ or below"),
-    ("§4", "supply partition dependence is bounded (coarsening ratio <= 1.083)",
+    ("§6", "supply partition dependence is bounded (coarsening ratio <= 1.083)",
      "supply_partition.csv", "probe_supply_partition.py",
-     r"depends on the substep \emph{partition}"),
-    ("§4", "recycling is steady state, not a window artifact, over a 10x horizon",
+     r"partition-dependent, so the budget belongs to the schedule"),
+    ("§6", "recycling is steady state, not a window artifact, over a 10x horizon",
      "long_horizon.csv", "probe_long_horizon.py",
-     r"Energy returning from"),
-    ("§4", "return channel 0.4-27% (impulse), 3-32% (XPBD), 102-118% (AVBD)",
+     r"re-dissipated is credited twice"),
+    ("§6", "return channel 0.4-27% (impulse), 3-32% (XPBD), 102-118% (AVBD)",
      "eq2_utilization.csv", f"{E} --check-frozen",
      r"$0.4$--$27\%$"),
 ]
@@ -504,9 +509,19 @@ def main() -> int:
     claims_md = build_claims_md()
     readme_md = build_readme(copied)
 
-    for name, text in (("LEDGER_EXCERPTS.md", excerpt_md),
-                       ("CLAIMS_INDEX.md", claims_md),
-                       ("README.md", readme_md)):
+    docs_to_write = [("LEDGER_EXCERPTS.md", excerpt_md),
+                     ("CLAIMS_INDEX.md", claims_md),
+                     ("README.md", readme_md)]
+    # The paper's conclusion states the decision table lives in the supplement
+    # (Table 1 was kept as prose in the 6-page body; plan §11 Stage E fallback).
+    dt_path = os.path.join(_ROOT, "docs", "mig2026_decision_table.md")
+    if os.path.isfile(dt_path):
+        docs_to_write.append(
+            ("DECISION_TABLE.md", open(dt_path, encoding="utf-8").read()))
+    else:
+        missing.append("mig2026_decision_table.md")
+
+    for name, text in docs_to_write:
         text, seen = redact(text)
         commit_map.update({h: name for h in seen})
         c, r = scan(name, text)
@@ -691,6 +706,7 @@ paper, plus the supplementary video.
 README.md              this file
 CLAIMS_INDEX.md        every results section -> data file -> command
 LEDGER_EXCERPTS.md     the frozen ledger entries (command, commit, machine)
+DECISION_TABLE.md      the practitioner decision table (paper conclusion prose)
 data/                  raw CSVs and their .config.json manifests
 code_snapshot.zip      the source needed to re-derive them
 smoke_test.py          clean-unpack check (see §4)
@@ -704,10 +720,10 @@ the authors. `code_snapshot.zip` is the exact source state those commits name.
 
 ## 1. Machine, versions, and what is exact
 
-Every solver-behaviour measurement was produced on a single machine — **Apple
-M4, CPU only, CPython 3.12, float64, arm64** — running serially. The one
-exception is the device-resident timing paragraph (NVIDIA RTX 4090), reported
-separately and labelled as such in the paper.
+Every solver-behaviour measurement in the short paper was produced on a single
+machine — **Apple M4, CPU only, CPython 3.12, float64, arm64** — running
+serially. (A device-resident monitor path exists in the codebase; its timings
+are out of scope for this short paper and are not indexed here.)
 
 We do not mix machines, and the reason bears on reproducing this work:
 **chaotic contact stacks diverge across architectures under floating-point

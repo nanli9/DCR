@@ -8,6 +8,7 @@ paper, plus the supplementary video.
 README.md              this file
 CLAIMS_INDEX.md        every results section -> data file -> command
 LEDGER_EXCERPTS.md     the frozen ledger entries (command, commit, machine)
+DECISION_TABLE.md      the practitioner decision table (paper conclusion prose)
 data/                  raw CSVs and their .config.json manifests
 code_snapshot.zip      the source needed to re-derive them
 smoke_test.py          clean-unpack check (see §4)
@@ -21,10 +22,10 @@ the authors. `code_snapshot.zip` is the exact source state those commits name.
 
 ## 1. Machine, versions, and what is exact
 
-Every solver-behaviour measurement was produced on a single machine — **Apple
-M4, CPU only, CPython 3.12, float64, arm64** — running serially. The one
-exception is the device-resident timing paragraph (NVIDIA RTX 4090), reported
-separately and labelled as such in the paper.
+Every solver-behaviour measurement in the short paper was produced on a single
+machine — **Apple M4, CPU only, CPython 3.12, float64, arm64** — running
+serially. (A device-resident monitor path exists in the codebase; its timings
+are out of scope for this short paper and are not indexed here.)
 
 We do not mix machines, and the reason bears on reproducing this work:
 **chaotic contact stacks diverge across architectures under floating-point
@@ -102,27 +103,30 @@ command that produced it.
 - `data/robustness_ablation.csv`
 - `data/k_convergence_ledge_worst.csv`
 
+### §3.1--§3.2 accounting, robustness, mechanism controls (E1/E1b/E6a-1)
+- `data/e1_accounting_audit.csv`
+- `data/e1b_neighborhood.csv`
+- `data/e6a1_block_condensation.csv`
+
 ### §3.1/§3.5 reviewer-response ablations (warm-start, band-limit)
 - `data/warm_start_ablation.csv`
 - `data/band_limit_sweep.csv`
 
-### §3.3 cost of enforcement (Table 2)
+### §4.1 cost of enforcement (Table 1)
 - `data/projection_validity.csv`
 - `data/projection_validity_avbd.csv`
 - `data/governed_accuracy.csv`
 
-### §3.4 reduced response against a full-FEM reference
+### §5.1 reduced response against a full-FEM reference
 - `data/ledge_convergence.csv`
 - `data/ledge_falloff.csv`
 
-### §3.5 runtime cost
+### §5.2 runtime cost (CPU; the device monitor path is out of the short paper)
 - `data/perf_reps_summary.csv`
-- `data/perf_device.csv`
-- `data/perf_device_budget.csv`
 - `data/perf_reps_1x8_summary.csv`
 - `data/perf_reps_2x4_summary.csv`
 
-### §4 limitations: supply partition and long-horizon recycling
+### §6 limitations: supply partition and long-horizon recycling
 - `data/supply_partition.csv`
 - `data/long_horizon.csv`
 
