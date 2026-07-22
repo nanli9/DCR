@@ -50,37 +50,36 @@
 
 \begin{document}
 
-\title{Modal Energy Injection in Three Fixed-Budget Contact Solvers:\\
-  Measurement and a Cumulative Storage Bound}
+\title{When Modal Contact Rows Fail in Fixed-Budget XPBD:\\
+  Diagnosis and an Operating Guide}
 
 \author{Anonymous Author(s)}
 
 \begin{abstract}
-Unilateral contact between reduced (modal) deformable bodies and rigid bodies
-is commonly resolved by a velocity-level complementarity law in which one
-shared multiplier couples the rigid and modal unknowns. Interactive solvers
-evaluate this law under small, fixed local iteration budgets; we measure the
-energetic cost of that truncation. Running one transcribed contact row through
-three fixed-budget solver formulations --- position-based (XPBD),
-augmented-Lagrangian (AVBD), and an implicit sequential-impulse realization ---
-over an identical 24-cell scene\,$\times$\,relaxation\,$\times$\,budget sweep,
-we find the injection varies sharply across the three implementations. Measured against the gross
-rigid-side loss (a scene-wide, gravity-corrected quantity), the position-based
-host overdraws by up to $4.4\times10^{7}$~J ($1.2\times10^{5}$ times the
-incident rigid kinetic energy), the augmented-Lagrangian host by at most
-$6.7$~J in $3$ of $24$ cells, and the implicit realization never. An
-iteration-budget sweep identifies the position-based amplification as a
-truncation artifact, decaying six orders of magnitude toward an implicit
-high-iteration reference in the same code path; at equal row-evaluation count,
-iterations beat substeps ($K{=}32,S{=}1$ stays bounded; $K{=}4,S{=}8$
-overdraws). Since
-convergence is unaffordable at interactive budgets we add a deliberately minimal
-fail-safe: a cumulative modal-storage bound funded by the measured gross
-rigid-side loss, guaranteed unconditionally (Prop.~\ref{prop:guarantee}) and
-realized at the roundoff floor in all $90$ measured cells. Its cost is contact
-validity, measured not assumed: post-projection penetration up to $21.6$~mm
-($72\%$ of the board's thickness) at the adversarial $4{\times}1$ corner,
-$9.8$~mm at the deployed $1{\times}8$/$2{\times}4$ budgets.
+Rigid-body XPBD engines already resolve contacts and joints, and adding a small
+global modal state ($16$--$24$ amplitudes) is an attractive way to give a stiff
+prop low-cost vibration without converting it into a full nodal/tet deformable.
+We show that inserting this globally shared modal state directly into a two-way
+unilateral contact row is not automatically energy-safe when the host runs only
+a few local iterations per substep. Across three scenes, two relaxations and
+four schedules, \emph{our tested XPBD implementation} overdraws the measured
+gross rigid-side supply by up to $4.4\times10^{7}$~J (a $2.2$--$4.5\times10^{7}$~J
+neighborhood over a deterministic perturbation ensemble), while
+augmented-Lagrangian and implicit implementations are markedly milder controls
+($\le6.7$~J in $3$ of $24$ cells and never, respectively; a gravity/no-contact
+accounting audit places the control floor below $10^{-3}$~J, so $6.7$~J is real
+injection). A same-path iteration ladder, equal-row-count schedules,
+warm-starting and mode truncation localize the catastrophic XPBD amplification
+to finite-budget convergence of the shared modal coupling, and an in-host
+block-condensation ablation shows condensing the shared rows does \emph{not} fix
+it. When the contact architecture is flexible the tested stiffness-aware
+implicit realization is the preferred observed control; in a fixed XPBD host,
+spend the local budget on iterations and verify the modal basis --- more
+substeps and a block solve do not suffice. For hosts that still cannot converge,
+a cumulative modal-storage projection enforces its scalar accounting bound
+unconditionally (Prop.~\ref{prop:guarantee}, roundoff floor in all $90$ measured
+cells) but opens up to $21.6$~mm of penetration ($72\%$ of the board's
+thickness), and is therefore containment, not corrected contact.
 \end{abstract}
 
 \begin{CCSXML}
@@ -91,7 +90,8 @@ $9.8$~mm at the deployed $1{\times}8$/$2{\times}4$ budgets.
 </ccs2012>
 \end{CCSXML}
 \ccsdesc[500]{Computing methodologies~Physical simulation}
-\keywords{contact, modal reduction, passivity, position-based dynamics}
+\keywords{contact, modal reduction, position-based dynamics, energy safety,
+  fixed-budget solvers}
 
 \maketitle
 
@@ -111,85 +111,87 @@ with it: the reference lifts one book $19$~mm, the governed run none.}
 % =====================================================================
 \section{Introduction}
 % =====================================================================
-A deformable object that is struck at one point and rings elsewhere is
-routinely modelled by projecting the elastic response onto a small modal basis.
-When such a body also rests in unilateral contact with rigid bodies, the
-established treatment resolves rigid and modal unknowns together through a
-shared contact multiplier at the velocity level~\citep{zheng2011}. The one-way
-alternative --- driving a separate modal filter from contact events without
-back-reaction --- is the real-time precedent~\citep{james2002dyrt,
-coevoet2020distant}. Interactive modal deformation subject to collision and
-contact constraints predates both~\citep{hauser2003}.
+A developer building an interactive scene on a rigid-body XPBD
+engine~\citep{macklin2016xpbd} already has a solver that resolves contacts and
+joints under a small, fixed local-iteration budget. To make a stiff prop ---
+a shelf, a table, a ledge --- ring when it is struck, the tempting move is not
+to replace it with a full nodal or tetrahedral deformable, which adds thousands
+of online coordinates and local internal constraints, but to attach a small
+precomputed modal basis: $16$--$24$ global amplitudes $\mathbf{q}$ capturing the
+low-frequency bending of a stiff, small-displacement
+body~\citep{james2002dyrt,hauser2003,peng2024reduced}. The runtime state grows
+by a handful of numbers, the precomputation is offline, and the same XPBD host
+steps everything. This paper is written for that developer, not to argue XPBD
+against another solver.
 
-We take this coupled row as given. Written at position level it sits one
-linearization step from the velocity-level law: for a gap $C$,
-$C^{n+1}\approx C^{n}+h\,\mathbf{J}\mathbf{u}^{n+1}$, which divided by $h$
-recovers the velocity-level complementarity condition with a $C^{n}/h$
-stabilization bias, carrying the same Jacobian and multiplier
-as~\citet{zheng2011}. The row is \emph{not} a contribution of this paper, and
-our transcription is narrower than the original law: modes couple through
-normal rows only, and the position-level form assumes $e=0$ restitution.
+The catch is in the contact. A modal prop driven \emph{one way} --- an external
+filter reads detected contact events and rings the modes with no back-reaction
+--- is the real-time precedent~\citep{coevoet2020distant}, but it double-counts
+the interface energy and cannot let the prop's own deformation change how it is
+supported. The physically consistent move is a \emph{two-way} row: rigid and
+modal unknowns resolved together through one shared contact
+multiplier~\citep{zheng2011}, so a heavier load bends the support and the bent
+support redistributes the load. The trap is that every support contact touches
+the \emph{same} global vector $\mathbf{q}$, so the contact-row graph is dense on
+the modes even though the state is tiny --- and a host running only a few local
+iterations per substep need not converge that shared coupling. We take the row as
+given: at position level it is one linearization step from the velocity-level
+law ($C^{n+1}\!\approx\!C^{n}+h\,\mathbf{J}\mathbf{u}^{n+1}$, same Jacobian and
+multiplier as~\citet{zheng2011}), narrower than the original --- normal rows
+only, $e{=}0$ restitution --- and \emph{not} a contribution of this paper. Our
+question is the practitioner's: what does the obvious two-way transcription cost
+at a normal budget, and what should one do about it? \emph{If solver architecture
+is unconstrained our evidence favors the tested stiffness-aware velocity-level
+realization; our target is the existing fixed-budget XPBD host.}
 
-Interactive solvers, however, do not solve this row to convergence: they run a
-fixed, small number of local iterations per substep, and it is known that
-finite-iteration coupling across a partition boundary can inject spurious
-energy even when every subsystem is individually
-passive~\citep{wei2026earlyterm} --- an observation that likewise predates this
-work. Velocity-level frictional contact spanning rigid and reduced deformable
-bodies, with the energy artifacts of iterative solvers named, goes back at
-least to~\citet{kaufman2008}. What is missing is a quantitative account of this
-case --- unilateral contact-to-modal transfer --- and a mitigation that fits
-within an interactive budget.
+Finite-iteration coupling across a partition boundary can inject spurious energy
+even when every subsystem is individually passive~\citep{wei2026earlyterm}, and
+velocity-level frictional contact spanning rigid and reduced deformable bodies,
+with the energy artifacts of iterative solvers named, goes back at least
+to~\citet{kaufman2008}. What is missing, and what we supply, is a quantitative
+account of this case --- unilateral contact-to-modal transfer in a fixed-budget
+host --- and an operating guide for the practitioner who hits it.
 
 \paragraph*{Contributions.}
 \begin{enumerate}
-\item \textbf{Measurement.} A single contact row evaluated in three
-  fixed-budget solver implementations over one identical 24-cell adversarial
-  sweep on one machine (\S\ref{sec:matrix}), plus an iteration-budget sweep
-  against an implicit high-iteration reference identifying the position-based
-  injection as a truncation artifact (\S\ref{sec:kconv}).
-\item \textbf{A cumulative storage bound.} A one-directional bound on the
-  energy entering modal storage, funded by the measured gross rigid-side loss
-  and maintained by a reservoir ledger and a projection of the realized modal
-  state (\S\ref{sec:bound}). It is the simplest admissible enforcement --- a
-  deliberately minimal, audited fail-safe, not a constructive contact method
-  --- and it guarantees \eqref{eq:invariant} unconditionally, for any host and
-  any contact solve, up to an accounting tolerance; the realized margins sit at
-  the roundoff floor in all $90$ measured cells ($78$ distinct configurations).
-\item \textbf{The cost of enforcement.} Post-projection contact validity
-  (penetration, corrective impulse, multiplier variance, momentum), measured
-  rather than assumed (\S\ref{sec:validity}).
+\item \textbf{A practitioner workflow and its failure.} We treat adding a compact
+  modal state to a fixed-budget XPBD host as the workflow it is, and show that the
+  direct two-way contact row overdraws its measured rigid-side supply
+  catastrophically at interactive budgets --- across three scenes, two relaxations
+  and four schedules (\S\ref{sec:matrix}) --- with augmented-Lagrangian and
+  implicit implementations as milder controls. The cross-control reading is
+  secured by a gravity/no-contact accounting audit and the failure's robustness by
+  a deterministic perturbation ensemble.
+\item \textbf{Mechanism and an operating guide.} A same-path iteration ladder,
+  equal-row-count schedules, warm-starting, mode truncation and an in-host
+  block-condensation ablation localize the amplification to finite-budget
+  convergence of the shared modal coupling (\S\ref{sec:kconv}), and yield an
+  ordered decision rule: the tested implicit realization when the architecture is
+  flexible, otherwise iterations and a verified basis --- not more substeps, not a
+  block solve --- in a fixed XPBD host.
+\item \textbf{A last-resort guardrail, priced.} A cumulative modal-storage bound
+  funded by the measured rigid-side loss and enforced by a scalar projection of
+  the realized state (\S\ref{sec:bound}): a deliberately minimal fail-safe, not a
+  contact method, guaranteed unconditionally (Prop.~\ref{prop:guarantee}, roundoff
+  floor in all $90$ measured cells) but at a measured cost to contact validity
+  (\S\ref{sec:validity}).
 \end{enumerate}
 
-\paragraph*{Relation to concurrent energy-control work.}
-\citet{wei2026earlyterm} guarantee discrete passivity at any finite
-inner-iteration budget via Douglas--Rachford splitting in wave coordinates, but
-their interfaces are \emph{bilateral} couplings, not unilateral contact, and the
-guarantee is structural rather than a budgeted transfer cap.
-\citet{you2026energy} modify implicit Euler to track user-specified
-\emph{total}-energy targets bidirectionally, with barrier contact. Ours is
-neither: a one-directional cap on what contact may deposit into modal storage,
-funded by measured gross rigid-side loss and enforced by scaling realized modal
-state. \citet{zobel2025unity} solve ray-traced penalty contact quasi-statically
-without a shared unilateral multiplier; modes and modal derivatives have served
-as a \emph{deformation} surrogate in a position-based
-host~\citep{peng2024reduced}, whereas here modal amplitudes enter as contact
-DOFs driven by the shared multiplier.
-
-\paragraph*{Relation to passivity control and energy projection.} The governor
-transplants an established control idea rather than inventing one. Time-domain
-passivity control~\citep{hannaford2002} damps once an energy observer goes
-negative; energy-tank formulations~\citep{franken2011} give that observer
-explicit state, so a controller spends only what its tank holds;
-\citet{rath2008} enforces exact per-interface energy stability for contacting
-modal objects at audio rate, where we cap a scene-level scalar reservoir. We
-keep that structure and change two things: the tank is funded by \emph{measured
-gross rigid-side loss}, not by the port it regulates, and the actuator scales
-realized \emph{state} rather than modulating a force, because a fixed-budget
-solver commits its multipliers before the excess is observable.
-FEPR~\citep{dinev2018fepr} also projects state post-solve, but onto
-\emph{total}-energy conservation; ours is one-sided and never restores energy
-the solver lost.
+\paragraph*{Related work.} Rigid XPBD~\citep{macklin2016xpbd}, interactive modal
+deformation and velocity-level modal contact~\citep{james2002dyrt,hauser2003,%
+zheng2011,kaufman2008}, and reduced XPBD~\citep{peng2024reduced} set the stage;
+the last uses modes as a \emph{deformation} surrogate, whereas here modal
+amplitudes enter as contact DOFs driven by the shared multiplier
+(cf.~ray-traced penalty contact without a shared unilateral
+multiplier~\citep{zobel2025unity}). Our last-resort guardrail transplants
+energy-tank control~\citep{hannaford2002,franken2011,rath2008} rather than
+inventing one: we keep the tank-and-observer structure but fund the tank from
+\emph{measured} rigid-side loss --- not the port it regulates --- and scale
+realized \emph{state} rather than a force, because a fixed-budget solver commits
+its multipliers before the excess is observable. This separates it from
+total-energy projection~\citep{dinev2018fepr}, bidirectional total-energy
+tracking~\citep{you2026energy}, and the structural finite-budget passivity of
+\emph{bilateral} couplings~\citep{wei2026earlyterm}.
 
 % =====================================================================
 \section{The row and the cumulative bound}
@@ -334,59 +336,31 @@ roundoff floor, worst margin $1.1\times10^{-13}$~J.
 % =====================================================================
 \section{Results}
 % =====================================================================
-All solver-behaviour measurements below come from a single machine
-(Table~\ref{tab:solvers}), the sole exception being the device-resident timings
-of \S\ref{sec:cost} (NVIDIA RTX 4090), reported separately; every number is
-frozen with its generating command and commit hash in the supplemental ledger.
-We deliberately avoid mixing machines: chaotic contact stacks diverge across
-architectures under floating-point reassociation.
+All solver-behaviour measurements below come from a single machine (Apple M4,
+CPU, CPython 3.12); every number is frozen with its generating command and
+commit hash in the supplemental ledger. We deliberately avoid mixing
+machines: chaotic contact stacks diverge across architectures under
+floating-point reassociation.
 
 \subsection{One row, three implementations, the same 24 cells}
 \label{sec:matrix}
 
 \begin{figure*}[t]
 \centering
-\includegraphics[width=0.80\textwidth]{fig_s1_solver_matrix.pdf}
-\caption{The same contact row in three fixed-budget solver implementations over an
-identical 24-cell sweep (3 scenes $\times$ modal relaxation
-$\{0.7,1.0\}$ $\times$ budget), governor OFF. \textbf{Top:} the ratio $R$ =
-peak modal energy / peak incident rigid kinetic energy, log scale diverging at
-$1$ --- a severity diagnostic. XPBD exceeds $1$ in $8/24$ cells, AVBD in
-$2/24$, the implicit realization in $0/24$. \textbf{Bottom:} the invariant
-itself --- the signed margin of \eqref{eq:invariant} in joules, symmetric-log,
-diverging at $0$; positive values violate. The two panels disagree on AVBD, and
-on XPBD by one cell.
-Hatched rows mark a relaxation axis the host does not consume, bit-identical
-by construction (\S\ref{sec:matrix}).}
+\includegraphics[width=0.86\textwidth]{fig_xpbd_map.pdf}
+\caption{Our tested XPBD implementation, over the 24-cell sweep (3 scenes
+$\times$ relaxation $\{0.7,1.0\}$ $\times$ budget), governor OFF. \textbf{Left,
+top:} $R$ = peak modal energy / peak incident rigid KE, a severity diagnostic;
+\textbf{bottom:} the signed margin of \eqref{eq:invariant} in joules ($>0$
+violates). The two disagree by design (XPBD: $R{>}1$ in $8/24$, margin$>0$ in
+$9/24$) --- a result, not noise. \textbf{Right:} a compact control strip for the
+three implementations (one of each, \emph{not} compliance- or cost-matched):
+violating cells, worst margin, worst $R$. This is a scale gap, not a ranking ---
+$4.4\times10^{7}$~J vs.\ $\le6.7$~J vs.\ $0$; the E1 accounting audit puts the
+control floor below $10^{-3}$~J, so $6.7$~J is real injection. The full
+two-metric 72-cell three-implementation heatmap is in the supplement.}
 \label{fig:matrix}
 \end{figure*}
-
-\begin{table}[t]
-\centering\footnotesize
-\setlength{\tabcolsep}{3.2pt}
-\caption{Host differences (above the rule) and settings held identical (below
-it). Entries are read from the implementation, with source anchors in the
-supplemental ledger. $H_{ii}$: midpoint modal-operator diagonal.}
-\label{tab:solvers}
-\begin{tabular}{@{}lp{1.62cm}p{1.62cm}p{1.62cm}@{}}
-\toprule
- & position-based & augmented-Lagr. & seq.\ impulse \\
-\midrule
-unknown solved for & position & position + multiplier & velocity \\[1pt]
-contact treatment & compliant projection, $\tilde\alpha=\alpha/h^{2}$ ($\alpha{=}0$: rigid) & penalty + dual update, $\alpha{=}0.99$, $\beta{=}10^{5}$ & Schur system on $\mathbf{J}\mathbf{M}^{-1}\mathbf{J}^{\!\top}$, CFM-regularized \\[1pt]
-modal weight & explicit; per-mode compliance $1/(H_{ii}h^{2}{-}1)$ & block-GS, full Newton step on $\mathbf{q}$ & \emph{implicit}, $(\mathbf{M}{+}h\mathbf{D}$ ${+}\,h^{2}\mathbf{K})^{-1}$ \\[1pt]
-iteration & GS sweeps, gap re-evaluated each sweep & coloured primal GS + $\mathbf{q}$-block & PGS over rows \\[1pt]
-warm start & none ($\lambda{\leftarrow}0$ each substep) & $\lambda$ and penalty carried over & $\lambda$ cache keyed per row \\[1pt]
-relaxation & $0.7$ on $\mathbf{q}$ and the support block & $0.7$ on the $\mathbf{q}$-block Newton step & \emph{inert}: never read \\
-\midrule
-$h$; substep & \multicolumn{3}{c}{$1/120$~s; $h/S$, contacts regenerated per substep} \\
-modal rank $r$ & \multicolumn{3}{c}{$16$ (shelf), $16$ (ledge), $24$ (table)} \\
-modal damping & \multicolumn{3}{c}{Rayleigh $\mathbf{D}=\alpha_0\mathbf{M}+\alpha_1\mathbf{K}$, $\alpha_0{\in}\{2,3\}$, $\alpha_1{=}10^{-5}$} \\
-stepper; $\eta$ & \multicolumn{3}{c}{implicit midpoint; $\eta=1$} \\
-machine & \multicolumn{3}{c}{Apple M4, CPU only, CPython 3.12} \\
-\bottomrule
-\end{tabular}
-\end{table}
 
 We drive an impactor into a modally reduced support in three scenes --- a shelf
 board, a ledge slab, and a $2.2\times1.1$~m table, the last two following the
@@ -395,16 +369,22 @@ local budget (iterations $\times$ substeps) over
 $\{4{\times}1, 8{\times}2, 16{\times}4, 32{\times}8\}$. The hosts are
 XPBD~\citep{macklin2016xpbd}, AVBD~\citep{giles2025avbd} (a descendant of vertex
 block descent~\citep{chen2024vbd}), and a sequential-impulse realization in the
-sense of~\citet{catto2005iterative}, made implicit in the modal block.
-Table~\ref{tab:solvers} lists what differs and what is pinned identical. Two
-entries deserve emphasis. Relaxation is \emph{inert} on the impulse host (its
-implicit modal weight needs no under-relaxation), hence Fig.~\ref{fig:matrix}'s
-hatched rows. Warm start also differs --- $\lambda\!\leftarrow\!0$ every substep
-for the position-based host, carried duals for the others --- so the comparison
-is as-deployed, not compliance-matched. It is not the lever, though: warm-starting
+sense of~\citet{catto2005iterative}, made implicit in the modal block. All three
+are pinned to $h{=}1/120$~s, per-substep contact regeneration, modal rank
+$16/16/24$ (shelf/ledge/table), Rayleigh damping, an \emph{implicit-midpoint}
+modal restoring step, and $\eta{=}1$; they differ in the unknown solved for
+(position / position\,+\,multiplier / velocity), the modal contact weight ---
+XPBD's explicit per-mode compliance $1/(H_{ii}h^2{-}1)$ versus the impulse host's
+implicit $(\mathbf{M}{+}h\mathbf{D}{+}h^2\mathbf{K})^{-1}$ --- warm start, and
+relaxation (the full host/parameter table is in the supplement). Two differences
+deserve emphasis. Relaxation is \emph{inert} on the impulse host (its implicit
+modal weight needs no under-relaxation), so its two relaxation rows are
+bit-identical. Warm start also differs --- $\lambda\!\leftarrow\!0$ every substep for the
+position-based host, carried duals for the others --- so the comparison is
+as-deployed, not compliance-matched. It is not the lever, though: warm-starting
 it leaves the footprint unchanged ($R>1$ in the same $8/24$ cells, worst
-$1.20\times10^{5}$ either way) and \emph{worse} at $4{\times}1$ ($3.1\times$), as a
-warm multiplier cannot converge the shared modal DOF that only iterations do
+$1.20\times10^{5}$ either way) and \emph{worse} at $4{\times}1$ ($3.1\times$), as
+a warm multiplier cannot converge the shared modal DOF that only iterations do
 (\S\ref{sec:kconv}).
 
 \paragraph*{Equal row evaluations, unequal outcome.} A cell costs $K\!\cdot\!S$
@@ -457,20 +437,24 @@ solve is already within budget.
 \subsection{The position-based amplification is a truncation artifact}
 \label{sec:kconv}
 
-\begin{figure}[t]
+\begin{figure*}[t]
 \centering
-\includegraphics[width=0.88\columnwidth]{fig_s2_kconvergence.pdf}
-\caption{Energy ratio versus local iteration budget $K$ on a deterministic
-shelf drop, substeps pinned at $1$ so $K$ is the only variable, governor OFF.
-The position-based host decays monotonically toward the implicit reference,
-crossing the incident-energy threshold between $K{=}16$ and
-$K{=}24$; the gap shrinks by six orders of magnitude. The
-reference is the implicit realization at $K{=}500$ --- the same code path, not
-a different model; it is already converged at $K{=}2$. The
-AVBD curve is shown for completeness only: its denominator is itself
-budget-dependent at small $K$, so it cannot be read as a convergence trend.}
+\includegraphics[width=0.92\textwidth]{fig_operating_envelope.pdf}
+\caption{The XPBD operating envelope (our tested position-based host, governor
+OFF). \textbf{(a)}~Injection $R$ vs.\ local iterations $K$ on a deterministic
+shelf drop ($S{=}1$): $R$ decays monotonically toward the implicit reference
+($0.273$), crossing the incident-energy threshold between $K{=}16$ and $24$.
+Annotated: the $32{\times}1$-vs-$4{\times}8$ equal-row pair (same $32$ row
+evaluations, but spent as substeps it still injects) and warm-starting (no help;
+worse at $4{\times}1$). \textbf{(b)}~The end-of-substep gap converges with $K$,
+confirming the falling ratio is the \emph{row} converging, not a scalar
+shrinking coincidentally. \textbf{(c)}~Shared-row treatment (E6a-1): serial
+per-row support projection (the paper path) vs.\ joint block condensation, both
+scenes. The serial path converges/holds by $16{\times}4$--$32{\times}1$; block
+condensation does \emph{not} --- a different, worse convergence path that injects
+where serial holds. Condensing the shared rows is not the fix.}
 \label{fig:kconv}
-\end{figure}
+\end{figure*}
 
 Figure~\ref{fig:kconv} isolates the local iteration budget. Two references
 recur below and are not the same object: \emph{the implicit reference} is the
@@ -633,27 +617,15 @@ attenuation term, in the small-displacement regime.
 \label{sec:cost}
 On the CPU host at $16{\times}4$, over ten repetitions of $100$ frames, the
 baseline step costs $11.0$--$125.6$~ms by scene and host, and the ledger adds
-$0.23$--$0.41$~ms --- $0.9$--$3.4\%$ --- on the four shelf and ledge
-configurations, where it resolves above run-to-run variance. On the table scene
-it does not: the overhead's per-repetition spread exceeds its mean in both hosts
-($+1.35\pm2.08$ and $+0.04\pm1.43$~ms), so we report it only as bounded by
-${\sim}1.4$~ms. The percentage is the portable quantity: on a second machine
-absolute times differ by $3.5$--$4.6\times$ while the percentages agree to within
-$0.02$ points wherever both resolve. These baselines fall $1.3$--$15\times$ short
-of a $120$~Hz budget, though shelf and ledge meet it at $2{\times}4$ governed.
-The percentage is budget-dependent and larger at the deployed schedules: at
-$1{\times}8$ and $2{\times}4$ the ledger's absolute cost stays comparable
-($0.30$--$2.22$~ms) but the smaller baseline lifts it to $6.6$--$34.3\%$ (shelf
-and ledge, both hosts), so enforcement is not free where the budget is tight.
-
-A separate device-resident path (NVIDIA RTX 4090), carrying the ledger
-read-only as a monitor rather than enforcing it, reaches $5.3$--$9.4$~ms/step at
-$16{\times}4$ across four scenes --- the sweep's three plus a larger road slab:
-shelf and ledge meet a $120$~Hz budget with margin, the road sits at the
-boundary, the table does not, and all four meet
-it at $16{\times}2$ or below (per-scene factors in the supplement). We make no
-unqualified real-time claim, and a device-resident \emph{enforced} $\gamma$ does
-not exist in this work, so governed device timings lie outside our measurements
+$0.23$--$0.41$~ms --- $0.9$--$3.4\%$ --- on the shelf and ledge configurations
+(on the table its per-repetition spread exceeds its mean, so we bound it only by
+${\sim}1.4$~ms; the percentage, not the absolute time, is the portable quantity
+across machines). The cost is budget-dependent and larger at the deployed
+schedules: at $1{\times}8$ and $2{\times}4$ the absolute cost stays comparable
+($0.30$--$2.22$~ms) but the smaller baseline lifts it to $6.6$--$34.3\%$, so
+enforcement is not free where the budget is tight. We make no unqualified
+real-time claim; a device-resident \emph{enforced} $\gamma$ does not exist in
+this work, so governed device timings lie outside our measurements
 (\S\ref{sec:limits}).
 
 % =====================================================================
@@ -700,18 +672,27 @@ not a theorem.
 % =====================================================================
 \section{Conclusion}
 % =====================================================================
-Transcribing an established rigid--modal contact law into fixed-budget solvers
-is not energy-safe, and how unsafe differs sharply across the three tested
-implementations: worst-case modal-to-incident ratios are $1.2\times10^{5}$,
-$1.70$ and $0.53$. The position-based amplification is a
-truncation artifact convergence removes; the augmented-Lagrangian overdraft we
-measure but do not explain. Prefer the implicit or augmented-Lagrangian host,
-which overdraw at most mildly ($\le6.7$~J in $3$ of $24$ cells, against the
-position-based host's $10^{7}$~J); where a position-based host is fixed and convergence
-unaffordable, a cumulative storage bound funded by measured gross rigid-side loss
-holds in every measured cell, at a measured cost to contact validity.
-% NOTE: "overdraw at most mildly" is code-faithful (eq2_utilization.csv):
-% implicit 0/24, AVBD 3/24 by <=6.7 J, vs the position-based host's 4.4e7 J.
+For a developer who has already chosen a fixed-budget XPBD rigid-body host and
+wants low-cost vibration on a stiff prop, the decision is not XPBD versus another
+solver but an ordered one. First pick the representation: a full-space XPBD
+deformable for large, local or strongly nonlinear deformation, a compact modal
+state for stiff, small-displacement ringing. If the contact architecture is
+still open, the tested stiffness-aware implicit realization is the cleanest
+control we observed --- it never overdraws --- though that recommendation is
+implementation-specific, not a solver-class theorem. If the XPBD host is fixed,
+do not tune blindly: the direct two-way modal row overdraws its measured supply
+by up to $4.4\times10^{7}$~J at a few local iterations, and neither more substeps
+at equal row cost, nor warm-starting, nor condensing the shared support rows into
+one block removes it (\S\ref{sec:kconv}); converging the row with iterations
+does, so spend the local budget there and verify the modal basis. Only when a
+fixed host still cannot converge does the cumulative modal-storage bound earn its
+place --- it holds in every one of the $90$ measured cells, but opens up to
+$21.6$~mm of penetration, so it is a containment envelope, not corrected contact.
+A low-dimensional modal extension is cheap in state size; it is not automatically
+easy for a truncated local contact solve.
+% NOTE: code-faithful (eq2_utilization.csv): implicit 0/24, AVBD 3/24 by <=6.7 J,
+% XPBD up to 4.4e7 J. Block condensation does NOT fix it (E6a-1,
+% e6a1_block_condensation.csv): worse at 8x2/16x4/32x1 where serial holds.
 
 % PAGE GATE (do not remove): the page carrying this label is the last body
 % page. The CFP allows 4-6 content pages EXCLUDING references, so
