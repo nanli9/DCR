@@ -141,21 +141,26 @@ def render_arm(ax, npz, man, arm, frame, *, aspect, xlim, ylim,
 def _schematic(fig, y0, y1):
     """The plan's Fig. 1 schematic: existing XPBD rigid body + a small modal
     vector -> one shared contact row per support -> a fixed local budget K.
-    Drawn as a thin strip of boxes and arrows in figure-fraction coords."""
+    Drawn as a thin strip of boxes and arrows in figure-fraction coords.
+
+    The `+ q` term rides on its OWN line inside box 1 -- as a separate floating
+    label it collided with 'XPBD rigid body'. The two arrow gaps are equal.
+    """
     import matplotlib.patches as mp
     ax = fig.add_axes([0.02, y0, 0.96, y1 - y0]); ax.axis("off")
     ax.set_xlim(0, 1); ax.set_ylim(0, 1)
-    boxes = [(0.005, 0.30, "XPBD rigid\nbody", "#f0f0f0"),
-             (0.185, 0.135, "$+\\;\\mathbf{q}\\in\\mathbb{R}^{16}$", None),
-             (0.40, 0.30, "shared\ncontact rows", "#fde9d9"),
+    # (x, w, text, facecolor) -- one left-to-right pipeline, even arrow gaps
+    boxes = [(0.00, 0.34, "XPBD rigid body\n$+\\,\\mathbf{q}\\in\\mathbb{R}^{16}$",
+              "#f0f0f0"),
+             (0.40, 0.26, "shared\ncontact rows", "#fde9d9"),
              (0.72, 0.28, "fixed $K$\niterations", "#fdecec")]
     for (x, w, txt, fc) in boxes:
-        if fc is not None:
-            ax.add_patch(mp.FancyBboxPatch(
-                (x, 0.14), w, 0.72, boxstyle="round,pad=0.01",
-                linewidth=0.6, edgecolor="0.4", facecolor=fc))
-        ax.text(x + w / 2, 0.5, txt, ha="center", va="center", fontsize=5.6)
-    for x0, x1 in [(0.345, 0.395), (0.705, 0.715)]:
+        ax.add_patch(mp.FancyBboxPatch(
+            (x, 0.12), w, 0.76, boxstyle="round,pad=0.01",
+            linewidth=0.6, edgecolor="0.4", facecolor=fc))
+        ax.text(x + w / 2, 0.5, txt, ha="center", va="center", fontsize=5.5,
+                linespacing=1.15)
+    for x0, x1 in [(0.345, 0.395), (0.665, 0.715)]:
         ax.annotate("", xy=(x1, 0.5), xytext=(x0, 0.5),
                     arrowprops=dict(arrowstyle="->", lw=0.7, color="0.35"))
 
