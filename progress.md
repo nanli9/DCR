@@ -951,3 +951,32 @@ edit. Committed-core body is done.
 - Next: **Stage F** (E0 supplement re-assemble incl. the decision table + E1/E1b/
   E6a-1 CSVs; video §12; \acmSubmissionID after EasyChair opens Jul 25), then
   **Stage G** (6 isolated reviewers vs the 32f2951d fallback).
+
+## 2026-07-21 Stage F — E0 supplement synced + video asset inventory
+
+- **E0 supplement DONE and verified.** The Stage E reorg drifted 12 CLAIMS
+  anchors; re-synced `make_supplement.py`:
+  - Fixed 8 drifted tex anchors; replaced the single-setting robustness row with
+    E1b; added E1 + E6a-1 rows; dropped device + 9.8mm rows (not in the short
+    paper); updated moved-section labels (§3.3→§4.1, §3.4→§5.1, §4→§6).
+  - Added E1/E1b/E6a-1 CSVs+manifests and their ledger sections to the bundle;
+    removed the device CSVs; bundled `DECISION_TABLE.md` (Table 1 fallback).
+  - **Verified:** check_claims 0 failures (29 rows); anonymization scan PASS
+    (0/0); clean-unpack `smoke_test.py` PASSED (rebuilds shelf 4×1, XPBD
+    R=6333.22 exact vs arm64 ref); SHA256SUMS 63/63 OK. Committed 4b33aa9.
+  - NOTE: the bundled `teaser_video.mp4` is still the OLD video; the FINAL
+    assembler run is the LAST Stage-F step, after the new video + acmSubmissionID.
+- **Video: asset inventory written** (`docs/mig2026_video_asset_inventory.md`).
+  §12 storyboard mapped beat-by-beat: REUSE the launch (6–18 s) + containment
+  (37–46 s) beats; NEW = schematic (0–6), 32×1-vs-4×8 (18–29), band panel
+  (29–37), penetration close-up, decision card (46–55). Pipeline present
+  (render3d.py, make_teaser_video.py, record_teaser.py, frozen poses, ffmpeg).
+  **One real risk:** the 32×1/4×8 equal-row 3-D poses may be blocked (memory
+  `[[mig-qround-queued]]` Q5 "no 4×1 poses"); mitigation = render that beat as a
+  2-D frozen-curve overlay (substep_sweep/k_convergence), no pose needed.
+- **Blocked (external):** `\acmSubmissionID{}` needs EasyChair registration,
+  window opens **2026-07-25**.
+- **Remaining:** render the video (4 new 2-D assets are cheap/data-frozen; the
+  one 3-D beat has the pose risk + 2-D fallback), then final `make_supplement.py`
+  run; then **Stage G** (6 isolated reviewers, comprehension Qs before scores,
+  compare vs the 32f2951d fallback, ≤1 rewrite cycle).
