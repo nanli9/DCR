@@ -92,5 +92,6 @@ Stated so the omissions are not mistaken for oversights:
 - **The full-FEM reference (§3.4).** The comparison CSVs are here; regenerating
   them needs the unreduced FEM harness and hours of compute, so this bundle
   ships the results rather than the means to reproduce them cheaply.
-- **The video's rendered frames.** `teaser_video.mp4` is rendered from frozen
-  traces; the traces are large binaries and are not bundled.
+- **The video's rendered frames.** `mig_short_video.mp4` is rendered from frozen
+  traces and the bundled result CSVs; the traces are large binaries and are not
+  bundled.

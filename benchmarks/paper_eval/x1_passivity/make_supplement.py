@@ -16,7 +16,7 @@ WHAT IS IN THE BUNDLE
   code_snapshot.zip      the source needed to re-derive them (no .git)
   smoke_test.py          clean-unpack check: builds a scene, re-derives a cell
   requirements-freeze.txt
-  teaser_video.mp4
+  mig_short_video.mp4
   SHA256SUMS
 
 THREE THINGS THIS REFUSES TO DO
@@ -55,7 +55,7 @@ DEST = os.path.join(_ROOT, "supplement")
 ZIP_OUT = os.path.join(_ROOT, "mig26_supplement.zip")
 LEDGER = os.path.join(_ROOT, "docs", "mig2026_results_ledger.md")
 TEX = os.path.join(_ROOT, "paper", "main_short.tex")
-VIDEO = os.path.join(_ROOT, "benchmarks", "paper_fig", "out", "teaser_video.mp4")
+VIDEO = os.path.join(_ROOT, "benchmarks", "paper_fig", "out", "mig_short_video.mp4")
 SMOKE_SRC = os.path.join(_HERE, "supplement_smoke_test.py")
 COMMIT_MAP = os.path.join(_ROOT, "supplement_commit_map.private.md")
 
@@ -547,9 +547,9 @@ def main() -> int:
     open(os.path.join(DEST, "requirements-freeze.txt"), "w").write(reqs)
 
     if os.path.isfile(VIDEO):
-        shutil.copy2(VIDEO, os.path.join(DEST, "teaser_video.mp4"))
+        shutil.copy2(VIDEO, os.path.join(DEST, "mig_short_video.mp4"))
     else:
-        missing.append("teaser_video.mp4")
+        missing.append("mig_short_video.mp4")
 
     # ---- the gate ---------------------------------------------------------
     if confirmed or review:
@@ -685,8 +685,9 @@ Stated so the omissions are not mistaken for oversights:
 - **The full-FEM reference (§3.4).** The comparison CSVs are here; regenerating
   them needs the unreduced FEM harness and hours of compute, so this bundle
   ships the results rather than the means to reproduce them cheaply.
-- **The video's rendered frames.** `teaser_video.mp4` is rendered from frozen
-  traces; the traces are large binaries and are not bundled.
+- **The video's rendered frames.** `mig_short_video.mp4` is rendered from frozen
+  traces and the bundled result CSVs; the traces are large binaries and are not
+  bundled.
 """
 
 
@@ -711,7 +712,7 @@ data/                  raw CSVs and their .config.json manifests
 code_snapshot.zip      the source needed to re-derive them
 smoke_test.py          clean-unpack check (see §4)
 requirements-freeze.txt
-teaser_video.mp4       the supplementary video (see §5)
+mig_short_video.mp4    the supplementary video (see §5)
 SHA256SUMS
 ```
 
@@ -775,17 +776,22 @@ Full invocations are listed with each entry in `LEDGER_EXCERPTS.md`.
 
 ## 5. Video
 
-`teaser_video.mp4` (44.8 s, 1920x1080, H.264, no audio) shows three arms at the
-canonical shelf cell: ungoverned, governed, and the position-based host's own
-high-iteration self-reference (500x1), at identical camera and true scale. It
-was rendered headlessly from frozen traces — no interactive capture — by
-`benchmarks/paper_fig/make_teaser_video.py`.
+`mig_short_video.mp4` (52.0 s, 1920x1080, H.264, no audio) is a six-beat
+practitioner diagnostic that follows the paper's structure: (1) the cheap modal
+extension to a fixed-budget XPBD rigid host; (2) the spurious bystander launch —
+ungoverned versus the host's own high-iteration self-reference (500x1) on a
+steel board, at identical camera and true scale; (3) the same 32 contact-row
+evaluations spent as iterations (32x1, holds) versus substeps (4x8, overdraws);
+(4) the band-limited basis, necessary but not sufficient; (5) the last-resort
+storage bound as containment, with a true-scale penetration cross-section; and
+(6) a decision card. It was rendered headlessly from frozen traces and the
+bundled result CSVs — no interactive capture — by
+`benchmarks/paper_fig/make_short_video.py`.
 
-It is deliberately not only a success reel. The steel-board case shows the
-governed run tracking the reference closely; the soft-board case that follows
-shows the same bound suppressing legitimate motion, captioned *bounded, but not
-faithful*, and the closing card states what the paper claims and what it does
-not.
+It is deliberately not a success reel. It ends on the operating-guide decision
+rule, not on the guardrail: the storage bound appears only as last-resort
+containment, captioned *bounded, but not faithful*, and every on-screen number
+is read live from the bundled data.
 
 ## 6. Verifying this bundle
 

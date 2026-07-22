@@ -2162,3 +2162,16 @@ clean-room re-panel (S12).
 - Gate verdict: **PASS as far as Stage A owns it** — rules frozen, baseline
   audited, prose residuals are Stage-D/E enforcement (the caption is recomposed
   in Stage C anyway, so fixing it now would be premature churn).
+
+## Stage-F supplementary video — no new claim (2026-07-21)
+
+`mig_short_video.mp4` (six §12 beats, `make_short_video.py`) **introduces no
+claim not already in the frozen claim sheet**: every on-screen number is read
+live from the frozen Stage-B CSVs (`k_convergence`, `substep_sweep`,
+`band_limit_sweep`, `projection_validity*`) and the teaser pose manifests. It
+obeys the same terminology gate — the scalar bound is "storage bound /
+containment", never "passivity"; the modal step is never called "explicit"; the
+implicit/velocity path is the *observed control* (one implementation), not a
+solver-class ranking. It ends on the operating-guide decision rule, not the
+guardrail (§12: "no longer end as if the governor were the main product"). The
+video is a visualization of the evidence, not a contribution.

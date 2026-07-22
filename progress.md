@@ -1006,3 +1006,19 @@ edit. Committed-core body is done.
   contained Stage-F video task for a fresh session (reads the asset inventory,
   the §12 storyboard, the pose risk + 2-D fallback, and the final supplement
   re-run). This is the user-requested "clear prompt to start in the new session."
+- **Stage-F video BUILT (2026-07-21)**: `benchmarks/paper_fig/make_short_video.py`
+  → `out/mig_short_video.mp4` (52.0 s, 1920×1080, H.264, no audio, 1.0 MB,
+  `-map_metadata -1` so no author/title identity). Six §12 beats: (1) extension
+  schematic; (2) spurious launch (steel, ungoverned vs 500×1 self-ref); (3)
+  equal-cost allocation `32×1` (R=0.30 holds) vs `4×8` (R=3.13, +481 J); (4)
+  band-limit necessary-not-sufficient (6/8 cells still overdraw, worst +1.24×10⁶
+  J); (5) containment ("bounded, not faithful") + true-scale 21.6 mm penetration
+  cross-section; (6) decision card ("the governor is a safety net, not the
+  product"). Reuses the teaser's locked-camera 3-D beats; the four new 2-D beats
+  read every number live from the frozen CSVs (`k_convergence`, `substep_sweep`,
+  `band_limit_sweep`, `projection_validity*`). Beat 3 is a 2-D curve panel by
+  design (equal-cost ratio claim is quantitative); pose-gen risk not used.
+- **Supplement refreshed to ship the new video**: `make_supplement.py` VIDEO →
+  `mig_short_video.mp4`, §5 prose rewritten to the six-beat diagnostic. Re-run:
+  scan PASS (0 leaks), **63/63 checksums**, **smoke test PASSED**, 1.60 MiB zip.
+  Paper text untouched (the paper does not reference the video by name).

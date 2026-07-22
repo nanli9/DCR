@@ -1,5 +1,19 @@
 # MIG 2026 — Supplementary Video Asset Inventory (Stage F, video)
 
+> **BUILT 2026-07-21.** `benchmarks/paper_fig/make_short_video.py` →
+> `out/mig_short_video.mp4` (52.0 s, 1920×1080, H.264, no audio, 1.0 MB,
+> metadata-stripped). Six §12 beats, ends on the decision card (not the
+> governor). Every on-screen number is read live from the frozen Stage-B CSVs.
+> **Beat-3 decision: 2-D curve panel, not 3-D poses** — the claim is an incident
+> ratio at *equal cost* (32 row-evals: `32×1` R=0.30 holds vs `4×8` R=3.13,
+> +481 J), inherently quantitative; +481 J on a soft board is not a dramatic
+> launch, so a 3-D side-by-side would under-communicate "unsafe". The pose-gen
+> risk below is therefore moot (not blocked — deliberately not used).
+> **Penetration close-up: true-scale 2-D cross-section** (labelled, not a
+> painter's-algorithm render, which `render3d.py` cannot depth-order honestly).
+> Supplement repointed (`make_supplement.py` VIDEO → `mig_short_video.mp4`, §5
+> rewritten); bundle re-verified 63/63 checksums + smoke PASS + scan PASS.
+
 Authority: rewrite plan §12 storyboard (45–55 s). Purpose: map every beat of the
 new decision-oriented video to a concrete asset — reusable vs. new — with its
 render command and any blocker, BEFORE any rendering. Per plan §12, the video

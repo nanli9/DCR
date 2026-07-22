@@ -13,7 +13,7 @@ data/                  raw CSVs and their .config.json manifests
 code_snapshot.zip      the source needed to re-derive them
 smoke_test.py          clean-unpack check (see §4)
 requirements-freeze.txt
-teaser_video.mp4       the supplementary video (see §5)
+mig_short_video.mp4    the supplementary video (see §5)
 SHA256SUMS
 ```
 
@@ -156,17 +156,22 @@ Full invocations are listed with each entry in `LEDGER_EXCERPTS.md`.
 
 ## 5. Video
 
-`teaser_video.mp4` (44.8 s, 1920x1080, H.264, no audio) shows three arms at the
-canonical shelf cell: ungoverned, governed, and the position-based host's own
-high-iteration self-reference (500x1), at identical camera and true scale. It
-was rendered headlessly from frozen traces — no interactive capture — by
-`benchmarks/paper_fig/make_teaser_video.py`.
+`mig_short_video.mp4` (52.0 s, 1920x1080, H.264, no audio) is a six-beat
+practitioner diagnostic that follows the paper's structure: (1) the cheap modal
+extension to a fixed-budget XPBD rigid host; (2) the spurious bystander launch —
+ungoverned versus the host's own high-iteration self-reference (500x1) on a
+steel board, at identical camera and true scale; (3) the same 32 contact-row
+evaluations spent as iterations (32x1, holds) versus substeps (4x8, overdraws);
+(4) the band-limited basis, necessary but not sufficient; (5) the last-resort
+storage bound as containment, with a true-scale penetration cross-section; and
+(6) a decision card. It was rendered headlessly from frozen traces and the
+bundled result CSVs — no interactive capture — by
+`benchmarks/paper_fig/make_short_video.py`.
 
-It is deliberately not only a success reel. The steel-board case shows the
-governed run tracking the reference closely; the soft-board case that follows
-shows the same bound suppressing legitimate motion, captioned *bounded, but not
-faithful*, and the closing card states what the paper claims and what it does
-not.
+It is deliberately not a success reel. It ends on the operating-guide decision
+rule, not on the guardrail: the storage bound appears only as last-resort
+containment, captioned *bounded, but not faithful*, and every on-screen number
+is read live from the bundled data.
 
 ## 6. Verifying this bundle
 

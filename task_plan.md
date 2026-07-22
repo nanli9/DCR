@@ -444,3 +444,26 @@ plan is silent, propose and mark the choice.
   DCR/real-time clean. Residuals logged for Stage E: L354 caption bare-"XPBD
   exceeds 1 in 8/24" → qualify; L94 keyword "passivity" → reconsider; L377
   Table-1 "modal weight: explicit" → lock as contact-weight (E6a lock).
+
+## 2026-07-21 — Stage F supplementary video BUILT
+
+Goal (from `prompts/mig_short_video_boot.md`): build the §12 decision-oriented
+supplementary video and ship it in the E0 supplement.
+
+| # | status | step |
+|---|---|---|
+| 1 | complete | Read §12, asset inventory, claim sheet, decision table, and the three pipeline scripts. |
+| 2 | complete | Decide beat 3 = 2-D equal-cost curve panel (not 3-D poses); penetration = true-scale 2-D cross-section. |
+| 3 | complete | Write `make_short_video.py` reusing the teaser's locked-camera 3-D beats + 4 new 2-D beats reading live from frozen CSVs. |
+| 4 | complete | Inspect every beat at high-res; fix schematic layout, alloc label clip, penetration clarity; trim to 52.0 s. |
+| 5 | complete | Verify: in 45–55 s window, 1.0 MB (<200 MB), `-map_metadata -1` (no identity), six beats end on decision card. |
+| 6 | complete | Repoint `make_supplement.py` to `mig_short_video.mp4`, rewrite §5; re-run → scan PASS, 63/63 checksums, smoke PASSED. |
+
+Discipline honored: every on-screen number → frozen source; ledger never called
+"passivity"; modal step never called "explicit"; AVBD only as a brief control
+(decision card item 1); video ends on the operating guide, not the governor.
+
+**Remaining Stage F tail** (not in this task): `\acmSubmissionID{}` after
+EasyChair opens 2026-07-25; final supplement re-hash with the ID. Then **Stage
+G**: six isolated reviewers on final PDF + video + supplement vs the `32f2951d`
+fallback.
