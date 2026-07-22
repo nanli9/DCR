@@ -2353,3 +2353,114 @@ only, one machine, N=1 per cell; AVBD/impulse hosts and relax 1.0 unmeasured;
 Table 2's corrective-impulse and λ-variance columns unmeasured for the gap arm;
 active-set chatter uncharacterized; per-clamp cost (an m×m solve, m ≤ 8 observed)
 unmeasured; gross-supply exposure may grow if preserved sag springs back.
+
+---
+
+## R8c — gap-preserving projection PROMOTED to the paper's method (2026-07-22)
+
+Supersedes R8b's status: the projection is no longer a follow-up note in
+Limitations, it is §4's `\eqref{eq:gamma}` and Table 2. **Default is still OFF in
+code** (`sol._psv_gap_preserving`); every paper number below comes from an
+explicit opt-in run, and the frozen radial artifacts are untouched and still
+reproduce (`run_governed_accuracy.py --check-frozen` → PASS; `tests/avbd_native/`
+233 passed / 30 skipped; the radial arm of every A/B reproduces E-S1/E-S3).
+
+Machine: macOS 15.2, Apple M4 (arm64), CPython 3.12.12.
+
+#### Commands
+```sh
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_solver_matrix.py \
+    --gap-preserving --out solver_matrix_gap
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_solver_matrix.py \
+    --gap-preserving --budgets 1x8,2x4 --relaxes 0.7 --out solver_matrix_deployed_gap
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_projection_validity.py \
+    --arms radial,gap,ungov --scenes shelf,ledge --budgets 4x1,8x2 --relax 0.7 \
+    --out projection_validity_arms_r07          # and --relax 1.0 -> _r10
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_projection_validity.py \
+    --arms radial,gap,ungov --scenes shelf,ledge --budgets 16x4,32x1 --relax 0.7 \
+    --out projection_validity_arms_converged
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_governed_accuracy.py \
+    --gap-preserving --out governed_accuracy_gap
+.venv/bin/python benchmarks/paper_eval/x1_passivity/run_governed_accuracy.py \
+    --scene shelf --cell 1x8 --relax 0.7 --gap-preserving --out governed_accuracy_1x8_gap
+.venv/bin/python benchmarks/paper_eval/verify_paper_numbers.py --tex paper/main_short.tex
+```
+All of the above are asserted by `verify_paper_numbers.py` (**43 passed, 0
+failed**), which gained seven checks for this section.
+
+#### Coverage now equals the radial arm's
+All **three hosts** carry the projection (`solver_xpbd.py`, `solver_6dof.py` ×2
+call sites, `solver_impulse.py`), so §4's "runs identically in all three hosts"
+is true. The active set is chosen by a **solver-agnostic gap criterion**
+(`passivity.active_rows_from_gaps`: row active iff `C ≤ margin`, priority `−C`),
+not by λ: two of the three hosts expose no host-side multiplier, and the
+multipliers are not the same object across hosts. This replaced the λ-ordered
+criterion of R8b and changes its numbers (better on ledge, worse on shelf).
+
+**72-cell sweep + 18 deployed = 90 governed cells: 0 invariant failures, worst
+`max_net_excess` 3.55×10⁻¹⁵ J** (the radial arm's frozen figure is 1.1×10⁻¹³ J).
+Worst governed ratio: XPBD **1.1455** (radial 1.2121), AVBD **1.7003** (radial
+1.3132), impulse 0.5314 (never clamps, both arms). AVBD's is *higher* because
+preserving the surface stores what the bound permits rather than the least it
+can — the invariant still holds; R is a severity diagnostic, not the bound.
+
+#### The three-arm penetration decomposition (paper Table 2 + §4.2)
+The `ungov` arm (clamp disabled) is the control that attributes the penetration.
+Worst end-of-substep gap violation [mm], measured identically in all arms:
+
+| cell | relax | unclamped | scaled (radial) | preserved | scaled/unclamped | preserved/unclamped |
+|---|---:|---:|---:|---:|---:|---:|
+| shelf 4×1 | 0.7 | 6.16 | 21.59 | 8.31 | 3.50× | 1.35× |
+| shelf 8×2 | 0.7 | 0.50 | 6.43 | 0.50 | 12.77× | **0.99×** |
+| ledge 4×1 | 0.7 | 8.80 | 21.19 | 17.79 | 2.41× | 2.02× |
+| ledge 8×2 | 0.7 | 0.91 | 4.08 | 0.93 | 4.50× | 1.03× |
+| shelf 4×1 | 1.0 | 4.14 | 25.78 | 12.24 | 6.22× | 2.96× |
+| shelf 8×2 | 1.0 | 0.17 | 7.91 | 1.05 | **47.6×** | 6.34× |
+| ledge 4×1 | 1.0 | 5.07 | 24.50 | 17.55 | 4.83× | 3.46× |
+| ledge 8×2 | 1.0 | 0.37 | 5.20 | 1.12 | 14.06× | 3.02× |
+
+So: **whole-state amplification 2.4–47.6×, preserving 1.0–6.3×**, and preserving
+beats scaling in **every** cell by 1.19–12.87×. **Converged control**
+(`projection_validity_arms_converged.csv`, 16×4 and 32×1, both scenes, all three
+arms): **0 clamps in every cell**, penetration 0.011–0.124 mm, all three arms
+identical. That is the attribution the paper now states: the penetration
+originates in the truncated row, and a projection only amplifies it.
+
+**The ledge 4×1 exception is not fixable by a better projection.** Its
+`eqs_over_ceiling_max` is **340×** — the quasi-static energy of the *observed*
+surface exceeds the entire ceiling by two orders — so that surface is itself the
+injection artifact and no bound-respecting projection can preserve it.
+
+#### Accuracy, same cell and references (shelf 8×2 relax 0.7)
+| quantity | ungoverned | scaled | **preserved** | reference |
+|---|---:|---:|---:|---:|
+| peak E_mod [J] | 1555.6 | 29.56 | **28.68** | 7.92 (oracle) / 8.22 (xpbd) |
+| energy error, oracle | 196.5× | 3.733× | **3.622×** | — |
+| energy error, xpbd-converged | 189.2× | 3.594× | **3.487×** | — |
+| ‖d−d_ref‖∞ [mm] (oracle) | 6.50 (32.5%) | 14.19 (70.9%) | **9.24 (46.2%)** | peak 20.0 |
+| surviving peak sag [mm] | 24.12 | 6.01 | **12.55** | 20.48 |
+| E>10 kHz at peak | 99.63% | 97.66% | **89.76%** | 0% |
+
+Deployed 1×8 cell: energy 2823× → **3.81×**; Linf 107.7% → **29.7%** of the
+reference peak (radial: 96%).
+
+#### The honest costs, all in the paper
+1. **The corrective transient does not improve.** 8×2 cells: next-substep normal
+   impulse **6.9–8.8×** steady state and λ-variance **50–61×** for the preserving
+   arm, against 3.7–8.9× and 5.6–62× radial. Fewer millimetres, not a gentler
+   recovery. (The 4×1 cells clamp ~every substep, so their ratio has no valid
+   denominator and is printed as ---, exactly as before.)
+2. **AVBD's worst governed R rises** 1.31 → 1.70 (above).
+3. **Cost**: one m×m solve per clamped substep, m ≤ 8 active rows observed.
+4. Unbuilt: load-weighted subspace selection instead of whole rows, and
+   one-sided (inequality) constraints — both target the ledge 4×1 regime.
+
+#### Two pre-existing errors found while doing this
+- **`main_short.tex` printed "worst realized ratio ... 0.87 (augmented-Lagrangian)"**,
+  which is stale: `solver_matrix.csv` gives **1.3132**. The 0.87 traces to the
+  line-239 summary above, written pre-trapezoidal-W_g fix, and looks like a
+  transcription of AVBD's `gamma_min` 0.8788. `verify_paper_numbers.py` never
+  checked it. Corrected in the rewrite (and now checked).
+- **`projection_validity.csv` was clobbered** by a default-`--out` smoke test
+  during this session and restored with `git checkout`. The harness now takes
+  `--arms`; any future arm sweep MUST pass an explicit `--out`.

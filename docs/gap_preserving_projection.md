@@ -125,3 +125,32 @@ rather than silently applied.
    ≤ 8 observed). Unmeasured; the shipped γ is a scalar.
 6. **Gross-supply exposure** (the 102–118 % opposite-channel diagnostic) may grow
    if preserved sag springs back and is re-credited. Unmeasured.
+
+---
+
+## 2026-07-22 (later): promoted to the paper's method
+
+The projection is now `\eqref{eq:gamma}` in `paper/main_short.tex` §4 and the
+subject of Table 2, not a Limitations footnote. What changed since the section
+above was written:
+
+1. **All three hosts carry it** (`solver_xpbd.py`, `solver_6dof.py` ×2 call
+   sites, `solver_impulse.py`), so §4's "runs identically in all three hosts"
+   is true. The AVBD/impulse call sites project the *stacked* `[q; a_cargo…]`
+   state, since their ledgers span cargo blocks; cargo carries no support-row
+   column, so it lands in the contact-invisible remainder and is scaled.
+2. **The active set is now gap-based, not λ-based** (`active_rows_from_gaps`):
+   a row is active iff its gap has closed, priority `−C`. Two of the three
+   hosts expose no host-side multiplier, and the multipliers are not the same
+   object across hosts, so λ could not be the shared criterion. This changed the
+   numbers (better on ledge, worse on shelf) — the λ variant's figures in the
+   section above are superseded.
+3. **The ungoverned control arm** is what licenses the paper's attribution
+   claim. Full numbers, and the two pre-existing paper errors this pass turned
+   up, are in `mig2026_results_ledger.md` §R8c.
+
+Headline as it now stands: whole-state scaling amplifies the truncated solve's
+own penetration by 2.4–47.6×; preserving the observed surface, by 1.0–6.3×; at
+converged budgets no clamp fires at all and all three arms are identical. The
+corrective transient does **not** improve, and ledge 4×1 remains unfixable by
+any bound-respecting projection (its observed surface costs 340× the ceiling).

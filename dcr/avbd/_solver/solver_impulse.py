@@ -271,6 +271,10 @@ class SolverImpulse:
         # §15 passivity (passivity.py — shared with both native backends).
         self._enforce_modal_passivity = False   # behaviour-neutral default
         self._psv_monitor_only = False
+        # Gap-preserving projection (opt-in; see SolverXPBD for the rationale).
+        self._psv_gap_preserving = False
+        self._psv_gap_margin = 0.0
+        self._psv_gap_info: dict | None = None
         self._modal_eta = 1.0
         self._psv_ledger = None
         self._psv_Il = None
@@ -969,6 +973,24 @@ class SolverImpulse:
 
     # ---- §15 passivity -------------------------------------------------------
 
+    def _active_support_rows(self):
+        """((m,r) U_y, (m,) priority) for the load-bearing support rows, by the
+        same solver-agnostic gap criterion the other hosts use
+        (passivity.active_rows_from_gaps)."""
+        from .passivity import active_rows_from_gaps
+        q = np.asarray(self._q, dtype=np.float64)
+        if not self._support or q.size == 0:
+            return np.zeros((0, q.size)), np.zeros(0)
+        U = np.empty((len(self._support), q.size), dtype=np.float64)
+        gaps = np.empty(len(self._support), dtype=np.float64)
+        for i, sc in enumerate(self._support):
+            R = _quat_to_R(self._Q[sc.bi])
+            corner_y = float(self._X[sc.bi][1]) + float((R @ sc.off)[1])
+            U[i] = sc.U_y
+            gaps[i] = corner_y - (sc.y_rest + float(sc.U_y @ q))
+        return active_rows_from_gaps(U, gaps,
+                                     getattr(self, "_psv_gap_margin", 0.0))
+
     def _modal_energy_total(self) -> float:
         """Modal mechanical energy over support + ALL cargo blocks (the ledger
         is global across the network, report §2)."""
@@ -1007,16 +1029,54 @@ class SolverImpulse:
         budget = self._psv_ledger.deposit(rigid_loss)
         gamma = 1.0
         if self._enforce_modal_passivity and not self._psv_monitor_only:
-            gamma = passivity_gamma(e_modal_new, E_modal_pre, budget,
-                                    tol=self._psv_ledger.tol)
-            if gamma < 1.0:
-                self._q *= gamma
-                self._qdot *= gamma
-                for bi in self._cargo:
-                    self._cargo_a[bi] *= gamma
-                    self._cargo_adot[bi] *= gamma
-                e_modal_new *= gamma * gamma
-                self.last_modal_KE *= gamma * gamma
-                self.last_modal_PE *= gamma * gamma
+            if getattr(self, "_psv_gap_preserving", False):
+                # Gap-preserving projection: same bound, admissible point chosen
+                # to hold the load-bearing surface fixed (passivity.py). The
+                # ledger's E_mod spans support + every cargo block, so the
+                # projection must see the same STACKED state; cargo amplitudes
+                # carry no support-row column, so they land in the
+                # contact-invisible remainder and are scaled, never pinned.
+                from .passivity import (gap_preserving_projection,
+                                        modal_mech_energy)
+                U_s, pri = self._active_support_rows()
+                r = int(np.asarray(self._q).size)
+                bis = list(self._cargo)
+                qs = [self._q] + [self._cargo_a[bi] for bi in bis]
+                qds = [self._qdot] + [self._cargo_adot[bi] for bi in bis]
+                kqs = [self._kq] + [self._cargo_kq[bi] for bi in bis]
+                mqs = [self._mq] + [self._cargo_mq[bi] for bi in bis]
+                q_st, qd_st = np.concatenate(qs), np.concatenate(qds)
+                kq_st, mq_st = np.concatenate(kqs), np.concatenate(mqs)
+                U_st = np.zeros((U_s.shape[0], q_st.size), dtype=np.float64)
+                if U_s.shape[0]:
+                    U_st[:, :r] = U_s
+                q_n, qd_n, gamma, info = gap_preserving_projection(
+                    q_st, qd_st, kq_st, mq_st, U_st,
+                    E_modal_pre, budget, tol=self._psv_ledger.tol,
+                    row_priority=pri)
+                self._psv_gap_info = info
+                if gamma < 1.0:
+                    self._q, self._qdot = q_n[:r].copy(), qd_n[:r].copy()
+                    o = r
+                    for bi in bis:
+                        k = self._cargo_a[bi].size
+                        self._cargo_a[bi] = q_n[o:o + k].copy()
+                        self._cargo_adot[bi] = qd_n[o:o + k].copy()
+                        o += k
+                    self.last_modal_KE, self.last_modal_PE = modal_mech_energy(
+                        self._qdot, self._q, self._mq, self._kq)
+                    e_modal_new = self._modal_energy_total()
+            else:
+                gamma = passivity_gamma(e_modal_new, E_modal_pre, budget,
+                                        tol=self._psv_ledger.tol)
+                if gamma < 1.0:
+                    self._q *= gamma
+                    self._qdot *= gamma
+                    for bi in self._cargo:
+                        self._cargo_a[bi] *= gamma
+                        self._cargo_adot[bi] *= gamma
+                    e_modal_new *= gamma * gamma
+                    self.last_modal_KE *= gamma * gamma
+                    self.last_modal_PE *= gamma * gamma
         self._psv_ledger.commit(e_modal_new - E_modal_pre, budget, gamma,
                                 e_modal_now=e_modal_new)

@@ -81,7 +81,8 @@ TOL = 0.0            # exact: same code path, same seed, same machine
 F_STIFF = 1.0e4      # Hz; sits inside the shelf spectrum's 2.0k..20.7k gap
 
 
-def run_arm(scene, solver, K, S, relax, nframes, *, governed, settle=8):
+def run_arm(scene, solver, K, S, relax, nframes, *, governed, settle=8,
+            gap_preserving=False):
     """One arm. `governed` True leaves the real gamma live (the arm under
     test); False neuters it to 1.0 so the run is provably un-perturbed."""
     t0 = time.perf_counter()
@@ -96,6 +97,7 @@ def run_arm(scene, solver, K, S, relax, nframes, *, governed, settle=8):
         # as run_solver_matrix.py's ON column does (E-S1b caveat 3). This is a
         # measurement-side override of a production default, not a solver edit.
         sol._psv_monitor_only = False
+        sol._psv_gap_preserving = bool(gap_preserving)
 
     orig_gamma = _psv_mod.passivity_gamma
     if not governed:
@@ -208,6 +210,9 @@ def main():
     ap.add_argument("--sag-budget", default="500x1",
                     help="converged, unclamped budget defining the static sag")
     ap.add_argument("--check-frozen", action="store_true")
+    ap.add_argument("--gap-preserving", action="store_true",
+                    help="run the GOVERNED arm with the gap-preserving "
+                         "projection instead of the shipped radial gamma")
     ap.add_argument("--out", default="governed_accuracy")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
@@ -226,7 +231,8 @@ def main():
     res, traces = {}, {}
     for name, solver, k, s, gov in arms:
         m, D = run_arm(args.scene, solver, k, s, args.relax, args.nframes,
-                       governed=gov)
+                       governed=gov,
+                       gap_preserving=(gov and args.gap_preserving))
         res[name], traces[name] = m, D
         sag_med, sag_pk = _sag(D)
         print(f"  {name:15s} {solver:7s} {k}x{s} gov={int(gov)}: "

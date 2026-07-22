@@ -352,7 +352,7 @@ class SolverXPBD:
         # every frozen paper number bit-identical — the enforced bound is the
         # same either way (passivity.gap_preserving_projection).
         self._psv_gap_preserving = False
-        self._psv_gap_lam_tol = 0.0   # row counts as load-bearing when lam > tol
+        self._psv_gap_margin = 0.0    # row is load-bearing when its gap <= margin
         self._psv_gap_info: dict | None = None   # last projection's rung/scale
         # Cargo (Stage 4): augmented modal vector Q = [q_support; a_cargo…].
         self._cargo: dict = {}        # body_idx -> cargo body model
@@ -1308,13 +1308,19 @@ class SolverXPBD:
         (λ = 0) are excluded so the preserved set stays thin — on the table scene
         200 rows would otherwise reach rank r and pin the whole state.
         """
-        tol = self._psv_gap_lam_tol
-        act = [sc for sc in self._support if sc.lam > tol]
-        if not act:
+        from .passivity import active_rows_from_gaps
+        if not self._support:
             return (np.zeros((0, int(np.asarray(self._q).size)), dtype=np.float64),
                     np.zeros(0, dtype=np.float64))
-        return (np.asarray([sc.U_y for sc in act], dtype=np.float64),
-                np.asarray([sc.lam for sc in act], dtype=np.float64))
+        q = np.asarray(self._q, dtype=np.float64)
+        U = np.empty((len(self._support), q.size), dtype=np.float64)
+        gaps = np.empty(len(self._support), dtype=np.float64)
+        for i, sc in enumerate(self._support):
+            R = _quat_to_R(np.asarray(self._Q[sc.bi], dtype=np.float64))
+            corner_y = float(self._X[sc.bi][1]) + float((R @ sc.off)[1])
+            U[i] = sc.U_y
+            gaps[i] = corner_y - (sc.y_rest + float(sc.U_y @ q))
+        return active_rows_from_gaps(U, gaps, self._psv_gap_margin)
 
     # -- contact generation -------------------------------------------------
     def _collect_contacts(self) -> list[_Contact]:

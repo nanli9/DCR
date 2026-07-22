@@ -70,7 +70,7 @@ NFRAMES = 100    # logged frames        (matches the reference harness)
 
 
 def one(build_fn, solver, iters, subs, relax, enforce, nframes=NFRAMES,
-        settle=SETTLE, eta=1.0):
+        settle=SETTLE, eta=1.0, gap_preserving=False):
     """Run one cell. Returns the metric dict; never raises on blow-up."""
     t0 = time.perf_counter()
     H = build_fn(device="cpu", iterations=iters, avbd_substeps=subs,
@@ -85,6 +85,8 @@ def one(build_fn, solver, iters, subs, relax, enforce, nframes=NFRAMES,
     # gamma-projection. apply_passivity() forces monitor-only for avbd (its
     # production default); override so the ON column is comparable.
     sol._psv_monitor_only = False
+    # Follow-up projection (default OFF reproduces every frozen number).
+    sol._psv_gap_preserving = bool(gap_preserving)
 
     w = H.world
     ib = w._descs[H.impactor_idx].dcr_body
@@ -140,6 +142,10 @@ def main():
                     help="run enforcement ON for every cell, or only for cells "
                          "whose OFF run injects (ratio > 1)")
     ap.add_argument("--nframes", type=int, default=NFRAMES)
+    ap.add_argument("--gap-preserving", action="store_true",
+                    help="run the ON column with the gap-preserving projection "
+                         "instead of the shipped radial gamma (follow-up; the "
+                         "OFF column is unaffected either way)")
     ap.add_argument("--out", default="solver_matrix")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
@@ -165,7 +171,8 @@ def main():
                     off = one(fn, solver, it, su, relax, False, args.nframes)
                     injects = (not off["finite"]) or off["ratio"] > 1.0
                     if args.on_mode == "all" or injects:
-                        on = one(fn, solver, it, su, relax, True, args.nframes)
+                        on = one(fn, solver, it, su, relax, True, args.nframes,
+                                 gap_preserving=args.gap_preserving)
                     else:
                         on = {k: None for k in off}
                         on["finite"] = None

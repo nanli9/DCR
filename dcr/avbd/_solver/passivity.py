@@ -278,6 +278,36 @@ def quasi_static_split(q, Kq, U_c, rcond: float = 1e-10):
     return q_qs, q - q_qs, max(E_qs, 0.0)
 
 
+def active_rows_from_gaps(U_rows, gaps, margin: float = 0.0):
+    """Select the load-bearing support rows for the gap-preserving projection.
+
+    A row is ACTIVE when its gap `C = corner_y − (y_rest + U_y·q)` has closed
+    (`C ≤ margin`): the corner is resting on, or already inside, the deformed
+    surface, so lifting that surface moves it. Rows with an open gap are excluded
+    — the surface may rise under them freely — which keeps the preserved set thin
+    (200 table rows would otherwise reach rank r and pin the whole state).
+
+    Priority is `−C`, so the most deeply engaged rows are preserved first when
+    the budget cannot fund all of them (`largest_feasible_prefix`).
+
+    This criterion is deliberately SOLVER-AGNOSTIC: it reads only geometry and
+    the modal state, both of which every host has, so the same projection runs
+    identically on the position-based, augmented-Lagrangian and implicit hosts
+    (the multiplier is not the same object across them, and two of the three do
+    not expose one host-side at all).
+
+    Returns (U_active (m',r), priority (m',)).
+    """
+    U = np.asarray(U_rows, dtype=np.float64)
+    g = np.asarray(gaps, dtype=np.float64)
+    if U.ndim != 2 or U.shape[0] == 0:
+        return np.zeros((0, U.shape[1] if U.ndim == 2 else 0)), np.zeros(0)
+    m = g <= margin
+    if not np.any(m):
+        return np.zeros((0, U.shape[1])), np.zeros(0)
+    return U[m], -g[m]
+
+
 def largest_feasible_prefix(q, Kq, U_c, ceiling: float, rcond: float = 1e-10):
     """Largest k such that preserving the FIRST k rows of U_c costs ≤ ceiling.
 

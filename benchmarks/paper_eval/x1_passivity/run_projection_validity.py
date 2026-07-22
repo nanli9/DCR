@@ -92,13 +92,18 @@ def _momentum(sol):
     return (m[:, None] * np.asarray(sol._V, dtype=np.float64))[dyn].sum(axis=0)
 
 
-def run_cell(scene, iters, subs, relax, nframes, settle=8):
+def run_cell(scene, iters, subs, relax, nframes, settle=8, arm="radial"):
+    """arm: 'radial' (shipped whole-state gamma, the paper's Table 2),
+    'gap' (gap-preserving projection, follow-up), or 'ungov' (clamp disabled --
+    the control that separates the SOLVER's own penetration from the
+    projection's contribution)."""
     build = SCENES[scene]
     H = build(device="cpu", iterations=iters, avbd_substeps=subs, solver="xpbd")
     sol = H.world._solver
     apply_relax(sol, "xpbd", relax)
     sol._modal_symplectic = True     # forces the HOST path (the clamp is host-only)
-    apply_passivity(sol, "xpbd", enable=True, eta=1.0)
+    apply_passivity(sol, "xpbd", enable=(arm != "ungov"), eta=1.0)
+    sol._psv_gap_preserving = (arm == "gap")
     led = sol._psv_ledger
     h_sub = sol.dt / sol.substeps
 
@@ -107,15 +112,30 @@ def run_cell(scene, iters, subs, relax, nframes, settle=8):
 
     # ---- (i) pre-scale capture: patch the module attribute ----------------
     orig_gamma = _psv_mod.passivity_gamma
+    orig_gap = _psv_mod.gap_preserving_projection
 
     def gamma_wrap(e_new, e_old, budget, tol=1e-12):
-        g = orig_gamma(e_new, e_old, budget, tol=tol)
+        g = 1.0 if arm == "ungov" else orig_gamma(e_new, e_old, budget, tol=tol)
         rec["gamma"] = float(g)
         rec["pre_viol"] = _viol(sol)
         rec["pre_P"] = _momentum(sol)
-        return g                                   # unchanged: no behaviour change
+        return g                     # radial/ungov: unchanged behaviour
+
+    def gap_wrap(q, qd, Kq, Mq, U_c, e_old, budget, tol=1e-12, **kw):
+        rec["pre_viol"] = _viol(sol)
+        rec["pre_P"] = _momentum(sol)
+        out = orig_gap(q, qd, Kq, Mq, U_c, e_old, budget, tol=tol, **kw)
+        rec["gamma"] = float(out[2])
+        rec["rung"] = int(out[3]["rung"])
+        # How unaffordable is the observed surface? E_qs/ceiling > 1 means no
+        # bound-respecting projection can preserve it (the surface is itself the
+        # injection artifact); this is what distinguishes the ledge 4x1 cell.
+        c = float(out[3]["ceiling"])
+        rec["eqs_over_ceiling"] = float(out[3]["E_qs"]) / c if c > 0 else float("nan")
+        return out
 
     _psv_mod.passivity_gamma = gamma_wrap
+    _psv_mod.gap_preserving_projection = gap_wrap
 
     # ---- (ii) post-scale capture: wrap the ledger's commit ----------------
     orig_commit = led.commit
@@ -137,7 +157,10 @@ def run_cell(scene, iters, subs, relax, nframes, settle=8):
         lam = _lam(sol)
         steps.append(dict(
             gamma=rec.get("gamma", 1.0),
-            pre_viol=rec.get("pre_viol", float("nan")),
+            rung=rec.get("rung", 0),
+            eqs_over_ceiling=rec.get("eqs_over_ceiling", float("nan")),
+            end_viol=_viol(sol),          # end-of-substep, EVERY substep: the
+            pre_viol=rec.get("pre_viol", float("nan")),   # arm-comparable metric
             post_viol=rec.get("post_viol", float("nan")),
             dP_proj=float(np.linalg.norm(rec["post_P"] - rec["pre_P"]))
                     if "post_P" in rec and "pre_P" in rec else float("nan"),
@@ -153,6 +176,7 @@ def run_cell(scene, iters, subs, relax, nframes, settle=8):
             w.step()
     finally:
         _psv_mod.passivity_gamma = orig_gamma      # always restore the module
+        _psv_mod.gap_preserving_projection = orig_gap
 
     # ---- reduce -----------------------------------------------------------
     n = len(steps)
@@ -183,9 +207,20 @@ def run_cell(scene, iters, subs, relax, nframes, settle=8):
     dPs_c_med, dPs_c_max = med_max(dPs_c)
     dPs_f_med, _ = med_max(dPs_f)
 
+    end_med, end_max = med_max([s["end_viol"] for s in steps])
     return dict(
-        scene=scene, iters=iters, substeps=subs, relax=relax,
+        scene=scene, iters=iters, substeps=subs, relax=relax, arm=arm,
         n_substeps=n, n_clamped=len(clamped),
+        rung1=sum(1 for k in clamped if steps[k]["rung"] == 1),
+        rung1b=sum(1 for k in clamped if steps[k]["rung"] == 11),
+        rung2=sum(1 for k in clamped if steps[k]["rung"] == 2),
+        # end-of-substep penetration over EVERY substep: the only metric that is
+        # comparable across arms (the ungoverned arm has no projection point).
+        gap_viol_end_median_m=end_med, gap_viol_end_max_m=end_max,
+        eqs_over_ceiling_max=max(
+            [steps[k]["eqs_over_ceiling"] for k in clamped
+             if steps[k]["eqs_over_ceiling"] == steps[k]["eqs_over_ceiling"]],
+            default=float("nan")),
         gamma_min=min((steps[k]["gamma"] for k in clamped), default=1.0),
         gap_viol_post_median_m=post_med, gap_viol_post_max_m=post_max,
         gap_viol_pre_median_m=pre_med, gap_viol_pre_max_m=pre_max,
@@ -206,6 +241,9 @@ def main():
     ap.add_argument("--budgets", default="4x1,8x2")
     ap.add_argument("--relax", type=float, default=0.7)
     ap.add_argument("--nframes", type=int, default=100)
+    ap.add_argument("--arms", default="radial",
+                    help="comma list from radial,gap,ungov (default: radial, "
+                         "which reproduces the frozen E-S3 table exactly)")
     ap.add_argument("--out", default="projection_validity")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
@@ -217,11 +255,16 @@ def main():
     print(f"### E-S3 post-projection contact validity (XPBD, relax={args.relax}, "
           f"{platform.machine()}) ###", flush=True)
     rows = []
+    arms = [a.strip() for a in args.arms.split(",") if a.strip()]
     for scene in scenes:
         for (it, su) in budgets:
-            r = run_cell(scene, it, su, args.relax, args.nframes)
+          for arm in arms:
+            r = run_cell(scene, it, su, args.relax, args.nframes, arm=arm)
             rows.append(r)
-            print(f"\n  {scene} {it}x{su}: clamp fired {r['n_clamped']}/"
+            print(f"\n  [{arm}] {scene} {it}x{su}: end-substep penetration "
+                  f"median={r['gap_viol_end_median_m']:.3e} m "
+                  f"worst={r['gap_viol_end_max_m']:.3e} m")
+            print(f"  {scene} {it}x{su}: clamp fired {r['n_clamped']}/"
                   f"{r['n_substeps']} substeps, min gamma={r['gamma_min']:.6g}")
             print(f"    (a) post-scale gap violation  median={r['gap_viol_post_median_m']:.3e} m"
                   f"  worst={r['gap_viol_post_max_m']:.3e} m"

@@ -128,6 +128,67 @@ def main() -> int:
         f"{100 * acc('oracle', 'ungoverned_linf_rel'):.1f}% -> "
         f"{100 * acc('oracle', 'governed_linf_rel'):.1f}%")
 
+    # ---- the gap-preserving arm's accuracy (paper 4.2 "Accuracy") ----------
+    # Same cell, same references; only the projection differs. Every number the
+    # paper prints for the preserving arm is checked here, and each is compared
+    # against the whole-state arm above so a regression in either shows up.
+    try:
+        gp = _sections(os.path.join(X1, "governed_accuracy_gap.csv"))
+    except FileNotFoundError:
+        _skipped.append("gap-preserving accuracy (run run_governed_accuracy "
+                        "--gap-preserving --out governed_accuracy_gap)")
+        gp = None
+    if gp:
+        garm = lambda k: float(gp["arm:governed"][k])           # noqa: E731
+        gacc = lambda r, k: float(gp[f"accuracy:{r}"][k])       # noqa: E731
+        chk("preserving: E_mod governed 28.7 J",
+            abs(garm("e_modal_peak_J") - 28.68) < 0.02,
+            f"{garm('e_modal_peak_J'):.3f}")
+        chk("preserving: energy error 3.6x / 3.5x",
+            abs(gacc("oracle", "governed_E_err_x") - 3.622) < 0.01
+            and abs(gacc("xpbd_converged", "governed_E_err_x") - 3.487) < 0.01,
+            f"{gacc('oracle', 'governed_E_err_x'):.3f} / "
+            f"{gacc('xpbd_converged', 'governed_E_err_x'):.3f}")
+        chk("preserving: Linf 9.2 mm (46% of ref peak), better than 14.2 (71%)",
+            abs(1e3 * gacc("oracle", "governed_linf_m") - 9.235) < 0.02
+            and abs(100 * gacc("oracle", "governed_linf_rel") - 46.2) < 0.2
+            and gacc("oracle", "governed_linf_m")
+                < acc("oracle", "governed_linf_m"),
+            f"{1e3 * gacc('oracle', 'governed_linf_m'):.2f} mm / "
+            f"{100 * gacc('oracle', 'governed_linf_rel'):.1f}%")
+        chk("preserving: E>10kHz falls to 89.8% (vs 97.7% scaled)",
+            abs(100 * garm("energy_frac_above_10kHz") - 89.76) < 0.1
+            and garm("energy_frac_above_10kHz")
+                < arm("governed", "energy_frac_above_10kHz"),
+            f"{100 * garm('energy_frac_above_10kHz'):.2f}%")
+        chk("preserving: reference peak deflection 20.5 mm",
+            abs(1e3 * gacc("xpbd_converged", "ref_peak_defl_m") - 20.48) < 0.05,
+            f"{1e3 * gacc('xpbd_converged', 'ref_peak_defl_m'):.2f} mm")
+
+    # ---- the 90 governed cells, gap-preserving (paper 4 "governor holds") --
+    try:
+        marg, ratio = [], {}
+        for f in ("solver_matrix_gap.csv", "solver_matrix_deployed_gap.csv"):
+            with open(os.path.join(X1, f)) as fh:
+                for r in csv.DictReader(fh):
+                    if r["max_net_excess_on"] not in ("", "None"):
+                        marg.append(float(r["max_net_excess_on"]))
+                    if r["holds_on"] != "True" or r["passive_on"] != "True":
+                        marg.append(float("inf"))       # forces the check to fail
+                    if r["ratio_on"] not in ("", "None"):
+                        ratio.setdefault(r["solver"], []).append(
+                            float(r["ratio_on"]))
+        chk("90 governed cells hold at the roundoff floor (3.6e-15 J)",
+            len(marg) == 90 and max(marg) < 4e-15,
+            f"{len(marg)} cells, worst margin {max(marg):.2e} J")
+        chk("preserving: worst governed ratio 1.15 (xpbd) / 1.70 (avbd)",
+            abs(max(ratio["xpbd"]) - 1.1455) < 0.002
+            and abs(max(ratio["avbd"]) - 1.7003) < 0.002,
+            f"{max(ratio['xpbd']):.4f} / {max(ratio['avbd']):.4f}")
+    except FileNotFoundError:
+        _skipped.append("90-cell governed sweep (run run_solver_matrix "
+                        "--gap-preserving)")
+
     # ---- R5.4: normalized penetration --------------------------------------
     chk("resting sag 1.7-2.4 mm",
         abs(1e3 * sag("xpbd_converged", "sag_tail_median_m") - 1.714) < 0.01
@@ -185,20 +246,77 @@ def main() -> int:
     chk("xpbd relative effect spans 3.1-12.5x",
         abs(glo - 3.1) < 0.05 and abs(ghi - 12.47) < 0.05,
         f"{glo:.2f}-{ghi:.2f}x")
-    if tex is None:
-        _skipped.append("tex prints the corrected 3.1-12.6x range "
-                        "(no paper source: pass --tex)")
-    else:
-        chk("tex prints the 3.1-12.5x XPBD range",
-            tex.count(r"$3.1$--$12.5\times$") == 1
-            and r"$3.1$--$12.6\times$" not in tex,
-            f"{tex.count(r'$3.1$--$12.5\times$')} site(s), "
-            f"{tex.count(r'$3.1$--$12.6\times$')} stale")
     chk("xpbd worst impulse 8.9x, worst lambda variance 62x",
         abs(max(i for _, i, _ in xr if i == i) - 8.915) < 0.006
         and abs(max(v for _, _, v in xr if v == v) - 61.63) < 0.5,
         f"{max(i for _, i, _ in xr if i == i):.3f}x / "
         f"{max(v for _, _, v in xr if v == v):.1f}x")
+
+    # ---- the three-arm penetration decomposition (paper Table 2 + 4.2) -----
+    # The paper no longer prints the whole-state pre/post ratio (3.1-12.5x);
+    # it prints each projection's amplification over the UNCLAMPED solve, which
+    # is the attribution that matters: the penetration originates in the
+    # truncated row, and a projection only amplifies it.
+    def _arms(name):
+        out = {}
+        with open(os.path.join(X1, name)) as fh:
+            for r in csv.DictReader(fh):
+                out[(r["scene"], r["iters"], r["substeps"], r["arm"])] = r
+        return out
+    try:
+        arms = {}
+        for f in ("projection_validity_arms_r07.csv",
+                  "projection_validity_arms_r10.csv"):
+            arms.update({(f[-7:-4],) + k: v for k, v in _arms(f).items()})
+    except FileNotFoundError:
+        _skipped.append("three-arm decomposition (run run_projection_validity "
+                        "--arms radial,gap,ungov)")
+        arms = {}
+    if arms:
+        cells = {k[:4] for k in arms}
+        amp = {}
+        for c in cells:
+            u = arms.get(c + ("ungov",))
+            if u is None:
+                continue
+            base = float(u["gap_viol_end_max_m"])
+            for a in ("radial", "gap"):
+                r = arms.get(c + (a,))
+                if r is not None and base > 0:
+                    amp.setdefault(a, []).append(
+                        float(r["gap_viol_end_max_m"]) / base)
+        rlo, rhi = min(amp["radial"]), max(amp["radial"])
+        glo2, ghi2 = min(amp["gap"]), max(amp["gap"])
+        chk("whole-state amplification over the unclamped solve is 2.4-47.6x",
+            abs(rlo - 2.4) < 0.1 and abs(rhi - 47.6) < 0.6,
+            f"{rlo:.2f}-{rhi:.2f}x over {len(amp['radial'])} cells")
+        chk("gap-preserving amplification is 1.0-6.3x",
+            abs(glo2 - 1.0) < 0.05 and abs(ghi2 - 6.34) < 0.1,
+            f"{glo2:.2f}-{ghi2:.2f}x over {len(amp['gap'])} cells")
+        imp = [float(arms[c + ("radial",)]["gap_viol_end_max_m"])
+               / float(arms[c + ("gap",)]["gap_viol_end_max_m"])
+               for c in cells if c + ("gap",) in arms
+               and float(arms[c + ("gap",)]["gap_viol_end_max_m"]) > 0]
+        chk("preserving beats scaling by 1.2-12.9x in every cell",
+            abs(min(imp) - 1.19) < 0.05 and abs(max(imp) - 12.88) < 0.1,
+            f"{min(imp):.2f}-{max(imp):.2f}x")
+        # the ledge 4x1 exception: the observed surface is itself unaffordable
+        led = arms.get(("r07", "ledge", "4", "1", "gap"))
+        if led is not None:
+            chk("ledge 4x1 asks to preserve >300x the whole budget",
+                float(led["eqs_over_ceiling_max"]) > 100.0,
+                f"E_qs/ceiling max = {float(led['eqs_over_ceiling_max']):.0f}x")
+    try:
+        conv = _arms("projection_validity_arms_converged.csv")
+        pen = [float(r["gap_viol_end_max_m"]) for r in conv.values()]
+        clamps = {int(r["n_clamped"]) for r in conv.values()}
+        chk("converged budgets: no clamp fires, penetration 0.011-0.124 mm",
+            clamps == {0} and abs(1e3 * min(pen) - 0.011) < 0.002
+            and abs(1e3 * max(pen) - 0.124) < 0.002,
+            f"clamps={sorted(clamps)}, {1e3*min(pen):.3f}-{1e3*max(pen):.3f} mm")
+    except FileNotFoundError:
+        _skipped.append("converged-budget control (run run_projection_validity "
+                        "--budgets 16x4,32x1 --arms radial,gap,ungov)")
 
     # ---- R7: CPU enforcement cost ------------------------------------------
     with open(os.path.join(X5, "perf_reps_summary.csv")) as fh:

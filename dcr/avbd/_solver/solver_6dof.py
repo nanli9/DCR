@@ -652,6 +652,10 @@ class Solver6DOF:
         self._modal_eta = 1.0
         self._psv_monitor_only = True   # AVBD is passive; monitor, don't clamp
         self._psv_ledger = None
+        # Gap-preserving projection (opt-in; see SolverXPBD for the rationale).
+        self._psv_gap_preserving = False
+        self._psv_gap_margin = 0.0
+        self._psv_gap_info: dict | None = None
         # E9: the REJECTED cross-term Schur q-block, resurrected behind a flag
         # (default OFF ⇒ shipped block-GS). See _solve_q_block. Measurement-only.
         self._modal_schur_crossterm = False
@@ -865,6 +869,32 @@ class Solver6DOF:
         if self._modal_device_resident is None:
             return str(dev).startswith("cuda")
         return bool(self._modal_device_resident)
+
+    def _active_support_rows(self, q_support):
+        """((m,r) U_y, (m,) priority) for the load-bearing support rows, by the
+        same solver-agnostic gap criterion the other hosts use
+        (passivity.active_rows_from_gaps). Reads only geometry and the modal
+        state, so it needs no host-side multiplier (this host does not expose
+        one, and it would not be the same object as the others' anyway)."""
+        from .passivity import active_rows_from_gaps, _quat_to_R
+        q = np.asarray(q_support, dtype=np.float64)
+        n = len(self._support_row_cidx)
+        if n == 0 or q.size == 0:
+            return np.zeros((0, q.size)), np.zeros(0)
+        X = self.x.numpy()
+        Qw = self._psv_quats_wxyz()
+        U = np.zeros((n, q.size), dtype=np.float64)
+        gaps = np.empty(n, dtype=np.float64)
+        for s, cidx in enumerate(self._support_row_cidx):
+            row = self._rows[cidx]
+            R = _quat_to_R(np.asarray(Qw[row.body_a], dtype=np.float64))
+            off = np.asarray(row.off_a, dtype=np.float64)
+            corner_y = float(X[row.body_a][1]) + float((R @ off)[1])
+            u = np.asarray(self._support_U_y_rows[s], dtype=np.float64)[:q.size]
+            U[s, :u.size] = u
+            gaps[s] = corner_y - (self._support_y_rest[s] + float(u @ q[:u.size]))
+        return active_rows_from_gaps(U, gaps,
+                                     getattr(self, "_psv_gap_margin", 0.0))
 
     def add_support_contact_corner(
         self,
@@ -2643,7 +2673,23 @@ class Solver6DOF:
             # (unclamped) ledger to CONFIRM passivity, don't perturb the solver.
             if self._psv_monitor_only:
                 gamma = 1.0
-            if gamma < 1.0:
+            elif self._psv_gap_preserving:
+                # Gap-preserving projection: same bound, admissible point chosen
+                # to hold the load-bearing surface fixed (passivity.py).
+                from .passivity import gap_preserving_projection
+                U_c, pri = self._active_support_rows(q)
+                q_n, qd_n, gamma, info = gap_preserving_projection(
+                    q, qd, self._Kq, self._Mq, U_c, self._E_modal_pre, budget,
+                    tol=self._psv_ledger.tol, row_priority=pri)
+                self._psv_gap_info = info
+                if gamma < 1.0:
+                    ke_new, pe_new = modal_mech_energy(qd_n, q_n, self._Mq,
+                                                       self._Kq)
+                    e_modal_new = ke_new + pe_new
+                    self._q_modal_host = q_n
+                    self._qdot_modal_host = qd_n
+                    self.q_modal.assign(q_n.astype(np.float32))
+            if gamma < 1.0 and not self._psv_gap_preserving:
                 self._q_modal_host = self._q_modal_host * gamma
                 self._qdot_modal_host = self._qdot_modal_host * gamma
                 self.q_modal.assign(self._q_modal_host.astype(np.float32))
@@ -3315,7 +3361,29 @@ class Solver6DOF:
                                     tol=self._psv_ledger.tol)
             if self._psv_monitor_only:
                 gamma = 1.0
-            if gamma < 1.0:
+            elif self._psv_gap_preserving:
+                # Augmented state Q = [q_support; a_cargo…]: the support rows
+                # carry no cargo columns, so cargo lands in the contact-invisible
+                # remainder and is scaled, never pinned (passivity.py).
+                from .passivity import gap_preserving_projection
+                r_s = int(np.asarray(self._q_modal_host).size)
+                U_s, pri = self._active_support_rows(self._q_aug[:r_s])
+                U_st = np.zeros((U_s.shape[0], self._q_aug.size),
+                                dtype=np.float64)
+                if U_s.shape[0]:
+                    U_st[:, :r_s] = U_s
+                q_n, qd_n, gamma, info = gap_preserving_projection(
+                    self._q_aug, self._qdot_aug, self._Kq_aug, self._Mq_aug,
+                    U_st, self._E_modal_pre, budget,
+                    tol=self._psv_ledger.tol, row_priority=pri)
+                self._psv_gap_info = info
+                if gamma < 1.0:
+                    ke_new, pe_new = modal_mech_energy(qd_n, q_n, self._Mq_aug,
+                                                       self._Kq_aug)
+                    e_modal_new = ke_new + pe_new
+                    self._q_aug, self._qdot_aug = q_n, qd_n
+                    self.q_modal.assign(q_n.astype(np.float32))
+            if gamma < 1.0 and not self._psv_gap_preserving:
                 self._q_aug = self._q_aug * gamma
                 self._qdot_aug = self._qdot_aug * gamma
                 self.q_modal.assign(self._q_aug.astype(np.float32))
