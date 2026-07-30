@@ -1,0 +1,237 @@
+% onesweep_refs.bib: NEW entries only for onesweep_short.tex.
+% Every key here is verified absent from references.bib. Existing keys
+% (wei2026earlyterm, giles2025avbd, macklin2016xpbd, macklin2019small,
+% tournier2015stable, chen2024vbd, catto2005iterative, you2026energy,
+% sheth2015, mueller2020xpbd, coevoet2020distant, peng2024reduced,
+% zobel2025unity, james2002dyrt, andrews2022contact) are cited from
+% references.bib via \bibliography{references,onesweep_refs}.
+% Venue and year of each new entry are taken from the novelty synthesis and
+% the three literature-lens records; none is invented.
+%
+% Bibliography audit 2026-07-24: author lists, titles, and bibliographic
+% fields below were re-verified against primary sources (DBLP, Crossref/DOI
+% resolvers, publisher pages). Corrections applied this pass:
+%   andrewserleben2017geometric  authors were wrong (Erleben was not an
+%                                 author) -> Andrews, Teichmann, Kry.
+%   andrews2019schur             authors were wrong (not Andrews/Erleben/
+%                                 Ferguson) -> Peiret, Andrews, Kovecses,
+%                                 Kry, Teichmann; the DBLP key is PeiretAKKT19.
+%   cetinaslan2019energyaware    title and author were wrong -> single author
+%                                 Cetinaslan; full title with "of Elastic
+%                                 Models on the GPU ... Algorithm".
+%   gomes2018cosim               published title is "A Survey", not
+%                                 "State of the Art".
+%   peiret2018interface          title was truncated ("... of Multiphysics
+%                                 Systems"); pages added.
+%   sadjina2016power             title was truncated (subtitle added); pages.
+%   gonzalez2019energyleak       pages added; the third author's given name was
+%                                 recorded as "Ali" here and is "Arash" in
+%                                 Crossref and Semantic Scholar (corrected
+%                                 2026-07-28; the 07-24 note claiming the
+%                                 author list was already correct was wrong).
+% Key names are left unchanged so the \cite sites need no edit; note that
+% andrewserleben2017geometric and andrews2019schur now carry surnames in
+% their keys that no longer match the lead author (cosmetic only).
+%
+% 2026-07-24 addition: peng2024softrobot is a COMPLETE-metadata new key for
+% doi 10.1016/j.robot.2024.104650 (verified via Crossref: Peng, Li, Jiang, Li;
+% Robotics and Autonomous Systems 175; art 104650; 2024). It supersedes the
+% incomplete tracked entry peng2024reduced (author "Peng, Haijun and others",
+% no volume) which onesweep_short.tex no longer cites, so the incomplete tracked
+% entry drops out of this paper's reference list. references.bib is untouched.
+
+@article{kubler2000coupling,
+  author  = {K{\"u}bler, Ralf and Schiehlen, Werner},
+  title   = {Two Methods of Simulator Coupling},
+  journal = {Mathematical and Computer Modelling of Dynamical Systems},
+  volume  = {6},
+  number  = {2},
+  pages   = {93--113},
+  year    = {2000},
+}
+
+@article{arnold2010stability,
+  author  = {Arnold, Martin},
+  title   = {Stability of Sequential Modular Time Integration Methods for
+             Coupled Multibody System Models},
+  journal = {Journal of Computational and Nonlinear Dynamics},
+  volume  = {5},
+  number  = {3},
+  pages   = {031003},
+  year    = {2010},
+}
+
+@article{sadjina2016power,
+  author  = {Sadjina, Severin and Kyllingstad, Lars T. and Skjong, Stian and
+             Pedersen, Eilif},
+  title   = {Energy Conservation and Power Bonds in Co-Simulations:
+             Non-Iterative Adaptive Step Size Control and Error Estimation},
+  journal = {Engineering with Computers},
+  volume  = {33},
+  pages   = {607--620},
+  year    = {2017},
+  doi     = {10.1007/s00366-016-0492-8},
+}
+
+@article{gomes2018cosim,
+  author  = {Gomes, Cl{\'a}udio and Thule, Casper and Broman, David and
+             Larsen, Peter Gorm and Vangheluwe, Hans},
+  title   = {Co-Simulation: A Survey},
+  journal = {ACM Computing Surveys},
+  volume  = {51},
+  number  = {3},
+  articleno = {49},
+  numpages = {33},
+  pages   = {49:1--49:33},
+  year    = {2018},
+  doi     = {10.1145/3179993},
+}
+
+@article{peiret2018interface,
+  author  = {Peiret, Albert and Gonz{\'a}lez, Francisco and K{\"o}vecses, J{\'o}zsef
+             and Teichmann, Marek},
+  title   = {Multibody System Dynamics Interface Modelling for Stable Multirate
+             Co-Simulation of Multiphysics Systems},
+  journal = {Mechanism and Machine Theory},
+  volume  = {127},
+  pages   = {52--72},
+  year    = {2018},
+  doi     = {10.1016/j.mechmachtheory.2018.04.016},
+}
+
+@article{gonzalez2019energyleak,
+  author  = {Gonz{\'a}lez, Francisco and Arbatani, Siamak and Mohtat, Arash and
+             K{\"o}vecses, J{\'o}zsef},
+  title   = {Energy-Leak Monitoring and Correction to Enhance Stability in the
+             Co-Simulation of Mechanical Systems},
+  journal = {Mechanism and Machine Theory},
+  volume  = {131},
+  pages   = {172--188},
+  year    = {2019},
+}
+
+@article{andrews2019schur,
+  author  = {Peiret, Albert and Andrews, Sheldon and K{\"o}vecses, J{\'o}zsef
+             and Kry, Paul G. and Teichmann, Marek},
+  title   = {Schur Complement-Based Substructuring of Stiff Multibody Systems
+             with Contact},
+  journal = {ACM Transactions on Graphics},
+  volume  = {38},
+  number  = {5},
+  articleno = {150},
+  numpages = {17},
+  pages   = {150:1--150:17},
+  year    = {2019},
+  doi     = {10.1145/3355621},
+}
+
+@article{andrewserleben2017geometric,
+  author  = {Andrews, Sheldon and Teichmann, Marek and Kry, Paul G.},
+  title   = {Geometric Stiffness for Real-Time Constrained Multibody Dynamics},
+  journal = {Computer Graphics Forum},
+  volume  = {36},
+  number  = {2},
+  pages   = {235--246},
+  year    = {2017},
+  doi     = {10.1111/cgf.13122},
+}
+
+% Completed 2026-07-28. The entry previously carried no editors, no series
+% volume, no address and no pages, and BibTeX emitted "Warning--empty address
+% in moreau1985shocks". Editors, volume 288, Vienna and 173--221 are taken from
+% the Springer chapter record, the HAL record and independent citing
+% bibliographies, which agree. No DOI is recorded: the Springer DOI for this
+% chapter carries an underscore, which ACM-Reference-Format prints as running
+% text and would break the build. The characterization in the body ("classical
+% reduced-mass shock loss") rests on secondary sources; the chapter itself is
+% paywalled and was not read.
+@incollection{moreau1985shocks,
+  author    = {Moreau, Jean Jacques},
+  title     = {Standard Inelastic Shocks and the Dynamics of Unilateral
+               Constraints},
+  booktitle = {Unilateral Problems in Structural Analysis},
+  editor    = {Del Piero, Gianpietro and Maceri, Franco},
+  series    = {CISM Courses and Lectures},
+  volume    = {288},
+  publisher = {Springer},
+  address   = {Vienna},
+  pages     = {173--221},
+  year      = {1985},
+}
+
+@article{anitescu1997lcp,
+  author  = {Anitescu, Mihai and Potra, Florian A.},
+  title   = {Formulating Dynamic Multi-Rigid-Body Contact Problems with Friction
+             as Solvable Linear Complementarity Problems},
+  journal = {Nonlinear Dynamics},
+  volume  = {14},
+  number  = {3},
+  pages   = {231--247},
+  year    = {1997},
+}
+
+@article{cetinaslan2019energyaware,
+  author  = {Cetinaslan, Ozan},
+  title   = {Position-Based Simulation of Elastic Models on the {GPU} with
+             Energy Aware Gauss-Seidel Algorithm},
+  journal = {Computer Graphics Forum},
+  volume  = {38},
+  number  = {8},
+  pages   = {41--52},
+  year    = {2019},
+  doi     = {10.1111/cgf.13759},
+}
+
+@misc{catto2024solver2d,
+  author       = {Catto, Erin},
+  title        = {Solver2D},
+  year         = {2024},
+  howpublished = {Box2D solver comparison project,
+                  \url{https://box2d.org/posts/2024/02/solver2d/}},
+  note         = {Posted February 2024; the sentence quoted in
+                  Section~1 is in the section ``Baumgarte Stabilization''},
+}
+
+% Concurrent companion submission, cited anonymously per double-blind rules.
+% Reused here: the 24-cell weight-swap experiment and the three shipped scenes.
+@misc{companion2026diagnosis,
+  author       = {{Anonymous}},
+  title        = {A Diagnostic Study of Finite-Iteration Energy Injection in
+                  Fixed-Budget Contact-to-Modal Coupling},
+  howpublished = {Companion paper, under anonymous review},
+  year         = {2026},
+}
+
+% Complete-metadata replacement for the incomplete tracked peng2024reduced.
+% Verified against Crossref (doi 10.1016/j.robot.2024.104650): reduced-order
+% deformable coordinates carried inside a position-based (XPBD) host.
+@article{peng2024softrobot,
+  author  = {Peng, Haijun and Li, Na and Jiang, Dianheng and Li, Fei},
+  title   = {Soft Robot Fast Simulation via Reduced Order Extended Position
+             Based Dynamics},
+  journal = {Robotics and Autonomous Systems},
+  volume  = {175},
+  pages   = {104650},
+  year    = {2024},
+  doi     = {10.1016/j.robot.2024.104650},
+}
+
+% Added 2026-07-28 by the reference-verification pass. The sentence quoted in
+% Sec. 1, "can inject an arbitrary amount of energy", is in this two-page
+% Real-Time Live! abstract (doi 10.1145/3721243.3735982, p. 2), NOT in the AVBD
+% TOG article (doi 10.1145/3731195), whose corresponding sentence reads "can
+% inject a significant amount of momentum". Both PDFs were grepped in full
+% before the citation at that one site was repointed here; giles2025avbd is
+% still cited, correctly, at the two sites that characterize the method rather
+% than quote it. Page count from the ACM Reference Format on the PDF.
+@inproceedings{giles2025rtl,
+  author    = {Giles, Chris and Diaz, Elie and Yuksel, Cem},
+  title     = {Crazy Fast Physics! {Augmented} Vertex Block Descent in Action!},
+  booktitle = {ACM SIGGRAPH 2025 Real-Time Live!},
+  year      = {2025},
+  pages     = {1--2},
+  numpages  = {2},
+  publisher = {Association for Computing Machinery},
+  address   = {New York, NY, USA},
+  doi       = {10.1145/3721243.3735982},
+}

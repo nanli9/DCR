@@ -279,6 +279,30 @@ correct as printed — do not "fix" it.
 |---|---|---|
 | 48 rows (shelf), 40 (ledge), 200 (table) | len(sol._support) | `scene_spec.csv : "support rows (eq. 1)"` |
 
+### §3.1 — scene spec now printed inline (added 2026-07-22, review response)
+
+| printed | value | source |
+|---|---|---|
+| E = 0.5 / 10 / 1.1 GPa | 5e8 / 1e10 / 1.1e9 Pa | `scene_spec.csv : "Young's modulus E"` |
+| density 600 / 500 / 770 kg m^-3 | same | `scene_spec.csv : density` |
+| impactor 6 / 50 / 5 kg, drop 0.50 / 0.80 / 0.50 m | same | `scene_spec.csv : "impactor mass", "impactor drop height"` |
+| rank 16 / 16 / 24, stiff cluster 6 / 4 / 14 | same | `scene_spec.csv : "modal rank r REALIZED", "of which stiff cluster"` |
+| modes 20 Hz–24.7 kHz / 118 Hz–191 kHz / 4.7–5.2 kHz | 20.3/24708; 118.1/190903; 4.7/5202 | `scene_spec.csv : "lowest mode", "highest mode"` |
+| omega_max·h = 1.3e3 / 1.0e4 / 2.7e2 at h=1/120 | 2*pi*f_max/120 | derived from `scene_spec.csv` highest mode |
+
+### Corrections applied 2026-07-22 (six-reviewer response)
+
+| was | now | why |
+|---|---|---|
+| "explicit per-mode compliance 1/(H_ii h^2 - 1)" as the modal contact weight | contact-row weight is W_q = M_q^-1 (true inverse mass); 1/(H_diag h^2 - 1) is the *modal-elastic restoring* compliance of the symplectic step | `solver_xpbd.py:341` + `:1133-1135` — the support contact uses the TRUE 1/M; the two are different constraints |
+| "carries explicit weight 1/(omega_i h)^2 ... whereas implicit 1/(1+(omega_i h)^2)" | over-weight ratio Eq. (4) = 1 + h·d_i + (omega_i h)^2 | the two printed expressions are asymptotically equal, so as written they could not mean opposite things |
+| "~200x the substep rate" (20 kHz cluster) | 83x this cell's 240 Hz substep rate | the cell under discussion is 8x2, so 1/h = 240 Hz, not 120 Hz |
+| "4.4e7 J worst case is the maximum of a 2.2–4.5e7 J band" | "anchor sits near the top of" | 4.5 > 4.4, so it is not the maximum |
+| "gravity/no-contact audit puts the control floor below 1e-3 J" (unqualified) | scoped to AVBD/implicit; XPBD injects ~1e3 J from resting settling | `e1_accounting_audit.csv`: XPBD resting_no_impact margin 1458 J (shelf 4x1); AVBD/impulse exactly 0 |
+| ring frequency "agrees to 0.4%" without condition | 0.4% at 1/960 only; aliases to 47.25 Hz at the deployed 1/120 | `ledge_convergence.csv : f_ring_native @ h_inv=120` |
+| runtime "0.9–3.4% of an 11–126 ms baseline" | 0.9–3.4% of the shelf/ledge 11–31 ms steps; table unresolved (+1.35±2.08, +0.04±1.43) | no pairing of the printed extremes reproduced the printed range; ledger §R7 already scoped it |
+| §5 validation mode count unstated | k=24, richer than the sweep's rank-16 ledge | `run_ledge_ladder.py:69,73` uses num_modes=24 |
+
 ### §3.2 — robustness ablation (E-C9)
 
 | printed | value | source |

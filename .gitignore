@@ -20,3 +20,8 @@ main.pdf
 build/
 # macOS Finder
 .DS_Store
+
+# Scratch dumps and figure backups from the revision rounds
+all.txt
+out56.txt
+figures/_orig_backup_*/
