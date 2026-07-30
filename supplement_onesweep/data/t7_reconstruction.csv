@@ -1,0 +1,22 @@
+check_id,group,n_cases,max_rel_err,max_abs_err,tol,binding,pass,note
+T7a_general_dE_formula,a,7000,8.943638220643972e-16,3.410605131648481e-13,1e-12,True,True,"sim dE == (T7-1) over kappa in[0.5,3] incl 1,2; raw pure-rel max=4.67e-12"
+T7a_general_dE_stable,a,7000,1.0242184497547278e-15,4.547473508864641e-13,1e-12,True,True,cancellation-free sim dE == (T7-1) (escale-floor proof); raw pure-rel max=4.49e-13
+T7a_sign_law,a,7000,0.0,0.0,0.0,True,True,sign(dE)==sign(Mm(k^2+b)-2Mmu-mu^2); inject=3550 passive=3450 mismatches=0 min|J|/scale=8.03e-04
+T7b_C1_boundary,b,2,0.0,0.0,1e-12,True,True,mass-only kappa=1 boundary b == 1 + m/M (paper C1)
+T7b_Remark_boundary,b,2,0.0,0.0,1e-12,True,True,mass-only kappa=2 boundary b == m/M - 2 (Remark 1)
+T7b_k1_boundary_neutral,b,1000,7.434175279993494e-16,3.552713678800501e-15,1e-12,True,True,|dE(b*)| <= 1e-12 E- at kappa=1 mass-only boundary
+T7b_k1_signflip,b,1000,1.1948739619973773e-11,0.0,0.0,True,True,passive below / inject above b*=1+m/M; margin=1.19e-11
+T7b_k2_lowb_injects,b,1000,3.224659394203996e-05,0.0,0.0,True,True,"mass-only kappa=2, m<2M: dE>0 at low b (Remark inject-any-b)"
+T7b_BEweight_on_k2_injects,b,1000,4.780133329323382e-05,0.0,0.0,True,True,mu=m(1+b) on kappa=2 host: dE>0 iff M(2-b)>m(1+b)^2; all inject
+T7c_matched_algebra,c,3000,6.383868968274286e-16,6.661338147750939e-16,1e-12,True,True,(T7-1)|mu* == -0.5 M mu/(M+mu) v^2 (pure algebra)
+T7c_matched_sim_vs_inelastic,c,3000,3.733386332013312e-16,4.440892098500626e-16,1e-12,True,True,"sim dE == inelastic loss of (M, m(k^2+b)); raw pure-rel max=1.97e-13"
+T7c_matched_stable,c,3000,8.484660098621956e-16,4.440892098500626e-16,1e-12,True,True,cancellation-free sim dE == inelastic (pure rel proof)
+T7c_matched_passive,c,3000,-9.456101367957132e-06,0.0,0.0,True,True,"matched arm dE < 0 unconditionally, any kappa"
+T7c_codex_m4b_passive,c,100,-5.938504356746248e-05,0.0,0.0,True,True,mu=m(4+b) shipped-midpoint remedy passive on all cells
+T7c_massarm_neutral_at_bstar,c,263,6.654375995540847e-16,6.661338147750939e-16,1e-12,True,True,mass arm energy-neutral at b*=2+m/M-kappa^2
+T7c_matched_passive_at_bstar,c,400,-0.002884063898239876,0.0,0.0,True,True,matched arm strictly passive AT the mass-only boundary (removes the boundary)
+T7d_meff_BE,d,1000,5.074809657665831e-16,1.7763568394002505e-15,1e-12,True,True,kappa=1 BE per-impulse == 1/m(1+2 zeta wh + b)
+T7d_meff_midpoint,d,1000,6.239104177774125e-16,3.552713678800501e-15,1e-12,True,True,kappa=2 midpoint per-impulse == 1/m(1+zeta wh + b/4) (DERIVED)
+T7d_matched_zeta_independent,d,1000,2.930430889547494e-15,4.440892098500626e-16,1e-12,True,True,"matched dE (zeta>0 present) == undamped inelastic: EXACT, zeta-independent"
+T7d_muden_BE_closedform,d,1000,1.7056202639949092e-15,4.996003610813204e-16,1e-12,True,True,(T7-1)|mu_den exact identity for kappa=1 BE weight
+T7d_muden_BE_signlevel,d,1000,-0.0010988529046282967,0.0,0.0,True,True,kappa=1 BE denominator weight: dE<0 sign-level (strictly below inelastic by the damper term)

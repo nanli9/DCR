@@ -68,25 +68,40 @@ def main():
     axA.axhline(oracle, ls=(0, (5, 2)), c="k", lw=1.0,
                 label=f"implicit ref. {oracle:.3f}")
     axA.axhline(1.0, ls=":", c="0.45", lw=0.9)
-    axA.text(1.1, 1.4, "incident-energy thr.", fontsize=5.6, color="0.35")
+    axA.text(1.1, 1.35, "incident-energy thr.", fontsize=5.6, color="0.35")
     # 4x8 equal-row point (32 row-evals as substeps): R=3.13
     r_4x8 = next(float(r["ratio_off"]) for r in subs if r["solver"] == "xpbd"
                  and r["scene"] == "shelf" and float(r["relax"]) == 0.7
                  and int(r["iters"]) == 4 and int(r["substeps"]) == 8)
     r_32x1 = next(p[1] for p in pts if p[0] == 32)
-    axA.plot([4], [r_4x8], "D", color=PALETTE["native"], ms=4.5, zorder=5)
-    axA.annotate("$4{\\times}8$ subs.\n(32 evals,\ninjects)", (4, r_4x8),
-                 fontsize=5.4, xytext=(4.6, r_4x8 * 3.0), color=PALETTE["native"])
-    axA.annotate("$32{\\times}1$\n(holds)", (32, r_32x1), fontsize=5.4,
-                 xytext=(9.0, r_32x1 * 2.3), color=PALETTE["clamp_off"],
-                 ha="center")
     # warm-start at 4x1: worse
     w41 = next(r for r in warm if r["scene"] == "shelf"
                and float(r["relax"]) == 0.7 and int(r["iters"]) == 4
                and int(r["substeps"]) == 1)
-    axA.plot([4], [float(w41["R_on"])], "x", color="0.35", ms=5)
-    axA.annotate("warm-start\n(worse)", (4, float(w41["R_on"])), fontsize=5.4,
-                 xytext=(1.2, float(w41["R_on"]) * 2.5), color="0.35")
+    # The diamond and the cross are SINGLE points, not series. The diamond spends
+    # the same 32 row evaluations as substeps (S=8), so it does not lie on the
+    # S=1 curve; the cross is the 4x1 cell re-run with carried duals and lands
+    # within a factor 3 of the curve at K=4. Both were previously labelled by
+    # annotate() text with xytext but no arrowprops, so the labels floated free
+    # of their markers and the cross read as a point of the curve. Every label
+    # here now carries a leader line to the thing it names.
+    _leader = dict(arrowstyle="-", lw=0.55, color="0.45",
+                   shrinkA=1.5, shrinkB=2.5)
+    axA.plot([4], [r_4x8], "D", color=PALETTE["native"], ms=4.8, ls="none",
+             zorder=5)
+    axA.annotate("$4{\\times}8$ subs.\n(32 evals, injects)", (4, r_4x8),
+                 fontsize=5.4, xytext=(3.6, 15.0), color=PALETTE["native"],
+                 ha="right", va="center",
+                 arrowprops=dict(_leader, color=PALETTE["native"]))
+    axA.annotate("$32{\\times}1$\n(holds)", (32, r_32x1), fontsize=5.4,
+                 xytext=(11.0, 0.62), color=PALETTE["clamp_off"], ha="center",
+                 va="center", arrowprops=dict(_leader,
+                                              color=PALETTE["clamp_off"]))
+    axA.plot([4], [float(w41["R_on"])], "x", color="0.3", ms=5.5, mew=1.5,
+             ls="none", zorder=5)
+    axA.annotate("warm start $4{\\times}1$\n(worse than cold)",
+                 (4, float(w41["R_on"])), fontsize=5.4, xytext=(1.05, 900.0),
+                 color="0.3", va="center", arrowprops=dict(_leader))
     axA.set_xscale("log", base=2); axA.set_yscale("log")
     axA.set_xticks([1, 2, 4, 8, 16, 32], ["1", "2", "4", "8", "16", "32"])
     axA.set_xlabel("local iterations $K$"); axA.set_ylabel("$R$")

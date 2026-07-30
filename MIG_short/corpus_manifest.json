@@ -1,0 +1,196 @@
+{
+  "corpus": "MIG short-paper track calibration corpus",
+  "built": "2026-07-30",
+  "purpose": "Reference set of verified, accepted ACM SIGGRAPH MIG short-track papers for ranking a submission against the venue's actual short-paper bar.",
+  "track_definition": "A paper is included only if a primary conference source (the official MIG program page for that year) explicitly labels it a SHORT paper. No paper is included on the basis of page count, topic, or inference.",
+  "years_covered": [
+    2024,
+    2025
+  ],
+  "years_checked_but_excluded": [
+    2019,
+    2021,
+    2022,
+    2023
+  ],
+  "n_papers": 7,
+  "n_full_text": 5,
+  "n_abstract_only": 2,
+  "papers": [
+    {
+      "id": "mig2025_short_storyboarding_xr",
+      "title": "Storyboarding in Extended Reality: leveraging real-world elements in storyboard creation",
+      "year": 2025,
+      "track": "short",
+      "track_evidence": "Labelled \"Short\" in the MIG 2025 official program, Session 1 (Virtual Reality and Augmented Reality), https://mig.siggraph.org/2025/program/",
+      "authors": [
+        "Federico Manuri",
+        "Federico Mafrici",
+        "Andrea Sanna"
+      ],
+      "venue": "MIG '25: Proceedings of the 2025 18th ACM SIGGRAPH Conference on Motion, Interaction, and Games",
+      "abstract": "Recent technological innovations, especially in extended reality (XR) and artificial intelligence (AI), redefine storytelling approaches. These innovations are expanding creative possibilities for filmmakers while transforming how audiences engage with and experience films and other entertainment products. Despite technological advancements, the pre-production phase depends primarily on traditional planning and visualization methods. This research proposes a novel paradigm to create storyboards in XR, leveraging the capabilities of object-detection and pose-estimation systems to benefit the storyboarding phase. An application has been designed and developed to create 3D storyboards on a real scale within a physical environment and all its furniture. Wearing a head-mounted display for XR, users can move in the physical space, enrich it with virtual elements and characters, and frame the environment to obtain storyboard panels that mix real and virtual elements. The proposed system has been tested to assess its usability, and initial findings indicate that users have appreciated this application.",
+      "abstract_source": "Semantic Scholar Graph API, DOI:10.1145/3769047.3769062, retrieved 2026-07-30 (verbatim)",
+      "doi": "10.1145/3769047.3769062",
+      "url": "https://doi.org/10.1145/3769047.3769062",
+      "acm_pages": "3:1-3:7",
+      "what_we_have": "full_text",
+      "local_path": "corpus/mig2025_short_storyboarding_xr.pdf",
+      "local_path_text": "corpus/mig2025_short_storyboarding_xr.txt",
+      "full_text_source": "Politecnico di Torino IRIS institutional repository: https://iris.polito.it/retrieve/f96b0701-1eef-488c-9a43-c4e23fc7eed2/3769047.3769062.pdf",
+      "pdf_pages": 8,
+      "pdf_pages_note": "8 pages including a 1-page IRIS repository cover sheet; 7 pages of paper, matching the ACM page range."
+    },
+    {
+      "id": "mig2025_short_trajectory_smears",
+      "title": "Trajectory-aware Smears for Stylized 3D Animations",
+      "year": 2025,
+      "track": "short",
+      "track_evidence": "Labelled \"Short\" in the MIG 2025 official program, Session 2 (Animation and Style), https://mig.siggraph.org/2025/program/",
+      "authors": [
+        "Lou Tremolieres",
+        "Jean Basset",
+        "Pierre Bénard",
+        "Pascal Barla"
+      ],
+      "venue": "MIG '25: Proceedings of the 2025 18th ACM SIGGRAPH Conference on Motion, Interaction, and Games",
+      "abstract": "Smearing is an essential effect to expressively convey motion in stylized animations. In this paper, we extend the method of Basset et al. [2024] to better emphasize the main motion's trajectory of an object when generating elongated in-betweens, i.e., when stretching a 3D object along its trajectory to cover adjacent frames. This limits visual artifacts such as intersections that typically occur when trajectories self-overlap due to local rotations or abrupt changes of direction (trajectories with high curvatures or even discontinuities at contacts). We address these cases with minor computational and memory overheads, and offer enhanced impact expressiveness by combining smear and squash-and-stretch effects at collisions.",
+      "abstract_source": "Semantic Scholar Graph API, DOI:10.1145/3769047.3769057, retrieved 2026-07-30 (verbatim)",
+      "doi": "10.1145/3769047.3769057",
+      "url": "https://doi.org/10.1145/3769047.3769057",
+      "acm_pages": "5:1-5:7",
+      "what_we_have": "full_text",
+      "local_path": "corpus/mig2025_short_trajectory_smears.pdf",
+      "local_path_text": "corpus/mig2025_short_trajectory_smears.txt",
+      "full_text_source": "HAL (Inria) open archive: https://inria.hal.science/hal-05312089v1/file/MIG25%20-%20HAL.pdf",
+      "pdf_pages": 8,
+      "pdf_pages_note": "8 pages including a 1-page HAL cover sheet; 7 pages of paper, matching the ACM page range."
+    },
+    {
+      "id": "mig2025_short_drums",
+      "title": "DRUMS: Drummer Reconstruction Using Midi Sequences",
+      "year": 2025,
+      "track": "short",
+      "track_evidence": "Labelled \"Short\" in the MIG 2025 official program, Session 4 (Character Animation), https://mig.siggraph.org/2025/program/",
+      "authors": [
+        "Theodoros Kyriakou",
+        "Panayiotis Charalambous",
+        "Andreas Aristidou"
+      ],
+      "venue": "MIG '25: Proceedings of the 2025 18th ACM SIGGRAPH Conference on Motion, Interaction, and Games",
+      "abstract": "We present a system for generating expressive, full-body drumming performances from MIDI input, combining rhythmic precision with lifelike motion. Unlike prior work that focuses on limited gestures or audio-driven models, our approach produces coordinated animations of the entire performer, including hands, torso, legs, and facial expressions, driven solely by symbolic MIDI. Our system integrates a Bi-directional LSTM to predict fine-grained 3D hand trajectories, using sticks parented to the hands and synchronized with MIDI events. It also includes a retrieval-based module that generates expressive upper-body and facial motion conditioned on musical phrasing, and a pedal enforcement component that procedurally animates the feet. Our method addresses the unique challenges of drumming, where rhythm is both heard and seen in dynamic, physically grounded motion. To the best of our knowledge, this is the first system to generate full-body drum performances from raw MIDI. Our approach enables new applications in virtual concerts, immersive training, game animation, and digital avatar performance.",
+      "abstract_source": "Semantic Scholar Graph API, DOI:10.1145/3769047.3769066, retrieved 2026-07-30 (verbatim)",
+      "doi": "10.1145/3769047.3769066",
+      "url": "https://doi.org/10.1145/3769047.3769066",
+      "acm_pages": "11:1-11:7",
+      "what_we_have": "full_text",
+      "local_path": "corpus/mig2025_short_drums.pdf",
+      "local_path_text": "corpus/mig2025_short_drums.txt",
+      "full_text_source": "Author project page: https://www.theodoroskyriakou.com/projects/drums/Paper.pdf",
+      "pdf_pages": 7,
+      "pdf_pages_note": "7 pages, no cover sheet; matches the ACM page range."
+    },
+    {
+      "id": "mig2025_short_eca_directness",
+      "title": "Investigating How Text and Motion Style Shape Directness In Embodied Conversational Agents",
+      "year": 2025,
+      "track": "short",
+      "track_evidence": "Labelled \"Short\" in the MIG 2025 official program, Session 6 (Avatars and Agents), https://mig.siggraph.org/2025/program/",
+      "authors": [
+        "Michael O'Mahony",
+        "Cathy Ennis",
+        "Robert J. Ross"
+      ],
+      "venue": "MIG '25: Proceedings of the 2025 18th ACM SIGGRAPH Conference on Motion, Interaction, and Games",
+      "abstract": "Embodied Conversational Agents (ECAs) are becoming more widely used for various applications, notably in health. Some studies have demonstrated the effectiveness of delivering Motivational Interviews (MIs), a patient-centred behaviour change method, with ECAs. Despite showing promise, the effect of agent communication style on MI effectiveness remains underexplored. Directness has been shown to impact satisfaction and preference of dialogue systems, and effectiveness in some cases. However, outside of verbal style, how to control directness in ECAs to achieve these goals is not well understood. We designed an ECA to convey different levels of directness through language and Non-Verbal behaviours (NVBs), then evaluated the impact of language and NVB on directness with a perception study. The results showed that language influenced perceived directness, and that NVB contributed when aligned with indirect language. These findings suggest ways to shape conversational agents' communication style to enhance their effectiveness.",
+      "abstract_source": "Semantic Scholar Graph API, DOI:10.1145/3769047.3769067, retrieved 2026-07-30 (verbatim)",
+      "doi": "10.1145/3769047.3769067",
+      "url": "https://doi.org/10.1145/3769047.3769067",
+      "acm_pages": "18:1-18:7",
+      "what_we_have": "abstract_only",
+      "local_path": "corpus/mig2025_short_eca_directness.abstract.md",
+      "local_path_text": null,
+      "full_text_source": null,
+      "no_full_text_reason": "Marked GOLD/CC-BY by Unpaywall but dl.acm.org returns HTTP 403 to automated fetches; no author, arXiv, or institutional-repository copy located."
+    },
+    {
+      "id": "mig2024_short_ar_controller",
+      "title": "Controller influence on self-determination versus performance in a mobile augmented reality platform game",
+      "year": 2024,
+      "track": "short",
+      "track_evidence": "Listed as \"Short | 10m\" in the MIG 2024 official program, Papers Session 1 (Controlling Characters), https://sgmig.hosting.acm.org/mig-2024",
+      "authors": [
+        "Aline Normoyle",
+        "Neha Thumu",
+        "Yi Fei Cheng"
+      ],
+      "venue": "MIG '24: Proceedings of the 17th ACM SIGGRAPH Conference on Motion, Interaction, and Games",
+      "abstract": "In this work, we investigate three control strategies – joystick, laser, and tilt – for playing a platform game in mobile augmented reality. We analyze these strategies using both objective game metrics as well as self-reported measures of autonomy, competence, and intuitiveness. We found no significant differences in self-reported autonomy and competence between our three controllers, despite clear differences in duration needed to play, clear differences in the amount of movement of the character, and significant differences in intuitiveness ratings. All controllers were effective for playing the game. However, despite the joystick's faster completion times and higher intuitiveness ratings, half of our players still chose our laser or tilt controller as their favorite. These results were consistent even with different difficulties of game level.",
+      "abstract_source": "Semantic Scholar Graph API, DOI:10.1145/3677388.3696332, retrieved 2026-07-30 (verbatim)",
+      "doi": "10.1145/3677388.3696332",
+      "url": "https://doi.org/10.1145/3677388.3696332",
+      "acm_pages": "article 2",
+      "what_we_have": "abstract_only",
+      "local_path": "corpus/mig2024_short_ar_controller.abstract.md",
+      "local_path_text": null,
+      "full_text_source": null,
+      "no_full_text_reason": "Unpaywall reports no open-access copy; dl.acm.org returns HTTP 403 to automated fetches; no author copy located.",
+      "title_note": "The MIG 2024 program lists this paper under the variant title \"Controller ratings versus performance in a mobile augmented reality platform game\"; the ACM DL / DBLP title is used here as canonical."
+    },
+    {
+      "id": "mig2024_short_adaptive_substepping",
+      "title": "Adaptive Sub-stepping for Constrained Rigid Body Simulations",
+      "year": 2024,
+      "track": "short",
+      "track_evidence": "Listed as \"Short | 10m\" in the MIG 2024 official program, Papers Session 2 (Physics Simulation), https://sgmig.hosting.acm.org/mig-2024",
+      "authors": [
+        "Chris Giles",
+        "Sheldon Andrews"
+      ],
+      "venue": "MIG '24: Proceedings of the 17th ACM SIGGRAPH Conference on Motion, Interaction, and Games",
+      "abstract": "Achieving stable simulation of constrained rigid body systems is a primary concern for many computer graphics applications, such as video games, robotic planning, and virtual reality training. In this paper, we present a novel adaptive sub-stepping scheme that achieves stable simulation by adaptively reducing the time step as needed. Our approach employs a diagonalized geometric stiffness matrix as a heuristic to determine when smaller time steps are required, and adjusts the number of sub-steps accordingly. Our method is straightforward to integrate into existing rigid body simulators, and further eliminates manually tuning the number of sub-steps required. We demonstrate the ability of our method to produce stable simulates at real-time frame rates using a number of challenging, complex examples.",
+      "abstract_source": "Semantic Scholar Graph API, DOI:10.1145/3677388.3696331, retrieved 2026-07-30 (verbatim)",
+      "doi": "10.1145/3677388.3696331",
+      "url": "https://doi.org/10.1145/3677388.3696331",
+      "acm_pages": "article 5",
+      "what_we_have": "full_text",
+      "local_path": "corpus/mig2024_short_adaptive_substepping.pdf",
+      "local_path_text": "corpus/mig2024_short_adaptive_substepping.txt",
+      "full_text_source": "Author copy, Sheldon Andrews (ETS Montreal): http://profs.etsmtl.ca/sandrews/pdf/MIG24_adapt_substep.pdf",
+      "pdf_pages": 6,
+      "pdf_pages_note": "6 pages total in the author version, including references."
+    },
+    {
+      "id": "mig2024_short_animation_retiming",
+      "title": "Expressive Animation Retiming from Impulse-Based Gestures",
+      "year": 2024,
+      "track": "short",
+      "track_evidence": "Listed as \"Short | 10m\" in the MIG 2024 official program, Papers Session 5 (Expressive Characters), https://sgmig.hosting.acm.org/mig-2024",
+      "authors": [
+        "Marie Bienvenu",
+        "Pascal Guehl",
+        "Quentin Auger",
+        "Damien Rohmer"
+      ],
+      "venue": "MIG '24: Proceedings of the 17th ACM SIGGRAPH Conference on Motion, Interaction, and Games",
+      "abstract": "We present a method for retiming existing 3D animations able to handle seamlessly arbitrary impulse-like user gestures, thus enabling expressive video-based control inspired from common review sessions used in animation studios. The approach works in recording two videos with fast, impulse-based, gestures: one synchronized with the existing 3D animation and another featuring a new time sequence. We then propose an automatic generation of a modified 3D animation retimed to match the sequences of the second video. To this end, we introduce a robust and automatic method relying on Dynamic Time Warping able to compute the sequential correspondence between the timings of the impulse gestures. The method can adapt to various individual gestures without requiring dedicated learning, and can take into account the semantic integrity of the original 3D animation after retiming.",
+      "abstract_source": "Semantic Scholar Graph API, DOI:10.1145/3677388.3696323, retrieved 2026-07-30 (verbatim)",
+      "doi": "10.1145/3677388.3696323",
+      "url": "https://doi.org/10.1145/3677388.3696323",
+      "acm_pages": "article 16",
+      "what_we_have": "full_text",
+      "local_path": "corpus/mig2024_short_animation_retiming.pdf",
+      "local_path_text": "corpus/mig2024_short_animation_retiming.txt",
+      "full_text_source": "HAL (IP Paris) open archive: https://ip-paris.hal.science/hal-04761328/file/mig24.pdf",
+      "pdf_pages": 8,
+      "pdf_pages_note": "8 pages including a 1-page HAL cover sheet; 7 pages of paper."
+    }
+  ],
+  "abstract_provenance": "All seven abstracts were retrieved verbatim from the Semantic Scholar Graph API (api.semanticscholar.org/graph/v1/paper/DOI:<doi>) on 2026-07-30. Abstracts for the five full-text papers also appear in their downloaded PDFs. No abstract in this corpus was written, paraphrased, or reconstructed by the collector.",
+  "excluded_years_detail": {
+    "2023": "MIG 2023 (Rennes) program at https://project.inria.fr/mig2023/ states the timing rule (\"Full papers: 30 mins ... Short papers: 15 mins\") but does not label any individual paper long or short. No per-paper track attribution possible without guessing, so no 2023 paper is included.",
+    "2022": "MIG 2022 (Guanajuato) conference site mig2022.cs.purdue.edu is unreachable (TLS handshake failure, 2026-07-30). The published proceedings TOC contains only topical session headings (Animation Synthesis, Motion Analysis and Perception, Motion Capture and Extraction, Motion Control and Planning) and no short-paper section. No per-paper track attribution possible.",
+    "2021": "MIG 2021 (EPFL) program at https://mig2021.inria.fr/ marks journal-invited papers (\"(TVCG Paper)\") but does not distinguish long from short. No per-paper track attribution possible.",
+    "2019": "MIG 2019 proceedings TOC has topical session headings plus \"SESSION: Poster Abstracts\" only, with no short-paper section. No per-paper track attribution possible."
+  }
+}

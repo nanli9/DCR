@@ -1,0 +1,52 @@
+{
+  "figure": "t13_ordering_kappa.csv",
+  "stage": "X0",
+  "git_sha": "e58083a",
+  "generated_utc": "2026-07-29T02:20:05+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "onesweep_two_row_toy(z,q)"
+  ],
+  "solvers": [
+    "xpbd_gs_toy"
+  ],
+  "note": "T13: run_t5_ordering.py's two-row GS ordering toy with the velocity reconstruction qdot+ = kappa dq/h carried through and b extended to 1e-3. D_B/D_A = (1+b)^2 exactly for EVERY kappa (T13-3). Order A injects iff (kappa^2+b)/(1+b)^2 > 2 + m/M (T13-5A): passive unconditionally at kappa = 1, and at kappa = 2 injecting on the band b < b* which is nonempty iff m < 2M, b* = 2(kappa^2-s)/(sqrt(1+4s(kappa^2-1))+2s-1), s = 2+m/M (T13-7); the violation reaches (kappa^2-2)^2/(4(kappa^2-1)) of the incoming kinetic energy, exactly 1/3 at kappa=2, m=M/2, b->0 (T13-8). Block P reproduces run_t5_ordering.py and the shipped t5_ordering.csv bit-identically at kappa = 1. Block D certifies the sign law and the band edge in exact rational arithmetic on 600 cells (300 per order), zero tolerance. Cold start, e = 0, hard contact, one coupling row, n = 1 unless the row says otherwise.",
+  "grid": {
+    "kappa": [
+      1.0,
+      2.0
+    ],
+    "b": [
+      0.001,
+      100.0,
+      100
+    ],
+    "mu": [
+      0.01,
+      10.0,
+      100
+    ],
+    "orders": [
+      "A",
+      "B"
+    ],
+    "v0": -1.0,
+    "h": 0.001,
+    "deadband": 1e-09,
+    "rtol": 1e-12,
+    "exact_cells": 600
+  }
+}

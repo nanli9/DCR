@@ -1,0 +1,73 @@
+{
+  "scene": "ledge",
+  "s": 6.521e-06,
+  "nsub": 300,
+  "arms": {
+    "MASS_BE": {
+      "weight": "mass_only",
+      "reconstruction": "backward_euler",
+      "predictor": "rho",
+      "predicted_index": 2.641581361395734,
+      "predicted_inject": true,
+      "dE_post_impact": 2.4046968553519292,
+      "measured_inject_post": true,
+      "sign_match": true,
+      "peak_modal_over_incident": 2.710236162820233,
+      "dE_cum_final": -6.897802366786497,
+      "dE_cum_max": 2.4046968553519292,
+      "last_active_substep": 270,
+      "finite": true
+    },
+    "IMPL_BE": {
+      "weight": "implicit",
+      "reconstruction": "backward_euler",
+      "predictor": "rho_impl",
+      "predicted_index": -0.03798125056006582,
+      "predicted_inject": false,
+      "dE_post_impact": -2.027998017995724,
+      "measured_inject_post": false,
+      "sign_match": true,
+      "peak_modal_over_incident": 2.7133096301574935,
+      "dE_cum_final": -6.8910633118419895,
+      "dE_cum_max": -2.027998017995724,
+      "last_active_substep": 269,
+      "finite": true
+    },
+    "IMPL_SYMP": {
+      "weight": "implicit",
+      "reconstruction": "symplectic_midpoint",
+      "predictor": "rho_mid",
+      "predicted_index": 19.021662158718335,
+      "predicted_inject": true,
+      "dE_post_impact": 1.411642824646833,
+      "measured_inject_post": true,
+      "sign_match": true,
+      "peak_modal_over_incident": 6.52461889495243,
+      "dE_cum_final": 13.811001324835104,
+      "dE_cum_max": 18.434292629302263,
+      "last_active_substep": 300,
+      "finite": true
+    }
+  },
+  "h": 0.008333333333333333,
+  "v0": 1.0,
+  "rho": 2.641581361395734,
+  "rho_impl": -0.03798125056006582,
+  "rho_mid": 19.021662158718335,
+  "driven_mode": 1,
+  "omega_h_driven": 0.06316358018868543,
+  "b_driven": 0.003989637862252493,
+  "m_over_M_rowvisible": 0.07514061126615987,
+  "m_over_M_impactor": 0.02,
+  "E_incident_rowvisible": 6.6541912765245055,
+  "E0_impactor_ke": 25.0,
+  "m_imp": 50.0,
+  "nonmodal_coda": {
+    "model": "scalar mass-spring (M=m=1), one_sweep_row, NO modes/eigendecomp",
+    "boundary_b": 2.0,
+    "mass_injects_above_boundary": true,
+    "implicit_passive_everywhere": true,
+    "mass_vs_closedform_reldiff": 4.446500337229355e-15,
+    "impl_vs_closedform_reldiff": 2.0906004590546826e-16
+  }
+}

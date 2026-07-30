@@ -1,0 +1,27 @@
+==========================================================================
+VERBATIM SOURCE EXCERPT, quoted as evidence. Not an importable module.
+
+Source : dcr/modal/symplectic_stepper.py
+Lines  : 103-115 of 115
+
+WHY IT IS HERE
+The kappa = 2 reconstruction itself: qdot^{n+1} = 2(q^{n+1} - q^n)/h - qdot^n.
+
+The production host is not redistributed with this package (see the README
+section "What does NOT run from this package"). This excerpt is quoted so the
+reconstruction convention the paper reads off the host is auditable without it.
+==========================================================================
+
+def modal_midpoint_commit(
+    q_next: NDArray[np.float64],
+    q_n: NDArray[np.float64],
+    qdot_n: NDArray[np.float64],
+    h: float,
+) -> NDArray[np.float64]:
+    """Implicit-midpoint velocity reconstruction q̇ⁿ⁺¹ = 2(qⁿ⁺¹−qⁿ)/h − q̇ⁿ.
+
+    This is the scheme-consistent counterpart to the BE finite difference
+    (qⁿ⁺¹−qⁿ)/h; using the BE difference with the midpoint position solve would
+    break energy conservation.
+    """
+    return 2.0 * (q_next - q_n) / float(h) - qdot_n

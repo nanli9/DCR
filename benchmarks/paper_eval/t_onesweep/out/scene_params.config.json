@@ -1,0 +1,39 @@
+{
+  "figure": "scene_params_cells.csv + scene_params_modes.csv",
+  "stage": "X0",
+  "script": "dump_scene_params.py",
+  "generated_utc": "2026-07-27T01:24:05+00:00",
+  "machine": "arm64",
+  "system": "Darwin",
+  "python": "3.12.12",
+  "what": "per-cell and per-mode scene parameters for every shipped-row cell of onesweep_short.tex plus the Fig. 1 teaser scene",
+  "config": {
+    "s_grid": [
+      1e-07,
+      7.498942093324558e-07,
+      5.623413251903491e-06,
+      4.216965034285822e-05,
+      0.00031622776601683794,
+      0.0023713737056616554,
+      0.01778279410038923,
+      0.1333521432163324,
+      1.0
+    ],
+    "iterations": 1,
+    "substeps": 1,
+    "solver": "xpbd",
+    "stepper": "symplectic",
+    "relax": 1.0,
+    "gravity": 0.0,
+    "governor": "off",
+    "teaser": {
+      "iterations": 1,
+      "substeps": 8,
+      "youngs": 200000000000.0,
+      "density": 7850.0,
+      "impactor_mass": 6.0,
+      "drop_height_m": 1.0
+    }
+  },
+  "note": "rho = L/(w_m + 2 a_tilde) is the kappa=1 index; rho_mid = (L + 2 sum a_i)/(w_r + 2 a_tilde) is the kappa=2 index. omega_i(s) = sqrt(s) omega_i(1); m_i and U_i do not depend on s, so the modes table is written once at s = 1."
+}

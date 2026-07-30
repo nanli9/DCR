@@ -513,3 +513,318 @@ the paper’s narrow scalar-ledger claim; do not call preservation of selected
 surface displacements “contact validity” unless velocity/complementarity are
 also preserved; treat literature-search absence as evidence rather than proof;
 do not edit solver or manuscript code in this advisory task.
+
+## 2026-07-22 User-requested current PDF + video six-reviewer rerun
+
+Goal: Review the exact current `paper/main_short.pdf` and
+`benchmarks/paper_fig/out/mig_short_video.mp4` with six isolated MIG
+short-paper reviewer simulations, then synthesize an unbiased accept/reject
+recommendation and concrete revision advice.
+
+| Phase | Status | Task |
+|---|---|---|
+| R1 | completed | Freeze both artifacts; inspect every PDF page and the full video; verify the applicable official MIG short-paper rubric. |
+| R2 | completed | Obtain six isolated comprehension-first reviewer reports covering technical soundness, novelty, evaluation, presentation, reproducibility, and overall significance. |
+| R3 | completed | Fact-check reviewer claims against the frozen artifacts and reconcile disagreements without averaging away substantive concerns. |
+| R4 | completed | Deliver the score distribution, supplement impact, area-chair-style verdict, and prioritized revision advice. |
+
+Decision rules: prior panel scores are stale unless the current hashes match
+exactly, and will not be shown to the new reviewers; reviewers see only the
+frozen PDF/video and common rubric; judge a focused short paper rather than a
+full paper; distinguish scientific merit from fixable submission-readiness
+issues; disclose that the six reports are simulated AI reviews.
+
+### Current-rerun errors
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| Domain-restricted searches for the MIG 2026 short-paper rubric returned no indexed results. | 1 | Use a broader title/domain search and open only the resulting official conference page; do not repeat the empty query. |
+| The first primary-literature query wrapper failed JavaScript parsing before any search ran. | 1 | Retry once with simple unquoted title strings and no escaped quotation marks; do not reuse the malformed wrapper. |
+
+## 2026-07-22 Future modal-asset pipeline and sound-residue decision
+
+Goal: Decide whether `docs/future_work_modal_asset_pipeline.md` is the right
+follow-up to the MIG short paper, whether the pipeline is worth pursuing as a
+research/product direction, and whether the current sound-residue issue is a
+blocking defect, a calibration task, or an acceptable limitation.
+
+| Phase | Status | Task |
+|---|---|---|
+| P1 | complete | Read the complete future-plan and sound-render documents; define what “sound residue” means in the proposed system. |
+| P2 | complete | Trace implemented audio/compiler/runtime components and evidence against the plan’s promised pipeline. |
+| P3 | complete | Separate research novelty, practitioner value, engineering risk, and dependency on the current short paper. |
+| P4 | complete | Recommend pursue/park/pivot, the correct follow-up publication framing, and a gated residue-fix roadmap. |
+
+Decision rules: treat the current short paper as diagnosis/containment, not as
+proof of a complete multisensory pipeline; distinguish an audible tail that is
+physically intended from numerical/contact leakage; do not call standard modal
+sound or shared multimodal excitation novel; do not edit implementation or
+manuscript files during this advisory analysis.
+
+### Pipeline-audit errors
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| Two device-ring sound tests could not compile their Warp CPU kernel because the sandbox blocks `~/Library/Caches/warp`; 52 other tests passed and one hardware test skipped. | 1 | Redirect Warp’s documented cache directory to a fresh writable `/tmp` directory and rerun only the two affected tests, then the full suite if they pass; do not treat the permission failure as a code defect. |
+| The first status-update patch expected a checklist layout, but this plan section actually uses a phase table, so no files were modified. | 1 | Read the exact section, patch the table rows directly, and record this harmless context mismatch. |
+
+### Final pipeline decision
+
+- **Pursue, but as a gated separate follow-up—not as an automatic extension of the MIG short.** The short paper supplies the motivating failure and eligibility logic; the future work must earn its own systems/authoring and perceptual evidence.
+- Center the research claim on a **provenance-tracked, rate-certified modal asset compiler** that prevents unsafe modes from entering two-way feedback and emits independently clocked consumer manifests. Do not claim novelty for modal synthesis, shared excitation, or multimodal consistency in the abstract.
+- Build a v0 around impacts, host-neutral events/manifests, one-way visual response, and recording-calibrated audio plus an audition UI. Add haptics only after the compiler/audio gate succeeds; keep two-way visual coupling optional and last.
+- Keep the intentional broadband attack transient (rename it from “attack residual” to avoid implying an error). Calibrate unwanted late ring from recordings, and treat spurious resting-contact retriggers as a distinct must-fix defect. The present 2.5% +400 ms ring tail is not an architectural blocker.
+- Current MIG supplement has no audio stream, so sound residue cannot affect that artifact's submission quality.
+
+## 2026-07-22 Fresh user-requested six-reviewer artifact review
+
+Goal: Review the exact current `paper/main_short.pdf` and
+`benchmarks/paper_fig/out/mig_short_video.mp4` with six isolated MIG
+short-paper reviewer simulations, then synthesize an unbiased accept/reject
+recommendation and actionable revision advice.
+
+| Phase | Status | Task |
+|---|---|---|
+| U1 | completed | Lock both artifacts; inspect the full PDF and video; verify the applicable official MIG short-paper rubric. |
+| U2 | completed | Run six isolated comprehension-first reviewer passes with no access to prior scores or one another's reports. |
+| U3 | completed | Fact-check reports against the frozen artifacts and reconcile substantive disagreements. |
+| U4 | completed | Deliver the score distribution, supplement impact, area-chair-style verdict, and prioritized advice. |
+
+Decision rules: prior panel scores remain stale even if filenames match until the
+current hashes are verified; reviewers receive only the current artifacts and a
+common rubric; apply the focused short-paper bar; separate scientific merit from
+submission-readiness defects; disclose that the six reviewers are independent AI
+simulations, not human peer reviewers.
+
+### Fresh-review errors
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| The first three-file planning append expected `progress.md` to begin with `# Progress Log`; this long-lived repository file uses `# Literature Gap Audit Progress`, so the atomic patch failed without modifying any file. | 1 | Re-read the exact file heads/tails and append each new section against current EOF context. |
+
+## 2026-07-23 User-requested six-reviewer PDF + video review
+
+Goal: Review the exact current `paper/main_short.pdf` and
+`benchmarks/paper_fig/out/mig_short_video.mp4` with six independent MIG
+short-paper reviewer simulations, then synthesize an unbiased accept/reject
+recommendation and actionable advice.
+
+| Phase | Status | Task |
+|---|---|---|
+| V1 | completed | Freeze both artifact hashes; inspect the complete PDF and video; confirm the applicable MIG short-paper rubric. |
+| V2 | completed | Run six isolated, comprehension-first reviewer assessments without exposing prior panels or other reviewers' reports. |
+| V3 | completed | Fact-check the reports against the frozen artifacts and reconcile substantive disagreements. |
+| V4 | completed | Deliver the score distribution, supplement impact, area-chair-style verdict, and prioritized revision advice. |
+
+Decision rules: earlier workspace reviews are historical and remain stale until
+current hashes are checked; reviewers receive only the exact current artifacts
+and a common rubric; apply the focused short-paper bar; distinguish scientific
+merit from submission-readiness issues; disclose that the six reviewers are AI
+simulations rather than human peer review.
+
+### Current-review errors
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| The first three-file append used a stale `findings.md` tail and failed atomically. | 1 | Split the planning updates by file and append against each exact current tail; no partial modification occurred. |
+
+## 2026-07-23 Fresh six-reviewer MIG short-paper review (current request)
+
+Goal: Review the exact current `paper/main_short.pdf` and
+`benchmarks/paper_fig/out/mig_short_video.mp4` with six independent MIG
+short-paper reviewer simulations, including the complete video supplement, and
+synthesize an unbiased accept/reject recommendation with actionable advice.
+
+| Phase | Status | Task |
+|---|---|---|
+| W1 | completed | Freeze both artifact hashes; inspect every PDF page and the complete video; confirm the applicable MIG short-paper rubric. |
+| W2 | completed | Obtain six isolated, comprehension-first reviewer reports using a common score scale and no prior-panel exposure. |
+| W3 | completed | Fact-check reviewer claims against the frozen artifacts and reconcile substantive disagreements. |
+| W4 | completed | Deliver the individual score distribution, video impact, area-chair-style verdict, and prioritized revision advice. |
+
+Decision rules: prior reviews in this workspace are historical and must not be
+shown to the new reviewers; judge only the frozen PDF/video pair; apply the
+focused short-paper bar; distinguish scientific quality from submission
+readiness; disclose that these are simulated AI reviews rather than human peer
+review.
+
+### Fresh-current-review errors
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| The initial three-file planning append used a stale `progress.md` tail and failed atomically. | 1 | Re-read each exact file tail and append the three sections separately; no partial modification occurred. |
+| Browser text search inside the Zheng–James PDF returned internal/no-match errors. | 1 | Retain the successfully opened primary project page/PDF abstract and the paper's own scoped citation; do not retry the same PDF-text search because the exact integrator derivation is a manuscript-clarity issue, not needed to establish prior modal contact. |
+| A zsh status check used an unmatched `review_r*.md` glob before any reviewer file existed. | 1 | Use `rg --files` or `find` for later non-failing status checks; no review artifact was affected. |
+
+## 2026-07-24 `onesweep_short.pdf` six-reviewer MIG review
+
+Goal: Review the exact `paper/onesweep_short.pdf` with six independent MIG
+short-paper reviewer simulations and synthesize an unbiased accept/reject
+recommendation with actionable revision advice.
+
+| Phase | Status | Task |
+|---|---|---|
+| O1 | completed | Freeze the PDF hash; extract text/structure; visually inspect all pages; confirm the applicable official MIG short-paper criteria. |
+| O2 | completed | Obtain six isolated, comprehension-first reviews using a common score scale and no prior-review exposure. |
+| O3 | completed | Fact-check the reports against the frozen PDF and reconcile substantive disagreements. |
+| O4 | completed | Deliver the score distribution, area-chair-style verdict, confidence, and prioritized revision advice. |
+
+Decision rules: judge only hash
+`9607dfa2d9727d10c666f1e8c064e0d51d8cc8415aa0b4caf58422fc0030c851`;
+do not show historical workspace reviews to reviewers; use the focused
+short-paper rather than full-paper bar; distinguish scientific merit from
+submission readiness; disclose that the six reviewers are independent AI
+simulations, not human peer review.
+
+### `onesweep_short.pdf` review errors
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| The initial environment probe exited 1 because optional `mutool` is not installed. | 1 | Use available Poppler tools (`pdfinfo`, `pdftotext`, `pdftoppm`) for structure, extraction, and rendering; do not retry `mutool`. |
+| Two domain-restricted searches for the live MIG 2026 short-paper page returned no indexed results. | 1 | Broaden the search to the conference title and open only official conference-domain results; do not repeat the empty queries. |
+
+## 2026-07-24 Fresh `onesweep_short.pdf` six-reviewer rerun
+
+Goal: Re-review the exact current `paper/onesweep_short.pdf` with six isolated
+MIG short-paper reviewer simulations and synthesize an unbiased
+area-chair-style accept/reject recommendation.
+
+| Phase | Status | Task |
+|---|---|---|
+| O5 | completed | Freeze the current artifact, inspect its full text and every page, and lock the applicable MIG short-paper rubric. |
+| O6 | completed | Obtain six fresh isolated reviews with a shared score scale and no exposure to historical panels or one another. |
+| O7 | completed | Fact-check decision-relevant claims and reconcile disagreements against the frozen artifact. |
+| O8 | completed | Deliver the six votes, consensus verdict, confidence, and prioritized revision advice. |
+
+Decision rules: prior workspace panels are historical; judge only the current
+PDF; use a focused short-paper bar; do not credit absent supplements or source
+files; disclose that the six reviewers are AI simulations rather than human
+peer reviewers.
+
+## 2026-07-25 `onesweep_short.pdf` + scene-video six-reviewer review
+
+Goal: Review the exact current `paper/onesweep_short.pdf` together with
+`benchmarks/paper_fig/out/onesweep_scene_video.mp4` using six isolated MIG
+short-paper reviewer simulations, then synthesize an unbiased
+area-chair-style recommendation.
+
+| Phase | Status | Task |
+|---|---|---|
+| V1 | completed | Freeze both artifacts; extract and inspect the full paper plus video metadata, timeline, representative frames, and evidentiary content; reconfirm the MIG short-paper rubric. |
+| V2 | completed | Obtain six fresh isolated reviews with a shared score scale and no exposure to historical panels or one another. |
+| V3 | completed | Fact-check decision-relevant reviewer claims and reconcile disagreements against the frozen PDF/video pair. |
+| V4 | completed | Deliver all six reports, score distribution, video assessment, area-chair verdict, confidence, and prioritized revisions. |
+
+Decision rules: all prior panels are historical; reviewers may inspect only the
+frozen PDF/video packet and the common rubric; use the focused short-paper bar;
+distinguish scientific merit from submission readiness; disclose that these
+are independent AI reviewer simulations rather than human peer review.
+
+### Current PDF + scene-video review errors
+
+| Error | Attempt | Resolution |
+|---|---|---|
+| A combined planning update matched a wrapped findings sentence with the wrong line break and failed atomically. | 1 | Re-read the exact file tails and apply the append using stable section-end context; no partial modification occurred. |
+| A second combined update again assumed the wrong wrap point in the final findings bullet. | 2 | Use the exact two-line tail as patch context and avoid paraphrased wrapped context in later appends. |
+| Spawning a sixth fresh reviewer context failed after five subagent threads because the collaboration runtime reached its hard lifetime thread cap. | 1 | Use the coordinator's fully documented artifact assessment completed before any fresh report was opened as vote 6, and disclose that it is an independent pre-panel audit rather than a sixth fresh agent. |
+
+## 2026-07-25 MIG strength calibration and practitioner-scene mapping
+
+Goal: Calibrate the unanimous weak-accept assessment against recent MIG short
+papers, quantify confidence without overstating acceptance odds, and identify
+the production scenes where the paper's exact theorem or empirical diagnostic
+is genuinely useful.
+
+| Phase | Status | Task |
+|---|---|---|
+| C1 | completed | Inspect recent official MIG programs/proceedings and any available acceptance statistics or short-paper exemplars. |
+| C2 | completed | Compare this paper's theory, novelty, evidence, clarity, and readiness against the recent short-paper baseline; estimate confidence and acceptance uncertainty. |
+| C3 | completed | Map practitioner scenes into exact-theorem fits, useful empirical extensions, and cases where open-loop/modal alternatives are preferable. |
+| C4 | completed | Deliver a candid strength verdict, calibrated confidence, and concrete recommended hero/use scenes. |
+
+Decision rules: distinguish accepted-paper quality from average submission
+quality; do not invent acceptance-rate statistics when official counts are
+unavailable; treat venue comparison as a reasoned calibration rather than a
+predictive model; preserve the theorem's cold/one-row/normal-contact scope.
+
+### Strength-calibration errors
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Combined findings/progress patch missed wrapped EOF context. | 1 | Reapplied against the exact current tail; no partial change occurred. |
+| ACM 2024 proceedings DOI returned HTTP 403. | 1 | Use official MIG program/site and author-hosted primary copies; do not repeat the blocked DOI open. |
+| Direct open of the inferred 2026 `papers.htm` URL was rejected as unsafe. | 1 | Navigate through the official 2026 site or use the already indexed official-call result; do not retry the raw URL. |
+| Browser fetch of the author-hosted adaptive-substepping PDF timed out. | 1 | Downloaded the same primary PDF to `/tmp` with the approved read-only retrieval command for local inspection. |
+
+## 2026-07-28 Current `onesweep_short.pdf` + video six-reviewer rerun
+
+Goal: Review the exact current `paper/onesweep_short.pdf` together with
+`benchmarks/paper_fig/out/onesweep_scene_video.mp4` using six independent MIG
+short-paper reviewer simulations, then synthesize an unbiased area-chair-style
+recommendation and actionable revision advice.
+
+| Phase | Status | Task |
+|---|---|---|
+| R1 | completed | Freeze both artifact hashes; inspect the full PDF and complete video; lock the current MIG short-paper rubric. |
+| R2 | completed | Obtain six isolated reviews in two capacity-limited waves, with a shared score scale and no cross-review exposure. |
+| R3 | completed | Fact-check decision-relevant claims and reconcile substantive disagreements against the frozen artifacts. |
+| R4 | completed | Deliver the six reports, score distribution, video assessment, area-chair verdict, confidence, and prioritized revisions. |
+
+Decision rules: all earlier workspace panels are historical and must not be
+shown to the reviewers; judge only the frozen PDF/video pair; apply the focused
+short-paper bar; distinguish scientific merit from submission readiness; and
+disclose that the reviewers are independent AI simulations rather than human
+peer reviewers.
+
+### Current-rerun errors
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Two domain-restricted searches for the live MIG 2026 short-paper rubric returned no indexed results. | 1 | Broaden the conference-title search and open only official conference-domain results; do not repeat the empty query. |
+| An optional coordinator algebra probe found that the base Python environment has no SymPy package. | 1 | Use direct scalar algebra and dependency-free randomized arithmetic; do not install a package for this read-only review. |
+
+## 2026-07-29 User-requested `onesweep_short.pdf` + video panel
+
+Goal: Review the exact current `paper/onesweep_short.pdf` together with
+`benchmarks/paper_fig/out/onesweep_scene_video.mp4` using six independent MIG
+short-paper reviewer simulations, then synthesize an unbiased area-chair-style
+recommendation and actionable revision advice.
+
+| Phase | Status | Task |
+|---|---|---|
+| N1 | completed | Lock artifact hashes; inspect the full paper and complete video; reconfirm the current official MIG short-paper rubric. |
+| N2 | completed | Run six isolated reviewers in two capacity-limited waves, with a common score scale and no cross-review exposure. |
+| N3 | completed | Fact-check decision-relevant claims and reconcile substantive disagreements against the frozen artifacts. |
+| N4 | completed | Deliver the six reports, score distribution, supplement assessment, area-chair verdict, confidence, and prioritized revisions. |
+
+Decision rules: historical workspace reviews must not be exposed to the new
+reviewers; judge only the current PDF/video pair; apply the focused short-paper
+bar; distinguish scientific merit from submission readiness; disclose that the
+reviewers are independent AI simulations rather than human peer reviewers.
+
+### Fresh-panel errors
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| Direct browser open of ACM's simultaneous-submission policy returned HTTP 403. | 1 | Use the live MIG call's explicit concurrent-submission rule plus indexed ACM policy text; do not retry the blocked page. |
+| The original sixth reviewer remained non-terminal after two explicit no-tool conclusion turns. | 1 | Interrupt the stalled thread and launch a fresh sealed senior-review replacement; count only completed reports in the six-reviewer panel. |
+| The replacement senior review returned after an interruption but disclosed that full visual playback was incomplete. | 1 | Keep its paper review provisional and require a video-only addendum plus a final reconfirmed score before counting it. |
+
+## 2026-07-30 Fresh `onesweep_short.pdf` + scene-video six-reviewer panel
+
+Goal: Review the exact current `paper/onesweep_short.pdf` together with
+`benchmarks/paper_fig/out/onesweep_scene_video.mp4` using six independent MIG
+short-paper reviewer simulations, then synthesize all six reports into an
+unbiased area-chair-style recommendation.
+
+| Phase | Status | Task |
+|---|---|---|
+| J1 | in_progress | Freeze both artifacts; inspect the complete paper and video; reconfirm the current official MIG short-paper rubric. |
+| J2 | pending | Run six sealed reviewers in two capacity-limited waves with a common score scale and no cross-review exposure. |
+| J3 | pending | Fact-check decision-relevant claims and reconcile disagreements against the frozen artifacts. |
+| J4 | pending | Save and deliver all six reviews, score distribution, video assessment, consensus verdict, and prioritized revisions. |
+
+Decision rules: historical workspace reviews are sealed from the reviewers;
+judge only the current PDF/video pair; apply the focused short-paper bar;
+distinguish scientific merit from submission readiness; disclose that these are
+independent AI reviewer simulations rather than human peer reviews.

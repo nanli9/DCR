@@ -1,0 +1,81 @@
+{
+  "WARNING": "DO NOT GIVE THIS FILE TO THE RANKERS. It de-anonymizes blind_set.md.",
+  "built": "2026-07-30",
+  "n_entries": 8,
+  "evidence_level": "title+abstract for every entry (lowest common denominator; 2 of 7 corpus papers are abstract-only, so no full-text set was built)",
+  "candidate_id": "P03",
+  "mapping": [
+    {
+      "pid": "P01",
+      "source": "corpus",
+      "real_id": "mig2025_short_drums",
+      "title": "DRUMS: Drummer Reconstruction Using Midi Sequences",
+      "year": 2025,
+      "doi": "10.1145/3769047.3769066",
+      "is_candidate": false
+    },
+    {
+      "pid": "P02",
+      "source": "corpus",
+      "real_id": "mig2024_short_animation_retiming",
+      "title": "Expressive Animation Retiming from Impulse-Based Gestures",
+      "year": 2024,
+      "doi": "10.1145/3677388.3696323",
+      "is_candidate": false
+    },
+    {
+      "pid": "P03",
+      "source": "manuscript",
+      "real_id": "candidate_manuscript",
+      "title": "A Per-Row Danger Index and a Reconstruction-Matched Effective Mass for One-Sweep Passive Contact Coupling in Fixed-Budget Position-Based Solvers",
+      "year": null,
+      "doi": null,
+      "is_candidate": true
+    },
+    {
+      "pid": "P04",
+      "source": "corpus",
+      "real_id": "mig2025_short_trajectory_smears",
+      "title": "Trajectory-aware Smears for Stylized 3D Animations",
+      "year": 2025,
+      "doi": "10.1145/3769047.3769057",
+      "is_candidate": false
+    },
+    {
+      "pid": "P05",
+      "source": "corpus",
+      "real_id": "mig2025_short_storyboarding_xr",
+      "title": "Storyboarding in Extended Reality: leveraging real-world elements in storyboard creation",
+      "year": 2025,
+      "doi": "10.1145/3769047.3769062",
+      "is_candidate": false
+    },
+    {
+      "pid": "P06",
+      "source": "corpus",
+      "real_id": "mig2025_short_eca_directness",
+      "title": "Investigating How Text and Motion Style Shape Directness In Embodied Conversational Agents",
+      "year": 2025,
+      "doi": "10.1145/3769047.3769067",
+      "is_candidate": false
+    },
+    {
+      "pid": "P07",
+      "source": "corpus",
+      "real_id": "mig2024_short_ar_controller",
+      "title": "Controller influence on self-determination versus performance in a mobile augmented reality platform game",
+      "year": 2024,
+      "doi": "10.1145/3677388.3696332",
+      "is_candidate": false
+    },
+    {
+      "pid": "P08",
+      "source": "corpus",
+      "real_id": "mig2024_short_adaptive_substepping",
+      "title": "Adaptive Sub-stepping for Constrained Rigid Body Simulations",
+      "year": 2024,
+      "doi": "10.1145/3677388.3696331",
+      "is_candidate": false
+    }
+  ]
+}

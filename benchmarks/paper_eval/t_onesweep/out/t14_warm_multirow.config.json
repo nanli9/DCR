@@ -1,0 +1,24 @@
+{
+  "figure": "t14_warm_multirow.csv",
+  "stage": "X0",
+  "git_sha": "e58083a",
+  "generated_utc": "2026-07-29T03:55:24+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "script": "run_t14_warm_multirow.py",
+  "what": "measured degradation of the one-sweep diagnostic outside its hypotheses: warm start, two simultaneously active rows, secular multi-step",
+  "metrics": "index-vs-measured-sign agreement split into false negatives (unsafe) and false positives, flip amplitude x* in units of h|v| and |v|, order-dependent signs, cumulative sweep-attributed energy over 20,000 substeps",
+  "tol": "1e-12 on the instrument identity, 1e-9 on the bisected threshold and the ledger, sign elsewhere"
+}

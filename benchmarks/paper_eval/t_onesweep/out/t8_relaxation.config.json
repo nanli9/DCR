@@ -1,0 +1,26 @@
+{
+  "figure": "t8_relaxation.csv",
+  "stage": "X0",
+  "git_sha": "e58083a",
+  "generated_utc": "2026-07-25T13:27:53+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [],
+  "solvers": [
+    "numpy-identity"
+  ],
+  "seed": 20260724,
+  "note": "T8 relaxation boundary. SHIPPED convention (theta on the modal position correction only, solver_xpbd.py 1546-1549): boundary theta^2(kappa^2+b) > 2+m/M (T8-2), reduces to Theorem 1 b>1+m/M at theta=kappa=1; modal deposit scales EXACTLY theta^2; rigid loss theta-independent so under-relaxation only moves injecting->passive, 0 passive->injecting. Codex's L>(2/theta-1)w_m is the WHOLE-correction convention (theta on rigid AND modal): CONFIRMED under that convention (T8-5), does NOT match the shipped code. Reviewer anchor M=m=1,b=4,kappa=1: theta=1 +0.25 (both), theta=0.5 shipped -0.21875 / whole -0.0625. All identities rel<=1e-12, 0 sign mismatches. The paper's 'cannot flip either arm's sign' is FALSE; the shipped boundary is (T8-2)."
+}

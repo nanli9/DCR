@@ -152,7 +152,7 @@ def main():
 
     _heat(axR, _grid(idx, "R"), "R",
           "XPBD: $R$ = peak modal E / incident KE")
-    _heat(axM, _grid(idx, "M"), "M", "XPBD: Eq.~(2) margin [J]  ($>$0 violates)")
+    _heat(axM, _grid(idx, "M"), "M", "XPBD: Eq. (2) margin [J]  ($>$0 violates)")
     axM.set_xticks(range(len(BUDGETS)),
                    [f"{i}$\\times${s}" for (i, s) in BUDGETS], fontsize=6.5)
     axM.set_xlabel("iterations $\\times$ substeps", fontsize=7)

@@ -1,0 +1,37 @@
+{
+  "figure": "t2_phasemap.csv",
+  "stage": "X0",
+  "git_sha": "e58083a",
+  "generated_utc": "2026-07-24T02:21:52+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "solvers": [
+    "numpy-onesweep"
+  ],
+  "note": "T2 one-sweep (omega*h, m/M) phase map; MEASURED one-projection cold-start dE via one_sweep_row semantics, both weight arms; R2 asserted at E+ (mass), R3 asserted at dE (implicit), rel<=1e-12. M=1, v=-1, h=0.001, zeta=0, a_tilde=0, relax=1.",
+  "grid": {
+    "n_grid": 241,
+    "omega_h": [
+      0.049999999999999996,
+      49.99999999999999
+    ],
+    "m_over_M": [
+      0.001,
+      1000.0
+    ]
+  },
+  "theory": "onesweep_theory_note.md R2,R3",
+  "plan": "wf1/plan.md T2"
+}

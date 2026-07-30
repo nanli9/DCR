@@ -1,0 +1,24 @@
+{
+  "figure": "t12_hypotheses.csv",
+  "stage": "X0",
+  "git_sha": "e58083a",
+  "generated_utc": "2026-07-29T02:19:51+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "script": "run_t12_hypotheses.py",
+  "what": "hypothesis pinning for the five over-broad statements",
+  "metrics": "general (kappa_r,kappa) dE, mass-only boundary table, matched-charge admissible kappa_r, over-deposit vs m/M, damped gap coefficient, converged reference and charge ratio",
+  "tol": "1e-12 relative on the identities, sign elsewhere"
+}

@@ -1,0 +1,25 @@
+{
+  "figure": "t4_index_audit.csv",
+  "stage": "X0",
+  "git_sha": "e58083a",
+  "generated_utc": "2026-07-25T13:28:38+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "script": "run_t4_index_audit.py",
+  "source": "t4_shipped.csv (frozen)",
+  "what": "per-cell rho_BE and rho_mid with the measured sign, so the paper's 27/27 midpoint claim is auditable from the CSVs",
+  "condition": "inject <=> L + (kappa^2-2) sum a_i > w_r + 2 a_tilde",
+  "note": "rho_BE on a kappa=2 host yields 5 false negatives"
+}

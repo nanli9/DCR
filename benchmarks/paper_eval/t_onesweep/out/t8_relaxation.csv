@@ -1,0 +1,15 @@
+check_id,group,n_cases,max_rel_err,max_abs_err,tol,binding,pass,note
+T8_shipped_dE_formula,shipped,1200,7.743628019128242e-16,5.329070518200751e-15,1e-12,True,True,sim(relax=theta) dE == (T8-1) modal-only relaxation; raw pure-rel max=6.51e-12
+T8_shipped_dE_stable,shipped,1200,7.743628019128242e-16,7.105427357601002e-15,1e-12,True,True,cancellation-free sim dE == (T8-1) (escale-floor proof); raw pure-rel max=2.50e-14
+T8_shipped_sign_law,shipped,1200,0.0,0.0,0.0,True,True,sign(dE)==sign(theta^2(k^2+b)-(2+m/M)); inject=323 passive=877 mismatches=0
+T8_theta1_reduces_thm1,shipped,120,0.0,0.0,0.0,True,True,"theta=1,kappa=1 boundary == Theorem 1 b>1+m/M"
+T8_deposit_theta2_scaling,scaling,2000,6.827069373877929e-16,0.0,0.0,True,True,E_modal+(theta) == theta^2 E_modal+(1); max_rel=6.83e-16
+T8_no_passive_to_injecting,direction,1600,0.0,0.0,0.0,True,True,0 passive->injecting under theta<1 (shipped); found 0
+T8_dE_monotone_in_theta,direction,1600,0.0,0.0,0.0,True,True,"dE(theta) monotone decreasing as theta drops (rigid loss fixed, deposit ~theta^2)"
+T8_injecting_to_passive_occurs,direction,1600,542.0,0.0,0.0,False,True,injecting->passive flips DO occur = 542 (paper 'cannot flip' is false)
+T8_whole_dE_formula,whole,1000,7.469605129468905e-16,7.105427357601002e-15,1e-12,True,True,whole-correction sim dE == (T8-4); raw pure-rel max=2.67e-11
+T8_whole_dE_stable,whole,1000,6.884004819318043e-16,6.217248937900877e-15,1e-12,True,True,cancellation-free whole sim dE == (T8-4) (escale-floor proof); raw pure-rel max=3.71e-11
+T8_codex_form_matches_whole,whole,1000,0.0,0.0,0.0,True,True,codex L>(2/theta-1)w_m == whole-correction boundary (kappa=1); mismatches=0
+T8_shipped_differs_from_codex,whole,800,27.0,0.0,0.0,False,True,shipped (T8-2) and codex (T8-5) disagree on 27/800 theta<1 cells (distinct conventions)
+T8_anchor_theta1,anchor,3,0.0,0.0,1e-12,True,True,theta=1:+0.25 (both); theta=0.5 shipped:-0.21875 whole:-0.0625 (reviewer number)
+T8_matches_one_sweep_row,anchor,200,0.0,0.0,1e-12,True,True,"kappa_row(kappa=1,relax) == common.one_sweep_row(relax) (shipped convention, R2 harness)"

@@ -34,3 +34,12 @@ docs/twobody/contact_force_sweep/
 # regenerable binaries inside the bundle (rebuilt from HEAD by the assembler)
 /supplement/code_snapshot.zip
 /supplement/teaser_video.mp4
+
+# Third-party papers fetched for the MIG_short blind-ranking comparison.
+# Not ours to redistribute, and 35 MB of PDFs would live in history forever.
+# The analysis artifacts (manifest, abstracts, blind set, ranking report) ARE tracked.
+MIG_short/corpus/*.pdf
+MIG_short/corpus/*.txt
+
+# Stray pdftoppm output
+/-.png

@@ -308,6 +308,18 @@ class SolverXPBD:
         self._modal = False
         self._r = 0
         self._mq = self._kq = self._dq = self._wq = None  # (r,) diagonals
+        # Opt-in ABLATION knob (default None ⇒ bit-identical to the frozen runs):
+        # the modal inverse-mass used ONLY in the support CONTACT row
+        # (`_project_support`). When set, the contact row weighs the modes with a
+        # stiffness-aware effective inverse inertia W_eff = (M_q + h·D_q + h²·K_q)⁻¹
+        # — the impulse host's implicit weight (solver_impulse.py:34) — while the
+        # free symplectic modal stepper keeps the TRUE 1/M_q. This is the
+        # reviewer-requested weight-swap control arm: it isolates the explicit
+        # per-mode compliance 1/(H_ii h²) vs the implicit weight as the lever,
+        # holding the position-based unknown, warm start, relaxation and
+        # per-substep contact regeneration fixed. Set at runtime by the
+        # weight-swap harness; nothing in the shipped paper config touches it.
+        self._wq_support = None
         self._q = self._qdot = None
         self._modal_grav_acc = None
         self._freeze_qdot = False
@@ -1500,7 +1512,12 @@ class SolverXPBD:
         surface y_rest + U_y·q (+ cargo flex G_a·a, Stage 4). Couples the rigid
         6-DOF (n = e_y) and the support modal q (∂C/∂q = −U_y). Re-expressed from
         reduced_coupled_xpbd.iteration_hook's FLOOR-contact block, now native."""
-        X, Q, invm, q, wq = self._X, self._Q, self._invm, self._q, self._wq
+        X, Q, invm, q = self._X, self._Q, self._invm, self._q
+        # Contact-row modal weight. Default = TRUE modal inverse mass 1/M_q
+        # (self._wq); the opt-in ablation swaps in the stiffness-aware implicit
+        # weight (M_q + h·D_q + h²·K_q)⁻¹ HERE ONLY (the free modal stepper is
+        # untouched). See self._wq_support.
+        wq = self._wq if self._wq_support is None else self._wq_support
         bi = sc.bi
         R = _quat_to_R(Q[bi])
         r_w = R @ sc.off

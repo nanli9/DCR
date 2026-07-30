@@ -1,0 +1,30 @@
+check_id,group,item,n_cases,max_rel_err,max_abs_err,tol,binding,pass,note
+R1_mobility_ratio,R1,1,156,2.7651437156210304e-16,1.1368683772161603e-13,1e-12,True,True,(1/m)/qdot+ == 1+2*zeta*wh+(wh)^2
+R2_note_vector,R2,2,7,0.0,0.0,1e-12,True,True,"dlam/h,v+,qdot,q+,E-,E+,ratio"
+R2_formula_sim_vs_closed,R2,3,100,5.94593196863601e-16,9.094947017729282e-13,1e-12,True,True,one_sweep_row dE == r2_dE over draws; raw pure-rel max=8.73e-13
+R2_formula_stable,R2,3,100,5.13052968357092e-13,9.094947017729282e-13,1e-12,True,True,cancellation-free sim dE == r2_dE (pure rel proof)
+R2_boundary_neutral,R2,3,100,6.632391961628834e-16,1.4210854715202004e-14,1e-12,True,True,|dE(b0)| <= 1e-12*E-
+R2_boundary_signflip,R2,3,100,4.0354851998684927e-13,0.0,0.0,True,True,dE<0 below & dE>0 above; min |dE|/E- margin=4.04e-13
+R3_note_vector,R3,4,7,3.5388358909926865e-15,3.469446951953614e-17,1e-12,True,True,"m_eff,w_eff,v+,qdot,q+,E+,dE"
+R3_formula_undamped,R3,5,100,4.2098712423179033e-16,7.382983113757291e-15,1e-12,True,True,implicit sim dE == -0.5*M*meff/(M+meff)*v^2 (zeta=0); raw pure-rel max=4.61e-13
+R3_formula_undamped_stable,R3,5,100,7.032833337475907e-16,3.552713678800501e-15,1e-12,True,True,cancellation-free implicit sim dE == r3_dE (pure rel proof)
+R3_damped_dE_negative_z0p05,R3,5,100,-0.00015867452627974925,0.0,0.0,True,True,"implicit dE<0 unconditionally, zeta=0.05"
+R3_damped_monotone_z0p05,R3,5,100,-6.87893314711566e-10,0.0,0.0,False,True,dE(zeta=0.05) <= dE(zeta=0)+1e-15; violations=0
+R3_damped_dE_negative_z0p5,R3,5,100,-0.00017240697615131218,0.0,0.0,True,True,"implicit dE<0 unconditionally, zeta=0.5"
+R3_damped_monotone_z0p5,R3,5,100,-5.71279830491561e-09,0.0,0.0,False,True,dE(zeta=0.5) <= dE(zeta=0)+1e-15; violations=0
+R4_mass_dE_formula,R4,6,200,6.882175598182057e-16,9.094947017729282e-13,1e-12,True,True,sim dE == r4_dE_mass (a_tilde-generalized); raw pure-rel max=1.21e-11
+R4_mass_dE_stable,R4,6,200,4.306595146014363e-15,1.8189894035458565e-12,1e-12,True,True,cancellation-free sim dE == r4_dE_mass (pure rel proof)
+R4_threshold_sign,R4,6,200,0.0,0.0,0.0,True,True,"sign(dE)==(rho>1) outside band; band_cells=0, inject=99, passive=101"
+R4_collapse_identity,R4,6,100,8.326672684688674e-16,2.7284841053187847e-12,1e-12,True,True,"|y-(rho-1)| <= 1e-12*max(1,rho); n_atilde0=100; raw-dE variant worst=7.96e-12 (E+-E- cancellation)"
+R4_implicit_arm,R4,6,200,4.497301809437453e-16,1.4550426835624464e-14,1e-12,True,True,implicit sim dE == r4_dE_implicit (undamped); raw pure-rel max=4.78e-12
+R4_implicit_arm_stable,R4,6,200,8.049108084812342e-16,7.105427357601002e-15,1e-12,True,True,cancellation-free implicit sim dE == r4_dE_implicit (pure rel proof)
+R4_implicit_dE_negative,R4,6,200,-9.54260582732118e-05,0.0,0.0,True,True,implicit dE<0 all rows
+R5_E_plus_A,R5,7,6,1.6521175961683873e-16,1.1102230246251565e-16,1e-12,True,True,order-A total energy
+R5_E_plus_B,R5,7,6,2.1147105230955357e-16,3.552713678800501e-15,1e-12,True,True,order-B total energy
+R5_D_A,R5,7,6,3.832654679736257e-15,1.3877787807814457e-17,1e-12,True,True,order-A modal deposit
+R5_D_B,R5,7,6,2.1984614349012996e-16,3.552713678800501e-15,1e-12,True,True,order-B modal deposit
+R5_ratio_DB_DA,R5,7,6,3.566296252418109e-15,3.637978807091713e-11,1e-12,True,True,D_B/D_A == (1+b)^2
+R5_dE_A_passive,R5,7,6,-0.008871679247132669,0.0,0.0,True,True,trailing-spring order A passive at n=1 (dE_A<=0)
+relax_deposit_scaling,relax,8,40,6.889855376802371e-13,0.0,1e-12,True,True,modal deposit == relax^2 * deposit(relax=1)
+relax_no_passive_to_injecting,relax,8,40,0.0,0.0,0.0,True,True,no passive->injecting sign flip under relax<1
+relax_injecting_to_passive_count,relax,8,40,6.0,0.0,0.0,False,True,injecting->passive flips (allowed) = 6

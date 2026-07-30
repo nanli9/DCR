@@ -2400,3 +2400,1710 @@ video is a visualization of the evidence, not a contribution.
 - **Pipeline:** the broad architecture is not genuinely novel—automatic multisensory assets, shared contact excitation, modal audio, multimodal visual/haptic/audio systems, and multi-rate loops all have direct precedents. A narrower contribution may be novel: a rate-aware structural-modal compiler whose explicit safety contract determines which modes may feed back into dynamics and emits calibrated, separately clocked sensory renderers from one provenance/event model.
 - **Practitioner value:** potentially high, because it can reduce duplicate authoring and sensory mismatch, but the current repository proves audio architecture rather than a production pipeline. Adoption evidence must include import success on messy assets, authoring-time reduction, designer override/audition workflow, device calibration, runtime budgets, failure diagnostics, and a multisensory user study.
 - Recommended scope separation: keep the MIG short paper focused on the diagnosed coupling failure and containment lesson; treat the governor as a validated follow-up or compact extension only if contact/trajectory evidence fits, and develop the unified pipeline as a separate systems/demo/long-paper contribution.
+
+## 2026-07-22 Current PDF + `mig_short_video.mp4` rerun
+
+- Began a new artifact-locked review. Earlier panel conclusions are retained only as historical context and will not be supplied to the six new reviewers.
+- Current hashes are PDF `8a03d1c762a20f84d1ce7afdbf5f73a6406f900fe4ae383c5b8fa6fc93db4fe1` and video `891e835d59b934f9fa3ca4ca53ae2c26ab220fed5283ed25d97c314579159cc2`; both differ from the prior Stage-G pair (`51b436f...`, `97035c0c...`), so a full rerun is required.
+- PDF packet metadata: 7 letter-size pages, 739,696 bytes, created 2026-07-22 05:52:51 PDT, no encryption/JavaScript, and all listed fonts embedded.
+- Video metadata: 53.267 s, 1920×1080, 30 fps, H.264 High/yuv420p, 1,470,500 bytes, silent (one video stream only), and generic FFmpeg container/encoder tags.
+- The current paper is titled “When Modal Contact Rows Fail in Fixed-Budget XPBD: Diagnosis and an Operating Guide.” Its abstract frames the contribution as a practitioner-focused diagnosis/operating guide plus a cumulative modal-storage containment bound, explicitly not corrected contact; headline evidence is 3 scenes × 2 relaxations × 4 schedules, a deterministic perturbation neighborhood, cross-implementation controls, 90 governed cells, and a contact-observed projection that narrows projection-induced penetration.
+- Figure 1 openly shows the containment tradeoff: ungoverned spurious launch, governed no launch, and a 500×1 self-reference with legitimate 19 mm lift; its caption says the bound removes some legitimate motion too.
+- Pages 1–2 define a narrow contribution: the shared normal-contact row itself is prior work; novelty is the quantitative fixed-budget failure account, practitioner decision guide, and an adapted energy-tank/state-projection guardrail. The authors explicitly distinguish their cumulative gross-loss-funded modal-storage ceiling from contact-port passivity and signed interface transfer.
+- The supply measure uses total dynamic-body rigid kinetic loss plus gravitational work at tiled substep endpoints. The paper acknowledges that this is an envelope—not contact dissipation—because it includes rigid–rigid losses elsewhere, ignores rigid-gain substeps, and can recycle returned/re-dissipated energy as fresh supply.
+- Two quantities are kept separate: `R = peak modal energy / peak incident rigid KE` as a severity diagnostic and the signed Eq. (2) margin in joules as the actual invariant.
+- Pages 3–4 report all solver-behavior measurements on one Apple M4/CPU/CPython 3.12 host and point to a supplemental command/commit ledger. The main 24-cell sweep covers shelf/ledge/table, two relaxations, and four `(iterations × substeps)` schedules at 1/120 s with modal ranks 16/16/24.
+- Cross-host controls are deliberately “as deployed,” not compliance- or cost-matched: XPBD, AVBD, and a modal-implicit sequential-impulse realization differ in unknowns, modal weights, relaxation, and warm start. The manuscript presents their 4.4e7 J / 6.7 J / roundoff contrast as a scale gap rather than a universal host ranking and notes scene-dependent inversions.
+- The central same-path evidence is stronger than a single energy plot: increasing XPBD iterations drives `R` from 2.96e4 to 0.300 and penetration from 27.9 mm to 3.6 μm, while separated-row multipliers clear later; equal row evaluations spent on iterations (`32×1`, `R=0.300`) outperform substeps (`4×8`, `R=3.13`, +481 J); warm start does not cure it; block condensation is worse at higher budgets.
+- A potential reviewer concern remains that the main host comparison is confounded by implementation differences and not cost/compliance matched. The authors acknowledge this, so it supports control/triangulation more than a solver-ranking claim.
+- Pages 5–6 add 16 deterministic perturbations around each key cell (12 physical plus 4 row-order cohorts), with every injecting cell retaining its sign and under-one-decade spread; modal truncation reduces but does not eliminate the issue (6/8 injecting cells remain).
+- The guardrail credits measured supply after the contact solve, then projects an over-budget state into the admissible modal-energy set. Its new contact-observed variant decomposes `q` into a minimum-`K`-energy state matching selected active-row displacements plus a `K`-orthogonal remainder, scales only the remainder and velocity, and uses a deepest-engaged affordable prefix/fallback when all selected rows are unaffordable. The induction proof needs only admissible final energy, so the projection direction is separable from the scalar guarantee.
+- Governed results claim Eq. (2) holds to roundoff in 90 cells. On the moderate shelf 8×2 case, energy error improves from 196× to 3.6× versus the implicit reference; max deflection-trajectory error worsens from 33% ungoverned to 46% preserved (versus 71% with whole-state scaling). This supports “less damaging containment,” not accuracy recovery.
+- The paper measures the contact cost honestly: the ungoverned truncated solve already has 0.17–8.8 mm violations; whole-state scaling amplifies these 2.4–47.6×, contact-observed preservation 1.0–6.3×, but the starved ledge still reaches 17.8 mm. Corrective impulses/variance remain large, so preservation reduces millimetres without improving the recovery transient.
+- FEM validation is limited but relevant: same-operator unreduced comparison on the ledge, step refinement 1/120→1/960, 24-mode truncation, 0.4% ring-frequency difference and far-field Spearman 0.89. No governed-path FEM validation is supplied.
+- Runtime is CPU-only: ledger 0.23–0.41 ms at 16×4 (0.9–3.4% of an 11–126 ms baseline), projection roughly 0.3–2.2 ms and 6.6–34.3% at tight deployed schedules. The paper explicitly makes no unqualified real-time/device-resident claim.
+- Important limitations are disclosed: normal-only/e=0 coupling, no rigid-DOF energy control, gross-supply recycling up to 118% on AVBD, one implementation per formulation, three scenes/one contact regime, CPU float64 only, and future governed-path FEM/device validation.
+- Page 7 contains 18 references spanning XPBD/Small Steps, modal deformation/contact, VBD/AVBD, energy/passivity controls, reduced XPBD, and 2026 adjacent work. The reference page is visually sparse but the body remains six pages, matching the manuscript’s stated 7-page total.
+- The first domain-restricted web query returned no indexed official rubric result; this is a search-indexing issue, not evidence about the venue. A broader official-site lookup is required.
+- The live official MIG 2026 CFP confirms: short papers are focused results/emerging ideas/concise technical contributions; 4–6 body pages excluding references; supplements such as video are strongly encouraged up to 200 MB; double-blind review requires the `review, anonymous` template and a unique paper ID; criteria are originality, technical quality, clarity, significance, reproducibility where applicable, and relevance. Physics-based animation and interactive simulation are explicit topics.
+- The current PDF satisfies the 6-page body limit and anonymous review format, and the 1.47 MB video is far below the 200 MB cap. No unique paper ID is visible, but the official submission window opens July 25, three days after this review; it must be inserted before actual submission.
+- Full-stream FFmpeg decode completed with no errors. Three chronological 3×3 contact sheets sample the entire 53.3-second video at 2-second intervals; detailed visual inspection is next.
+- Video t≈0–18 s gives a clear problem setup: existing XPBD host → add 16 global modes → one shared support row → fixed local iterations, contrasted with a full nodal/tet alternative. It then animates the steel-board 1×8 failure against the host’s 500×1 self-reference with a synchronized energy plot and explicit “only honest baseline” wording.
+- Video t≈18–36 s presents the causal operating-guide evidence rather than mere beauty footage: equal 32 contact-row evaluations allocated as iterations (`32×1`, `R≈0.30`, holds) versus substeps (`4×8`, `R≈3.13`, +481 J), then an eight-cell band-limit plot showing that removing the stiff cluster is necessary but insufficient (6/8 still overdraw, worst +1.24e6 J). The presentation is legible at native 1080p, though the plots are dense and silent.
+- Video t≈36–53 s animates ungoverned, contact-observed governed, and XPBD 500×1 self-reference runs, explicitly titled “bounded, but not faithful.” A true-scale cross-section attributes 6.2 mm to the truncated row, 21.6 mm to superseded whole-state scaling, and 8.3 mm to the preserving projection. The final card gives the same ordered decision rule as the paper and ends with “The governor is a safety net, not the product.”
+- The video materially helps comprehension and is unusually candid about failure/containment tradeoffs. Its lack of narration/audio is not fatal because all beats are self-contained, but dense small plot labels demand full-screen viewing.
+- Concrete video defect: the equal-row beat’s subtitle says “iterations vs substeps at equal cost,” while both the paper (§3.1) and the x-axis establish only equal contact-row evaluations (`K·S`); substeps also repeat contact generation/integration and are not equally costly. Replace “equal cost” with “equal contact-row count” everywhere in the video.
+- The final decision card is strong and legible: implicit/velocity realization if architecture is flexible; iterations over substeps plus basis band-limiting if stuck with the XPBD row; the storage bound only for a hard last-resort guarantee. It reports `0/24`, `32×1` vs `4×8`, `6/8`, `90/90`, and 17.8 mm consistently with the PDF.
+- Visual PDF audit: all seven pages render cleanly with no clipping, missing glyphs, or obvious anonymity leaks. Pages 4–5 are dense but professionally composed; the two-metric heatmap/control strip, three-panel mechanism figure, guardrail equation, proof sketch, and penetration table remain readable at normal full-page zoom. Red review line numbers are present as expected.
+- Native visual inspection of pages 1–3 and 6 confirms a clean two-column ACM review layout and readable equations/figures. Page 7 contains only 18 references in its upper portion and is visually sparse; this is harmless under the “references excluded” rule, though it makes the packet feel longer than its six body pages.
+- Second definite video/PDF synchronization defect: the penetration beat labels the contact-observed projection as “eq. (5),” but it is Eq. (4) in the current PDF. This suggests the video’s text overlay was not fully regenerated after equation renumbering.
+- Minor video polish/claim issue: the animated comparison calls the XPBD 500×1 self-reference “the only honest baseline for how much the row injects.” A same-host high-iteration run is a useful causal baseline, but “only honest” is unnecessarily absolute and is not itself the Eq. (2) injection measurement; use “same-host high-iteration baseline.” The explanatory footer also sits partly outside the bottom safe area in the final held frame.
+- Narrow primary-literature sanity check found two material omissions from the 18-reference discussion: Kim et al.’s 2017 Passive Midpoint Integration covers real-time discrete-time passivity with generalized/maximal coordinates and unilateral multi-point contact, including flexible vibration; Su, Schroeder, and Fedkiw 2009 clamps energy gain during frame-rate contact/collisions. Neither appears to duplicate the paper’s exact fixed-budget XPBD diagnosis or gross-loss-funded modal-storage projection, but both should be cited/differentiated to make the “operating guide” and guardrail positioning reviewer-proof.
+- Rath 2008 is already cited and directly addresses energy-stable contacting modal objects, which is good; the manuscript should spend one sharper sentence distinguishing its fixed-budget shared-row diagnosis and measured source budget rather than grouping Rath only under generic energy-tank control.
+
+### Isolated reviewer reports
+
+- Reviewer 3 (originality/significance/MIG fit): **5/7 weak accept, confidence 4/5**. Found moderate diagnostic/practitioner originality and excellent fit, with strong internal causal evidence and unusually candid limitations. Main conditional concern is ambiguity over whether `h=1/120 s` denotes the frame or substep under `K×S`, and whether compliance/damping are rescaled consistently; also flagged narrow generality, unresolved high-frequency representativeness, missing exact reproduction packet, terse projection prior-work distinction, and unspecified rank-deficiency handling. Video materially raises practical-significance confidence but not generality.
+- Reviewer 2 (contact numerics): **3/7 weak reject, confidence 4/5**. Praised the practical problem, residual/ablation evidence, and candid containment framing, but judged the `K×S`/`h` ambiguity, unspecified XPBD row update, unmatched controls, unresolved-mode confound, and absence of long-horizon contact/rigid-energy validation serious enough to leave the operating recommendation unsupported. Independently caught the video’s stale Eq. (5) label.
+- Reviewer 1 (technical/theorem): **4/7 borderline, confidence 4/5**. Found Proposition 4.1 and Eq. (4) algebraically sound under missing SPD/rank assumptions, and no fatal error in the narrow storage claim. Decision-critical weaknesses are implementation-level causality, terse contact-weight definition, headline energy concentrated above 20 kHz, overbroad reading of one diagonal block ablation, missing ledger, and limited FEM validation.
+- Reviewer 4 (evaluation/reproducibility): **5/7 weak accept, confidence 4/5**. Considered the core existence claim supported and the short-paper scope appropriate, while treating solver ranking/generalization as unsupported. Flagged operational-step FEM amplitude at 0.38×, narrow normal-impact scope, selected rather than prevalence-level perturbations, no rank/contact scaling, up to 34.3% tight-budget overhead, and unavailable ledger.
+- Reviewer 5 (presentation/practitioner/video): **6/7 accept, confidence 4/5**. Found no fatal short-paper issue and judged the narrative, visual evidence, scope discipline, and decision guide unusually effective. Independently flagged video Eq. (5)→Eq. (4), “only honest baseline,” “not a governor method,” the raw CSV filename, small projector text, and an overstrong “necessary, not sufficient” title; also found the PDF abstract/page 4 overly dense.
+- Reviewer 6 (senior/generalist): **6/7 accept, confidence 4/5**. Found modest but meaningful short-paper novelty, unusually rigorous within-scope diagnosis, a correctly limited theorem, and no fatal flaw. Retained the common concerns: gross/schedule-dependent supply, one unmatched implementation per formulation, unresolved >20 kHz dominance, guardrail fidelity/contact cost, material deployed overhead, missing reproduction detail, and dense prose.
+
+### Panel adjudication
+
+- Scores: `4, 3, 5, 5, 6, 6`; mean **4.83/7**, median **5/7**, four accept-side, one borderline, one weak reject; every reviewer reported confidence **4/5**.
+- Consensus strengths: high MIG relevance; a visually and numerically consequential failure; strong same-path iteration/complementarity/perturbation/ablation evidence for a six-page paper; sound narrow reservoir induction; candid separation of containment from passivity, contact correctness, and accuracy; useful practitioner guide; effective video.
+- Consensus weaknesses: modest mechanism novelty; one implementation per unmatched formulation; three normal-only/e=0 scenes; headline magnitude dominated by severely under-resolved >20 kHz modes; limited operational-step/full-FEM and no governed-path FEM validation; missing numerical ledger in the supplied pair; no rank-deficiency policy; no long-horizon contact/rigid-energy behavior; dense prose.
+- The weak-reject disagreement is substantive but not an identified theorem error. It treats the ambiguous `h=1/120 s`/`K×S` protocol, missing row-update detail, and unresolved-mode confound as invalidating the operating guide. Accept-side reviewers treat the core existence/containment claims as supported and these as fixable reporting/scope issues under a short-paper bar.
+- Area-chair-style verdict: **5/7 weak accept, confidence 4/5**, conditional on clarifying the exact frame/substep timing and scaling before submission. If `h` was actually held at 1/120 per substep while `S` changed, the equal-row recommendation requires a fixed-horizon rerun and the current verdict drops to reject-side.
+- Artifact hashes remained unchanged after all six reports. No unique paper ID is present; the official submission window has not yet opened, so add it when EasyChair assigns one.
+
+## 2026-07-22 Future pipeline and sound-residue follow-up
+
+- Began a fresh advisory pass on `docs/future_work_modal_asset_pipeline.md`, treating it as a possible separate follow-up rather than evidence to append automatically to the current MIG short paper.
+- The future plan is already scoped responsibly: it labels itself a design note, keeps standard modal synthesis out of the novelty claim, makes one-way visual response the v1 default, gates two-way feedback by numerical eligibility, and treats audio/haptics as separately clocked consumers of a shared excitation contract rather than one shared runtime state.
+- The credible follow-up claim is a **rate-aware, provenance-tracked asset compiler and authoring contract** that prevents unrepresentable modes from entering two-way dynamics and emits calibrated consumer packages. The broad “one asset drives sight/sound/touch” architecture is explicitly acknowledged as prior art.
+- The plan’s “attack residual” is not automatically a numerical bug: it means an intentionally added short broadband onset (about the first 10 ms) representing non-modal impact physics that a linear resonator bank cannot reproduce. Whether the user’s “sound residue” refers to this intentional layer or to an unwanted lingering/ringing artifact must be resolved from the implemented sound document and code.
+- Proposed v1 is sensible but still large: impact-only; one-way visual; audio with attack residual and fitted damping; two calibrated haptic targets; authoring/audition UI. Scrape/roll, thin shells, and two-way visuals are deferred.
+- The sound implementation is substantially beyond a toy: shared force logging, settle muting, burst aggregation, Hertz contact shaping, ledger-capped excitation, exact modal banks, live/offline parity, radiation weighting, loaded-contact damping (“choke”), shell bases, attack noise, doublet warble, device-ring staging, and five-scene instrument selection are documented and tested.
+- “Attack residual” in the future plan corresponds to the implemented `contact_noise_burst`: a 1.5–8 ms, impact-gated, energy-accounted broadband transient representing surface roughness and unresolved high modes. This should **not** be removed merely because it is called a residual; without it, the output reverts toward the documented “struck tuning fork” artifact.
+- A separate lingering-ring problem was measured and improved: contact choke plus radiation weighting reduced ring residue at +400 ms from 12% to 2.5% of hit RMS and shifted the pot impact from a 1.8 kHz ping toward a 361 Hz wood-dominated response. Whether 2.5% is acceptable remains perceptual/material-dependent and is not validated against recordings.
+- Current audio truth is still “plausible, not measured”: coarse/tailored bases, heuristic radiation, fitted-by-hand damping/material overrides, shell approximations, normal impacts only, and missing box–box events. The ledger proves an energy budget, not perceptual realism.
+- Repository search confirms that “residue” in the sound work is specifically the unwanted late modal tail, controlled by loaded-contact damping; the attack-noise code explicitly says it is **not** a measured residual. Current render artifacts include v1/v2/v3 dinner WAVs and spectrograms plus an off-center variant, so the residue decision can be checked against actual outputs rather than the design note alone.
+- The biggest current functional audio gap is not the remaining 2.5% tail: box–box impacts are unlogged, so stacked bodies can be visibly colliding while acoustically silent. Scrape/roll are also impossible under the normal-only event contract. For a pipeline/product claim, missing event coverage is more serious than fine-tuning an already-short ring tail.
+- Visual comparison of the stored spectrograms supports the documented progression: the original render contains conspicuous narrow high-frequency lines extending well beyond the initial crash; v2/v3 concentrates much more energy in the low band and decays toward near-black roughly by 1–2 s. The off-center v3 correctly excites a richer/longer vessel response. Nothing in the plots alone establishes perceptual realism, but the late residue no longer looks like the primary blocker.
+- All four stored dinner renders are 7.5 s, 44.1 kHz mono. At a −50 dB silence threshold, v3 becomes continuously silent at about 0.92 s and the richer off-center v3 at about 1.05 s (impact begins around 0.32–0.33 s). Thus the audible-above-threshold program lasts roughly 0.59–0.74 s, not a many-second numerical tail. Residue tuning is a calibration/validation task, not a current architectural blocker.
+- Source inventory confirms a coherent reusable audio subsystem (basis builders/cache, event schema, logger/device ring, offline/live engines, renderer ledger, shaping, and four dedicated test modules), but no analogous haptic package or export layer. The pipeline is therefore roughly “audio prototype + dynamics analysis,” not a three-consumer product.
+- The current live path is still tied to the native AVBD/Solver6DOF modal-support world. This is acceptable for a research prototype, but an asset-pipeline claim requires a host-neutral event/schema boundary and a standalone compiler/manifest format rather than relying on viewer/solver internals.
+- Existing tests emphasize numerical parity, event handling, basis sanity, ledger accounting, and scene wiring. They do not constitute perceptual audio validation, production-mesh ingestion evidence, authoring-time comparison, or haptic-device validation—the exact gaps identified by the future plan’s practitioner gates.
+- The apparent Stage-E6 test failures were environmental, not implementation defects. With `WARP_CACHE_PATH` redirected to writable `/tmp`, the complete suite reports **54 passed, 1 skipped**. This raises confidence in the sound subsystem's internal numerical/event consistency, while leaving external audio fidelity and perceptual validity unproven.
+- Primary-source novelty checking reinforces the plan's own caution. ACME already acquired visual, haptic, and auditory object behavior; Sterling and Lin used a unified texture representation for visual dynamics, haptics, and modal sound and evaluated it with users; Hasti drove synchronized haptics and modal sound from a shared high-rate micro-contact process; and prior Eurographics work compiled/precomputed modal sound data with level-of-detail and asynchronous scheduling. Therefore, “one physical asset/event stream drives multiple senses” is not a safe research claim. The potentially publishable delta is narrower: a provenance-bearing compiler that *certifies the feedback-eligible modal subset across rates* and exposes calibration/authoring evidence.
+- The source/doc cross-check makes the residue decision unambiguous at the architectural level: `contact_noise_burst` is deliberately introduced to avoid a pure-sinusoid “tuning fork” onset, whereas the late ring tail is controlled independently by radiation weighting and loaded-contact damping. Keep and rename/tune the former; calibrate the latter from recordings instead of deleting it. A third failure class—spurious retriggers from resting/contact jitter—would be a real defect, but it should be diagnosed through the event ledger rather than conflated with either acoustic component.
+- `ffprobe` finds only one H.264 video stream in the 53.27 s MIG supplement and no audio stream. Consequently, sound quality/residue is unrelated to the current supplement's acceptability and belongs entirely to the proposed follow-up.
+- Final recommendation: pursue a bounded compiler/audio v0; defer full haptics and optional two-way feedback until explicit gates pass. Required go evidence is (1) production-mesh ingestion and deterministic manifests, (2) automatic unsafe-mode exclusion, (3) measured authoring-time reduction, and (4) recording/listener evidence that fitted modal audio plus the broadband attack is competitive. Park the larger pipeline if it still requires per-object bespoke hacks or cannot beat a simple sample-based baseline on authoring value or preference.
+
+## 2026-07-22 Fresh user-requested six-reviewer artifact review
+
+- Began a fresh review of `paper/main_short.pdf` and
+  `benchmarks/paper_fig/out/mig_short_video.mp4`.
+- Existing planning notes contain earlier panels on files with the same names,
+  but all prior scores are excluded until the current hashes are locked and are
+  not to be shown to the six new reviewers.
+- Scope is read-only: assess the supplied paper/video pair under the current MIG
+  focused short-paper bar; do not edit manuscript, solver, or video sources.
+- Frozen artifacts are PDF SHA-256 `1b41213ca82ecedb9fdb909e1a7ac7e196fdc06e2ebe1f829dc42968b083e925`
+  and video SHA-256 `891e835d59b934f9fa3ca4ca53ae2c26ab220fed5283ed25d97c314579159cc2`.
+  The PDF was rebuilt at 20:19 PDT and differs from every preserved panel; it
+  is six pages. The video is 53.267 s, 1920×1080/30 fps, H.264, silent, and
+  decodes without error.
+- Pages 1–2 frame a focused practitioner diagnosis rather than a new contact
+  law or solver ranking: direct two-way unilateral modal rows in fixed-budget
+  XPBD can overdraw a measured gross rigid-loss supply; the contributions are
+  a quantified failure/operating guide, mechanism evidence, and an explicitly
+  last-resort scalar storage guardrail.
+- The invariant is a cumulative modal-storage ceiling funded by positive gross
+  rigid-side loss over all dynamic bodies, with gravity work added. The paper
+  explicitly disclaims port passivity and signed per-interface transfer, and
+  distinguishes the incident-energy severity ratio from the actual invariant.
+- The experimental matrix is three scenes × two relaxations × four schedules
+  on XPBD, AVBD, and an implicit sequential-impulse realization at a common
+  1/120 s frame step. The paper candidly says cross-host controls are neither
+  compliance- nor cost-matched; their intended role is scale/control evidence,
+  not ranking.
+- Main early result: tested XPBD violates the invariant in 9/24 cells with up
+  to about 4.4×10^7 J overdraw; AVBD in 3/24 with at most 6.74 J; implicit in
+  0/24. Equal row evaluations favor iterations (32×1 holds) over substeps
+  (4×8 violates by 481 J), but the paper warns row evaluations are not equal
+  wall-clock cost.
+- Full-text and six-page visual inspection show a clean anonymous ACM build:
+  all fonts are embedded, figures/tables render without clipping, the body and
+  references fit six pages, and the density is high but still readable at
+  normal zoom. The page-one teaser immediately exposes both containment and
+  loss of legitimate motion.
+- Mechanism evidence is unusually broad for a focused short paper: an
+  iteration ladder, complementarity diagnostics, equal-row schedule pair,
+  warm-start check, a within-host stiffness-aware weight swap, serial-versus-
+  block ablation, deterministic perturbations, and mode truncation all point
+  to under-converged explicit modal-row weighting rather than a generic
+  “XPBD is bad” conclusion.
+- The first ~30 seconds of the supplement clearly stages the workflow, animates
+  ungoverned versus a 500×1 XPBD self-reference at true scale, then shows the
+  32×1-versus-4×8 allocation and band-limiting results. It is decision-oriented
+  and consistent with the main reported magnitudes.
+- One confirmed supplement wording defect appears in the equal-row beat:
+  “iterations vs substeps at equal cost” overstates what the paper calls equal
+  row evaluations and explicitly says are neither interchangeable nor equally
+  costly. This should be changed to “equal contact-row evaluations.”
+- The guardrail theorem is internally scoped and transparent: it guarantees
+  only the cumulative scalar storage bound for any host, then explicitly
+  acknowledges that rewriting modal state after contact can violate the
+  contact solution. The new contact-observed decomposition preserves closed-row
+  surface displacement when affordable, with a prefix/fallback when it is not.
+- The enforcement evidence is strong for numerical safety (90/90 governed
+  cells at roundoff) but deliberately mixed for physical quality: worst
+  preserved penetration remains 17.8 mm, corrective impulses remain 6.9–8.8×
+  steady state, and trajectories can worsen. This candor makes the guardrail a
+  credible containment result, not a claimed solver fix.
+- External-validity limits remain substantial and acceptance-relevant: one
+  implementation per host on one Apple M4 CPU, normal-only contact, fixed zero
+  restitution, no governed-path FEM validation, no device-resident projection,
+  no compliance- or wall-clock-matched cross-host comparison, and the gross
+  supply can recycle returned energy.
+- The second half of the video is scientifically useful: it animates
+  ungoverned/governed/self-reference behavior, labels the result “bounded, but
+  not faithful,” shows the true-scale penetration decomposition, and ends with
+  the ordered operating guide. It adds clarity rather than new validation.
+- A second confirmed stale video label says “eq. (5)” on the penetration
+  cross-section, while the current manuscript’s surface-preserving projection
+  is Eq. (4). The MP4 should be regenerated to say Eq. (4).
+- The live official MIG 2026 CFP confirms that short papers are focused
+  results/emerging ideas/concise technical contributions, with 4–6 content
+  pages excluding references, SIGCONF review formatting, anonymous review,
+  and a strongly encouraged supplement up to 200 MB. Review criteria are
+  originality, technical quality, clarity, significance, reproducibility where
+  applicable, and relevance to MIG. Physics-based animation and interactive
+  simulation are explicit topics.
+- The supplied six-page anonymous PDF and 1.47 MB video meet the length, format,
+  scope, and supplement-size requirements. The PDF presently shows no unique
+  paper ID; the official CFP requires one after an EasyChair submission is
+  created, so this is a pre-submission checklist item rather than a scientific
+  review defect.
+- Native inspection of pages 3–4 confirms that the central heatmap and
+  operating-envelope plots remain legible and their captions carry the needed
+  caveats. The result hierarchy is visually strong: observed failure, direct
+  invariant, complementarity/convergence mechanism, then remedies.
+- A material packet-level reproducibility gap remains: the paper repeatedly
+  delegates the full 72-cell heatmap, host/parameter table, ledger, full
+  contact-validity rows, and generating commands to “the supplement,” but the
+  supplied supplement is only the MP4 and contains none of those artifacts.
+  Unless a separate data/ledger archive will accompany submission, reviewers
+  cannot independently inspect the evidence the paper says is supplemental.
+- Native page-2 inspection confirms the row sign, energy definitions, gravity
+  correction, common frame/substep relation (`Δt=1/120`, `h=Δt/S`), and narrow
+  nonclaims are printed unambiguously; the earlier frame-versus-substep
+  ambiguity present in older builds is resolved in this PDF.
+- Page 6 fits the operating guide, runtime, limitations, conclusion, and all 18
+  references without clipping. The references are compact but legible. The
+  presentation is submission-ready apart from the future paper ID and the two
+  stale/overstated video labels.
+- A narrow primary-source novelty check found one important omitted neighbor:
+  Kim et al., *Haptic Rendering and Interactive Simulation Using Passive
+  Midpoint Integration* (IJRR 2017, DOI 10.1177/0278364917731821) derives
+  real-time discrete-time-passive simulation in generalized/maximal
+  coordinates with multipoint Coulomb contact and demonstrates a flexible
+  beam. It does not duplicate the paper’s fixed-budget XPBD diagnosis or
+  gross-loss-funded storage bound, but it should be cited and explicitly
+  distinguished to prevent an avoidable related-work objection.
+- A second omitted primary neighbor is Su, Schroeder, and Fedkiw, *Energy
+  Stability and Fracture for Frame Rate Rigid Body Simulations* (SCA 2009,
+  DOI 10.1145/1599470.1599491), which clamps contact/collision energy gain for
+  frame-rate rigid simulation. It is not the same modal-storage controller, but
+  its problem framing and post-contact energy correction are close enough that
+  the paper should distinguish it alongside FEPR and energy-tank work.
+- Isolated Reviewer 3 (originality/significance) returned **5/7 weak accept,
+  confidence 4/5**. Comprehension was accurate. The reviewer found the focused
+  diagnosis, causal weight ablation, calibrated claims, and MIG usefulness
+  sufficient for a short paper, while flagging narrow originality, inadequate
+  fidelity evidence for the preferred stiffness-aware weight, limited spectrum
+  and contact-regime generalization, a physically loose gross-loss bound, and
+  incomplete artifact-level reproducibility. The report was not shown to any
+  other reviewer.
+- Isolated Reviewer 2 (contact numerics) returned **5/7 weak accept, confidence
+  4/5** with accurate comprehension. The decision-critical concern is that the
+  exact baseline row/update and three modal-weight descriptions are not
+  reconciled, even though that weight is the claimed cause and remedy. The
+  reviewer also wants contact/fidelity evidence for the weight-swap arm,
+  broader controlled `K×S` evidence before generalizing iterations over
+  substeps, conventional complementarity residuals, and narrower penetration
+  causality language. No other reviewer saw this report.
+- Isolated Reviewer 1 (technical/energy) returned **4/7 borderline, confidence
+  4/5**. The theorem/credit-test-project-debit proof was judged sound, but the
+  reviewer treated the inconsistent modal-weight presentation as a central
+  blocker: p.3 prints `1/(H_ii h² - 1)`, p.4 calls the baseline row weight
+  `1/M_q`, then calls the explicit weight `1/(ω_i h)²` and contrasts it with
+  `1/(1+(ω_i h)²)` even though those last two are asymptotically equal. The
+  report also identified three video fixes: “equal cost,” stale Eq. (5), and
+  “band limiting necessary” (not necessary because other remedies work with
+  the full basis).
+- A 400-dpi fact-check confirms the printed modal-weight formulas were read
+  correctly; this is not a text-extraction artifact. `H_ii` is not defined in
+  the PDF, and the exact XPBD row update is absent, so the reader cannot
+  reconcile whether the text is discussing internal modal compliance,
+  contact-row inverse mass, or an effective response. The empirical swap still
+  supports a real intervention, but the claimed analytical mechanism needs one
+  explicit baseline-update equation and corrected asymptotics before
+  submission.
+- Isolated Reviewer 5 (presentation/practitioner/video) returned **5/7 weak
+  accept, confidence 4/5**. The practitioner framing, causal triangulation,
+  claim calibration, Figure 1, final guide, and candid “bounded, not faithful”
+  message cleared the short-paper bar. Concerns were compressed page density,
+  overbroad wording beyond the tested host/sweep, missing audit recipe/data,
+  tiny secondary video text, stale Eq. (5), and an apparent 0.1 mm versus
+  19 mm self-reference ambiguity that needs the run/instant stated explicitly.
+- Isolated Reviewer 6 (senior/generalist) returned **4/7 borderline, confidence
+  4/5**. The result was judged potentially valuable for MIG, but the printed
+  modal-weight algebra was decision-critical: if it is a presentation error
+  and the implemented update supports the mechanism, the score moves to weak
+  accept; otherwise contribution 2 is not established.
+- Isolated Reviewer 4 (evaluation/reproducibility) returned **5/7 weak accept,
+  confidence 4/5**. Its main reservations were the absent promised numerical
+  ledger, lack of fidelity/contact validation for the recommended weight swap,
+  narrow three-scene/normal-only/single-machine scope, one controlled equal-row
+  allocation, unsupported “equal cost” video wording, and incomplete timing and
+  long-horizon reservoir evidence.
+- Final independent panel scores are **4, 5, 5, 5, 5, 4**; mean 4.67/7,
+  median 5/7, four weak accepts and two borderlines, with every reviewer at
+  confidence 4/5. No reviewer recommended rejection, but the two borderline
+  reports independently converged on the same central formula issue.
+- U3 adjudication: the artifact supports a **conditional weak accept**, not an
+  unconditional accept. The focused empirical observation, ablation chain,
+  theorem, calibrated limitations, and video clear the short-paper bar. The
+  formula inconsistency is nevertheless central and valid; because MIG has no
+  rebuttal, leaving it unresolved creates material reject risk even though it
+  is likely repairable without changing the empirical result.
+- Highest-impact repair order is: (1) exact baseline/implicit row equations and
+  corrected high-frequency explanation; (2) fidelity/contact/runtime evidence
+  for the stiffness-aware weight swap or narrower recommendation; (3) actually
+  ship the promised data/ledger/reproduction archive; (4) correct the video’s
+  equal-cost, Eq. (5), and “necessary” labels; (5) add/contrast PMI 2017 and Su
+  et al. 2009 and scope schedule/block claims to the tested configurations.
+- The 0.1 mm versus 19 mm video concern is best treated as run-identification
+  ambiguity, not a proven contradiction: the early sequence is labeled steel
+  board and the later governed sequence soft shelf. Explicit scene/material
+  IDs would remove the ambiguity.
+- Final hash recheck passed: the PDF/video remained exactly
+  `1b41213c…`/`891e835d…` throughout the panel.
+
+## 2026-07-23 Current-artifact review
+
+- Requested artifacts: `paper/main_short.pdf` and
+  `benchmarks/paper_fig/out/mig_short_video.mp4`.
+- Prior review notes concern earlier snapshots and will not be shown to the six
+  new reviewers or credited unless independently confirmed against the current
+  files.
+- Artifact lock: PDF SHA-256
+  `0cc527dcb091bfdc8c48c9ee570324364816bdaaae8989ca8710e993657a496f`;
+  video SHA-256
+  `2f4c92e2a877cb16fdb9acf2152864dbf4016502f8b1937e3448b4e5e4a22011`.
+  Both differ from the latest preserved panel, so its scores are stale.
+- The PDF is a newly built 7-page letter-size ACM artifact titled “When Modal
+  Contact Rows Fail in Fixed-Budget XPBD: Diagnosis and an Operating Guide.”
+  It has no encryption, JavaScript, structural suspect flag, or obvious
+  identity metadata in `pdfinfo`.
+- The supplement is a 53.267 s, 1920×1080, 30 fps, silent H.264 MP4 with generic
+  FFmpeg encoder metadata. A full decode completed without error.
+- Extracted a layout-preserving text copy, all seven page renders, and three
+  ordered 2-second-interval video contact sheets for artifact-only inspection.
+- Paper pages 1–4 frame a focused practitioner diagnosis, not a new contact
+  law: shared modal contact rows in one tested fixed-budget XPBD host can
+  overdraw a measured cumulative rigid-loss supply; controls are one AVBD and
+  one implicit realization, explicitly neither compliance- nor cost-matched.
+- The paper reports three scenes, two relaxations, and four schedules: XPBD
+  violates the accounting bound in 9/24 cells (incident-energy ratio above one
+  in 8/24), AVBD in 3/24, and the implicit realization in 0/24; worst measured
+  overdrafts are about `4.4e7 J`, `6.7 J`, and zero, respectively.
+- The causal case combines an iteration ladder, gap/complementarity diagnostics,
+  an equal-row-evaluation schedule comparison, warm-start and truncation tests,
+  a serial-vs-block ablation, and a within-host modal-weight swap.
+- Unlike the previous PDF, this build explicitly defines the deployed
+  mass-normalized modal inverse mass as `W_q=I`, the stiffness-aware alternative
+  as `(M_q+hD_q+h^2K_q)^-1`, and their per-mode ratio as
+  `1+h d_i+(ω_i h)^2`. The earlier panel's central algebra ambiguity is
+  therefore stale and cannot be carried into this review.
+- The paper carefully narrows several claims: equal row evaluations are not
+  called equal wall-clock cost; the block result is limited to the tested
+  implementation; local perturbations establish only local insensitivity; and
+  basis truncation is presented as mitigation, not a cure.
+- The within-host mechanism equation is now coherent on its face: the deployed
+  stiffness-blind row overestimates per-mode mobility by approximately
+  `(ω_i h)^2` when `ω_i h >> 1`; swapping only that weight reportedly changes
+  8/24 injecting cells to 0/24.
+- The guardrail is explicitly last resort. It credits a cumulative gross
+  rigid-loss reservoir, then projects modal state onto the affordable energy
+  set while preserving active contact-observed surface displacement where
+  feasible; Proposition 4.1 proves only the scalar accounting invariant.
+- The paper measures the cost honestly: at starved budgets the ungoverned row
+  already opens penetration, and the projection can amplify it. Surface
+  preservation reduces the multiplier but still leaves up to 17.8 mm plus a
+  6.9–8.8× corrective impulse; the text repeatedly says containment is not
+  accuracy.
+- Fidelity is a material limitation: at the deployed 1/120 s step the reduced
+  ledge reaches only 38% of full-FEM peak deflection and aliases a 78 Hz ring to
+  47.25 Hz; agreement improves only under timestep refinement. The richer
+  fidelity basis also differs from the rank-16 evaluation basis.
+- Runtime is prototype-level: ledger overhead is small at 16×4, but the
+  guardrail costs 6.6–34.3% at tight 1×8/2×4 schedules; results are Python/CPU
+  float64 and the paper makes no unqualified real-time claim.
+- Limitations disclose normal-only contact, zero restitution, rigid-channel
+  energy blind spots, gross-supply recycling/double credit, uncapped supply,
+  single-machine evidence, and empirical—not theorem-level—claims about the
+  tested solver implementations.
+- Visual audit pages 1–2: clean ACM review layout with anonymous author line,
+  red review line numbers, no clipping or font/render defects. Page 1 has a
+  strong true-scale three-way teaser and readable energy trace, though the
+  abstract and figure caption are unusually dense. Page 2 is text-heavy but
+  equations and contribution structure remain legible at native resolution.
+- Visual audit pages 3–4: heatmaps, control strip, iteration ladder,
+  complementarity plot, and block ablation render cleanly. Figure 2's control
+  strip and supporting prose are small/dense, but labels are readable at native
+  resolution. Equation (4), `W_q` definitions, and the within-host swap are
+  visibly printed and internally consistent in this build.
+- Visual audit pages 5–6: projection equation, proof, penetration table, and
+  ordered operating-guide card render cleanly. Page 5 is mathematically dense
+  but readable. Page 6 has an awkward white gap under Figure 4 before the
+  continuation of the preceding paragraph, yet no clipping; its fidelity,
+  runtime, limitations, and conclusion remain legible.
+- Visual audit page 7: references only, clean and anonymous, with substantial
+  unused space. The scientific body ends on page 6 and references occupy page
+  7.
+- Video contact sheet 1 (ordered 2 s samples, roughly 0–22 s): a clear animated
+  pipeline motivates the compact modal extension, followed by a true-scale
+  stiff-board ungoverned vs 500×1 self-reference comparison and a 32-row-
+  evaluation allocation plot. The dark design is coherent, but explanatory
+  subtitles and plot legends are very small at contact-sheet scale and require
+  native-frame inspection.
+- Video contact sheets 2–3 (roughly 24–53 s): the supplement covers basis
+  truncation, the last-resort cumulative bound, a true-scale ungoverned /
+  governed / self-reference comparison, a penetration cross-section, and the
+  same three-step operating guide as the paper. It ends on “The governor is a
+  safety net, not the product.” The video is decision-oriented and visually
+  aligned with the manuscript rather than a generic demo reel.
+- Native video frames at 5 s and 12 s confirm crisp 1080p typography and
+  true-scale labels. One avoidable overstatement remains: the stiff-board panel
+  calls the host's 500×1 self-reference “the only honest baseline for how much
+  the row injects,” although the paper itself uses both self- and implicit
+  references and is more carefully qualified.
+- Native frames at 20 s and 26 s correctly say “same contact-row evaluations,”
+  not equal cost, and clearly show that iterations outperform substeps in the
+  tested equal-row shelf comparison while band-limiting reduces severity by
+  2–3 orders without curing 6/8 injecting cells.
+- Native frames at 33 s and 39 s explicitly distinguish the softer 0.5 GPa
+  board from the earlier 200 GPa board, closing the previous snapshot's
+  run-identification ambiguity. The three-way true-scale comparison is
+  scientifically useful: the guardrail suppresses launch but visibly
+  under-moves the books relative to the 500×1 self-reference.
+- Native frames at 44 s and 50 s align with the new paper: the penetration card
+  cites current Eq. (5), separates 6.2 mm truncated-row residue from 21.6 mm
+  whole-state scaling and 8.3 mm surface preservation, and the final guide
+  repeats the paper's 0/24, +481 J, 6/8, 90/90, and 17.8 mm claims.
+- No stale equation number or “equal cost” wording was found in this video
+  build. Its main presentational weakness is the rhetoric “only honest
+  baseline”; otherwise the supplement is unusually candid about both failure
+  and mitigation cost.
+- Official MIG 2026 CFP checked 2026-07-23: short papers are focused results,
+  emerging ideas, or concise technical contributions; 4–6 body pages excluding
+  references; SIGCONF review format; supplementary material encouraged up to
+  200 MB; double-blind review; no rebuttal. Review criteria are originality,
+  technical quality, clarity, significance, reproducibility where applicable,
+  and MIG relevance.
+- The current artifact matches the six-body-page plus references format, is
+  anonymous, and the 1.48 MB MP4 is far below the supplement limit. The CFP
+  requires the unique EasyChair paper ID in the review PDF; none is visible in
+  the current build, so this is a mandatory pre-submission fix rather than a
+  scientific-review penalty (the submission window opens July 25).
+- Targeted primary-source novelty check confirms the paper cites the relevant
+  neighborhoods: finite-iteration partition coupling can inject energy even
+  with passive subsystems (Wei et al. 2026), frame-rate collision energy
+  clamping predates this work (Su et al. 2009), modal deformation with contact
+  constraints is old (Hauser et al. 2003), and current energy-controllable
+  elastodynamic contact integrators exist (You et al. 2026). None of these
+  sources, on their stated scope, obviously supplies the paper's exact
+  fixed-budget unilateral modal-row audit and practitioner operating map; the
+  contribution is therefore a focused diagnosis/measurement synthesis, not a
+  new general energy-stability principle.
+- All PDF fonts are embedded/subsetted. A text/metadata scan found no author,
+  affiliation, repository URL, or other apparent identity leak; it also
+  confirmed the unique submission ID is absent.
+- Isolated Reviewer 3 (evaluation) returned **5/7 weak accept, confidence 4/5**.
+  It found the within-host weight swap, iteration/complementarity ladder, and
+  broad ablation chain persuasive for a focused diagnosis. Its decision-level
+  reservations were narrow single-prototype scope, extreme unresolved modal
+  frequencies, no general onset analysis, the permissive gross-loss reservoir,
+  poor deployed FEM fidelity, and the absence of the paper-promised numerical
+  ledger/raw results from the supplied supplement.
+- Isolated Reviewer 2 (novelty/significance) returned **5/7 weak accept,
+  confidence 4/5**. It judged the contribution to be a legitimate but narrow
+  short-paper result: causal quantification and an operating map, not a new
+  contact law or general energy-stability principle. Its central concerns were
+  incremental originality, under-resolved extreme modes, weak safety semantics,
+  missing numerical supplement, and no accuracy evidence for the
+  stiffness-aware within-host weight.
+- Isolated Reviewer 1 (technical) returned **5/7 weak accept, confidence 4/5**.
+  It accepted the narrow reservoir induction but identified the most important
+  current gap: the recommended weight swap is evaluated only by eliminating
+  overdraft, not by trajectory/deflection/spectrum/contact fidelity; it also
+  requested a derivation of `(M+hD+h^2K)^-1` consistent with the stated
+  midpoint restoring split.
+- Isolated Reviewer 4 (clarity/reproducibility) returned **4/7 borderline,
+  leaning reject, confidence 4/5**. It judged the frozen package incomplete
+  because the paper's promised ledger, commands/commit, solver matrix, raw
+  72-cell data, bases, and transient evidence are not present in the supplied
+  video; it also treated missing physical validation of the recommended weight
+  swap as decision-critical.
+- Isolated Reviewer 6 (senior/generalist) returned **5/7 weak accept,
+  confidence 4/5**. Its strongest accept case was the unusually disciplined
+  causal chain and scope calibration; its strongest reject case was that the
+  catastrophic result may be dominated by an already under-resolved modal
+  regime, while the deployed response captures only 38% of FEM peak and the
+  supplied pair is not reproducible.
+- Isolated Reviewer 5 (MIG/practitioner/video) returned **5/7 weak accept,
+  confidence 4/5**. It found the practitioner problem, visual design, and final
+  operating guide unusually strong for MIG, but independently made the absence
+  of fidelity evidence for the primary weight remedy its top weakness; the
+  video helps clarity but omits that decisive positive comparison.
+- Complete panel scores: **5, 5, 5, 4, 5, 5**; mean **4.83/7**, median **5/7**;
+  five weak accepts and one borderline/lean-reject; every reviewer reported
+  confidence **4/5**.
+- All six passed the comprehension gate: each correctly identified the
+  stiffness-blind finite-budget row mechanism, the exact run-level scalar
+  modal-storage accounting guarantee, and the fact that containment does not
+  imply contact or trajectory fidelity.
+- Fact-check adjudication: the current PDF has no prior build's printed
+  modal-weight contradiction; the definitions and Equation (4) are explicit.
+  Reviewer 1's narrower concern remains valid: the artifact does not derive the
+  effective weight from the stated midpoint/restoring split or validate the
+  swapped arm against a physical/reference trajectory.
+- The video already labels equal row evaluations rather than equal cost, cites
+  current Eq. (5), and explicitly distinguishes its 200 GPa demo from the softer
+  Figure-1 board. Those historical defects are closed; only “the only honest
+  baseline” remains over-rhetorical.
+- Reconciled scientific verdict: **5/7 weak accept, confidence 4/5** under the
+  focused-short-paper bar. The diagnosis, within-host causal control, iteration/
+  complementarity evidence, calibrated proposition, MIG fit, and candid failure
+  reporting narrowly clear the bar. This is not an accept as a new contact law,
+  solver ranking, or physical-passivity theorem.
+- Reconciled readiness verdict: **do not submit the supplied pair unchanged**.
+  Acceptance risk is concentrated in two correctable gaps: no fidelity/contact
+  validation for the first-line stiffness-aware weight, and no numerical
+  supplement despite the manuscript promising a ledger, commands/commit,
+  solver matrix, full heatmaps, and ablation records. If a separate numerical
+  bundle already exists and will be uploaded, the second concern largely
+  disappears.
+- Highest-impact revision order: (1) validate the weight-swap arm against
+  converged XPBD/implicit or FEM in trajectory, deflection/spectrum, gap/impulse,
+  and cost; (2) upload the promised reproducibility bundle; (3) derive or
+  precisely label the effective weight relative to the integration split; (4)
+  show failure/mitigation at a defensible timestep-aware basis or narrow the
+  practitioner claim; (5) replace one video plot beat with the positive
+  weight-swap comparison and remove “only honest baseline”; (6) add the required
+  EasyChair paper ID before submission.
+
+## 2026-07-23 Fresh six-reviewer request
+
+- Requested artifacts are `paper/main_short.pdf` and
+  `benchmarks/paper_fig/out/mig_short_video.mp4`.
+- Historical panel findings are context only and will neither be shown to the
+  six new reviewers nor credited unless independently verified against the
+  freshly hashed artifacts.
+- Fresh artifact lock: PDF SHA-256
+  `ab393707b31b7e689fc27bdcd7822b85ead03e4eeb4e0f044db0060c8844a4ea`;
+  video SHA-256
+  `66621e5333e2d254555cf1423d85b0c709259085a35ffc799191a5ca4272ddd5`.
+  Both differ from the immediately preceding historical review.
+- The PDF is seven letter-size pages, unencrypted, with no JavaScript or
+  structural suspect flag; its title is “When Modal Contact Rows Fail in
+  Fixed-Budget XPBD: Diagnosis and an Operating Guide.” All listed fonts are
+  embedded/subsetted.
+- The supplement is a cleanly decodable 53.267-second, 1920×1080, 30 fps H.264
+  video with no audio stream. A frozen artifact-only packet now contains the
+  extracted paper text, all seven page renders, 5-second video frames, and
+  full-duration 2-second contact sheets.
+- The live official MIG 2026 call defines short papers as focused results,
+  emerging ideas, or concise technical contributions; allows 4–6 body pages
+  excluding references; encourages supplements up to 200 MB; requires anonymous
+  SIGCONF review format plus a unique submission ID; and lists originality,
+  technical quality, clarity, significance, reproducibility where applicable,
+  and MIG relevance as review criteria.
+- Current-paper abstract/intro reconstruction: this is explicitly a
+  practitioner diagnosis and operating guide, not a new modal contact row or a
+  cross-solver superiority claim. It studies a compact shared modal state
+  inserted into two-way unilateral contact in one fixed-budget XPBD host,
+  reports severe measured rigid-loss-reservoir overdraft, localizes the
+  amplification using an iteration ladder/equal-row schedules/within-host
+  modal-weight swap, and offers a cumulative projection only as a last-resort
+  containment guardrail.
+- The headline quantitative claims in this build are: XPBD worst overdraft
+  `4.4e7 J`; AVBD at most `6.7 J` in 3/24 accounting cells; implicit 0/24;
+  stiffness-aware within-host weight removes overdraw in all injecting cells
+  while retaining `0.70–0.89×` converged modal energy where the retained band is
+  resolved; the projection reaches roundoff-floor compliance in 90 measured
+  cells but can still amplify penetration and remove legitimate motion.
+- The scalar invariant is carefully scoped: cumulative modal storage above the
+  zero initial state may not exceed positive measured gross rigid-side loss
+  (plus gravity accounting) at `eta=1`. The paper expressly says this is neither
+  port passivity nor a signed per-interface energy statement; the gross supply
+  can include legitimate transfer and unrelated rigid losses.
+- The causal evidence chain is materially stronger than a solver comparison:
+  equal-row allocations (32×1 holds while 4×8 overdraws), monotone
+  iteration/complementarity ladders, warm-start and basis-truncation tests, a
+  serial-versus-block ablation, 16 deterministic perturbations around worst
+  cells, and—most importantly—a within-XPBD swap from `Wq=I` to
+  `(Mq+hDq+h^2Kq)^-1` that changes 8/24 incident-ratio injecting cells to 0/24.
+- Important residual risk: the recommended stiffness-aware weight is validated
+  mainly by energy containment and retained energy ratios, while the paper does
+  not yet show a full trajectory/contact/spectral/fidelity comparison for that
+  swapped arm. Its most extreme ledge regime has `omega_max h ~ 10^4`, where the
+  paper itself says the alternative weight reduces even the softest retained
+  mode to 2.5% mobility and must be paired with a step-aware basis.
+- The guardrail proof supports only the scalar accounting invariant. It
+  deliberately does not re-solve contact; observed penetration can remain
+  `17.8 mm`, corrective impulses can reach `6.9–8.8×`, and trajectories can move
+  farther from the implicit reference. The manuscript candidly labels this
+  containment rather than accuracy.
+- Deployed physical fidelity is weak but disclosed: at `1/120 s` the reduced
+  ledge captures 38% of full-FEM peak deflection and shifts a 78 Hz ring to
+  47.25 Hz; agreement improves under refinement. Runtime is prototype
+  Python/CPU float64, with no unqualified real-time claim and a guardrail cost
+  as high as 34.3% at tight schedules.
+- Visual PDF audit: all seven pages render cleanly with readable equations,
+  embedded figures, anonymous author line, and no clipping. The six body pages
+  are unusually dense; Figure 2's cross-host control strip is small, but legible
+  at native resolution. Page 7 contains references only. No unique EasyChair
+  paper ID is visible, so the live CFP's mandatory ID remains a pre-submission
+  fix rather than a scientific defect.
+- Full-duration video audit from ordered 2-second contact sheets: the video
+  coherently covers the compact modal extension, a true-scale stiff-board
+  failure against the host's 500x1 self-reference, equal-contact-row allocation
+  (iterations versus substeps), basis band-limiting, the last-resort storage
+  bound, a softer-board ungoverned/governed/self-reference comparison,
+  penetration provenance, and the same three-step operating guide as the
+  paper. It ends with “The governor is a safety net, not the product.”
+- The supplement materially improves causal and visual comprehension and is
+  candid that containment removes legitimate motion. It does not visibly
+  demonstrate the paper's first-line positive intervention—the
+  stiffness-aware within-host weight—beyond the final guide's `8/24 -> 0/24`
+  statement, leaving the main accuracy/fidelity question unresolved.
+- Native-frame checks confirm the video wording is appropriately qualified:
+  the 200 GPa steel-board case is labeled illustrative and outside the three
+  swept scenes; the 32-row plot says equal contact-row evaluations rather than
+  equal wall-clock cost; the later guardrail scene explicitly identifies a
+  different 0.5 GPa board; and the penetration card separates 6.2 mm already
+  opened by the truncated row from 21.6 mm whole-state scaling and 8.3 mm
+  surface preservation.
+- The video is crisp and legible at native 1080p. It uses the host's own 500x1
+  self-reference rather than overstating it as a universal ground truth, and
+  the final card says the work is neither a solver ranking nor a governor
+  method. No stale “equal cost” or ambiguous scene/material wording was found
+  in this build.
+- Independent primary-literature sanity check supports the manuscript's narrow
+  novelty framing: Hauser et al. 2003 already put constraints into modal
+  deformation; Kaufman et al. 2008 already treated rigid/reduced deformable
+  frictional contact at interactive rates; Zheng and James 2011 already coupled
+  modal vibrations into collision/contact; Rath 2008 already addressed
+  energy-stable contacting modal objects; and 2026 work covers finite-iteration
+  energy-safe partition coupling and energy-controllable elastodynamic contact.
+  None of those inspected scopes obviously supplies this paper's exact
+  fixed-budget XPBD modal-row failure map and within-host diagnostic, so the
+  defensible contribution is a focused diagnosis/operating guide—not a new
+  modal-contact formulation or general energy-stability principle.
+- Artifact anonymity check found only `Anonymous Author(s)` in PDF XMP and no
+  identity-bearing video metadata. The paper repeatedly promises a separate
+  numerical archive (per-cell CSVs, configurations, commands/commit, code
+  snapshot, pinned environment, smoke test, full 72-cell heatmap), but that
+  archive is not part of the user-supplied PDF/video pair and therefore cannot
+  be credited in this review.
+- Claim-count ambiguity to adjudicate: the paper carefully distinguishes
+  `R>1` in 8/24 XPBD cells from positive Eq. (2) ledger margin in 9/24, but the
+  within-host stiffness-aware result and final video card say `8/24 -> 0/24
+  overdraws`. The artifact does not explicitly report whether the ninth
+  ledger-only violation is also eliminated. Until clarified or shown in the
+  promised raw table, the first-line fix is demonstrated to remove all
+  incident-ratio exceedances, not unambiguously all Eq. (2) violations.
+- Isolated Reviewer 1 (technical soundness) returned **5/7 weak accept,
+  confidence 4/5** and passed the comprehension gate. It independently found
+  the scalar reservoir induction sound as accounting, not passivity, but made
+  the un-derived `M+hD+h^2K` weight for the stated midpoint/symplectic step,
+  missing physical-fidelity validation, absent gravity audit/archive, and the
+  8/24-versus-9/24 ambiguity its main reservations.
+- Isolated Reviewer 2 (novelty/significance) returned **5/7 weak accept,
+  confidence 4/5**. It judged the contribution sufficiently original only as a
+  narrow XPBD-specific quantitative diagnosis and operating map, not as a new
+  modal-contact law or energy-control principle. Its main concerns were extreme
+  unresolved modal spectra, one-prototype external validity, no
+  energy/contact/fidelity-valid tight-budget operating point, and the missing
+  numerical archive.
+- Isolated Reviewer 3 (evaluation) returned **5/7 weak accept, confidence
+  4/5**. It independently identified the 8/24-versus-9/24 post-swap reporting
+  gap as decision-level, and made missing FEM/trajectory/contact validation of
+  the stiffness-aware row, absent wall-clock/spectrum sweeps, local-only
+  robustness, and packet-level non-reproducibility its other principal
+  reservations.
+- Provisional three-reviewer consensus (before later reports): the focused
+  failure diagnosis, within-host causal intervention, and narrow accounting
+  proof are accept-worthy under the short-paper bar; the result is not a clear
+  accept because the proposed first-line weight lacks a matching discrete
+  derivation and physical-fidelity validation, its true-invariant result is
+  incompletely reported, the test spectrum is extremely under-resolved, and the
+  promised numerical archive is absent from the supplied pair.
+- Isolated Reviewer 5 (MIG/practitioner/video) returned **5/7 weak accept,
+  confidence 4/5**. It found the complete video scientifically informative and
+  the operating guide memorable, but stressed that the first-line
+  stiffness-aware remedy never appears in motion and lacks deployed-budget
+  contact/trajectory/frequency/runtime validation. It also recommended renaming
+  “hard energy guarantee” to a cumulative modal-storage accounting bound.
+- Isolated Reviewer 4 (clarity/reproducibility) returned **4/7 borderline,
+  confidence 4/5**. Its decision turned on the missing numerical archive, the
+  unreported post-swap Eq. (2) margins, and weak deployed-step fidelity. It also
+  identified a schedule-scope overreach: the 38% FEM result is measured at
+  fixed `S=4`, while the paper calls it the operating point of every other
+  experiment even though the main grid varies `S` over 1, 2, 4, and 8.
+- Isolated Reviewer 6 (senior/generalist) returned **5/7 weak accept,
+  confidence 4/5**. Its strongest accept case was the unusually disciplined
+  causal diagnosis and candid short-paper scope; its strongest reject case was
+  an extreme under-resolved regime in one prototype whose preferred fix is not
+  validated on the true invariant or physical accuracy. It additionally
+  questioned using a `500x1` visual self-reference for a `1x8` production run
+  rather than a converged same-`S` comparison.
+- Complete panel scores are **5, 5, 5, 4, 5, 5**; mean **4.83/7**, median
+  **5/7**; five weak accepts and one borderline; every reviewer reported
+  confidence **4/5** and passed the common comprehension gate.
+- Final hash recheck confirms the original PDF/video remained exactly
+  `ab393707…`/`66621e53…` throughout all six reviews and match the frozen
+  reviewer copies.
+- Fact-check adjudication confirms the panel's central concerns are printed in
+  the artifacts: the post-swap result is `8/24 -> 0/24` while the true
+  invariant has 9/24 baseline violations; the effective weight is stated but
+  not derived from the paper's midpoint/symplectic split; the FEM ladder is
+  fixed at `S=4` although the broader operating-point sentence covers schedules
+  with other `S`; and Figure 1/video compare `1x8` to a `500x1`
+  self-reference, not a converged same-`S` arm.
+- Reconciled scientific verdict: **5/7 weak accept, confidence 4/5** under the
+  focused-short-paper bar. The negative diagnosis, one-factor causal
+  intervention, iteration/complementarity evidence, narrow proof, candid
+  limitations, and MIG relevance narrowly clear the bar; this is not an accept
+  as a new contact law, general energy-safety theorem, or validated production
+  solver prescription.
+- Reconciled readiness verdict: **do not submit the supplied pair unchanged**.
+  The highest-impact fixes are to report both post-swap diagnostics for all 24
+  cells; derive and physically validate the stiffness-aware arm; attach the
+  promised anonymous numerical archive; narrow/schedule-match the FEM claim and
+  self-reference; revise “hard energy guarantee” to an accounting-bound label;
+  show the preferred fix in the video; and add the EasyChair ID when assigned.
+
+## 2026-07-24 `onesweep_short.pdf` review
+
+- Requested artifact: `paper/onesweep_short.pdf`, SHA-256
+  `9607dfa2d9727d10c666f1e8c064e0d51d8cc8415aa0b4caf58422fc0030c851`.
+- PDF metadata title: “A Closed-Form One-Sweep Energy Boundary for
+  Stiffness-Blind Contact Rows in Fixed-Budget Position-Based Solvers.”
+- Initial PDF structure: six US-letter pages, 2.9 MiB, unencrypted, no
+  JavaScript, no Poppler suspect flag. Full text and visual inspection remain
+  pending.
+- Visual pages 1–2: clean anonymous ACM review layout with red line numbers,
+  no clipping, and legible equations. Page 1 is unusually claim-dense: the
+  abstract and introduction repeat four theorem-level contributions and tightly
+  bind them to one cold-start Gauss–Seidel sweep, zero restitution, and mostly
+  hard contact. Page 2 states the model/ledger and gives the scalar sign
+  boundary, the row-visible operator condition, and the implicit-weight
+  exactness theorem; scope exclusions (multi-row matrix result, warm starts,
+  finite-iteration interior, secular growth) are explicit.
+- Visual pages 3–4: Figure 1 gives a clear 58,081-cell sign map and the stated
+  analytic boundary; Table 1 enumerates five validation tiers. Figures 2 and 3
+  are heavily reduced in the right column and their legends/axes are difficult
+  to read at page scale, although the captions state the intended collapse and
+  ordering results. Page 4 reports the shipped-row check, a 24-cell
+  system-level weight swap (8/24 injecting to 0/24), and an empirical iteration
+  trend, while explicitly declining a finite-iteration closed form.
+- Visual pages 5–6: Figure 4 is the most decision-useful empirical figure and is
+  legible, contrasting backward-Euler and shipped symplectic reconstruction and
+  showing the iteration inset. Practitioner guidance correctly branches on
+  reconstruction, recommends open-loop excitation where contact feedback is
+  unnecessary, and reiterates that the danger index is diagnostic rather than
+  a safety guarantee. Limitations are unusually candid: one row, one sweep,
+  cold start, zero restitution, normal-only coupling, mostly hard contact, no
+  warm states, no friction, no multi-substep secular analysis, and only
+  sign-level validation of the midpoint corollary. All six pages render cleanly;
+  page 6 contains both final guidance/limitations and references.
+- Live official MIG 2026 CFP (checked 2026-07-24): short papers are for focused
+  results, emerging ideas, or concise technical contributions; the limit is
+  4–6 body pages excluding references; review criteria are originality,
+  technical quality, clarity, significance, reproducibility where applicable,
+  and MIG relevance. Review PDFs must use anonymous SIGCONF review mode and
+  include the unique EasyChair paper ID. The requested PDF fits the short-paper
+  page category and anonymous review format; the visible ID still needs an
+  explicit check.
+- Artifact audit: original and frozen hashes match. All fonts are embedded and
+  subsetted; plot text uses embedded Type-3 fonts without Unicode mapping. The
+  text/visual scan exposes only “Anonymous Author(s)” and no identity-bearing
+  URL, email, affiliation, or acknowledgment. No EasyChair paper/submission ID
+  is visible, so that mandatory field remains a pre-submission fix.
+- Primary-source spot check: Cetinaslan 2019 really does adapt energy-aware
+  Gauss–Seidel to PBD by equalizing kinetic/potential energy changes inside
+  XPBD iterations, so the manuscript is right to treat energy-aware GS as
+  adjacent prior work. The current paper’s defensible novelty must therefore be
+  the exact cold-start per-row sign boundary/effective-mass identity and its
+  reconstruction-dependent interpretation, not energy-aware iteration broadly.
+- Independent algebra check confirms the printed scalar boundary: for
+  `M=m=1`, mass-only correction, and `b=(omega h)^2`, the full-sweep energy
+  change changes sign at `b=2`, exactly `1+m/M`. The multi-mode formula likewise
+  reduces to `Delta E = v^2(L-w_m)/(2w_m^2)`, so C1/C2 are internally coherent
+  under the stated cold-start backward-Euler assumptions.
+- Potential technical defect to adjudicate: the sentence “Under-relaxing the
+  correction ... cannot flip either arm’s sign” is false under the ordinary
+  meaning of relaxation. For `M=m=1`, `b=4`, a full mass-only correction
+  injects (`Delta E=+0.25` for `v=-1`), while applying relaxation `r=0.5` to the
+  correction makes it dissipative (`Delta E=-0.0625`). The central full-sweep
+  theorems survive, but this generalization should be removed or qualified.
+- Potential second defect/ambiguity: the broad midpoint claim that “no
+  diagonal row weight is unconditionally passive” appears to require an
+  unstated admissibility restriction. If an arbitrary diagonal modal inverse
+  weight `r` may be used in both the denominator and correction, the cold-start
+  midpoint energy sign is proportional to
+  `m(4+b)r^2 - w_r - 2r`; choosing
+  `r=1/[m(2+b)]` makes it `-b/[m(2+b)^2]-w_r`, nonpositive for every
+  `b>=0` and `w_r>=0`. The paper must say what class of weights is excluded or
+  revise the claim. This matters
+  because the claim appears in the abstract, C3 summary, Remark 1, and final
+  practitioner guidance.
+- Internal-evidence tension to adjudicate: the shipped symplectic one-sweep test
+  says the implicit weight is passive in only 15/27 cells, yet the later
+  production-host 24-cell experiment says the same weight yields 0/24 injecting
+  cells and “matches Theorem 3.3,” whose assumptions are explicitly
+  backward-Euler. Multiple iterations or different regimes may explain the
+  empirical outcome, but it cannot directly corroborate that theorem without a
+  schedule/reconstruction-matched argument.
+- Isolated Reviewer 3 (evaluation/reproducibility) passed the comprehension
+  gate and scored **4/7 borderline, weak-reject lean (confidence 4/5)**. It
+  found the nonmodal collapse the strongest independent validation, but judged
+  the shipped-row and 24-cell practical evidence non-reproducible from the PDF:
+  host/scene/parameter/raw-data details live in a missing supplement and an
+  under-review companion. It independently caught the false/undefined
+  under-relaxation no-sign-flip statement and the mismatch between the
+  backward-Euler theorem and the shipped midpoint/system-level evidence.
+- Primary-source bibliography audit found at least two concrete errors in the
+  closest-work references. Reference [1] attributes *Geometric Stiffness for
+  Real-Time Constrained Multibody Dynamics* to Sheldon Andrews and Kenny
+  Erleben, but the paper is by Sheldon Andrews, Marek Teichmann, and Paul G.
+  Kry. Reference [8] attributes a shortened/changed title to Ozan Cetinaslan and
+  Jernej Barbič, but the 2019 CGF paper is sole-authored by Ozan Cetinaslan and
+  titled *Position-Based Simulation of Elastic Models on the GPU with Energy
+  Aware Gauss-Seidel Algorithm*. These are not merely style issues because both
+  sources are used to delimit the paper’s novelty.
+- Isolated Reviewer 1 (technical) passed the comprehension gate and scored
+  **3/7 weak reject (confidence 4/5)**. It independently recovered C1, C2, the
+  compliance shift, the undamped backward-Euler C3 identity, and C4’s deposit
+  divisor. Its rejection rests on two concrete false claims: (i) for the
+  shipped mixed reconstruction, the diagonal reconstruction-matched weight
+  `mu=m(4+b)` used in denominator and correction makes the modal stored energy
+  exactly match the charged quadratic and yields a strictly dissipative
+  reduced-mass impact, contradicting “no diagonal weight”; and (ii) ordinary
+  correction relaxation moves the mass-arm sign boundary and can flip it.
+- Isolated Reviewer 2 (novelty/significance) passed the gate and scored **3/7
+  weak reject, close to borderline (confidence 4/5)**. It found the exact C1/C2
+  threshold plausibly new and useful but elementary/narrow; C3/C4 mostly
+  compose known dynamic stiffness, effective mass, inelastic impact, and GS
+  ordering. It also found missing close PBD/contact and energy-controlling
+  integration work, under-compared Cetinaslan 2019, and additional wrong author
+  metadata in references [2] and [12].
+- The midpoint counterexample suggests a clean repair rather than collapse of
+  the project. For the paper’s mixed reconstruction
+  `qdot+=kappa*Delta q/h`, true modal boundary energy is weighted by
+  `m(kappa^2+b)`, `b=(omega h)^2`. Using the reconstruction-matched diagonal
+  row mass `mu=m(kappa^2+b)` makes the same reduced-mass impact identity hold:
+  `kappa=1` recovers the paper’s backward-Euler C3 and `kappa=2` gives the
+  missing shipped-midpoint remedy `mu=m(4+b)`. A revision could replace the
+  false impossibility claim with this more general and arguably stronger
+  theorem, then validate it on the shipped row.
+- Isolated Reviewer 4 (clarity/presentation) passed the gate and scored **5/7
+  weak accept (confidence 4/5)**. It found the focused theorem clear and
+  short-paper appropriate, while independently catching the relaxation error,
+  system-test ambiguity, undefined C2 notation, small Figures 2–3, weak
+  PDF-only reproducibility, and accessibility issues. It did not test the
+  separate universal midpoint-weight claim.
+- Isolated Reviewer 5 (practitioner/MIG) passed the gate and scored **3/7 weak
+  reject (confidence 4/5)**. It independently derived both a passive diagonal
+  midpoint counterexample and the relaxation-dependent sign boundary, judging
+  the printed implementation advice unsafe even though the backward-Euler
+  diagnostic is valuable and MIG-relevant.
+- Isolated Reviewer 6 (senior/generalist) passed the gate and scored **4/7
+  borderline (confidence 4/5)**. It independently confirmed C1/C2 and the
+  backward-Euler identity, then found the same two headline overclaims. It also
+  flagged scalar-versus-multimode C3 scope, possible omitted compliant-contact
+  stored energy, and dependence on missing practical artifacts.
+- Final panel: scores **3, 3, 4, 5, 3, 4**; mean **3.67/7**, median **3.5/7**;
+  three weak rejects, two borderlines, one weak accept; all confidence **4/5**.
+  All reports reviewed the unchanged hash `9607dfa2…`.
+- Fact-check adjudication: the lone accept vote survives as evidence that the
+  correct C1/C2/backward-Euler core can clear a focused-short-paper bar, but it
+  did not examine the universal midpoint-weight statement. Three reviewers
+  independently derived valid diagonal counterexamples, and four independently
+  found the relaxation statement false. Because both claims appear in
+  practitioner-facing/high-level text, the correct area-chair outcome for this
+  exact PDF is **3/7 weak reject, confidence 4/5**, not a mechanical average.
+- Submission outlook: the project is salvageable and potentially stronger.
+  Replace the midpoint impossibility with the reconstruction-matched
+  `m(kappa^2+b)` theorem, add the relaxation-dependent boundary, rerun Figure 4
+  and system evidence on the corrected midpoint arm, make the 24-cell test
+  theorem-matched and self-contained, attach the promised anonymous artifact,
+  repair/audit the bibliography, and add the EasyChair ID when assigned.
+
+## 2026-07-24 Fresh `onesweep_short.pdf` rerun
+
+- Historical verdicts are not evidence of a fresh panel. The current artifact
+  must be hashed and frozen before any earlier factual audit can be reused.
+- Six new reviewers will receive only the frozen current PDF, a common MIG
+  short-paper rubric, and their assigned lens; no prior scores or reports will
+  be disclosed.
+- The current PDF is a materially new artifact: SHA-256
+  `fc552a597a529b5715967b23dfb68480d8602c6f09b1192f42a0ab3cb4a2d988`,
+  versus historical hash `9607dfa2...`. Its title has changed to “A Per-Row
+  Danger Index and a Reconstruction-Matched Effective Mass for One-Sweep
+  Passive Contact Coupling in Fixed-Budget Position-Based Solvers,” and it is
+  now seven letter-size pages rather than six.
+- The frozen copy matches the original hash. Poppler reports an unencrypted,
+  JavaScript-free, structurally unsuspect PDF; all fonts are embedded, though
+  plot fonts remain Type 3 without Unicode mappings.
+- The revision directly addresses the prior panel's two fatal theory defects.
+  It replaces the claimed impossibility of a diagonal midpoint remedy with a
+  reconstruction-general matched charge mass
+  `m_eff = m(kappa^2 + (omega h)^2)` used in both denominator and correction;
+  `kappa=2` gives the previously missing midpoint remedy. It also distinguishes
+  modal-only relaxation from whole-correction relaxation and states the
+  corresponding shifted boundaries instead of claiming relaxation never
+  changes the sign.
+- The claimed scope remains deliberately narrow: one unilateral normal row,
+  one cold-start Gauss--Seidel sweep, zero restitution, mostly hard contact,
+  no friction, with warm states, multi-row coupling, finite-iteration closed
+  forms, and long-horizon growth expressly outside scope.
+- The validation suite is expanded to T1--T8: analytic identities, a 58,081-cell
+  phase map, a 288-cell nonmodal collapse, shipped-row reconstruction tests,
+  ordering tests, a reused 24-cell system swap, a 7,000-cell matched-mass test,
+  and a 1,200-cell relaxation-bound test. The practitioner-relevant shipped
+  midpoint row now reports the matched weight passive in all 27 cells.
+- The paper explicitly positions C1--C4 as a per-sweep diagnostic/effective
+  mass result, not as a new contact law, global solver guarantee, or discovery
+  that truncation can inject. It points practitioners to open-loop modal
+  excitation when same-solve gap feedback is unnecessary.
+- The strongest remaining evidence risk is external validity: the formal result
+  is exact only for a cold-start single row and the full-host corroboration is
+  a 24-cell weight swap reused from an anonymous companion submission. The
+  paper reports no warm-state, frictional, restitution, multi-row, or
+  long-horizon validation and no end-to-end fidelity/performance comparison
+  for the weaker matched response.
+- Reproducibility depends on supplemental CSV/source material repeatedly cited
+  but not present in the user-supplied PDF. Reviewers must judge the PDF alone
+  and may treat the absent packet as a readiness weakness rather than assuming
+  its contents.
+- Page 7 is references only; the paper body occupies six pages, consistent in
+  principle with a 4--6 body-page short-paper limit if the current CFP excludes
+  references. The visual audit and live-CFP confirmation remain pending.
+- The live official MIG 2026 CFP confirms that short papers are focused results,
+  emerging ideas, or concise technical contributions; the limit is 4--6 pages
+  excluding references. The requested PDF's six body pages plus one
+  references-only page therefore fit the category.
+- The official review criteria are originality, technical quality, clarity,
+  significance, reproducibility where applicable, and MIG relevance. The
+  required review format is anonymous SIGCONF review mode and must include the
+  unique submission ID assigned by EasyChair; the PDF's anonymity and visible
+  ID still require page-level inspection.
+- Visual audit, pages 1--2: the anonymous review layout is clean, equations and
+  line numbers are legible, and no clipping is visible. Page 1 is unusually
+  dense and the three-line title/abstract repeat most claims, but the scope is
+  explicit. No unique EasyChair paper ID is visible on the title page or
+  running footer, so it remains a required pre-submission insertion once
+  assigned.
+- Visual audit, pages 3--4: Figure 1 and Table 1 are legible and the theorem/
+  validation text is clean. Page 3 has a real formatting defect: the extremely
+  long running title overlaps the conference header across the top margin.
+  This does not affect the science but should be fixed with a short title
+  before submission.
+- Visual audit, pages 5--6: the long running title also collides with the
+  conference header on page 5. Figures 2 and 3 are too small for comfortable
+  page-scale reading; captions convey their conclusions, but axes, legends,
+  and annotations require zoom. Figure 4 is decision-useful and substantially
+  more legible, though its caption is very long. Page 6's practitioner guidance
+  and limitations are clear and candid.
+- Visual audit, page 7: it contains references only, so the six-page body limit
+  is met. The odd-page running-header collision recurs. The page is otherwise
+  clean. A text scan finds only “Anonymous Author(s)” and no email, affiliation,
+  acknowledgment, identity-bearing URL, or EasyChair/submission ID.
+- Independent algebra check supports the repaired core. Substituting the
+  matched charge mass `mu_c=m(kappa^2+b)` into Eq. (6) reduces exactly to the
+  negative reduced-mass loss in Eq. (7); the mass-only case gives
+  `kappa^2+b > 2+m/M`. Modal-only relaxation scales only the modal deposit by
+  `theta^2`, and whole-correction relaxation gives the separately printed
+  `L>(2/theta-1)w_m` boundary. These are not the false claims in the historical
+  PDF.
+- A remaining technical clarification concerns compliance: Eq. (2)'s ledger
+  includes rigid/modal kinetic and modal potential energy but not stored
+  compliant-contact energy. The stated compliance-shifted sign is consistent
+  with that ledger; if “passivity” is intended to include a physical compliant
+  contact spring, its stored energy and the resulting boundary need to be
+  stated explicitly.
+- The reused 24-cell system corroboration is decision-relevantly ambiguous.
+  It runs the symplectic host and says the old “implicit weight” changes
+  `8/24` injecting cells to `0/24`, then says this matches Theorem 3.3. Elsewhere
+  the PDF explicitly distinguishes that backward-Euler-shaped implicit weight
+  from the new symplectic reconstruction-matched `4M_q+h^2K_q` weight and shows
+  the former can inject on the shipped midpoint row. Unless T6 actually used
+  the new matched weight, it cannot be presented as direct corroboration of
+  Theorem 3.3; the exact arm must be named and the claim narrowed or rerun.
+- A 300-dpi check confirms Figure 4 itself is internally clear: the middle
+  panel labels the backward-Euler-shaped arm as unmatched and often injecting,
+  while the right panel labels `1/(4M_q+h^2K_q)` as the working matched fix and
+  shows 27/27 passive cells. The T6 ambiguity is therefore in the system-level
+  prose/experiment identity, not a PDF extraction artifact.
+- Fresh isolated Reviewer 2 (novelty/significance) passed the comprehension
+  gate and scored **4/7 borderline, confidence 4/5**. It found the exact sign
+  diagnostic and reconstruction dependence neat and MIG-relevant but the
+  novelty modest and practical scope narrow. Its decision-critical concerns
+  were the incomplete full rigid/modal reconstruction map, scalar proof versus
+  multi-mode implementation, unsupported “already assembled” runtime claim,
+  absent supplement, the independently confirmed 24-cell arm ambiguity, and
+  missing accuracy/utility evidence for the weaker matched response.
+- Fresh isolated Reviewer 1 (technical) passed the comprehension gate and
+  scored **5/7 weak accept, confidence 4/5**. It independently verified the
+  scalar matched-charge algebra, modal-only relaxation boundary, and ordering
+  divisor. It judged the hard-contact core correct and accept-worthy, while
+  requiring repair or rescoping of compliant-contact energy, damping language,
+  “physically correct amplitude,” and absent host-level reproducibility.
+- Fresh isolated Reviewer 3 (evaluation/reproducibility) passed the
+  comprehension gate and scored **3/7 weak reject, confidence 4/5**. Its
+  rejection was evidence-led: absent promised supplements, no physical
+  consistency/accuracy reference for the altered projection, the 24-cell arm
+  ambiguity, little validation in warm/repeated/multi-contact regimes, and the
+  omitted compliant-contact stored energy.
+- Fact-check nuance on Reviewer 2's reconstruction concern: Theorem 3.3
+  explicitly parameterizes the **modal** velocity reconstruction, and the
+  relaxation discussion says the rigid update remains at full strength. This
+  is enough to make the printed scalar algebra internally interpretable, but
+  the complete shipped rigid/modal substep is not written, so the concern
+  remains a reproducibility/host-mapping ambiguity rather than a demonstrated
+  counterexample to the theorem.
+- Reviewer 3's full report additionally notes that Table 1 leaves R1--R5 and
+  several sweep ranges undefined, and that no impulse/contact-residual,
+  amplitude/phase, timestep-convergence, or runtime evidence establishes the
+  matched charge as a physically accurate or cheap production remedy.
+- Fresh isolated Reviewer 4 (clarity/presentation) passed the comprehension
+  gate and scored **4/7 borderline, confidence 4/5**. It found the mathematical
+  kernel focused and relevant but the artifact unauditable and the
+  reconstruction-general implementation incomplete. It independently caught
+  the T6 arm ambiguity, scalar-versus-multi-mode scope, missing accuracy
+  evidence, header collisions, undersized figures, undefined Table 1 labels,
+  notation drift, and color/accessibility weaknesses.
+- Fresh isolated Reviewer 5 (practitioner/MIG impact) passed the comprehension
+  gate and scored **4/7 borderline, confidence 4/5**. It found the local result
+  credible and useful but not yet demonstrated in the warm, interacting,
+  persistent-contact regime that motivates in-solve coupling. It requested the
+  general multi-mode formula, exact T6 arm, runtime cost, supplement, and a
+  passivity/accuracy/ringing tradeoff.
+- Fresh isolated Reviewer 6 (senior generalist) passed the comprehension gate
+  and scored **4/7 borderline, confidence 4/5**. It found no fatal scalar
+  algebra error, but judged the proof/evidence gap to the multi-mode
+  practitioner recommendation unresolved.
+- Complete fresh panel: scores **5, 4, 3, 4, 4, 4**; mean **4.00/7**, median
+  **4/7**; one weak accept, four borderlines, one weak reject; all confidence
+  **4/5**. Every reviewer independently understood the exact cold-start scope.
+- Original and frozen PDF hashes still match
+  `fc552a597a529b5715967b23dfb68480d8602c6f09b1192f42a0ab3cb4a2d988`
+  after all six reports.
+- Area-chair adjudication: **4/7 borderline, lean reject; confidence 4/5** for
+  the exact current PDF. If forced to make a binary decision, reject the
+  supplied artifact rather than accept it unchanged. The unanimous positive is
+  that the repaired scalar, hard-contact, cold-start theorem is internally
+  sound and appropriately focused for MIG; the negative decision comes from
+  the unresolved jump from that theorem to a multi-mode production remedy.
+- The decision is not driven by the historical counterexamples; those are
+  fixed. It is driven by four current-artifact issues: (1) T6's reused
+  symplectic “implicit” arm is under-specified and cannot presently be claimed
+  as Theorem 3.3 corroboration; (2) the scalar theorem is used to motivate a
+  multi-mode operator without a corresponding proof or complete update map;
+  (3) passivity is not accompanied by fidelity/contact/impulse evidence against
+  a reference; and (4) the promised reproducibility packet is absent.
+- Compliance and damping are revision-level theory qualifications, not a
+  counterexample to the main hard-contact theorem. The compliance shift is for
+  the displayed body-plus-mode ledger; physical compliant-contact storage
+  changes the total-energy boundary. The damping identity requires the force
+  split/update to be stated.
+- Highest-impact route to weak accept: state/prove the reconstruction-general
+  multi-mode operator; name or rerun the exact T6 matched arm and remove the
+  false theorem link if it used the old arm; add a compact converged/reference
+  comparison for impulse/contact residual/modal amplitude and at least one warm
+  few-sweep contact; attach the anonymous code/CSV/parameter packet; then fix
+  the running header, small plots, undefined labels, terminology, and
+  EasyChair ID.
+- Because the PDF discloses an anonymous companion submission and reuses T6,
+  the authors should also verify concurrent-submission/overlap compliance with
+  the chairs and make the evidence provenance unambiguous.
+
+## 2026-07-25 `onesweep_short.pdf` + scene-video six-reviewer review
+
+- The user requested six independent MIG short-paper reviewer simulations on
+  the current `paper/onesweep_short.pdf` plus
+  `benchmarks/paper_fig/out/onesweep_scene_video.mp4`.
+- Historical workspace reviews are context only and will not be shown to any
+  reviewer. The new video's contribution must be assessed from the exact
+  artifact pair; all prior scores are stale until the current hashes and
+  contents are independently reconstructed.
+- Frozen artifact hashes: PDF
+  `21243942d557f95d445158f59dd86609092dd94c88d84fa30ba4f8c9a1039e11`;
+  MP4
+  `a9ef4e4158734e98fd040f698e0007dacd595e27ed6e7611c7d91207988a7901`.
+  The PDF differs from the July 24 paper-only panel, so the entire scientific
+  review—not only the video assessment—must be rerun.
+- The paper is a clean, unencrypted six-page letter-size PDF with 7,063
+  extracted words and embedded fonts. The scene video is a fully decodable
+  50.2 s, 1920×1080, 30 fps H.264 stream with 1,506 frames and no audio stream.
+  Container metadata exposes only generic FFmpeg tags, not author identity.
+- The live official MIG 2026 call (checked 2026-07-25) defines short papers as
+  focused results, emerging ideas, or concise technical contributions; permits
+  4–6 content pages excluding references; strongly encourages videos; and
+  reviews originality, technical quality, clarity, significance,
+  reproducibility where applicable, and relevance. Physics-based animation and
+  interactive simulation are explicitly in scope.
+- The official review version must be anonymous and carry the unique paper ID.
+  Any missing ID is a submission-readiness defect distinct from the scientific
+  recommendation.
+- Paper contact-sheet audit: all six pages render cleanly and anonymously, the
+  long title is shortened in running headers without collision, and references
+  fit on page 6. The layout is dense; Figures 2–4 carry small labels and demand
+  zoom. No assigned paper ID is visible (the header says only “Anon.”).
+- Video contact-sheet audit: the 50.2 s silent supplement presents two
+  controlled split/stacked comparisons with the same scene and iteration
+  budget, changing only the contact-row weight. The orange mass-shaped arm
+  visibly injects modal energy and destabilizes/tilts objects, while the green
+  reconstruction-matched arm remains near the stated baseline; time-series
+  overlays expose energy and post-contact stiffness. The closing card states
+  the matched formula. This is strong qualitative causal evidence for the
+  failure/remedy phenomenon, but by itself does not establish accuracy,
+  generality, runtime overhead, or multi-contact proof scope.
+- Core manuscript claim: for one cold-start, restitution-free, normal-only,
+  single unilateral row and one Gauss–Seidel sweep, a host reconstruction
+  `qdot+ = κ Δq/h` yields a mass-only injection boundary
+  `κ² + (ωh)² > 2 + m/M`. The row-visible danger index compares
+  `h² J M⁻¹ K M⁻¹ Jᵀ` with `J M⁻¹ Jᵀ`; charging and correcting a
+  restorative block with `(κ² M_c + h² K_c)⁻¹` is claimed
+  unconditionally dissipative for any number of restorative coordinates
+  sharing that row.
+- The manuscript repeatedly binds its scope and explicitly says the diagnostic
+  is not a global safety mechanism; simultaneous active rows, warm starts,
+  friction, restitution, and most compliance cases are outside the headline
+  guarantee. It also distinguishes modal-only relaxation from relaxing the
+  entire correction.
+- The printed scalar algebra and the matched-operator telescoping step are
+  internally plausible on first inspection. The remaining adjudication burden
+  is the mapping from that cold one-row theorem to the shipped host experiment,
+  the physical/fidelity cost of the changed row response, and whether the
+  evaluation/reproducibility packet supports the practitioner recommendation.
+- The current revision materially repairs two prior-panel concerns: Theorem 3.3
+  now states the reconstruction-general multi-coordinate operator explicitly,
+  and the 24-cell system corroboration distinguishes the companion's unmatched
+  backward-Euler-shaped arm from a new `4M_q+h²K_q` arm that actually tests the
+  shipped `κ=2` theorem. Both give 0/24 injecting cells, but the paper correctly
+  interprets the former only as empirical row stiffening.
+- Validation is unusually broad for the narrow algebraic claim: 58,081 analytic
+  phase cells, a 288-cell nonmodal collapse, exact rational identities, two
+  reconstruction controls on a shipped row, coupled-stiffness counterexamples
+  to diagonal charging, relaxation/order checks, a 24-cell three-arm system
+  grid, and converged-reference measurements.
+- The accuracy section is candid and decision-relevant. At `κ=1`, one matched
+  sweep reproduces the converged backward-Euler step exactly in the undamped
+  case; at the shipped `κ=2`, the passive matched weight is explicitly not
+  accurate, charges four times the converged implicit-midpoint effective mass,
+  is always at least as dissipative as that reference, and tends toward half
+  its modal amplitude in the stiff limit.
+- Reproducibility remains incomplete for the exact packet supplied here. The
+  PDF says per-cell parameters/predictions/signs are in supplemental CSVs, but
+  the reviewed supplement is only the MP4. Table 1 still compresses many sweep
+  ranges and implementation details, so the large pass counts cannot be
+  independently reconstructed from this packet.
+- The practitioner section recommends in-row modal coupling only for persistent
+  resting contacts whose deformation reaches contact-tolerance scale; unloaded
+  ringing should remain open-loop. It candidly leaves warm states, the interior
+  iteration range, simultaneous rows, secular growth, restitution, and friction
+  open. This disciplined scope helps clarity but makes the result a narrow
+  building block rather than a production-wide guarantee.
+- Detailed video read, shelf scene: the screen exposes both raw modal energy
+  and book kinetic/lift metrics, true-scale ghosts, the fixed 1×8 budget,
+  passivity governor OFF, independent runs, and a note that the effect is not
+  real-time evidence. At the decision frame, mass-shaped versus matched is
+  about 1,706 J versus 0.36 J board-mode energy and 56.8 mm versus 5.3 mm
+  maximum book lift. The plot also shows a much larger transient total-scene
+  energy peak for the unsafe arm.
+- The shelf overlay discloses that two converged references disagree by 89×
+  (9.6 mm with 1/960 s substeps versus 0.1 mm at 1/120 s). This is scientifically
+  honest, but it means the visible 5.3 mm matched response cannot be called
+  validated physical ground truth; it is chiefly a stability/causal comparison.
+- Detailed video read, table scene: a 5 kg object drops 0.80 m onto a bare table
+  center while all surrounding objects remain at least 85 mm clear of it, so
+  their motion is carried through the table. The two simulations again differ
+  only in row weight at 1×8, with the governor OFF and modal relaxation 1.
+  At the illustrated response, unsafe versus matched produces roughly 32.9 mm
+  versus 7.6 mm maximum item lift; converged references agree at 11.6–11.8 mm.
+  This second scene materially strengthens the claim that the fix removes
+  network-mediated over-response rather than merely freezing all visible motion.
+- Both video scenes disclose iteration grading: the unsafe gain persists at a
+  2×8 budget and vanishes by higher budgets (8×8 shelf, 4×8 table). That is
+  consistent with a finite-budget artifact, but the movie still visualizes only
+  two scenes and a single one-sweep production operating point.
+- Full-resolution page audit confirms no clipping, overlap, identity leak, or
+  broken font. Figure 1 is immediately legible; Figure 3's three-panel
+  reconstruction comparison and inset are decision-useful but packed with
+  tiny legends/readouts; Figure 4 is cleaner. The main avoidable presentation
+  defect remains the absent assigned paper ID, followed by caption/plot density.
+- One current wording contradiction is visible on page 6. The paper first says
+  the shipped `κ=2` matched weight is conservative and Section 4 proves it is
+  not accurate (four-times charge, half-amplitude stiff limit), then tells
+  practitioners that a weaker ring means “accepting the physically correct
+  amplitude.” That phrase is defensible only for the undamped `κ=1`
+  backward-Euler case or a separately validated reference; as written it
+  overclaims the shipped fix and should become “accepting a conservative,
+  passivity-guaranteed amplitude.”
+- The abstract likewise says the `κ=1` matched sweep reproduces the converged
+  implicit step exactly without immediately adding the later undamped
+  qualification. The validation reports a first-order amplitude gap with
+  damping, so “in the undamped case” should be added to avoid a scope overclaim.
+- A targeted primary-source novelty cross-check supports the paper's scoped
+  positioning. Wei et al. 2026 guarantees early-terminable passivity for
+  partitioned port-Hamiltonian systems through Douglas–Rachford splitting in
+  wave coordinates on bilateral interfaces; You et al. 2026 controls
+  whole-integrator elastodynamic energy. Neither source states this
+  one-sweep, unilateral-row danger threshold or reconstruction-matched row
+  charge. No exact scoop surfaced in the targeted search, though this is
+  evidence rather than proof of novelty.
+- Fresh isolated Reviewer 3 (evaluation/reproducibility) passed the
+  comprehension gate and scored **5/7 weak accept, confidence 4/5**. It judged
+  the narrow theorem technically coherent and the video genuinely
+  decision-relevant, while ranking warm/simultaneous-row scope, the `κ=2`
+  passivity–accuracy/cost tradeoff, the damping exactness overclaim, absent
+  CSVs, and dependence on a companion grid as the main weaknesses. The video
+  increased confidence but not its numeric score.
+- Fresh isolated Reviewer 2 (novelty/significance) passed the comprehension
+  gate and scored **5/7 weak accept, confidence 4/5**. It found the
+  reconstruction-dependent sign boundary and matched-row identity plausibly
+  original and MIG-relevant, but asked for a sharper guarantee/operator matrix
+  against the closest work. Its main reservations were the cold-one-row to
+  production-scene gap, deliberate `κ=2` over-dissipation, absent artifact
+  data, and lack of a practical baseline/cost comparison. The video raised
+  confidence in visible significance but did not change the score.
+- A frame-accurate check confirms Reviewer 2's shelf-video observation: before
+  the highlighted falling weight reaches the board, the unsafe arm already has
+  roughly 65 J of board-mode energy while the matched arm is near zero, caused
+  by the five resting-book contacts evolving under different row weights.
+  Thus the video is an honest same-initial-run/same-budget system comparison,
+  but not an identical-state single-impact ablation at the plotted first-contact
+  time. The caption should make that pre-impact divergence explicit or add a
+  reset-at-impact control.
+- Fresh isolated Reviewer 1 (technical correctness) independently checked the
+  scalar boundary, row-index identity, matched-operator telescoping step, and
+  wrong-reconstruction condition, including 20,000 positive random scalar and
+  two-coordinate cases with no counterexample. It scored **5/7 weak accept,
+  confidence 4/5**.
+- Reviewer 1's decision-critical concerns are the damping exactness overclaim,
+  compressed derivation of Eq. (6), cold/single-row reach, the fact that
+  `W=G⁻¹` is a sufficient canonical passive charge rather than a proved unique
+  or accuracy-optimal one, and incomplete artifacts. It also caught a concrete
+  Table 1 mismatch: T10 is labeled “Operator form, 9900” but its outcome is
+  “300/300 exact.”
+- Original-resolution fact-check confirms both Reviewer 1 points. Equation (6)
+  is presented as the central general energy change with only the preceding
+  update definitions, not a step-by-step derivation; it is checkable but dense.
+  The T10 “9900” versus “300/300” discrepancy is visibly printed and should be
+  corrected before submission.
+- Fresh isolated Reviewer 4 (clarity/presentation) scored **5/7 weak accept,
+  confidence 4/5**. It found the scientific kernel understandable and the
+  video a small positive, but judged the practitioner recipe fragmented across
+  `ρ`, `ρ_mid`, multiple mass/charge notations, theorems, remarks, and figures.
+  It requests one boxed reconstruction-general algorithm, explicit symbol
+  mapping, a simpler Figure 3, and a sharper theoretical-versus-system boundary.
+- Reviewer 4 also identified two current presentation overclaims: the
+  abstract's “everything” at relative error `10⁻¹²` is broader than the
+  sign-level shipped tests and their reported `4.5×10⁻²` magnitude deviation;
+  and Figure 2 retains the mass-arm boundary curve in the passive implicit panel
+  without clearly labeling it as reference-only.
+- Reviewer 6 is the primary coordinator's artifact audit, completed before any
+  fresh reviewer report was opened and frozen as **5/7 weak accept, confidence
+  4/5**. It is not a sixth fresh agent context: the runtime refused a sixth
+  subagent after hitting its five-thread lifetime cap. This distinction must be
+  disclosed in the panel result.
+- Fresh isolated Reviewer 5 (practitioner/real-time solver) scored **5/7 weak
+  accept, confidence 4/5**. It found the diagonal-modal recipe actionable and
+  the wrong-reconstruction warning valuable, but emphasized that the packet
+  demonstrates a local theorem and selected offline failure/fix scenes rather
+  than a production-ready game solver. Its top requests are warm/multi-row
+  evidence, fidelity and equal-cost baselines, actual row-level overhead, and
+  self-contained artifacts.
+- Final score distribution is **5, 5, 5, 5, 5, 5**; mean and median are
+  **5.0/7**, and every confidence is **4/5**. The unanimity is substantive:
+  every reviewer independently accepts the focused theorem while withholding
+  a clear-accept score because the practical/generalization and artifact story
+  remains incomplete.
+- V3 adjudication finds no demonstrated counterexample to the central
+  cold-one-row theorem. Actual current-artifact errors are: the missing
+  undamped qualifier on exact `κ=1` reproduction; “physically correct
+  amplitude” applied to the conservative `κ=2` remedy; Table T10's
+  `9900`/`300` mismatch; the absent assigned paper ID; and the missing promised
+  CSVs in this packet.
+- Decision-relevant absent evidence—not theorem errors—comprises warm and
+  simultaneous-row behavior, equal-cost passivity/fidelity baselines,
+  temporally converged shelf accuracy, runtime/implementation overhead, and a
+  self-contained audit trail independent of the companion submission.
+- Presentation/polish items are the fragmented index/mass notation, compressed
+  Eq. (6) derivation, crowded Figure 3, reference-only curve in Figure 2,
+  blanket `10⁻¹²` wording, small video footnotes, and the need to distinguish
+  the shelf's pre-impact trajectory divergence plus snapshot board energy from
+  the earlier total-scene transient peak.
+- Area-chair-style recommendation: **5/7 weak accept, confidence 4/5** on
+  scientific merit under the focused MIG short-paper bar. Do not upload this
+  exact packet unchanged: fix administrative/claim inconsistencies and attach
+  the promised anonymous evidence first.
+
+## 2026-07-25 MIG strength calibration and practitioner-scene mapping
+
+- The user asks three distinct questions that must not be collapsed: confidence
+  that the scoped theorem is correct; confidence that the paper is above the
+  MIG short-paper acceptance bar; and how strong it is relative to recent
+  accepted short papers.
+- The practitioner mapping must distinguish exact applicability (new cold,
+  normal, single dominant contact row) from an empirical warning/remedy in
+  warm or multi-row scenes, and from unloaded ringing where open-loop modal
+  excitation is the better design.
+- The official MIG 2025 program lists four short papers among nineteen
+  regular long/short papers (excluding invited talks and posters). This is a
+  small, heterogeneous accepted cohort, so it supports qualitative calibration
+  but not a statistically defensible acceptance-rate estimate.
+- The official MIG 2024 site defines shorts as 4--6 pages, says submissions
+  receive at least three expert reviews with no rebuttal, and names
+  *Expressive Animation Retiming from Impulse-Based Gestures* as Best Short
+  Paper.
+- No official short-paper submission count or short-only acceptance rate was
+  found on the inspected official 2024--2025 pages. Do not invent one; label
+  any percentile or acceptance probability as a judgmental calibration.
+- The 2024 accepted program contains three shorts among twenty-one regular
+  papers. One is directly comparable in physics simulation: *Adaptive
+  Sub-stepping for Constrained Rigid Body Simulations* presents an easily
+  integrated heuristic, multiple complex stress scenes, and real-time timing.
+  This sets a high bar for breadth and practitioner evidence, but its central
+  contribution is heuristic rather than a narrow exact theorem.
+- The 2024 Best Short Paper, *Expressive Animation Retiming from Impulse-Based
+  Gestures*, is a seven-page proceedings item centered on a clear interactive
+  authoring use case and studio-style control metaphor.
+- The 2025 accepted shorts are similarly focused but application-complete:
+  *DRUMS* is a seven-page end-to-end MIDI-to-full-body system with explicit
+  virtual-concert/training/game/avatar uses; *Trajectory-aware Smears* is a
+  compact extension aimed at visible artifacts in high-curvature/contact
+  trajectories, with minor stated overhead. This paper therefore compares
+  favorably in mathematical sharpness, but less favorably in immediately
+  legible workflow impact and broad scene coverage.
+- A targeted official-domain search still found no submission denominator or
+  short-only acceptance rate. The 2025 call confirms evaluation on technical
+  quality, novelty, significance, and clarity, with no rebuttal; this makes a
+  small wording/evidence defect more consequential and increases outcome
+  variance for a borderline paper.
+- The visible accepted-short counts are only three in 2024 and four in 2025.
+  They describe the *accepted* bar, not the average submitted short; any claim
+  that this work is above the average submission is necessarily a reviewer
+  judgment, not an observed percentile.
+- The current official MIG 2026 call explicitly frames shorts as focused
+  results, emerging ideas, or concise technical contributions, and reviews on
+  originality, technical quality, clarity, significance, reproducibility, and
+  relevance. The paper fits the category unusually well on focus and technical
+  contribution, while its main exposure is significance/clarity/reproducibility
+  at the packet level.
+- Section 6 of the paper itself gives the correct practitioner split:
+  open-loop modal excitation is the safer default for an unloaded ringing prop;
+  in-solve coupling matters when a supported/resting object must follow a
+  deforming shelf, plank, or ledge because modal deflection is at least the
+  contact tolerance. The theorem then governs the newly activated cold normal
+  row; persistent warm support and simultaneous rows remain outside the proof.
+- The strongest exact-use hero scene is therefore a **single payload touching
+  down on a flexible support and then remaining supported**: e.g., a crate
+  landing on a flexible truck/warehouse deck or a robot placing a part on a
+  resonant grating. The first normal, inelastic, single-row activation is the
+  theorem's domain; the subsequent warm support phase motivates in-row coupling
+  but is not itself guaranteed.
+- The multi-book shelf video is valuable as an empirical stress scene, not the
+  clean theorem demonstration: it contains existing resting contacts, multiple
+  rows, and visible pre-highlight divergence.
+- Local inspection of the closest 2024 accepted physics short confirms the
+  comparison: it is six pages, uses three memorable high-mass-ratio scenes,
+  compares adaptive substepping against constant substeps and adaptive damping,
+  and tests iterative/direct solvers. Its rule is heuristic with a tuned
+  threshold and the paper has its own cost caveat; it is not uniformly stronger
+  than this submission. It is stronger in breadth and immediate engine utility,
+  while this submission is stronger in formal sharpness and exact auditing.
+- Calibrated subjective judgments (not historical venue statistics):
+  scoped theorem correctness about 90%; confidence that the scientific merit
+  deserves at least weak accept about 80%; actual acceptance after the five
+  obvious packet defects are fixed about 60--70%, with a plausible 55--75%
+  range; unchanged packet roughly 45--55%.
+- Relative to recent *accepted* shorts, the mathematical core is plausibly in
+  the upper quartile, but the current end-to-end package is around the middle:
+  above average in theory/focus, below average in immediate workflow story and
+  evidence breadth, and below average in submission polish. After the small
+  mandatory fixes it is approximately upper-middle, not best-short/clear-accept
+  territory. Relative to the unknown pool of *submissions*, it is likely above
+  average, but no defensible percentile is available.
+- The actual practitioner is a physics-engine/solver developer, not a scene
+  artist. The theorem is used at row activation: classify the host's velocity
+  reconstruction once, evaluate the row's danger index, and when needed replace
+  the stiffness-blind modal mass by the reconstruction-matched
+  `kappa^2 M_c + h^2 K_c` block in both the row denominator and correction.
+- Scene map:
+  - Exact/near-exact onset: a single rounded payload, robot foot/pad, or
+    effectively aggregated contact patch first touches a flexible truck deck,
+    warehouse shelf, stage, or ledge and settles with zero restitution.
+  - Diagnostic/empirical extension: several books on a shelf, plates on a
+    table, cargo stacks, multiple feet, or a vehicle deck with several active
+    contact rows. Use the matched weight as a local remedy but retain a global
+    passivity governor, extra iterations, or another safeguard.
+  - Prefer another design: an unloaded bell/panel/prop that only needs to ring
+    should use open-loop modal excitation; frictional grasping/sliding, rolling,
+    bouncing, and long-lived warm manifolds are not guaranteed by this theorem.
+- Best presentation improvement: precede the multi-book stress video with a
+  clean single-pad cargo touchdown whose contact-onset energy sign matches
+  `rho`, then label the shelf/table sequences explicitly as beyond-theorem
+  production stress tests.
+- Final answer wording: **strong technical core; solid weak accept; not yet a
+  clear strong accept or best-short contender**. The six unanimous 5/7
+  simulated votes support stability of that assessment, but they are AI
+  reviewer simulations with correlated blind spots and must not be treated as
+  six statistically independent human outcomes.
+
+## 2026-07-28 Current artifact review findings
+
+- Current PDF SHA-256:
+  `f7fd3f83ec6e095951084383a9906123ff0bcce662524e9b29fecd38d83fa45c`
+  (715,083 bytes; modified 2026-07-26 18:55:20 PDT).
+- Current video SHA-256:
+  `a9ef4e4158734e98fd040f698e0007dacd595e27ed6e7611c7d91207988a7901`
+  (8,065,820 bytes; modified 2026-07-25 05:49:59 PDT).
+- The video hash matches the previous scene-video packet, but the PDF hash does
+  not. Historical scores are stale for this request.
+- PDF metadata reports six letter-size pages, anonymous authorship, no
+  encryption, and no JavaScript; the MP4 is a 50.2 s, 1920×1080, 30 fps H.264
+  video with 1,506 frames and no audio stream.
+- Visual audit, pages 1–2: the title, abstract, contribution list, hero
+  shelf comparison, phase map, and theorem setup render cleanly and legibly.
+  The PDF uses red review line numbers and anonymous headers. No assigned
+  EasyChair paper ID is visible on page 1.
+- The new six-page build has removed the prior odd-page running-title/header
+  collision. Figure 1 now explicitly says the matched arm is not ground truth
+  and gives the converged 9.6 mm comparator; the abstract includes the
+  undamped qualifier on exact `κ=1` reproduction.
+- Visual audit, pages 3–4: the reconstruction-general theorem, ordering result,
+  shipped-host reconstruction caveat, three-arm row test, validation prose, and
+  validation table render without clipping or header collisions. Equations
+  (6)–(7) are readable but compressed enough to deserve independent algebra
+  checking.
+- The former Table T10 `9900` versus `300/300` contradiction is repaired: the
+  caption now distinguishes 9,900 conditioning-limited floating-point cells
+  from 300 exact rational cells, while the table reports 17/17 assertion
+  blocks. Figure 3 remains the densest visual; its embedded legends/readouts
+  are small at page scale, though the main three-panel conclusion is legible.
+- Visual audit, pages 5–6: the paper now includes an explicit converged-reference
+  accuracy discussion, calls the shipped `κ=2` matched weight conservative,
+  quantifies its half-to-full amplitude range, gives practitioner guidance,
+  states open limitations, and fits all references within page 6. Text remains
+  readable and anonymous, with no clipping.
+- One wording tension remains in practitioner guidance: “accepting the
+  converged amplitude” is followed by the statement that the matched weight
+  returns exactly that amplitude only for undamped `κ=1`, but merely `1/2` to
+  `1` of it for `κ=2`. The surrounding analysis is candid; the phrase itself
+  should say “targeting” the converged amplitude or “accepting a conservative
+  amplitude” for the shipped reconstruction.
+- The live official MIG 2026 call confirms that shorts are focused results,
+  emerging ideas, or concise technical contributions; may use 4–6 body pages
+  excluding references; may include a video up to 200 MB; and are judged on
+  originality, technical quality, clarity, significance, reproducibility where
+  applicable, and relevance. Review submissions must be anonymous and include
+  the EasyChair-assigned unique paper ID.
+- The six-page PDF fits the short-paper body limit and is anonymous. Its absent
+  assigned paper ID is a submission-readiness defect, not a scientific defect.
+- Video audit, approximately 0–19 s: the first segment is a synchronized
+  mass-shaped-versus-matched shelf comparison with identical stated drop and
+  budget, live board-energy/book-energy/rise readouts, true-scale geometry, and
+  a converged-reference band. It visibly shows the unsafe arm exciting/lifting
+  the resting books while the matched arm stays controlled.
+- Around 15 s the video transitions to a top-view table scene with the same
+  two-arm weight comparison and live energy/rigid-body motion readouts. The
+  title and labels make clear that only the contact-row weight differs.
+- Video audit, approximately 20–39 s: the table sequence runs continuously in
+  both arms. The mass-shaped arm reaches a visibly larger disturbance and a
+  reported maximum item lift of about 32.9 mm, versus about 7.6 mm for the
+  matched arm; the overlay also gives the converged-reference range for both
+  grids. This is useful system-level corroboration, though it lies beyond the
+  paper's proved cold/single-row regime.
+- Video audit, approximately 40–50.2 s: the table comparison settles and the
+  final slate states the practical rule and matched formula. The MP4 has no
+  audio; its evidence is entirely visual/textual.
+- High-resolution initial shelf frame reveals an important qualification that
+  the video itself candidly exposes: before the highlighted falling block
+  contacts, the mass-shaped arm already carries about 65.2 J of board-mode
+  energy while the matched arm is below 0.001 J, because the resting-book
+  contacts evolve differently. The footer says these are independent runs with
+  nothing toggled mid-trajectory and reports strong substep-dependent
+  disagreement between converged references. This is an honest same-setup
+  system comparison, not an identical-state isolated-impact ablation.
+- A high-resolution shelf peak frame reports 8,847 J versus 1.08 J of board
+  modal energy and 28.5 mm versus 5.3 mm maximum book lift at that displayed
+  instant. The footer grades iteration count and says the artifact is offline
+  CPU float64 with no real-time claim.
+- The table segment is the cleaner accuracy scene: a 5 kg pot drops 0.80 m onto
+  the bare center, stays more than 85 mm from every item, and the two converged
+  grids agree at 11.6–11.8 mm. Thus the visible item response is mediated by
+  table deformation rather than direct collision, and both fixed-budget arms
+  can be compared against a consistent reference.
+- At the table response peak, the unsafe arm reports 32.9 mm maximum item lift
+  and 0.74 J item translational kinetic energy versus 7.6 mm and 0.013 J for
+  the matched arm. The converged 11.6–11.8 mm lift lies between them, so the
+  matched row suppresses injection but is visibly conservative rather than
+  presented as an accuracy winner.
+- The final video slate cleanly states the implementable takeaway,
+  `W = 1/(4M_q + h^2K_q)` for the shipped `κ=2` reconstruction, while again
+  disclaiming any real-time claim. Overall the supplement materially improves
+  practical legibility and effect visibility, but it does not extend the
+  theorem to warm, multi-row, restitution, or frictional contact.
+- A fresh exact-phrase/claim-axis search through 2026-07-28 surfaced no primary
+  paper using this specific reconstruction-matched per-row contact charge or
+  danger-index formulation. Search absence is only a novelty screen, not proof;
+  the independent novelty reviewer is checking the cited neighboring work.
+- The four closest/recent citations checked against primary publisher or arXiv
+  records are real and correctly classified at abstract level: energy-aware
+  Gauss–Seidel changes elastic PBD constraints; reduced-order XPBD embeds modal
+  or reduced coordinates; the 2026 port-Hamiltonian paper guarantees
+  finite-budget passive bilateral partitioned coupling; and the 2026
+  elastodynamic-contact paper controls whole-integrator energy. None of those
+  abstracts states this paper's unilateral, one-row, reconstruction-specific
+  sign boundary.
+- Submission-structure audit: all listed PDF fonts are embedded; extracted text
+  exposes only anonymous authorship and no affiliation. The 8.1 MB supplement
+  is well below MIG's 200 MB limit. Scientific-readiness issues are therefore
+  more important than file mechanics, apart from adding the assigned paper ID.
+- First-wave reviewers independently converged at 5/7 weak accept, confidence
+  4/5, and found no counterexample to the stated cold/one-row theorem.
+- Reviewer 1 identified a decision-relevant extension directly from submitted
+  Eq. (6): for `W=cG^{-1}`, the bracket becomes
+  `c(c-2)a - w_r - 2 alpha_tilde`, so every `0<c<=2` is
+  unconditionally passive under the same assumptions. At shipped `κ=2`, the
+  paper's own converged charge `mu*=G/2` is `W=2G^{-1}`—the upper passive
+  endpoint—apparently removing the submitted `W=G^{-1}` arm's factor-of-two
+  strong-coupling amplitude loss. This does not invalidate the theorem but
+  materially weakens the current practitioner choice and should be resolved
+  analytically and experimentally.
+- The coordinator independently verified the `0<c<=2` family by substitution
+  into Eq. (6) and by 200,000 random positive scalar `κ=2` cases using the
+  direct post-row Hamiltonian; maximum normalized identity residual was
+  `7.4e-16` and the largest observed energy change remained negative. This is
+  not a reviewer speculation.
+- Reviewer 3 found a separate empirical-label defect: T6 calls a cell
+  “injecting” when peak modal energy exceeds peak impactor kinetic energy.
+  That gross-overrun ratio is not equivalent to the paper's formal
+  total-energy condition `E+>E-`; therefore `0/24 inject` does not by itself
+  establish system-level passivity. Rename the metric or recompute true
+  total-energy signs.
+- All three first-wave reports agree that the packet's absent promised
+  per-cell supplement, warm/multi-row gap, `κ=2` accuracy cost, Figure 3
+  density, missing paper ID, and lack of runtime/operator-cost evidence are the
+  main remaining weaknesses.
+- Final six-reviewer distribution: `5, 5, 5, 5, 6, 5` on the 1–7 scale;
+  mean `5.17`, median/mode `5`, with every reviewer at confidence `4/5`.
+  Five recommend weak accept and one accept; none recommend rejection.
+- The clarity, practitioner, and senior-PC reviews independently reinforce the
+  strong short-paper fit, correct scoped algebra, useful reconstruction
+  dependence, conservative `κ=2` response, warm/multi-row applicability gap,
+  absent artifact, implementation-cost gap, Figure 3 density, and missing ID.
+  The video raised confidence for all six but changed no score.
+- A further reproducibility ambiguity survives: Section 2 defines `h` as the
+  substep, Figure 1/video use eight substeps per `1/120 s` frame (thus
+  `h=1/960 s`), while the system-level 24-cell paragraph says multiple
+  iteration-substep budgets are run “at `h=1/120`.” Because the danger index
+  depends on `h^2`, the paper must distinguish frame interval from actual
+  substep size and define the ordering of each budget pair.
+- Area-chair adjudication: scientific merit is a **5/7 weak accept, confidence
+  4/5**, but the exact packet should not be uploaded unchanged. The central
+  theorem survives; the mandatory pre-submission repairs are the passive-family
+  omission/`c=2` comparison, T6 metric terminology or true-energy recomputation,
+  promised supplement, unique paper ID, and precise time-step notation.
+
+## 2026-07-29 fresh panel findings
+
+- Current PDF SHA-256 is
+  `d4716b9d0b786f2e6d5e3071da66975f3c0246fab61af6f265bc79a24a2606c8`
+  (720,541 bytes; modified 2026-07-28 22:39:45 PDT). It is a new seven-page
+  build, so the July 28 panel is stale.
+- Current video SHA-256 is
+  `a9ef4e4158734e98fd040f698e0007dacd595e27ed6e7611c7d91207988a7901`
+  (8,065,820 bytes; 50.2 s, 1920x1080, 30 fps H.264, no audio stream). This
+  hash is unchanged from the previous panel.
+- The official MIG 2026 call currently describes short papers as focused
+  results, emerging ideas, or concise technical contributions; allows 4--6
+  body pages excluding references and supplements up to 200 MB; and reviews
+  originality, technical quality, clarity, significance, reproducibility where
+  applicable, and venue relevance. Review copies must be anonymous and include
+  the EasyChair-assigned paper ID.
+- Historical scores and diagnoses will not be used as reviewer inputs.
+- Visual audit, pages 1--2: the seven-page build is anonymous, cleanly
+  typeset, and uses six numbered body pages followed by one references-only
+  page, so it appears to satisfy the 4--6 body-page rule. The assigned
+  EasyChair paper ID is not visible. The abstract, hero shelf image,
+  contribution list, binding one-sweep/cold/one-row scope, model, phase map,
+  and first two theorems are readable without clipping; Figure 2's labels are
+  compact but legible.
+- Visual audit, pages 3--4: the revision now explicitly derives the passive
+  family `W=cG^{-1}`, `0<=c<=2`, identifies `c=1` as an interior point and
+  `c=2` as the converged-amplitude endpoint for the scalar shipped host, and
+  reports its passivity-margin tradeoff. This directly addresses the principal
+  scientific omission found in the stale panel. The validation text also
+  renames T6's outcome as modal-energy `overrun`, not formal total-energy
+  injection. Typesetting is clean but page 4 and Table 1 are information-dense.
+- The paper says per-cell parameters, predictions, and measured signs are in an
+  attached anonymous supplement. The user supplied only the PDF and MP4; the
+  video is a visual system comparison, not the promised per-cell data artifact.
+- Visual audit, pages 5--6: Figure 3 and its inset are the densest elements and
+  require close reading, but the main three-arm conclusion is visible. The new
+  system-level paragraph distinguishes the modal-energy overrun count
+  `8/0/0` from the true total-energy injection count `10/1/0`, clarifies
+  iteration-by-substep budgets and actual substep intervals, and reports
+  equal-point cost plus converged-amplitude comparisons. Section 6 gives
+  concrete practitioner guidance, the `c=2` accuracy/margin tradeoff, and
+  candid warm/multi-row failure counts.
+- The six-page body is followed by references beginning on page 6 and
+  continuing on page 7. It explicitly depends on an anonymous companion
+  submission under review for the production-host system diagnostic and shares
+  two weight-swap arms; the paper asserts the remaining validation is new.
+  Self-containedness and overlap therefore deserve reviewer scrutiny even
+  though the theoretical contribution is presented independently.
+- Page 7 contains only the final two references at its top, leaving nearly the
+  entire page blank. This is formally compatible with references excluded from
+  the body limit, but it is conspicuous submission polish and could be avoided
+  by compressing the bibliography or body.
+- Video contact-sheet audit confirms two synchronized split-screen segments:
+  roughly the first 15 s show shelf mass-shaped versus matched row weights,
+  roughly 15--45 s show the table comparison, and the final seconds present the
+  implementable matched-weight rule. Each segment includes live energy/motion
+  readouts, fixed-budget disclaimers, and converged-reference ranges; the
+  footer text is small at normal viewing size.
+- High-resolution shelf frames: at the video's nominal start the mass-shaped
+  arm already carries 65.2 J of board-mode energy while the matched arm is
+  below 0.001 J; the plot labels the scene energy at the start of the shown run
+  as 64.5 J and the footer discloses independent runs with no mid-trajectory
+  toggle. Thus this is an honest whole-run weight comparison, not an
+  identical-state isolated-impact ablation. Around 10 s, the unsafe arm visibly
+  lifts the books 56.8 mm versus 5.3 mm, with a large modal-energy disparity.
+- High-resolution table frames show a cleaner mediated-response test: the 5 kg
+  pot is dropped onto the bare center and the footer states its footprint
+  remains over 85 mm from every object. The converged grids agree at
+  11.6--11.8 mm item lift; the mass-shaped arm reaches 32.9 mm while the
+  matched arm reaches 7.6 mm. The supplement therefore shows that the matched
+  charge is substantially closer but conservative, not that it is exact at the
+  shipped `c=1`, `kappa=2` setting.
+- The table sequence remains stable through its final displayed state and the
+  closing slate states the exact implementable `c=1`, `kappa=2` rule. The MP4
+  explicitly disclaims real-time performance and global passivity; it adds
+  legibility and system-level corroboration but not new proof for warm,
+  multi-row, frictional, or restitutive contact.
+- Text audit confirms the new revision closes several stale-panel gaps:
+  Cor. 3.4 gives the full passive interval and `c=2` endpoint; T6 reports both
+  gross-overrun (`8/0/0`) and formal total-energy-sign (`10/1/0`) counts; the
+  budget paragraph defines iterations x substeps and `h=1/120` through
+  `1/960 s`; and the validation reports matched-weight cost at 0.996 of the
+  mass-only row plus an amplitude/cost comparison to 64 iterations.
+- The core theorem remains deliberately narrow. The paper now quantifies the
+  failure outside scope rather than implying extension: even the matched charge
+  injects on 4,099 of 43,898 warm/two-row samples, despite being secularly
+  bounded in a 20,000-substep resting test. This is candid and decision-relevant
+  but limits the production guarantee to cold, one-sweep, single normal rows.
+- Submission audit: the PDF has no embedded files, all listed fonts are
+  embedded, metadata identifies only `Anonymous Author(s)`, and no affiliation
+  or author identity was found. The generic source filename
+  `onesweep_short.tex` is visible in XMP but is not identifying. The missing
+  assigned paper ID and absent promised per-cell supplement are the concrete
+  packet-level defects.
+- Internal scope wording needs correction: page 2 says the cold, one-sweep,
+  one-row scope is “binding for every result,” the abstract says “every
+  statement” is confined to it, and page 6 repeats that the scope binds every
+  result. Yet Section 4 reports multi-iteration system cells and T14 explicitly
+  measures warm and simultaneous-row cases outside the proof. The intended
+  distinction is clear from context—guarantees/theorems are scoped, while
+  out-of-scope behavior is empirical—but the current blanket wording is
+  literally inconsistent.
+- Table 1 ends at T13 and contains no T14 row, yet page 5 attributes the
+  converged-amplitude/cost comparison to “T14” and page 6 separately attributes
+  43k-scale warm/two-row tests and a 20,000-substep resting test to “T14.”
+  Whether these are one combined test block or two is impossible to determine
+  from the supplied packet. Add the missing table row(s), disambiguate the
+  labels, and include their raw cells in the supplement.
+- A second full-timeline audit at one-second intervals found no additional
+  scenes or hidden qualifications beyond the shelf comparison, table
+  comparison, and closing rule already recorded. The video is internally
+  consistent about same setup/weight-only differences, independent runs,
+  offline CPU float64, no real-time claim, and governor disabled.
+- Policy check: MIG's live call bars papers currently submitted to another
+  conference or journal, and ACM policy distinguishes prohibited substantially
+  duplicate simultaneous submissions from related work that is disclosed to
+  the relevant chairs. The PDF openly identifies shared experiment arms with
+  an anonymous companion under review, but the supplied packet cannot establish
+  its venue or degree of overlap. This is not evidence of a violation; the
+  authors should disclose both manuscripts and their exact overlap to the MIG
+  chairs before submission.
+- Reviewer 3 (evaluation/reproducibility) independently scored **5/7 weak
+  accept, confidence 4/5**. No hard-contact theorem-invalidating error was
+  found. The review prioritizes the missing T14 row/raw supplement, the 9.3%
+  warm/two-row matched-charge failure rate, equal-cost/equal-accuracy
+  alternatives along the `c` family, companion-study dependence, and a clearer
+  energy ledger if the theorem retains `alpha>0`.
+- Reviewer 2 (novelty/significance) independently scored **5/7 weak accept,
+  confidence 4/5**. Primary-literature spot checks supported moderate
+  originality for the unilateral-row, reconstruction-dependent sign threshold.
+  The reviewer found no algebraic refutation, while emphasizing the
+  cold/one-row scope, conservative shipped-host amplitude, missing
+  supplement/T14 inventory, ambiguous weight-versus-mobility terminology, and
+  lack of common-budget comparisons to nearby practical mitigations.
+- Reviewer 1 (mathematical soundness) independently re-derived the scalar
+  boundary, Eq. 6 cancellation, passive family, ordering divisor/root, and
+  reconstruction factor, then scored **5/7 weak accept, confidence 4/5**.
+  No hard-contact theorem-invalidating error was found. Requested precision
+  concerns are the symmetric-PSD/row-direction assumptions in Cor. 3.4 and the
+  omitted constraint-energy definition if `alpha>0` is meant physically.
+- Reviewer 5 (practitioner/MIG impact) independently scored **5/7 weak accept,
+  confidence 4/5**. The reviewer found the row-level result useful and cheap
+  for diagonal modes, but emphasized that ordinary game contacts are warm and
+  multi-row, the video proves stabilization rather than deployability, the
+  `c=1` response is conservative, and the packet lacks end-to-end timing,
+  equal-error baselines, raw data, and an explicit mapping from video rows to
+  theorem scope.
+- Reviewer 4 (clarity/presentation) independently scored **5/7 weak accept,
+  confidence 4/5**. The paper is judged decipherable and candid but one polish
+  pass short: the implementation recipe is scattered, mobility/effective-mass
+  notation is demanding, Figure 3 and video footers are too dense, T14 is
+  missing, and the theorem-versus-system-video distinction should be more
+  prominent. No theorem-invalidating error was found.
+- Reviewer 6 (senior generalist replacement) completed a full 1,506-frame
+  video audit and scored **5/7 weak accept, confidence 3/5**. The video
+  materially strengthens the visibility and repeatability of the failure/remedy
+  in two scenes, but confirms conservative matched amplitudes and does not
+  extend the one-row theorem.
+- Final independent score distribution is **5, 5, 5, 5, 5, 5** (mean,
+  median, and mode 5). Confidences are **4, 4, 4, 4, 4, 3**. All six find no
+  hard-contact theorem-invalidating error and recommend weak acceptance under
+  the focused MIG short-paper bar.
+- End-of-panel hash and structure checks match the frozen packet exactly. The
+  PDF still contains zero embedded files, so the promised per-cell supplement
+  is not part of the reviewed artifact pair.
+- Area-chair adjudication: **5/7 weak accept, confidence 4/5** on scientific
+  merit under the focused MIG short-paper bar. Do not upload the exact packet
+  unchanged. Mandatory repairs are the anonymous per-cell supplement and T14
+  definition, theorem-versus-empirical scope wording, Cor. 3.4
+  symmetry/quantifier and `alpha>0` ledger precision, a compact implementation
+  recipe, the assigned paper ID, and companion-overlap disclosure.
+
+## 2026-07-30 fresh panel findings
+
+- Historical panel findings are stale for this request and will not be exposed
+  to the six new reviewers.
+- Current PDF SHA-256 is
+  `8a77cf7947971f3c0f56789c5c7f9dd16a4a2c1ca3fcc72328ae1e5acc9003c1`
+  (716,167 bytes; seven letter-size pages; created 2026-07-29 23:37 PDT).
+  This differs from the previous reviewed build, so a new panel is warranted.
+- Current video SHA-256 is
+  `a9ef4e4158734e98fd040f698e0007dacd595e27ed6e7611c7d91207988a7901`
+  (8,065,820 bytes; 50.2 s; 1920x1080; 30 fps H.264; 1,506 frames; no
+  audio stream).
+- The live official MIG 2026 call defines short papers as focused results,
+  emerging ideas, or concise technical contributions; permits 4--6 body pages
+  excluding references; encourages supplements up to 200 MB; requires
+  anonymous review copies with the assigned paper ID; and evaluates
+  originality, technical quality, clarity, significance, reproducibility where
+  applicable, and venue relevance.

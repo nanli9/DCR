@@ -1,0 +1,321 @@
+{
+  "generated_by": "benchmarks/paper_fig/onesweep_scene_record.py",
+  "commit": "e58083a",
+  "machine": "arm64",
+  "system": "Darwin",
+  "python": "3.12.12",
+  "note": "MIG one-sweep scene video (data agent): full shelf scene, shipped symplectic host, contact-row weight contrast",
+  "scene": {
+    "name": "reduced_shelf (5 standing books + 6 kg dropped weight on a soft modal cantilever shelf)",
+    "builder": "scenes/reduced_shelf.build_reduced_shelf",
+    "youngs_Pa": 200000000000.0,
+    "density": 7850.0,
+    "impactor_mass_kg": 6.0,
+    "drop_height_m": 1.0,
+    "impactor_v0": 0.0,
+    "n_bodies": 6,
+    "n_modes": 16,
+    "support_grid": [
+      21,
+      11
+    ],
+    "support_thickness_m": 0.03
+  },
+  "operating_point": {
+    "solver": "xpbd (shipped SolverXPBD)",
+    "iterations": 1,
+    "substeps": 8,
+    "budget": "1x8",
+    "modal_relax": 1.0,
+    "reconstruction": "symplectic implicit-midpoint (shipped, kappa=2)",
+    "stiffness_scale": 1.0,
+    "passivity_governor": "OFF (both arms)",
+    "h_frame_s": 0.008333333333333333,
+    "h_substep_s": 0.0010416666666666667,
+    "settle_frames": 8,
+    "logged_frames": 140
+  },
+  "arms": {
+    "unfixed": {
+      "weight_kind": "shipped",
+      "budget": "1x8",
+      "weight_ratio_to_shipped": [
+        1.0,
+        1.0
+      ],
+      "n_substeps": 1184,
+      "h_substep_s": 0.0010416666666666667,
+      "impact_substep": 432,
+      "ref_substep": 431,
+      "finite": true,
+      "book_rise_max_mm": 56.82267745739195,
+      "book_rise_per_book_mm": [
+        40.39392561358045,
+        28.872594099855736,
+        46.14144851949947,
+        56.82267745739195,
+        55.67106432930517
+      ],
+      "book_speed_max_mps": 1.0477576626186433,
+      "book_speed_p99_mps": 0.9392870781906392,
+      "book_tilt_max_deg": 15.635893022817443,
+      "slab_defl_absmax_mm": 2.250706842789803,
+      "impactor_rebound_mm": 38.04196850609665,
+      "e_init_J": 64.5492256743164,
+      "e_ref_J": 81.78253237886435,
+      "e_peak_J": 925575.3445094278,
+      "e_peak_at_ms_after_impact": 1.0416666666666667,
+      "e_end_J": 1382.5549656747169,
+      "n_substeps_above_pre_impact": 752,
+      "e_max_gain_J": 925493.5619770489,
+      "e_end_gain_J": 1300.7724332958526,
+      "e_modal_peak_J": 925559.5761484931,
+      "render_slack_min_mm": -0.0004335112266332791,
+      "wall_s": 0.7633392499992624
+    },
+    "fixed": {
+      "weight_kind": "matched",
+      "budget": "1x8",
+      "weight_ratio_to_shipped": [
+        1.250738607525703e-06,
+        0.2201747122619349
+      ],
+      "n_substeps": 1184,
+      "h_substep_s": 0.0010416666666666667,
+      "impact_substep": 432,
+      "ref_substep": 431,
+      "finite": true,
+      "book_rise_max_mm": 5.278867332587652,
+      "book_rise_per_book_mm": [
+        1.1920432879547957,
+        1.4991888186882267,
+        2.247301740287713,
+        3.7176584342568724,
+        5.278867332587652
+      ],
+      "book_speed_max_mps": 0.31966732076394955,
+      "book_speed_p99_mps": 0.20091640481368522,
+      "book_tilt_max_deg": 1.9566797534195257,
+      "slab_defl_absmax_mm": 0.4607378370965537,
+      "impactor_rebound_mm": 18.215286304023465,
+      "e_init_J": 64.5492256743164,
+      "e_ref_J": 64.36547102717692,
+      "e_peak_J": 64.36547102717692,
+      "e_peak_at_ms_after_impact": -1.0416666666666667,
+      "e_end_J": 5.640539426429175,
+      "n_substeps_above_pre_impact": 0,
+      "e_max_gain_J": 0.0,
+      "e_end_gain_J": -58.72493160074775,
+      "e_modal_peak_J": 1.7718190058662802,
+      "render_slack_min_mm": 0.00011844880208611297,
+      "wall_s": 0.7938062500907108
+    },
+    "ref": {
+      "weight_kind": "shipped",
+      "budget": "32x8",
+      "weight_ratio_to_shipped": [
+        1.0,
+        1.0
+      ],
+      "n_substeps": 1184,
+      "h_substep_s": 0.0010416666666666667,
+      "impact_substep": 432,
+      "ref_substep": 431,
+      "finite": true,
+      "book_rise_max_mm": 9.647144873968637,
+      "book_rise_per_book_mm": [
+        2.7973583561430106,
+        4.3337447788937,
+        4.445248319710291,
+        6.228303326598218,
+        9.647144873968637
+      ],
+      "book_speed_max_mps": 0.43123670668047315,
+      "book_speed_p99_mps": 0.28932740959821396,
+      "book_tilt_max_deg": 15.87189081498916,
+      "slab_defl_absmax_mm": 0.8251698688137065,
+      "impactor_rebound_mm": 4.580603494263494,
+      "e_init_J": 64.5492256743164,
+      "e_ref_J": 64.36534553223001,
+      "e_peak_J": 64.36534553223001,
+      "e_peak_at_ms_after_impact": -1.0416666666666667,
+      "e_end_J": 5.640499773729323,
+      "n_substeps_above_pre_impact": 0,
+      "e_max_gain_J": 0.0,
+      "e_end_gain_J": -58.724845758500685,
+      "e_modal_peak_J": 6.722869623350849,
+      "render_slack_min_mm": -0.001232098507662413,
+      "wall_s": 14.030461292015389
+    }
+  },
+  "second_reference": {
+    "budget": "500x1",
+    "book_rise_max_mm": 0.10839799521746712,
+    "book_speed_max_mps": 0.02810335298193155,
+    "book_tilt_max_deg": 0.021717065202137516,
+    "e_max_gain_J": 0.0,
+    "e_modal_peak_J": 0.14468392803275984,
+    "h_substep_s": 0.008333333333333333
+  },
+  "contrast": {
+    "book_rise_ratio": 10.76417986612632,
+    "book_speed_ratio": 3.2776502149631184,
+    "book_tilt_ratio": 7.991033277413894,
+    "energy_gain_ratio": 925493561977048.9,
+    "modal_peak_ratio": 522378.17355163046,
+    "impact_energy_budget_J": 58.86,
+    "unfixed_injects": true,
+    "fixed_bounded": true,
+    "fixed_strictly_passive": true
+  },
+  "ensemble": [
+    {
+      "perturb": {
+        "impactor_dx": 0.004
+      },
+      "unfixed": {
+        "book_rise_max_mm": 203.18292689167936,
+        "book_speed_max": 2.634564040098349,
+        "book_tilt_max_deg": 129.36636143543842,
+        "e_max_gain_J": 893753.0281614064,
+        "e_mod_peak_J": 893819.4757083476,
+        "finite": true
+      },
+      "fixed": {
+        "book_rise_max_mm": 5.080032667694259,
+        "book_speed_max": 0.31354212026019396,
+        "book_tilt_max_deg": 2.6165776032226775,
+        "e_max_gain_J": 0.0,
+        "e_mod_peak_J": 1.7143900817646796,
+        "finite": true
+      }
+    },
+    {
+      "perturb": {
+        "impactor_dx": -0.004
+      },
+      "unfixed": {
+        "book_rise_max_mm": 57.903278415674485,
+        "book_speed_max": 1.5566381973476393,
+        "book_tilt_max_deg": 100.18729043418722,
+        "e_max_gain_J": 924737.4945074426,
+        "e_mod_peak_J": 924803.8820824255,
+        "finite": true
+      },
+      "fixed": {
+        "book_rise_max_mm": 5.443732026310356,
+        "book_speed_max": 0.32464454026752515,
+        "book_tilt_max_deg": 1.9064104308895238,
+        "e_max_gain_J": 0.0,
+        "e_mod_peak_J": 1.8141002500297327,
+        "finite": true
+      }
+    },
+    {
+      "perturb": {
+        "impactor_dz": 0.004
+      },
+      "unfixed": {
+        "book_rise_max_mm": 56.821936605829364,
+        "book_speed_max": 1.083374777926647,
+        "book_tilt_max_deg": 16.81166933481726,
+        "e_max_gain_J": 919785.101479907,
+        "e_mod_peak_J": 919851.110182292,
+        "finite": true
+      },
+      "fixed": {
+        "book_rise_max_mm": 5.278867368028426,
+        "book_speed_max": 0.3196673218412029,
+        "book_tilt_max_deg": 1.956679609872955,
+        "e_max_gain_J": 0.0,
+        "e_mod_peak_J": 1.771819000899911,
+        "finite": true
+      }
+    },
+    {
+      "perturb": {
+        "impactor_tilt": 0.02
+      },
+      "unfixed": {
+        "book_rise_max_mm": 52.63445971171979,
+        "book_speed_max": 1.3856266573810472,
+        "book_tilt_max_deg": 93.16673442811903,
+        "e_max_gain_J": 416174.63878388185,
+        "e_mod_peak_J": 416239.71508626395,
+        "finite": true
+      },
+      "fixed": {
+        "book_rise_max_mm": 4.169585782392258,
+        "book_speed_max": 0.2833022654894125,
+        "book_tilt_max_deg": 1.1951407404066998,
+        "e_max_gain_J": 0.0,
+        "e_mod_peak_J": 1.3734433770264103,
+        "finite": true
+      }
+    }
+  ],
+  "disclosures": [
+    "The injection PHENOMENON (a finite-budget contact sweep depositing energy) is known prior art and is conceded, not claimed. What the two arms differ in is the contact-row modal weight.",
+    "Both arms are independent runs from identical build states; nothing is toggled mid-trajectory and no body is parked or isolated.",
+    "The passivity governor / clamp is OFF in both arms. The fixed arm's boundedness comes from the row weight alone.",
+    "The boundary is an energy-SIGN effect, not a stability threshold: the unfixed arm never goes non-finite over this clip.",
+    "The unfixed arm is already ahead by 17.4 J at the instant the weight lands: the five RESTING books' own support rows inject during the fall.",
+    "Fidelity caveat: the matched weight is CONSERVATIVE here. Against the substep-matched converged reference the fixed arm under-moves the books (5.3 mm vs 9.6 mm peak rise, 2.0 deg vs 15.9 deg peak tilt) while the unfixed arm over-moves them by 5.9x.",
+    "The two converged self-references disagree on the legitimate bystander scale (9.65 mm at the recorded substep grid vs 0.11 mm at one substep per frame), so 'the true motion' is quoted as a range, not a single number.",
+    "Both arms still show a spurious impactor rebound (38 mm unfixed, 18 mm fixed, 5 mm converged): the matched weight fixes the modal contact row, not every fixed-budget error.",
+    "No real-time claim is supported by this recording: it is an offline CPU float64 run."
+  ],
+  "npz": "/Users/nan/Desktop/DCR/benchmarks/paper_fig/out/onesweep_scene_data/onesweep_scene_traj.npz",
+  "budget_grading": [
+    {
+      "budget": "1x8",
+      "iterations": 1,
+      "substeps": 8,
+      "e_max_gain_J": 925493.5619770489,
+      "e_modal_peak_J": 925559.5761484931,
+      "bystander_rise_max_mm": 56.8226774,
+      "bystander_tilt_max_deg": 15.6359,
+      "source": "the recorded unfixed arm"
+    },
+    {
+      "budget": "2x8",
+      "iterations": 2,
+      "substeps": 8,
+      "e_max_gain_J": 151140.26804298218,
+      "e_modal_peak_J": 151197.7274294532,
+      "bystander_rise_max_mm": 32.169693871887226,
+      "bystander_tilt_max_deg": 10.930912188810803
+    },
+    {
+      "budget": "4x8",
+      "iterations": 4,
+      "substeps": 8,
+      "e_max_gain_J": 855.7769184194538,
+      "e_modal_peak_J": 914.144089116581,
+      "bystander_rise_max_mm": 11.021781162789061,
+      "bystander_tilt_max_deg": 5.705303893992944
+    },
+    {
+      "budget": "8x8",
+      "iterations": 8,
+      "substeps": 8,
+      "e_max_gain_J": 0.0,
+      "e_modal_peak_J": 6.726554610681994,
+      "bystander_rise_max_mm": 9.649717473470709,
+      "bystander_tilt_max_deg": 15.883932421184142
+    },
+    {
+      "budget": "32x8",
+      "iterations": 32,
+      "substeps": 8,
+      "e_max_gain_J": 0.0,
+      "e_modal_peak_J": 6.722869623350849,
+      "bystander_rise_max_mm": 9.647144873968637,
+      "bystander_tilt_max_deg": 15.87189081498916,
+      "source": "the recorded converged reference arm"
+    }
+  ],
+  "corrections": [
+    "budget_grading was missing (this summary predates the grading pass), so act 1 could not state its own D1 grading and the video's act-2 slate read as if both scenes had been graded. Measured afterwards by re-running the same shipped weight at 2x8 / 4x8 / 8x8 / 32x8 on the same 1/960 s substep grid, from the cfg that reproduces the recorded 1x8 arm to 2.3e-5 mm of peak bystander rise. The shelf does NOT grade like the table: 4 x 8 still gains 855.8 J here and the gain first vanishes at 8 x 8."
+  ]
+}

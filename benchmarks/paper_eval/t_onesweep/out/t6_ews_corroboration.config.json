@@ -1,0 +1,31 @@
+{
+  "figure": "t6_ews_corroboration.csv",
+  "stage": "X0",
+  "git_sha": "e58083a",
+  "generated_utc": "2026-07-24T02:22:28+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "dinner",
+    "ledge",
+    "shelf"
+  ],
+  "solvers": [
+    "xpbd"
+  ],
+  "note": "T6 (note R1/R2; plan T6): READ-ONLY reuse of x1_passivity/out/weight_swap_full.csv (24 cells). Corroborates the one-sweep boundary at system level: injecting cells explicit=8 implicit=0; max baseline_reldiff=0.000e+00 (<1e-6); R1 consistency 1/wratio_min vs 1+(2 pi f_hi h_sub)^2 max reldiff=9.600e-03 (<=0.05, 5% slack absorbs the unlogged 2 zeta omega h damping term). Source CSV never written.",
+  "source_csv": "benchmarks/paper_eval/x1_passivity/out/weight_swap_full.csv",
+  "r1_slack": 0.05
+}

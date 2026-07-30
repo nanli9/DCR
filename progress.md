@@ -1081,3 +1081,509 @@ edit. Committed-core body is done.
 - Re-ran all four v2 arms in memory with timing/row instrumentation. Current code passes both ledger checks, uses at most 24 active rows in these scenes, costs about 0.03–0.09 ms median per projection, and confirms that preserved-row coverage predicts the observed gap improvement.
 - Located still earlier direct precedents: AHI shares one force profile across audio/haptics, and ACME automatically acquired visual/haptic/auditory object models. Broad shared-excitation/automatic-multisensory novelty is conclusively ruled out.
 - Completed H1–H4. Final assessment: the governor is a real, measurable improvement with narrow contact claims and remaining velocity/trajectory validation; the broad pipeline is prior art, while the solver-safe rate-aware compiler/runtime contract is the viable narrow novelty and practitioner story.
+
+## 2026-07-22 Current PDF + video six-reviewer rerun
+
+- Started the user-requested review of `paper/main_short.pdf` and `benchmarks/paper_fig/out/mig_short_video.mp4`.
+- Added a fresh four-phase artifact-lock, isolated-review, adjudication, and synthesis plan; no manuscript, solver, or video source changes are authorized.
+- Froze new artifact hashes (PDF `8a03d1c...`, video `891e835d...`) and confirmed they differ from the previous review, making that panel stale.
+- Extracted the 7-page PDF to text and page images; verified embedded fonts and clean basic structure. Probed the 53.267-second, 1080p/30-fps, silent H.264 supplement.
+- Began the root reviewer’s full manuscript read. Confirmed that the paper presents itself as a focused diagnosis/operating guide and states containment limitations directly rather than claiming corrected contact.
+- Completed detailed reading of PDF pages 1–2, including contributions, prior-work positioning, contact-row definition, reservoir accounting, and explicit nonclaims.
+- Completed pages 3–4: experimental matrix, host differences, invariant/severity results, iteration/complementarity mechanism evidence, equal-row schedule test, warm-start test, and block-condensation ablation.
+- Completed pages 5–6: perturbation robustness, basis truncation, guardrail derivation/proof, contact-observed projection, quantitative contact/accuracy cost, FEM validation, runtime, limitations, and decision-oriented conclusion.
+- Completed page 7 reference audit. Began official-rubric verification; the first domain-restricted search returned no result and was logged for an alternative query.
+- Verified the official live MIG 2026 CFP and froze the six review criteria plus the focused-short-paper scope. Confirmed the packet’s body length, format, topical fit, and supplement size; flagged the not-yet-available paper ID as a pre-submission requirement rather than a scientific defect.
+- Decoded the full MP4 without errors and generated three ordered contact sheets covering the complete runtime at 2-second intervals.
+- Inspected contact sheets 1–2 (roughly 0–36 s): verified the problem schematic, animated ungoverned/self-reference comparison, equal-row allocation result, and band-limit result against the manuscript’s numbers.
+- Inspected sheet 3 and native-resolution key frames for the governed comparison and penetration cross-section. Confirmed visual consistency with the paper’s containment/non-faithfulness claims.
+- Inspected the native-resolution equal-row plot and final decision card. Found one definite wording inconsistency: the video calls equal row evaluations “equal cost,” contrary to the paper’s explicit caveat.
+- Began full visual PDF audit via a seven-page contact sheet and native page renders. Pages 4–5 are clean and readable despite high information density.
+- Finished native visual inspection of every PDF page. No rendering, clipping, font, or anonymity issue was found; page 7 is simply a sparse references-only page.
+- Cross-checked native video labels against the current PDF and found a stale equation reference: video “eq. (5)” versus current manuscript Eq. (4).
+- Finished spot-checking the early animated comparison at native resolution; logged one overly absolute “only honest baseline” phrase and a bottom-safe-area caption clip as minor video polish issues.
+- Began a narrow primary-literature sanity check for novelty calibration; the first search wrapper failed before execution and was logged for a syntactically simpler retry.
+- Completed the narrow novelty sanity check against primary publisher/author sources. PMI 2017 and Su et al. 2009 are relevant missing citations but do not appear to erase the focused short-paper contribution.
+- Reviewer 3 returned the first isolated report: 5/7 weak accept, confidence 4/5. Launched Reviewer 4 in the freed slot; no report content was shared with the new reviewer.
+- Reviewers 2 and 1 returned isolated scores of 3/7 weak reject and 4/7 borderline (both confidence 4/5); Reviewers 5 and 6 were launched into the freed slots without receiving earlier reports.
+- Reviewer 4 returned 5/7 weak accept, confidence 4/5. Four of six reports are complete; Reviewers 5 and 6 remain isolated and in progress.
+- Reviewer 5 returned 6/7 accept, confidence 4/5. Five reports are complete; Reviewer 6 remains the only outstanding independent review.
+- Reviewer 6 returned 6/7 accept, confidence 4/5. Final isolated panel: 3, 4, 5, 5, 6, 6; mean 4.83, median 5, all confidence 4/5.
+- Rechecked both SHA-256 hashes after the final report; the frozen artifacts are unchanged. Confirmed by text scan that no unique paper ID is present.
+- Completed R2–R4 adjudication. Final recommendation is 5/7 weak accept, conditional on resolving the frame/substep-timestep ambiguity; no manuscript, code, or video source was modified.
+
+## 2026-07-22 Future pipeline and sound-residue decision
+
+- Started a four-phase read-only audit of the future modal-asset pipeline, its implemented sound path, publication relationship to the short paper, and the meaning/severity of “sound residue.”
+- Read the complete 269-line future plan. Confirmed that it is best treated as a separate systems/tooling follow-up and that its potentially defensible novelty is the executable rate/safety/authoring contract, not modal sound or multimodal synchronization itself.
+- Read the complete 421-line sound-render design/evidence document. Separated intentional broadband attack residual from unwanted lingering ring residue and reconstructed the implemented live/offline audio architecture and its known fidelity gaps.
+- Located the implemented residue controls and all current WAV/spectrogram artifacts. Confirmed that late ringing and intentional attack noise are separate code paths, and identified missing box–box plus scrape/roll coverage as larger pipeline risks.
+- Visually compared original, v2, v3, and off-center v3 spectrograms. The choke/radiation changes clearly suppress the old narrow high-frequency tail; the remaining tail is short relative to the 7.5-second file and is scene-dependent as expected.
+- Probed all WAVs and ran a consistent −50 dB silence audit. Current v3 tails fall below threshold by 0.92–1.05 s, supporting the conclusion that late residue is no longer the pipeline’s top risk.
+- Inventoried the actual sound APIs, tests, solver staging, viewer wiring, and haptic references. Confirmed substantial audio implementation but no haptic renderer/compiler/export subsystem yet.
+- Ran the current Stage-E6 suite: 52 passed, one hardware test skipped, and two device-ring tests were blocked solely by sandbox denial of Warp’s user-cache directory. Logged a writable-cache rerun rather than classifying this as an implementation failure.
+- Redirected Warp's cache to `/tmp` and reran both blocked device-ring cases successfully, then the full Stage-E6 suite: **54 passed, 1 skipped**. The prior two failures were confirmed to be sandbox-only.
+- Rechecked the future-plan novelty boundary against primary author/publisher sources on ACME, integrated texture-based multimodal rendering, Hasti, and level-of-detail modal analysis. Confirmed that the broad multimodal pipeline is crowded prior art and the rate-certification/provenance contract is the viable research center.
+- Mapped the exact future-plan, sound-document, and source locations for v1 scope, the defensible compiler claim, intentional attack noise, measured late-ring reduction, missing box–box events, and absent scrape/roll support.
+- Probed the supplied MIG video and confirmed it contains no audio track; sound residue is therefore not part of the current submission artifact.
+- Completed all four phases and recorded the final conditional-go decision, publication relationship, scope pivot, residue taxonomy, and gated implementation/evaluation order.
+- Completed phase R1 and locked the common reviewer packet/rubric. Beginning six isolated comprehension-first reviews; prior scores and planning notes are excluded from reviewer inputs.
+
+## 2026-07-22 — Fresh current-artifact six-reviewer review
+
+- Activated the planning-with-files workflow.
+- Restored the repository's long-lived review context and marked prior panels
+  stale for this request.
+- Added phases U1–U4 for artifact inspection, six isolated reviews,
+  adjudication, and final recommendation.
+- Logged and recovered from one harmless planning-patch context mismatch; no
+  manuscript, video, solver, or benchmark file was modified.
+- Locked PDF `1b41213c…` and video `891e835d…`; the PDF is a new six-page
+  build, so all preserved panel scores are stale.
+- Extracted/read the full manuscript, visually inspected all six pages, decoded
+  and sampled the full 53.27-second video, and verified the official MIG 2026
+  focused-short-paper rubric and submission constraints.
+- Completed U1. Beginning U2 with six isolated comprehension-first reviews in
+  two capacity-limited batches of three.
+- Reviewer 3 returned 5/7 weak accept at confidence 4/5 with an accurate
+  comprehension check. Launched Reviewer 4 in the freed slot; no report content
+  was shared.
+- Reviewer 2 returned 5/7 weak accept at confidence 4/5. Launched Reviewer 5 in
+  the freed slot, again without sharing prior report content.
+- Reviewer 1 returned 4/7 borderline at confidence 4/5. Launched Reviewer 6 in
+  the freed slot. A 400-dpi artifact check confirmed the central modal-weight
+  inconsistency is genuinely printed, not a parser error.
+- Reviewer 5 returned 5/7 weak accept at confidence 4/5. Reviewers 4 and 6
+  remain isolated and in progress.
+- Reviewers 6 and 4 returned 4/7 borderline and 5/7 weak accept, respectively,
+  both at confidence 4/5. U2 is complete with scores 4,5,5,5,5,4; no report was
+  exposed to another reviewer.
+- Began U3 fact-check/adjudication. The two borderline reports independently
+  identified the same modal-weight inconsistency, while all six correctly
+  understood the narrow Eq. (2) guarantee and accepted its proof as an
+  accounting result.
+- Completed U3. Adjudicated the panel to a conditional 5/7 weak accept: the
+  scientific contribution is accept-worthy under the focused bar, but the
+  modal-weight derivation must be repaired before submission.
+- Rechecked hashes after all reports; both frozen artifacts are unchanged.
+  Began U4 final synthesis.
+- Completed U4. Final advice: conditional 5/7 weak accept, but do not submit the
+  current artifact unchanged; repair the central row-weight derivation, add
+  fidelity evidence and the promised numerical supplement, and correct the
+  video labels first.
+
+## 2026-07-23 — Current-artifact six-reviewer review
+
+- Activated the planning-with-files workflow for the new request.
+- Restored the long-lived review history and marked all prior panel scores stale
+  pending fresh hashes of the user-specified PDF and MP4.
+- Added phases V1–V4 for artifact inspection, six isolated reviews,
+  adjudication, and synthesis. No manuscript, code, or video edits are
+  authorized.
+- Recovered from an atomic planning append failure caused by stale
+  `findings.md` context; no partial edit occurred.
+- Locked new artifact hashes: PDF `0cc527dc…`, video `2f4c92e2…`. Both differ
+  from the latest historical panel and therefore require a fresh review.
+- Confirmed a 7-page PDF and a cleanly decodable 53.27-second silent 1080p MP4;
+  extracted PDF text/pages and full-duration video contact sheets.
+- Completed V1: read and visually inspected every PDF page, decoded and sampled
+  the full video at both contact-sheet and native resolution, verified the
+  official MIG 2026 focused-short-paper rubric, checked fonts/anonymity, and
+  performed a narrow primary-source novelty sanity check.
+- Began V2 with three isolated reviewers (technical soundness, novelty/
+  significance, and evaluation). Each received only the frozen artifacts and
+  common rubric.
+- Reviewer 3 returned 5/7 weak accept at confidence 4/5 after an accurate
+  comprehension check. Launched Reviewer 4 in the freed slot without sharing
+  any prior report.
+- Reviewers 2 and 1 independently returned 5/7 weak accept at confidence 4/5.
+  Both emphasized that the artifact establishes a focused diagnosis rather than
+  a broad solver result; Reviewer 1 made missing fidelity validation for the
+  primary weight-swap recommendation decision-critical.
+- Because the root child-thread limit was reached, asked completed Reviewer 1
+  to coordinate a fresh child agent with no forked context for isolated
+  Reviewer 5; no report content was included in the child task.
+- The child spawn was unavailable at that moment; after the interrupted thread
+  was released, launched a new Reviewer 5 directly with no forked context.
+- Reviewer 4 returned 4/7 borderline leaning reject at confidence 4/5,
+  principally because the artifact set omits the numerical supplement promised
+  by the paper and does not validate fidelity of the primary weight remedy.
+- Launched fresh Reviewer 6 in the freed slot with no prior-review context.
+- Reviewer 6 returned 5/7 weak accept at confidence 4/5. Five reports are now
+  complete; Reviewer 5 remains isolated and in progress.
+- Reviewer 5 returned 5/7 weak accept at confidence 4/5. V2 is complete with
+  scores 5,5,5,4,5,5; all six confidence ratings are 4/5.
+- Rechecked both SHA-256 hashes after the final report; the frozen artifacts are
+  unchanged. Began V3 fact-checking and adjudication.
+- Completed V3: confirmed the panel's core concerns, rejected stale historical
+  defects that are fixed in this build, and separated scientific merit from
+  artifact/readiness risk.
+- Completed V4. Final recommendation is 5/7 weak accept at confidence 4/5, but
+  do not submit the supplied pair unchanged: validate fidelity of the primary
+  weight remedy, include the promised numerical supplement, clarify the
+  effective-weight derivation, and add the EasyChair ID first.
+
+## 2026-07-23 Fresh six-reviewer request
+
+- Activated the planning-with-files workflow and restored the long-lived review
+  history.
+- Marked all prior scores stale pending fresh hashes of the exact PDF and MP4
+  named by the user.
+- Added phases W1–W4 for artifact inspection, six isolated reviews,
+  adjudication, and synthesis. No manuscript, code, or video edits are
+  authorized.
+- Recovered from an atomic three-file append failure caused by stale
+  `progress.md` context; no partial edit occurred.
+- Locked the new hashes (`ab393707…` PDF and `66621e53…` video); both changed
+  since the most recent stored panel, confirming that a new review is required.
+- Built `/tmp/mig_review_ab393707_66621e53` with frozen artifact copies,
+  layout-preserving paper text, all page renders, full-duration video samples,
+  and contact sheets. Full video decode and PDF font checks passed.
+- Verified the current official MIG 2026 short-paper category, page/supplement
+  limits, anonymity/ID requirements, and six review criteria for the common
+  reviewer rubric.
+- Completed W1: read and visually inspected all seven PDF pages, decoded and
+  sampled the entire 53.27-second video at contact-sheet and native-frame
+  resolution, checked anonymity/metadata/fonts, and ran a primary-source
+  novelty sanity check.
+- Began W2 with three isolated reviewers covering technical soundness,
+  novelty/significance, and evaluation. Each received only the frozen artifact
+  packet and common rubric.
+- Reviewer 1 returned 5/7 weak accept at confidence 4/5 after passing the
+  comprehension gate. Launched Reviewer 4 on clarity/reproducibility in the
+  freed slot without sharing any report content.
+- Reviewers 2 and 3 independently returned 5/7 weak accept at confidence 4/5.
+  Launched Reviewers 5 and 6 into the freed slots for practitioner/video and
+  senior-generalist assessments, with no prior reports or scores disclosed.
+- Reviewer 5 returned 5/7 weak accept at confidence 4/5; Reviewer 4 and Reviewer
+  6 remain isolated and in progress.
+- Reviewer 4 returned 4/7 borderline at confidence 4/5. Reviewer 6 is the only
+  outstanding report.
+- Reviewer 6 returned 5/7 weak accept at confidence 4/5. W2 is complete with
+  scores 5,5,5,4,5,5 and all confidence ratings 4/5; began artifact-level
+  fact-checking and adjudication.
+- Rechecked both original and frozen hashes; they are unchanged. Completed W3
+  by verifying the count ambiguity, effective-weight derivation gap, fixed-S
+  FEM scope, `1x8` versus `500x1` reference mismatch, missing archive, and
+  submission-ID issue against the exact artifacts.
+- Began W4 with an area-chair recommendation of 5/7 weak accept on scientific
+  merit, paired with a do-not-submit-unchanged readiness warning.
+- Completed W4: prepared the self-contained six-reviewer score distribution,
+  video assessment, accept/reject synthesis, and ordered revision advice for the
+  exact frozen artifact pair.
+
+## 2026-07-24 `onesweep_short.pdf` review
+
+- Started a fresh six-reviewer assessment of `paper/onesweep_short.pdf`; all
+  earlier panel outputs are stale and will not be exposed to the new reviewers.
+- Locked the requested artifact at SHA-256
+  `9607dfa2d9727d10c666f1e8c064e0d51d8cc8415aa0b4caf58422fc0030c851`.
+- Initial structure check: six letter-size pages, unencrypted, no JavaScript or
+  structural suspect flag; Poppler extraction/rendering tools are available.
+- Completed O1: extracted both reading- and layout-order text, rendered and
+  inspected all six pages, checked fonts/anonymity/ID, and verified the live
+  official MIG 2026 short-paper scope and criteria.
+- Launched three isolated reviewers for technical soundness,
+  novelty/significance, and evaluation/reproducibility. Each received only the
+  frozen PDF packet and common rubric, with no historical scores or peer
+  reports.
+- Reviewer 3 completed an evaluation/reproducibility pass at **4/7
+  borderline, weak-reject lean; confidence 4/5**. Reviewer 4 was launched in
+  the freed slot for clarity/presentation, still isolated from every report.
+- Reviewers 1 and 2 completed at **3/7 weak reject, confidence 4/5**. Reviewer
+  1 independently derived a diagonal midpoint counterexample to the paper’s
+  headline impossibility claim; Reviewer 2 independently found the
+  under-relaxation error and multiple closest-work bibliography defects.
+- Launched Reviewers 5 and 6 for practitioner/MIG impact and a senior
+  generalist assessment. Reviewers 4–6 remain isolated from all earlier
+  reports and scores.
+- Reviewers 4–6 completed at 5/7 weak accept, 3/7 weak reject, and 4/7
+  borderline, respectively; all reported confidence 4/5 and passed the
+  comprehension gate.
+- Completed O2 with scores **3, 3, 4, 5, 3, 4** (mean 3.67, median 3.5):
+  three weak rejects, two borderlines, one weak accept.
+- Completed O3 by rechecking the unchanged original/frozen hash and verifying
+  the two printed false claims, system-level theorem mismatch, missing
+  supplement/companion dependence, bibliography errors, and submission-ID
+  status. The midpoint diagonal counterexample is algebraically valid and
+  decision-changing; it outweighs the lone weak-accept report, which did not
+  test that headline claim.
+- Completed O4 with an area-chair recommendation of **3/7 weak reject,
+  confidence 4/5** for the current PDF, paired with a positive resubmission
+  assessment after a focused theory/evidence/bibliography repair.
+
+## 2026-07-24 Fresh `onesweep_short.pdf` rerun
+
+- Activated the planning-with-files workflow and restored the historical review
+  context.
+- Marked the previous `onesweep_short.pdf` panel historical pending a fresh
+  artifact hash and launched phases O5--O8 for six new isolated reviews.
+- Locked the new seven-page PDF at hash `fc552a59...`, extracted reading- and
+  layout-order text, rendered all pages, and confirmed the frozen artifact is
+  byte-identical to the user-specified file.
+- Read the first four pages of manuscript text. The revision has replaced the
+  historical midpoint-impossibility and relaxation overclaims with a general
+  reconstruction-matched theorem and explicit relaxation boundaries; the
+  remaining text/evidence and visual layout are still under audit.
+- Completed a full text read of the seven-page PDF. The core repair is present
+  throughout the abstract, theorem, validation, figure, guidance, and
+  limitations; remaining work is visual inspection, rubric verification, six
+  isolated assessments, and fact-check/adjudication.
+- Verified the live official MIG 2026 rubric and category: six body pages plus
+  references are allowed, and the paper will be judged on originality,
+  technical quality, clarity, significance, reproducibility, and relevance.
+- Visually inspected pages 1--2; they render cleanly and anonymously, but no
+  required EasyChair paper ID is visible.
+- Visually inspected pages 3--4. Content is readable, but page 3's running title
+  visibly collides with the conference header and needs a short-title fix.
+- Visually inspected pages 5--6. The header collision recurs on page 5;
+  Figures 2--3 are undersized, while Figure 4 and the limitations are readable.
+- Completed the page-by-page visual and anonymity audit. Page 7 is
+  references-only; anonymity appears intact; the missing paper ID and
+  odd-page running-header collisions are the main submission-format defects.
+- Completed O5 and created a common isolated-review brief using the official
+  short-paper criteria and a 1--7 score scale. Beginning O6 in two
+  capacity-limited batches of three reviewers.
+- Independently checked the revised scalar and relaxation algebra; the central
+  historical counterexamples are repaired. Flagged the compliant-contact
+  energy ledger as a clarification for adjudication rather than a demonstrated
+  failure of the hard-contact theorem.
+- Found one remaining evidence/wording inconsistency for panel adjudication:
+  the symplectic 24-cell reuse calls its 0/24 arm merely “implicit” and claims
+  Theorem 3.3 support, despite the paper elsewhere separating that old
+  backward-Euler-shaped arm from the new `4M_q+h^2K_q` matched fix.
+- Confirmed the Figure 4 arm labels at 300 dpi; the new matched shipped-row test
+  is clear, while the reused system-level arm remains under-specified.
+- Reviewer 2 completed the first fresh report at **4/7 borderline, confidence
+  4/5** after an accurate comprehension gate. Launched Reviewer 4 in the freed
+  slot without sharing the report or any historical score.
+- Reviewers 1 and 3 completed at **5/7 weak accept** and **3/7 weak reject**,
+  both confidence 4/5. Launched isolated Reviewers 5 and 6 in the freed slots;
+  no reports or scores were disclosed. Reviewer 4 remains in progress.
+- Read Reviewer 3's complete report and checked the reconstruction wording
+  against the PDF. The scalar theorem remains internally coherent, but the
+  shipped full-step mapping, T6 arm, physical-accuracy evidence, and supplement
+  completeness remain substantive adjudication issues.
+- Reviewer 4 completed at **4/7 borderline, confidence 4/5**. Four reports are
+  now complete with scores 5, 4, 3, 4; Reviewers 5 and 6 remain isolated and in
+  progress.
+- Reviewers 5 and 6 completed at **4/7 borderline, confidence 4/5**. O6 is
+  complete with scores 5, 4, 3, 4, 4, 4 (mean/median 4.0); all six frozen
+  reports are present and the original/frozen PDF hash remains unchanged.
+- Began O7 fact-checking and area-chair adjudication.
+- Completed O7. Reconciled the panel to **4/7 borderline, lean reject,
+  confidence 4/5** for the exact current PDF: correct narrow scalar core, but
+  unresolved multi-mode/practical evidence and reproducibility gaps.
+- Completed O8 with a binary recommendation to reject/do-not-submit-unchanged,
+  paired with a concrete revision path likely to move the work to weak accept.
+
+## 2026-07-25 `onesweep_short.pdf` + scene-video review
+
+- Activated the planning-with-files workflow and restored the repository's
+  long-lived review context.
+- Marked every historical score stale for this request because the supplied
+  scene video was not part of the latest `onesweep_short.pdf` panel.
+- Began V1: freeze and fully inspect the exact PDF/video pair before launching
+  six isolated reviewer simulations in capacity-limited waves.
+- Frozen hashes are PDF `21243942...` and video `a9ef4e415...`; both copies
+  match the user-specified originals. The PDF has changed since the prior
+  `onesweep_short.pdf` panel.
+- Extracted the full six-page text and font/structure metadata, rendered every
+  paper page, fully decoded the 50.2 s video, and sampled it at two-second
+  intervals for visual inspection.
+- Reconfirmed the live official MIG 2026 short-paper definition, 4–6-page
+  limit, video encouragement, double-blind/paper-ID requirement, topic fit, and
+  six review criteria.
+- Launched the first three isolated reviewers on technical correctness,
+  novelty/significance, and evaluation/reproducibility. They received only the
+  frozen artifacts and common rubric, with historical logs and peer reports
+  explicitly off limits.
+- Inspected paper and video contact sheets. The paper is visually clean but
+  dense and lacks a visible assigned ID; the video clearly demonstrates two
+  same-budget causal comparisons and is decision-relevant, while remaining
+  qualitative evidence rather than a reference-accuracy or generality study.
+- Read the abstract, scope, model, scalar boundary, danger-index theorem,
+  reconstruction-matched operator proof, relaxation cases, and ordering
+  qualification. The current PDF is a material rewrite of the previous panel
+  artifact and merits a fully fresh technical verdict.
+- Read the validation through the shipped-row and system-level experiments.
+  Confirmed that the revision now includes the general operator theorem, a
+  theorem-matched `κ=2` third arm, and a candid converged-reference tradeoff;
+  the cited supplemental CSVs are not part of the supplied PDF/MP4 packet.
+- Completed the paper text read through related work, practitioner guidance,
+  limitations, and references. Began full-resolution video timeline checks;
+  the shelf shot is well controlled and candid about its non-ground-truth,
+  timestep-sensitive reference.
+- Inspected the full-resolution table sequence. It provides a second
+  same-budget causal comparison through an uncontacted object network and
+  includes converged lift references, making the supplement stronger than a
+  cosmetic teaser.
+- Rechecked key paper pages at original resolution. Typesetting is sound and
+  the previous running-header collision is repaired; no scientific conclusion
+  depends on a rendering artifact.
+- Completed the full PDF/video visual audit and identified two repairable
+  accuracy-wording overclaims: “physically correct amplitude” for the
+  conservative `κ=2` fix and the abstract's unqualified exactness claim in the
+  presence of damping.
+- Cross-checked the two closest 2026 energy/passivity citations against their
+  primary arXiv records; the manuscript's distinction from bilateral
+  partitioned coupling and whole-integrator energy control is materially fair.
+- Completed V1. The exact packet and rubric are locked; V2 remains in progress
+  with the first three reviewers working independently.
+- Reviewer 3 completed the first sealed report at **5/7 weak accept,
+  confidence 4/5**. Its report remains undisclosed to the other reviewers.
+- Reviewer 2 completed a sealed **5/7 weak accept, confidence 4/5** report.
+  Its full report was already written before its lingering agent turn was
+  stopped to release review capacity; no peer output was exposed.
+- Because the coordinator has reached its direct-child thread limit, assigned a
+  completed parent agent to spawn a new zero-context Reviewer 4; the child will
+  receive only the frozen packet and common rubric.
+- Fact-checked a video concern at 0–1.5 s: the shelf arms have already diverged
+  in modal energy before the highlighted drop contact because of the resting
+  books. Recorded this as a system-comparison qualification, not evidence of
+  deceptive editing.
+- Reviewer 1 completed at **5/7 weak accept, confidence 4/5**, with an
+  independent algebra check and no core-theorem counterexample. Three sealed
+  reports are now complete, all at 5/7.
+- Assigned a completed parent agent to spawn a fresh zero-context Reviewer 5
+  on practitioner usefulness and production tradeoffs.
+- Verified the Eq. (6) presentation and T10 count discrepancy directly on
+  pages 3–4; both are current-artifact issues, not extraction artifacts.
+- Reviewer 4 completed at **5/7 weak accept, confidence 4/5**. Four isolated
+  reviews are complete, all at 5/7.
+- Assigned Reviewer 6 to be spawned as a fresh zero-context senior-PC child;
+  Reviewer 5 remains independently in progress.
+- The fresh Reviewer 6 spawn failed at the runtime's hard lifetime thread cap.
+  Frozen the coordinator's pre-panel, pre-report artifact assessment as vote 6
+  at **5/7 weak accept, confidence 4/5**, with explicit provenance disclosure.
+- Reviewer 5 completed at **5/7 weak accept, confidence 4/5**. V2 is complete:
+  all six votes are 5/7, with five fresh isolated subagent contexts and one
+  disclosed coordinator pre-panel audit.
+- Rechecked every score line and both original/frozen hashes; artifacts remain
+  unchanged. Began V3 fact-checking and reconciliation.
+- Completed V3. No core-theorem counterexample survived adjudication; separated
+  five actual packet defects from generalization/evaluation gaps and optional
+  presentation improvements.
+- Began V4 with a unanimous **5/7 weak-accept, confidence 4/5**
+  area-chair recommendation and a do-not-upload-unchanged readiness warning.
+- Completed V4. Prepared the self-contained reviewer-role table, video verdict,
+  area-chair synthesis, provenance disclosure, and ordered revision list.
+- Final hashes remain PDF `21243942...` and MP4 `a9ef4e415...`; neither
+  reviewed artifact was modified.
+
+## 2026-07-25 MIG strength calibration and practitioner scenes
+
+- Activated the planning-with-files workflow and restored the exact completed
+  paper/video panel context.
+- Began C1: calibrate against recent official MIG short-paper programs and
+  proceedings, then separate theorem confidence, venue-score confidence, and
+  actual acceptance probability.
+- Audited the official MIG 2025 program and MIG 2024 venue page. Established
+  the accepted-cohort size/category and the 2024 best-short reference, but
+  found no official short-only acceptance-rate denominator.
+- Inspected the full 2024 paper roster and primary/author-hosted descriptions
+  for the closest physics short, the 2024 best short, and two 2025 exemplars.
+  The accepted baseline rewards both focused contributions and a very clear
+  interactive or production use case.
+- Searched official MIG pages for historical acceptance statistics and found
+  none. Confirmed the 2025 review dimensions and no-rebuttal policy; will report
+  calibrated ranges rather than a fabricated historical acceptance rate.
+- Navigated to the official 2026 call and confirmed the focused-short category
+  and six stated review criteria. Re-read the paper's theorem scope and
+  practitioner section to ground the scene recommendations.
+- Identified the exact practitioner hero scene and separated its provable
+  cold-contact onset from the later warm/multi-row production regime.
+- Compared the full closest accepted physics short against this paper's formal
+  and empirical evidence. Completed a calibrated confidence/strength judgment
+  that separates theorem correctness, review merit, and real acceptance odds.
+- Completed the practitioner-scene map and identified a clean exact-use hero
+  demonstration plus the correct safeguards for warm/multi-row scenes.
+- Completed C4 and prepared the final calibrated verdict, recent-accepted-short
+  comparison, confidence ranges, and practitioner decision flow.
+
+## 2026-07-28 Current `onesweep_short.pdf` + video review
+
+- Activated the planning-with-files workflow and restored the long-lived review
+  context without exposing historical panel conclusions to the new reviewers.
+- Frozen artifact hashes: PDF
+  `f7fd3f83ec6e095951084383a9906123ff0bcce662524e9b29fecd38d83fa45c`;
+  MP4
+  `a9ef4e4158734e98fd040f698e0007dacd595e27ed6e7611c7d91207988a7901`.
+- The PDF changed after the prior panel (current timestamp 2026-07-26 18:55);
+  the video is byte-identical to the previously inspected supplement. A fresh
+  paper-and-video review is therefore required.
+- Extracted the full six-page text, rendered and visually audited all pages,
+  and decoded all 1,506 video frames without error. The rebuilt paper fixes the
+  prior header collision, damping qualifier, T10-count mismatch, and much of
+  the `κ=2` accuracy wording, while retaining a dense Figure 3 and one residual
+  “accepting the converged amplitude” wording tension.
+- Reconfirmed the live official MIG 2026 short-paper category, 4–6 body-page
+  limit excluding references, supplement allowance, six review criteria,
+  double-blind requirement, and assigned-paper-ID requirement.
+- Completed the first three sealed independent reviews: technical correctness,
+  novelty/significance, and evaluation/reproducibility all scored 5/7 weak
+  accept at confidence 4/5.
+- Opened those reports only after all six reviewer prompts had been fixed.
+  Began adjudication; the top new technical question is the passive family
+  `W=cG^{-1}`, `0<c<=2`, whose `c=2` endpoint appears both passive and
+  converged-accurate for the paper's shipped `κ=2` scalar host.
+- A second concrete issue is T6's use of peak modal-overrun ratio as
+  “injection,” which is not the theorem's total-energy sign criterion.
+- Completed all six isolated reports. Scores are 5, 5, 5, 5, 6, 5 (mean 5.17,
+  median 5); all confidences are 4/5. Every reviewer recommends acceptance at
+  either weak-accept or accept strength.
+- Fact-checked the frozen packet after the reports: hashes are unchanged, the
+  PDF has zero embedded attachments, and the promised per-cell supplement is
+  absent from the supplied packet.
+- Reconciled reviewer disagreements. The core theorem remains sound; the
+  passive-family omission and T6 metric mismatch are concrete scientific/reporting
+  issues, while warm/multi-row behavior, equal-cost quality, overhead, and raw
+  artifacts are missing evidence rather than theorem refutations.
+- Completed the area-chair synthesis and saved the self-contained panel report
+  to `paper/committee_review_onesweep_short_2026-07-28.md`. The report includes
+  artifact hashes, protocol, all six scores and reviewer précis, fact-checked
+  video findings, the two concrete scientific/reporting issues, submission
+  readiness, and prioritized revisions.
+
+## 2026-07-29 `onesweep_short.pdf` + scene-video review progress
+
+- Started a fresh six-reviewer panel at the user's request.
+- Historical reports and planning findings are sealed from all reviewers; each
+  reviewer will inspect only the current PDF/video pair and the common MIG
+  short-paper rubric.
+- Locked the new PDF hash and unchanged video hash, inspected all seven PDF
+  pages and representative frames across the complete video timeline, and
+  reconfirmed the official MIG 2026 rubric.
+- Launched Wave 1 reviewers for mathematical correctness,
+  novelty/significance, and evaluation/reproducibility.
+- Reviewer 3 completed at 5/7 weak accept, confidence 4/5. Filled the released
+  slot with Reviewer 4 for clarity/presentation, using a fresh sealed context.
+- Reviewer 2 completed at 5/7 weak accept, confidence 4/5. Filled the released
+  slot with Reviewer 5 for practitioner/MIG impact, also in a sealed context.
+- Reviewer 1 completed at 5/7 weak accept, confidence 4/5 after independent
+  algebra spot checks. Filled the released slot with Reviewer 6, a senior
+  generalist, in the final sealed context.
+- Reviewer 5 completed at 5/7 weak accept, confidence 4/5. Two sealed reviews
+  remain active.
+- Reviewer 4 completed at 5/7 weak accept, confidence 4/5. Reviewer 6 is the
+  sole remaining active panel member.
+- The original Reviewer 6 context failed to terminate after two conclusion
+  prompts and was interrupted. A fresh sealed senior reviewer was launched as
+  its replacement; the stalled context will not count toward the panel.
+- The replacement senior reviewer completed the full video audit and
+  reconfirmed 5/7 weak accept at confidence 3/5.
+- All six completed reports score 5/7. Began final fact-checking and
+  area-chair-style reconciliation against the unchanged frozen hashes.
+- Reconciled the panel: there is no substantive score disagreement and no
+  hard-contact theorem refutation. Video scenes are system-level corroboration
+  beyond the proof; `alpha>0` ledger and Cor. 3.4 assumptions need precision.
+- Saved the self-contained final report to
+  `paper/committee_review_onesweep_short_2026-07-29.md` and verified its hashes,
+  score table, reviewer précis, prioritized fixes, and area-chair verdict.
+
+## 2026-07-30 fresh `onesweep_short.pdf` + scene-video panel
+
+- Activated the planning-with-files workflow and began a new artifact-locked
+  six-reviewer MIG short-paper assessment.
+- Locked the current artifact hashes and reconfirmed the official MIG 2026
+  short-paper rubric from the live conference call.

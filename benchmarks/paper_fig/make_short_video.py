@@ -252,7 +252,7 @@ def beat_alloc(wr, seconds=10.0, quick=False):
         fig = new_fig()
         _title(fig, "Same 32 contact-row evaluations, allocated two ways",
                sub="shelf, relaxation 0.7  ---  iterations vs substeps at "
-                   "equal cost")
+                   "equal contact-row evaluations")
         ax = fig.add_axes([0.10, 0.16, 0.83, 0.62]); ax.set_facecolor(BG)
         nshow = max(2, int(np.ceil(p * max(len(it_x), len(sub_x)))))
         ax.loglog(it_x[:nshow], it_y[:nshow], "-o", color=SAFE, lw=2.6, ms=6,
@@ -290,8 +290,8 @@ def beat_alloc(wr, seconds=10.0, quick=False):
         ax.legend(loc="upper right", fontsize=14, frameon=False, labelcolor=FG)
         if p > 0.9:
             fig.text(0.5, 0.055,
-                     "Equal cost, opposite safety: iterations converge the "
-                     "shared modal row; substeps do not.",
+                     "At equal contact-row evaluations, iterations converge "
+                     "the shared modal row faster than substeps.",
                      ha="center", va="center", fontsize=17, color=FG)
         wr.add(fig, times=1)
         plt.close(fig)
@@ -307,7 +307,7 @@ def beat_band(wr, seconds=8.0, quick=False):
     import matplotlib.pyplot as plt
     hold = int((seconds if not quick else 2.0) * FPS)
     fig = new_fig()
-    _title(fig, "Removing the stiffest modal cluster: necessary, not sufficient",
+    _title(fig, "Removing the stiffest modal cluster: helps, but not a fix",
            sub="band-limited basis (stiff cluster excluded) vs the full basis, "
                "per injecting cell")
     ax = fig.add_axes([0.24, 0.17, 0.70, 0.60]); ax.set_facecolor(BG)
@@ -408,7 +408,7 @@ def beat_penetration(wr, seconds=5.0, quick=False):
     # scale amplified it to.
     xr = W / 2 + 6
     for depth, lab, col in ((p_un, "governor off\n(truncated row)", DIM),
-                            (p_scale, "whole-state scale\n(superseded)",
+                            (p_scale, "whole-state scale\n(the naive choice)",
                              "#a8443a")):
         ax.plot([-W / 2, W / 2], [-depth, -depth], color=col, lw=1.2,
                 ls=(0, (5, 3)), zorder=6)
@@ -450,9 +450,10 @@ def beat_decision(wr, seconds=9.0, quick=False):
                "governor method")
     ax = _axes_full(fig)
     rows = [
-        ("1", "Contact architecture flexible?",
-         "Use a stiffness-aware implicit / velocity contact realization.",
-         "observed control: 0/24 overdraws, converges by $K{=}2$", SAFE),
+        ("1", "Can you change the contact row?",
+         "Make its modal weight stiffness-aware: implicit $(M{+}hD{+}h^2K)^{-1}$,"
+         " not $1/M$.",
+         "within-host control: 8/24$\\to$0/24 overdraws, no host swap", SAFE),
         ("2", "Stuck with the XPBD shared row?",
          "Audit it: prefer iterations over substeps; band-limit the basis.",
          f"$32\\times1$ holds ($R{{=}}{r_32x1:.2f}$); $4\\times8$ overdraws "
@@ -531,17 +532,19 @@ def main():
             ("A steel board should barely move.", 32, FG),
             ("Converged (the host's own 500x1 self-reference), the resting "
              "books rise 0.1 mm.", 19, DIM),
-            ("At a production-like 1x8 budget, they are launched.", 20,
+            ("At a production-like 1x8 budget, they visibly lift and modal "
+             "energy runs decades over budget.", 20,
              ARM_COLOR["off"])],
             seconds=1.0 if q else 2.5,
-            sub="steel shelf  ·  1 iteration x 8 substeps  ·  relaxation 0.7")
+            sub="STIFF board (200 GPa steel)  ·  1x8  ·  relax 0.7  ·  "
+                "illustrative, not one of the paper's three swept scenes")
         beat_sim(wr, "steel", ("off", "ref"), xlim=xlim2, ylim=ylim2,
                  aspect=aspect_2, step=step, repeat=repeat,
                  hold_end=1.0 if q else 3.5, frame_range=RANGE,
-                 title="steel board, 1 iteration x 8 substeps",
-                 subtitle="ungoverned vs the host's own high-iteration "
-                          "self-reference - the only honest baseline for "
-                          "how much the row injects",
+                 title="STIFF board (E = 200 GPa), 1 iteration x 8 substeps",
+                 subtitle="ungoverned vs the host-specific high-iteration "
+                          "self-reference (500x1), which isolates how much "
+                          "the truncated row itself injects",
                  end_note="the launch is spurious: the self-reference leaves "
                           "the books within 0.1 mm of rest, so every millimetre "
                           "the ungoverned run moves them is truncation energy")
@@ -558,7 +561,8 @@ def main():
             ("It removes the spurious launch -- and takes the legitimate "
              "motion with it.", 20, DIM)],
             seconds=1.0 if q else 2.5,
-            sub="soft shelf, E = 0.5 GPa  ·  1x8  ·  ungoverned / governed / "
+            sub="SOFTER board, E = 0.5 GPa (a different board from beat 2, "
+                "and the one in Fig. 1)  ·  1x8  ·  ungoverned / governed / "
                 "self-reference")
         beat_sim(wr, "deployed_gap", ("off", "on", "ref"), xlim=xlim3,
                  ylim=ylim3,

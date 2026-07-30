@@ -127,14 +127,26 @@ def render_arm(ax, npz, man, arm, frame, *, aspect, xlim, ylim,
         by = [i for i, b in enumerate(man["bodies"]) if not b["is_impactor"]]
         k = int(max(by, key=lambda i: rise[i]))
         if rise[k] > 3.0:
-            xy, _ = cam.project(pos[k] + np.array([0.0, b["half"][1], 0.0]))
-            dy = 0.10 * (ylim[1] - ylim[0])
+            half_k = man["bodies"][k]["half"][1]
+            xy, _ = cam.project(pos[k] + np.array([0.0, half_k, 0.0]))
+            sx, sy = xlim[1] - xlim[0], ylim[1] - ylim[0]
+            # Default: float the label above the body it measures. When the
+            # body has launched far enough that the label would leave the
+            # panel (the ungoverned arm), it rode over the top spine and the
+            # panel title, so drop it beside the body instead, on whichever
+            # side has room, with a horizontal leader.
+            lx, ly, ha = xy[0], xy[1] + 0.10 * sy, "center"
+            if ly > ylim[1] - 0.10 * sy:
+                ly = min(xy[1], ylim[1] - 0.07 * sy)
+                left_room = (xy[0] - xlim[0]) > 0.36 * sx
+                lx = xy[0] + (-0.085 if left_room else 0.085) * sx
+                ha = "right" if left_room else "left"
             ax.annotate(f"+{rise[k]:.0f} mm", xy=(xy[0], xy[1]),
-                        xytext=(xy[0], xy[1] + dy), ha="center",
+                        xytext=(lx, ly), ha=ha, va="center",
                         fontsize=5.4, color=ARM_COLOR[arm],
                         arrowprops=dict(arrowstyle="-", lw=0.45,
                                         color=ARM_COLOR[arm],
-                                        shrinkA=0.5, shrinkB=1.0))
+                                        shrinkA=1.5, shrinkB=1.0))
     return ax
 
 
@@ -155,9 +167,12 @@ def _schematic(fig, y0, y1):
              (0.40, 0.26, "shared\ncontact rows", "#fde9d9"),
              (0.72, 0.28, "fixed $K$\niterations", "#fdecec")]
     for (x, w, txt, fc) in boxes:
+        # clip_on=False: the round-box pad puts the first box's left edge at
+        # x=-0.01 and the last box's right edge at x=1.01, which the axes
+        # otherwise clip away -- the two outer boxes then read as open.
         ax.add_patch(mp.FancyBboxPatch(
             (x, 0.12), w, 0.76, boxstyle="round,pad=0.01",
-            linewidth=0.6, edgecolor="0.4", facecolor=fc))
+            linewidth=0.6, edgecolor="0.4", facecolor=fc, clip_on=False))
         ax.text(x + w / 2, 0.5, txt, ha="center", va="center", fontsize=5.5,
                 linespacing=1.15)
     for x0, x1 in [(0.345, 0.395), (0.665, 0.715)]:
@@ -218,9 +233,10 @@ def build(case, frame_logged, *, figsize):
                      label=ARM_LABEL[arm].replace("XPBD self-reference",
                                                   "XPBD self-ref."),
                      zorder=3 if arm == "off" else 2)
-    axe.semilogy(t, np.maximum(npz["on/supply"], 1e-4), color="0.5", lw=0.8,
-                 ls=(0, (1.1, 1.1)), zorder=1,
-                 label=r"budget $\eta\sum\max(\Delta E_{\rm rig},0)$")
+    sup_line, = axe.semilogy(
+        t, np.maximum(npz["on/supply"], 1e-4), color="0.5", lw=0.8,
+        ls=(0, (1.1, 1.1)), zorder=1,
+        label=r"budget $\eta\sum\max(\Delta E_{\rm rig},0)$, Eq. (2)")
     axe.axvline(frame_logged * h, color="0.2", lw=0.7, zorder=4)
     e_off, e_on = npz["off/e_mod"][frame], npz["on/e_mod"][frame]
     axe.annotate(f"{e_off:,.0f} J", xy=(frame_logged * h, e_off),
@@ -235,12 +251,20 @@ def build(case, frame_logged, *, figsize):
     axe.set_xlabel("time after settling [s]", labelpad=1.0, fontsize=6.6)
     axe.set_ylabel(r"$E_{\mathrm{mod}}$ [J]", labelpad=1.2, fontsize=6.6)
     axe.tick_params(length=2, pad=1.2, labelsize=5.8)
-    # no legend: the three curves carry the panel colours directly above them,
-    # so only the supply needs naming, and it is named where it runs
-    i_lab = settle + int(0.16 * (npz["on/supply"].shape[0] - settle))
-    axe.annotate("budget, Eq. (2)",
-                 xy=((i_lab - settle) * h, float(npz["on/supply"][i_lab]) * 2.2),
-                 fontsize=5.3, color="0.42", ha="left", va="bottom")
+    # The three arms carry the panel colours directly above them, so only the
+    # supply needs naming -- as a one-entry legend in the empty upper-left
+    # band. It used to be named in place, but the in-place text sat at
+    # t~0.13 s, where the supply is still zero (its line is below the axis
+    # floor) and the label landed on the self-reference curve. With four
+    # curves over seven decades in a 0.4in strip there is no point on the
+    # supply line with room for the text (best clearance 0.17 dec, against
+    # the 0.63 a 5.3pt line needs), so the swatch carries the association.
+    # short string, not the full sum: the legend sits in the empty band left
+    # of the impact, and the wider math label ran under the ungoverned spike
+    axe.legend([sup_line], ["budget, Eq. (2)"], loc="upper left",
+               fontsize=5.3, labelcolor="0.42", frameon=False,
+               handlelength=1.8, handletextpad=0.4, borderpad=0.0,
+               borderaxespad=0.25)
     for sp in axe.spines.values():
         sp.set_linewidth(0.5)
     fig.text(0.5, 1.0 - 0.008,

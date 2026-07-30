@@ -1,0 +1,46 @@
+==========================================================================
+VERBATIM SOURCE EXCERPT, quoted as evidence. Not an importable module.
+
+Source : dcr/avbd/_solver/solver_xpbd.py
+Lines  : 1192-1223 of 1978
+
+WHY IT IS HERE
+The rigid read-back is V[i] = (X[i] - x_prev[i]) / h, i.e. kappa_r = 1 for every body, and under the shipped symplectic default the mode is committed by modal_midpoint_commit, i.e. kappa = 2. This is the (kappa_r, kappa) = (1, 2) case the shipped-row experiments run at.
+
+The production host is not redistributed with this package (see the README
+section "What does NOT run from this package"). This excerpt is quoted so the
+reconstruction convention the paper reads off the host is auditable without it.
+==========================================================================
+
+        # ---- velocity update v = (x − x_prev)/h, ω = log(Δq)/h ----------
+        for i in range(n):
+            if invm[i] == 0.0:
+                continue
+            V[i] = (X[i] - x_prev[i]) / h
+            dq = _quat_mul(Q[i], _quat_inv(q_prev[i]))
+            W[i] = _quat_to_rotvec(dq) / h
+
+        # ---- modal velocity q̇ = (q − qⁿ)/h + diagnostics ---------------
+        if self._modal:
+            if self._freeze_qdot:
+                # Counterfactual: q̇ ≡ 0 (the modal inertia term is deleted), so
+                # q responds only quasi-statically and carries NO modal KE. q
+                # still deflects under load (it sags) but cannot ring.
+                self._qdot = np.zeros(self._r)
+                self.last_modal_KE = 0.0
+            else:
+                if self._modal_symplectic:
+                    # midpoint commit q̇ⁿ⁺¹ = 2(qⁿ⁺¹−qⁿ)/h − q̇ⁿ
+                    # (dcr/modal/symplectic_stepper.modal_midpoint_commit)
+                    self._qdot = modal_midpoint_commit(
+                        self._q, modal_qn, modal_qdotn, h)
+                else:
+                    self._qdot = (self._q - modal_qn) / h
+                self.last_modal_KE = 0.5 * float(
+                    self._qdot @ (self._mq * self._qdot))
+            self.last_modal_PE = 0.5 * float(self._q @ (self._kq * self._q))
+            for bi in self._cargo:                      # cargo ȧ = (a − aⁿ)/h
+                if self._freeze_qdot:
+                    self._cargo_adot[bi] = np.zeros_like(self._cargo_a[bi])
+                else:
+                    self._cargo_adot[bi] = (self._cargo_a[bi] - cargo_an[bi]) / h

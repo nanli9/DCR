@@ -1,0 +1,67 @@
+{
+  "figure": "t5_ordering.csv",
+  "stage": "X0",
+  "git_sha": "e58083a",
+  "generated_utc": "2026-07-24T02:21:53+00:00",
+  "config": {
+    "relax": 0.7,
+    "iterations": 16,
+    "substeps": 4,
+    "stepper": "symplectic",
+    "h": 0.008333333333333333,
+    "gravity": 9.81,
+    "settle_frames": 8,
+    "settle_s": 0.3,
+    "ring_window_s": 0.6,
+    "n_frames_energy": 220,
+    "n_frames_coupling": 200,
+    "seed": 0
+  },
+  "scenes": [
+    "onesweep_two_row_toy(z,q)"
+  ],
+  "solvers": [
+    "xpbd_gs_toy"
+  ],
+  "note": "T5 (note R5): GS ordering + iteration sweep on the (z,q) two-row toy. Order A=[contact,spring], B=[spring,contact]. n=1 closed forms r5_* (PLAN-DERIVED); D_B/D_A=(1+b)^2 exact (=1.0201e4 at b=100). Converged=BE-KKT endpoint (order-independent, passive). Interior 1<n<converged: empirical, NO closed-form claim (note 'Endpoints and interior'). Cold start, e=0, hard contact, one coupling row.",
+  "grid": {
+    "mm": [
+      [
+        1.0,
+        1.0
+      ],
+      [
+        1.0,
+        0.01
+      ]
+    ],
+    "b": [
+      0.25,
+      1.0,
+      4.0,
+      100.0
+    ],
+    "n": [
+      1,
+      2,
+      3,
+      4,
+      6,
+      8,
+      12,
+      16,
+      24,
+      32,
+      48,
+      64
+    ],
+    "orders": [
+      "A",
+      "B"
+    ],
+    "v0": -1.0,
+    "h": 0.001,
+    "conv_tol": 1e-14,
+    "conv_cap": 100000
+  }
+}

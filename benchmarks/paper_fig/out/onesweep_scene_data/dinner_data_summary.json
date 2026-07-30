@@ -1,0 +1,471 @@
+{
+  "generated_by": "benchmarks/paper_fig/onesweep_scene_record.py",
+  "commit": "e58083a",
+  "machine": "arm64",
+  "system": "Darwin",
+  "python": "3.12.12",
+  "note": "MIG one-sweep scene video act 2 (dinner-data agent): full DCR-style dinner table, shipped symplectic host, contact-row weight contrast, paper Table 2 table material, 5 kg pot dropped 0.8 m on the bare table centre",
+  "scene": {
+    "key": "dinner",
+    "name": "reduced_dinner_table (2.2 x 1.1 m modal table, six place settings of plate+fork+knife, four teacups, two candlesticks, and a 5 kg pot dropped from above)",
+    "builder": "scenes/reduced_dinner_table.build_reduced_dinner_table",
+    "youngs_Pa": 1100000000.0,
+    "density": 770.0,
+    "impactor_mass_kg": 5.0,
+    "drop_height_m": 0.8,
+    "drop_xz_m": [
+      0.0,
+      0.0
+    ],
+    "impactor_v0": 0.0,
+    "n_bodies": 25,
+    "n_bystanders": 24,
+    "bystander_noun": "crockery",
+    "n_modes": 24,
+    "support_grid": [
+      21,
+      11
+    ],
+    "support_thickness_m": 0.04
+  },
+  "operating_point": {
+    "solver": "xpbd (shipped SolverXPBD)",
+    "iterations": 1,
+    "substeps": 8,
+    "budget": "1x8",
+    "modal_relax": 1.0,
+    "reconstruction": "symplectic implicit-midpoint (shipped, kappa=2)",
+    "stiffness_scale": 1.0,
+    "passivity_governor": "OFF (both arms)",
+    "h_frame_s": 0.008333333333333333,
+    "h_substep_s": 0.0010416666666666667,
+    "settle_frames": 8,
+    "logged_frames": 200
+  },
+  "arms": {
+    "unfixed": {
+      "weight_kind": "shipped",
+      "budget": "1x8",
+      "weight_ratio_to_shipped": [
+        1.0,
+        1.0
+      ],
+      "n_substeps": 1664,
+      "h_substep_s": 0.0010416666666666667,
+      "impact_substep": 387,
+      "ref_substep": 386,
+      "finite": true,
+      "book_rise_max_mm": 32.91599621604392,
+      "book_rise_per_book_mm": [
+        15.992725209017602,
+        22.75420801787096,
+        27.523074451797893,
+        31.947979555828898,
+        27.505201715995504,
+        22.981767885346276,
+        13.09446736617033,
+        21.890940186588644,
+        27.856790064492937,
+        14.912272412431648,
+        19.15970996873038,
+        23.14433584231588,
+        32.91599621604392,
+        23.709658906301993,
+        28.9971294221265,
+        12.187320078660996,
+        31.183219451764423,
+        19.346055024959814,
+        21.46190070366285,
+        10.851707409213935,
+        20.632923284958466,
+        11.095864952178875,
+        24.568519183752286,
+        22.587609015549027
+      ],
+      "book_speed_max_mps": 1.0450629610995148,
+      "book_speed_p99_mps": 0.6998193869873155,
+      "book_tilt_max_deg": 100.09222746325037,
+      "slab_defl_absmax_mm": 36.87402436020172,
+      "impactor_rebound_mm": 22.389448338507382,
+      "e_init_J": 48.2167048398047,
+      "e_ref_J": 48.13273923272483,
+      "e_peak_J": 856.9716007423109,
+      "e_peak_at_ms_after_impact": 1.0416666666666667,
+      "e_end_J": 9.614326689262207,
+      "n_substeps_above_pre_impact": 82,
+      "e_max_gain_J": 808.8388615095861,
+      "e_end_gain_J": -38.518412543462624,
+      "e_modal_peak_J": 843.1438757577379,
+      "energy_split_at_peak": {
+        "substep": 388,
+        "peak_definition": "post-contact total-energy maximum of this arm",
+        "ms_after_impact": 1.0416666666666667,
+        "is_post_contact": true,
+        "e_total_J": 856.9716007423109,
+        "e_modal_J": 843.1438757577379,
+        "e_rigid_mech_J": 13.827724984572981,
+        "body_translational_KE_J": 4.508787777144849,
+        "bystander_translational_KE_J": 0.00539762043901507,
+        "modal_fraction_of_total": 0.983864430311815
+      },
+      "bystander_translational_KE_max_J": 1.055395474148739,
+      "body_translational_KE_max_J": 39.1042296336631,
+      "render_slack_min_mm": -65.23694900370148,
+      "render_layering": {
+        "checked": 240,
+        "ok": true,
+        "worst_slack_mm": -1.3819854999605197,
+        "tol_mm": 5.0,
+        "error": null
+      },
+      "wall_s": 14.986782334046438,
+      "energy_split_at_unfixed_peak_substep": {
+        "substep": 388,
+        "peak_definition": "the unfixed arm's post-contact total-energy peak substep",
+        "ms_after_impact": 1.0416666666666667,
+        "is_post_contact": true,
+        "e_total_J": 856.9716007423109,
+        "e_modal_J": 843.1438757577379,
+        "e_rigid_mech_J": 13.827724984572981,
+        "body_translational_KE_J": 4.508787777144849,
+        "bystander_translational_KE_J": 0.00539762043901507,
+        "modal_fraction_of_total": 0.983864430311815
+      }
+    },
+    "fixed": {
+      "weight_kind": "matched",
+      "budget": "1x8",
+      "weight_ratio_to_shipped": [
+        0.0008596669004005705,
+        0.24994098762917621
+      ],
+      "n_substeps": 1664,
+      "h_substep_s": 0.0010416666666666667,
+      "impact_substep": 387,
+      "ref_substep": 386,
+      "finite": true,
+      "book_rise_max_mm": 7.5520864144569195,
+      "book_rise_per_book_mm": [
+        3.4393200702471094,
+        2.92714389738917,
+        4.427812952698187,
+        7.5520864144569195,
+        6.880177190702552,
+        6.678965487762804,
+        3.5081005606946785,
+        4.462347512649248,
+        2.3464302027945276,
+        3.3681947252734714,
+        4.453924217569918,
+        2.5703260706492275,
+        7.231725608035644,
+        6.684411537779843,
+        6.1465245626789455,
+        3.4429169778172413,
+        2.373673355905423,
+        4.496337630491134,
+        4.420691793433511,
+        2.125148591338735,
+        4.6979164279834436,
+        2.1288484386952633,
+        4.886498209386928,
+        4.825506379553812
+      ],
+      "book_speed_max_mps": 0.36497248447523783,
+      "book_speed_p99_mps": 0.24203463220602922,
+      "book_tilt_max_deg": 3.5852497015561284,
+      "slab_defl_absmax_mm": 10.055321059984768,
+      "impactor_rebound_mm": 5.093320719821159,
+      "e_init_J": 48.2167048398047,
+      "e_ref_J": 48.03475195152624,
+      "e_peak_J": 48.03475195152624,
+      "e_peak_at_ms_after_impact": -1.0416666666666667,
+      "e_end_J": 8.974058915906348,
+      "n_substeps_above_pre_impact": 0,
+      "e_max_gain_J": 0.0,
+      "e_end_gain_J": -39.06069303561989,
+      "e_modal_peak_J": 2.6464948864268365,
+      "energy_split_at_peak": {
+        "substep": 387,
+        "peak_definition": "post-contact total-energy maximum of this arm",
+        "ms_after_impact": 0.0,
+        "is_post_contact": true,
+        "e_total_J": 18.82205041983952,
+        "e_modal_J": 0.7486048381088453,
+        "e_rigid_mech_J": 18.073445581730674,
+        "body_translational_KE_J": 8.66533665445451,
+        "bystander_translational_KE_J": 0.0002512641426042183,
+        "modal_fraction_of_total": 0.03977275702756448
+      },
+      "bystander_translational_KE_max_J": 0.25891552239125687,
+      "body_translational_KE_max_J": 39.098531079615256,
+      "render_slack_min_mm": -0.581620824423916,
+      "render_layering": {
+        "checked": 240,
+        "ok": true,
+        "worst_slack_mm": -0.5706418305870369,
+        "tol_mm": 5.0,
+        "error": null
+      },
+      "wall_s": 15.674627833999693,
+      "energy_split_at_unfixed_peak_substep": {
+        "substep": 388,
+        "peak_definition": "the unfixed arm's post-contact total-energy peak substep",
+        "ms_after_impact": 1.0416666666666667,
+        "is_post_contact": true,
+        "e_total_J": 11.581529899238005,
+        "e_modal_J": 2.6464948864268365,
+        "e_rigid_mech_J": 8.935035012811168,
+        "body_translational_KE_J": 0.025175096980153414,
+        "bystander_translational_KE_J": 0.0005072872856278822,
+        "modal_fraction_of_total": 0.22850995589114353
+      }
+    },
+    "ref": {
+      "weight_kind": "shipped",
+      "budget": "32x8",
+      "weight_ratio_to_shipped": [
+        1.0,
+        1.0
+      ],
+      "n_substeps": 1664,
+      "h_substep_s": 0.0010416666666666667,
+      "impact_substep": 387,
+      "ref_substep": 386,
+      "finite": true,
+      "book_rise_max_mm": 11.776074320240532,
+      "book_rise_per_book_mm": [
+        5.975148705960928,
+        4.164069811626487,
+        7.847364061495776,
+        11.099595857199606,
+        11.775770360412476,
+        11.31952382308258,
+        6.059674504150479,
+        8.318342893424314,
+        4.459492995249108,
+        5.975148214435739,
+        7.8473644773952715,
+        4.164069543210434,
+        11.100854449196472,
+        11.320113876779004,
+        11.776074320240532,
+        6.0603969100299775,
+        4.459334835293566,
+        8.318111145985144,
+        8.192755298016468,
+        3.943054048651695,
+        8.192755298846249,
+        3.943053961100812,
+        9.098050671264387,
+        9.458269949079085
+      ],
+      "book_speed_max_mps": 0.5562568731932114,
+      "book_speed_p99_mps": 0.37771430501808784,
+      "book_tilt_max_deg": 4.524040061771619,
+      "slab_defl_absmax_mm": 18.45361517851798,
+      "impactor_rebound_mm": 9.548827160712856,
+      "e_init_J": 48.2167048398047,
+      "e_ref_J": 48.0333905824582,
+      "e_peak_J": 48.0333905824582,
+      "e_peak_at_ms_after_impact": -1.0416666666666667,
+      "e_end_J": 9.127380206302613,
+      "n_substeps_above_pre_impact": 0,
+      "e_max_gain_J": 0.0,
+      "e_end_gain_J": -38.90601037615559,
+      "e_modal_peak_J": 7.776364226017476,
+      "energy_split_at_peak": {
+        "substep": 387,
+        "peak_definition": "post-contact total-energy maximum of this arm",
+        "ms_after_impact": 0.0,
+        "is_post_contact": true,
+        "e_total_J": 21.987006245293404,
+        "e_modal_J": 2.2293972348626077,
+        "e_rigid_mech_J": 19.757609010430798,
+        "body_translational_KE_J": 10.963559249958474,
+        "bystander_translational_KE_J": 0.0018014503732793868,
+        "modal_fraction_of_total": 0.10139612505635405
+      },
+      "bystander_translational_KE_max_J": 0.542381983836917,
+      "body_translational_KE_max_J": 39.09971833190217,
+      "render_slack_min_mm": -0.9707570261024319,
+      "render_layering": {
+        "checked": 240,
+        "ok": true,
+        "worst_slack_mm": -1.0180300429848375,
+        "tol_mm": 5.0,
+        "error": null
+      },
+      "wall_s": 185.5057940830011,
+      "energy_split_at_unfixed_peak_substep": {
+        "substep": 388,
+        "peak_definition": "the unfixed arm's post-contact total-energy peak substep",
+        "ms_after_impact": 1.0416666666666667,
+        "is_post_contact": true,
+        "e_total_J": 16.83554623454521,
+        "e_modal_J": 6.990956725345256,
+        "e_rigid_mech_J": 9.844589509199952,
+        "body_translational_KE_J": 1.0821994116453064,
+        "bystander_translational_KE_J": 0.0032149002496021243,
+        "modal_fraction_of_total": 0.41524977140333974
+      }
+    }
+  },
+  "second_reference": {
+    "budget": "500x1",
+    "book_rise_max_mm": 11.578545458420345,
+    "book_speed_max_mps": 0.46164076890767,
+    "book_tilt_max_deg": 1.9231265669069069,
+    "e_max_gain_J": 0.0,
+    "e_modal_peak_J": 5.843633781582303,
+    "h_substep_s": 0.008333333333333333
+  },
+  "budget_grading": [
+    {
+      "budget": "2x8",
+      "iterations": 2,
+      "substeps": 8,
+      "e_max_gain_J": 3.1624072438436173,
+      "e_modal_peak_J": 29.261359334505677,
+      "bystander_rise_max_mm": 17.489510040628375,
+      "bystander_tilt_max_deg": 8.836161372349293
+    },
+    {
+      "budget": "4x8",
+      "iterations": 4,
+      "substeps": 8,
+      "e_max_gain_J": 0.0,
+      "e_modal_peak_J": 7.645917569961785,
+      "bystander_rise_max_mm": 11.607636507168479,
+      "bystander_tilt_max_deg": 2.916793538423373
+    },
+    {
+      "budget": "8x8",
+      "iterations": 8,
+      "substeps": 8,
+      "e_max_gain_J": 0.0,
+      "e_modal_peak_J": 7.776761577482121,
+      "bystander_rise_max_mm": 11.780584130530015,
+      "bystander_tilt_max_deg": 4.459217762329081
+    }
+  ],
+  "contrast": {
+    "book_rise_ratio": 4.358530134537789,
+    "book_speed_ratio": 2.8634020523550423,
+    "book_tilt_ratio": 27.917784197794287,
+    "energy_gain_ratio": 808838861509.586,
+    "modal_peak_ratio": 318.58889283406404,
+    "bystander_KE_ratio": 4.076215533164874,
+    "impact_energy_budget_J": 39.24000000000001,
+    "unfixed_injects": true,
+    "fixed_bounded": true,
+    "fixed_strictly_passive": true,
+    "unfixed_outmoves_reference": true,
+    "unfixed_over_reference_x": 2.795158668408573,
+    "render_layering_ok_all_arms": true
+  },
+  "ensemble": [
+    {
+      "perturb": {
+        "impactor_dx": 0.004
+      },
+      "unfixed": {
+        "book_rise_max_mm": 31.051594128485398,
+        "book_speed_max": 1.1370040501396106,
+        "book_tilt_max_deg": 92.09421910552753,
+        "e_max_gain_J": 797.682530373926,
+        "e_mod_peak_J": 831.9599517178993,
+        "finite": true
+      },
+      "fixed": {
+        "book_rise_max_mm": 7.85329864669803,
+        "book_speed_max": 0.3649724844940827,
+        "book_tilt_max_deg": 1.9615664483939417,
+        "e_max_gain_J": 0.0,
+        "e_mod_peak_J": 2.6481887882393784,
+        "finite": true
+      }
+    },
+    {
+      "perturb": {
+        "impactor_dx": -0.004
+      },
+      "unfixed": {
+        "book_rise_max_mm": 36.53248188373436,
+        "book_speed_max": 1.0727244377107514,
+        "book_tilt_max_deg": 103.76211399946249,
+        "e_max_gain_J": 818.9699002514303,
+        "e_mod_peak_J": 853.2966068715995,
+        "finite": true
+      },
+      "fixed": {
+        "book_rise_max_mm": 6.883346198167898,
+        "book_speed_max": 0.3649724844910851,
+        "book_tilt_max_deg": 2.177972280943716,
+        "e_max_gain_J": 0.0,
+        "e_mod_peak_J": 2.645987002440009,
+        "finite": true
+      }
+    },
+    {
+      "perturb": {
+        "impactor_dz": 0.004
+      },
+      "unfixed": {
+        "book_rise_max_mm": 32.92392099167224,
+        "book_speed_max": 1.0452461020400459,
+        "book_tilt_max_deg": 92.20279229126004,
+        "e_max_gain_J": 808.9115342772634,
+        "e_mod_peak_J": 843.2164874278644,
+        "finite": true
+      },
+      "fixed": {
+        "book_rise_max_mm": 7.55209036052637,
+        "book_speed_max": 0.36497248449285696,
+        "book_tilt_max_deg": 3.5852364387564433,
+        "e_max_gain_J": 0.0,
+        "e_mod_peak_J": 2.6464948717628056,
+        "finite": true
+      }
+    },
+    {
+      "perturb": {
+        "drop_height": 0.808
+      },
+      "unfixed": {
+        "book_rise_max_mm": 41.401712444788565,
+        "book_speed_max": 1.1288660242790083,
+        "book_tilt_max_deg": 93.70622978043828,
+        "e_max_gain_J": 554.7179648947834,
+        "e_mod_peak_J": 590.2266410544971,
+        "finite": true
+      },
+      "fixed": {
+        "book_rise_max_mm": 7.352305695874993,
+        "book_speed_max": 0.37511164883983983,
+        "book_tilt_max_deg": 2.2135038425010447,
+        "e_max_gain_J": 0.0,
+        "e_mod_peak_J": 2.8296748666978706,
+        "finite": true
+      }
+    }
+  ],
+  "disclosures": [
+    "The injection PHENOMENON (a finite-budget contact sweep depositing energy) is known prior art and is conceded, not claimed. What the two arms differ in is the contact-row modal weight.",
+    "Both arms are independent runs from identical build states; nothing is toggled mid-trajectory and no body is parked or isolated.",
+    "The passivity governor / clamp is OFF in both arms. The fixed arm's boundedness comes from the row weight alone.",
+    "The boundary is an energy-SIGN effect, not a stability threshold: the unfixed arm never goes non-finite over this clip.",
+    "The unfixed arm is already +0.1 J from the fixed arm at the instant the pot lands: the RESTING objects' own support rows inject during the fall.",
+    "D2: the headline joules are almost entirely table-MODE (modal) energy, not the objects' own motion. At the unfixed peak: E_total = 857 J, of which E_modal = 843.1 J (98.386%), while the bodies' translational KE is 4.509 J (bystanders alone 0.005398 J).",
+    "Fidelity caveat: the matched weight is CONSERVATIVE here. Against the substep-matched converged reference the fixed arm under-moves the bystanders (7.6 mm vs 11.8 mm peak rise, 3.6 deg vs 4.5 deg peak tilt) while the unfixed arm over-moves them by 2.8x.",
+    "The two converged self-references AGREE to within 1.7% on the legitimate bystander scale (11.78 mm at the recorded substep grid vs 11.58 mm at one substep per frame), so 'the true motion' is quoted as the range 11.58-11.78 mm, never as a single number.",
+    "Both arms still show a spurious impactor rebound (22.4 mm unfixed, 5.1 mm fixed, 9.5 mm converged): the matched weight fixes the modal contact row, not every fixed-budget error.",
+    "The render draw order (support behind bodies) was checked with the video's own render3d.assert_layering_valid on sampled frames of every recorded arm: unfixed OK (worst slack -1.382 mm); fixed OK (worst slack -0.571 mm); ref OK (worst slack -1.018 mm).",
+    "D1: the effect is BUDGET-GRADED, not a property of the scene. Holding the substep grid fixed and raising only the iteration count, the same shipped weight gives 1x8 -> +808.8 J; 2x8 -> +3.162 J; 4x8 -> +0 J; 8x8 -> +0 J. The recorded operating point (1 iteration(s) x 8 substeps) must therefore be stated wherever these numbers are shown.",
+    "No real-time claim is supported by this recording: it is an offline CPU float64 run."
+  ],
+  "npz": "/Users/nan/Desktop/DCR/benchmarks/paper_fig/out/onesweep_scene_data/onesweep_dinner_traj.npz",
+  "corrections": [
+    "energy_split_at_peak was originally evaluated at argmax(e_total) over a window starting at ref_idx = 386, one substep BEFORE first contact (substep 386). Both bounded arms lose total energy at contact, so their argmax landed on that pre-contact substep and the block described the scene with the pot still in the air (fixed: E_total 48.035 J, E_modal 0.006 J). Recomputed from the same frozen npz at each arm's post-contact maximum (unfixed 388 -> unchanged, fixed 387, ref 387), and a second block gives every arm's split at the unfixed arm's peak substep 388. No trajectory was re-run."
+  ]
+}

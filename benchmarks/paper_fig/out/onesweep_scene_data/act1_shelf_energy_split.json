@@ -1,0 +1,57 @@
+{
+  "generated_by": "scratchpad/act1_split.py (dinner-data agent, D2 for act 1)",
+  "reads": "/Users/nan/Desktop/DCR/benchmarks/paper_fig/out/onesweep_scene_data/onesweep_scene_traj.npz",
+  "what": "D2 split of the ACT 1 (shelf) recording: peak total energy decomposed into board-mode (modal) energy, rigid mechanical energy, and the bodies' own translational kinetic energy. The shipped act-1 npz is read, never rewritten; masses come from rebuilding the same scene.",
+  "definitions": {
+    "e_total_J": "E_rigid_mech + E_modal, gravity PE included (free fall flat)",
+    "e_modal_J": "1/2 qdot^T M_q qdot + 1/2 q^T K_q q - f_q.q (board modes)",
+    "body_translational_KE_J": "sum_b 1/2 m_b |v_b|^2, rotational KE excluded",
+    "bystander": "every body except the dropped impactor"
+  },
+  "body_masses_kg": {
+    "book_0": 1.0,
+    "book_1": 1.0,
+    "book_2": 1.0,
+    "book_3": 1.0,
+    "book_4": 1.0,
+    "drop_book": 6.0
+  },
+  "arms": {
+    "unfixed": {
+      "peak_substep": 433,
+      "e_total_J": 925575.3445094278,
+      "e_modal_J": 925559.5761484931,
+      "e_rigid_mech_J": 15.768360934663386,
+      "modal_fraction_of_total": 0.999982963719779,
+      "body_translational_KE_at_peak_J": 9.543758703148786,
+      "bystander_translational_KE_at_peak_J": 0.00025718220349697514,
+      "bystander_translational_KE_max_J": 2.1566855041334403,
+      "body_translational_KE_max_J": 58.463436590241066,
+      "e_ref_J": 81.78253237886435
+    },
+    "fixed": {
+      "peak_substep": 431,
+      "e_total_J": 64.36547102717692,
+      "e_modal_J": 1.2913546175547004e-05,
+      "e_rigid_mech_J": 64.36545811363075,
+      "modal_fraction_of_total": 2.0062847314664317e-07,
+      "body_translational_KE_at_peak_J": 58.463430788284974,
+      "bystander_translational_KE_at_peak_J": 3.8366571517456855e-08,
+      "bystander_translational_KE_max_J": 0.12473364140311202,
+      "body_translational_KE_max_J": 58.463430788284974,
+      "e_ref_J": 64.36547102717692
+    },
+    "ref": {
+      "peak_substep": 431,
+      "e_total_J": 64.36534553223001,
+      "e_modal_J": 7.266664690747369e-05,
+      "e_rigid_mech_J": 64.36527286558311,
+      "modal_fraction_of_total": 1.1289715965416037e-06,
+      "body_translational_KE_at_peak_J": 58.46343074993137,
+      "bystander_translational_KE_at_peak_J": 1.2968208280707149e-11,
+      "bystander_translational_KE_max_J": 0.2471408224564,
+      "body_translational_KE_max_J": 58.46343074993137,
+      "e_ref_J": 64.36534553223001
+    }
+  }
+}
