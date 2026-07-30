@@ -819,12 +819,19 @@ unbiased area-chair-style recommendation.
 
 | Phase | Status | Task |
 |---|---|---|
-| J1 | in_progress | Freeze both artifacts; inspect the complete paper and video; reconfirm the current official MIG short-paper rubric. |
-| J2 | pending | Run six sealed reviewers in two capacity-limited waves with a common score scale and no cross-review exposure. |
-| J3 | pending | Fact-check decision-relevant claims and reconcile disagreements against the frozen artifacts. |
-| J4 | pending | Save and deliver all six reviews, score distribution, video assessment, consensus verdict, and prioritized revisions. |
+| J1 | completed | Freeze both artifacts; inspect the complete paper and video; reconfirm the current official MIG short-paper rubric. |
+| J2 | completed | Run six sealed reviewers in two capacity-limited waves with a common score scale and no cross-review exposure. |
+| J3 | completed | Fact-check decision-relevant claims and reconcile disagreements against the frozen artifacts. |
+| J4 | completed | Save and deliver all six reviews, score distribution, video assessment, consensus verdict, and prioritized revisions. |
 
 Decision rules: historical workspace reviews are sealed from the reviewers;
 judge only the current PDF/video pair; apply the focused short-paper bar;
 distinguish scientific merit from submission readiness; disclose that these are
 independent AI reviewer simulations rather than human peer reviews.
+
+### 2026-07-30 panel errors
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| `mdls` failed to resolve both frozen `/tmp` artifacts despite their existence. | 1 | Use the successful PDF/container/stream metadata tools and do not retry `mdls`; no review evidence depends on Spotlight metadata. |
+| Browser opening of the primary Rath 2008 DAFx PDF returned an internal error. | 1 | Use the indexed primary-PDF excerpt or retrieve the same official conference PDF locally for text extraction; do not retry the browser open. |

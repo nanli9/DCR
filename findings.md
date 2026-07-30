@@ -4107,3 +4107,119 @@ video is a visualization of the evidence, not a contribution.
   anonymous review copies with the assigned paper ID; and evaluates
   originality, technical quality, clarity, significance, reproducibility where
   applicable, and venue relevance.
+- Initial full-text audit: the new build has six body pages plus a
+  references-only seventh page. It now includes explicit T14a/b/c table rows,
+  a passive charge-family corollary, equal-cost/converged-amplitude tradeoffs,
+  and quantified warm/two-row failures. Its formal guarantee remains tightly
+  limited to one cold Gauss--Seidel sweep, one normal-only row, zero
+  restitution, and hard contact except where compliance is stated.
+- The manuscript promises an attached anonymous supplement containing
+  per-cell CSVs, runnable analytic code, and shipped-host excerpts. The
+  user-supplied packet contains only the PDF and MP4, so reviewers must judge
+  reproducibility from those two artifacts and flag—not assume—the missing
+  data supplement.
+- Visual paper audit: all seven pages render cleanly with no clipping or
+  overlapping text. Six dense body pages are followed by a conspicuously sparse
+  seventh reference page. Figures 3--4 and Table 1 are the hardest elements to
+  read at ordinary page scale. The review copy is anonymous but no assigned
+  paper ID is visible.
+- One-second video contact-sheet audit shows two synchronized weight-only
+  comparisons: a shelf/book scene for roughly the first 15 seconds and a
+  networked table scene until roughly 47 seconds, followed by the implementable
+  matched-weight rule. Both arms show live modal-energy/motion readouts and
+  converged-reference bounds. The supplement is substantive visual
+  corroboration, but it is qualitative system evidence rather than a formal
+  extension of the cold, one-row theorem.
+- Structural checks find zero PDF embedded files and no visible paper-ID text;
+  all PDF fonts are embedded. Generic PDF/video producer and codec metadata
+  seen so far contains no author identity.
+- Full-resolution pages 1 and 4 confirm that the hero comparison is carefully
+  qualified as not ground truth and that the paper candidly separates the
+  converged reference from passivity. Table 1 now inventories T14a/b/c, but
+  T14c's compact result label (“2795 unsafe”) denotes index false negatives,
+  while the prose later reports a separate 4099/43,898 matched-charge
+  injection count; this is decipherable but easy to misread without the absent
+  per-cell supplement.
+- Full-resolution theorem/validation audit finds no immediate algebraic
+  contradiction in the reconstruction-matched identity or passive-family
+  corollary. The paper explicitly separates its modal-energy overrun diagnostic
+  (8/0/0 of 24) from the formal total-energy injection count (10/1/0), and
+  reports the matched `c=1` choice as passive but conservative rather than
+  physically exact on the shipped `kappa=2` host.
+- Figure 3 is scientifically information-rich but unusually dense for a short
+  paper: three reconstruction/weight regimes, several marker encodings, two
+  indices, and a sweep inset all share one figure. At full resolution it is
+  legible; at ordinary review zoom it is the presentation bottleneck.
+- Page 6 provides a concrete five-step implementation recipe and unusually
+  candid production guidance: open-loop ringing is preferred unless surface
+  deflection must feed persistent contacts, `c=1` is the robust default, and
+  warm/multi-row, intermediate iteration counts, restitution, and friction
+  remain unproved. A likely minor cross-reference typo points the
+  amplitude-deliverable choice to T14a even though the equal-cost/amplitude
+  comparison is labeled T14b in Table 1.
+- A full-resolution shelf frame confirms that the video discloses fixed budget,
+  independent runs, slow-motion/frozen-frame handling, offline CPU float64,
+  no real-time claim, reference-step disagreement, and budget-grading results.
+  Its footer is comprehensive but too small for comfortable normal playback.
+- The table segment supplies a genuinely different networked-contact scene:
+  at a representative frame the mass-shaped arm lifts an item 32.9 mm versus
+  7.6 mm for the matched arm, while both converged grids lie at 11.6--11.8 mm.
+  This makes the remedy's conservative response visible rather than hiding it.
+- The video closes with the implementable shipped-host rule
+  `w=1/(4 M_q + h^2 K_q)` and repeats the one-iteration/eight-substep,
+  governor-off, independent-run, offline/no-real-time qualifications. It
+  increases confidence that the weight-only intervention matters in the shown
+  systems, but it does not supply raw cells, timing, or a warm/multi-row
+  guarantee.
+- Primary-source novelty spot checks support the manuscript's narrow
+  distinctions. Wei et al. 2026 proves finite-inner-budget passivity for
+  bilateral partitioned port-Hamiltonian coupling via wave-domain
+  Douglas--Rachford splitting; You et al. 2026 controls whole-integrator energy
+  for elastodynamic contact; Sheth et al. 2015 establishes
+  momentum-conserving reduced-deformable contact. These are close neighbors but
+  do not obviously duplicate a pre-solve sign index and
+  reconstruction-matched charge for one cold unilateral PBD row.
+- Two omitted close neighbors materially weaken the statement that the
+  bilateral 2026 coupling paper is the “closest guarantee.” Rath 2008 presents
+  energy-stable contacting modal objects with exact energy handling at contact
+  phase switches, while Kim et al. 2017 presents real-time, non-iterative
+  discrete-passive simulation in generalized/maximal coordinates with
+  unilateral multi-point Coulomb LCP contact and a flexible-beam example.
+  Neither obviously supplies this paper's PBD-row danger threshold or matched
+  charge, so this is a related-work/positioning gap rather than an exact scoop.
+- Local inspection of the full Rath paper confirms equal-and-opposite
+  point-mass/modal-object interaction, repeated and continuous contact,
+  exact-energy phase-entry handling, monotone total energy, and a real-time
+  implementation. Its piecewise-linear contact spring, exact phase transition
+  matrices, and audio-rate setting differ materially from the submitted
+  one-sweep PBD projection problem.
+- The first visible pre-impact frames already show small arm differences
+  (shelf board-mode energy 65.2 J versus <0.001 J; table 0.33 J versus
+  0.013 J) because resting objects are in contact before the highlighted
+  drop. The later impact drives the dramatic divergence. This does not defeat
+  the weight-only control, but reinforces that both videos are warm,
+  multi-row system corroboration—not direct visualizations of the cold,
+  one-row theorem.
+- Coordinator algebra check: direct substitution reproduces the scalar
+  boundary `kappa^2+b > 2+m/M`, the matched-charge loss as the classical
+  reduced-mass inelastic loss, and Corollary 3.4 via the congruence
+  `A=G^(1/2) W G^(1/2)`, for which passivity for every row is equivalent to
+  `A^2-2A` negative semidefinite, hence `0 <= W <= 2G^-1`. No fatal flaw was
+  found in these central identities.
+- Final independent panel distribution is `5, 5, 5, 5, 5, 5`; every reviewer
+  recommends weak accept at confidence 4/5. Three reviewers would score the
+  paper alone at 4 and say the video raises it to 5; three retain 5 with or
+  without the video but report higher practical confidence.
+- All six agree on the same decision boundary: the scoped cold, one-row
+  reconstruction-aware theorem is technically sound and sufficiently original
+  for a focused MIG short paper; the result is not a production-solver
+  passivity guarantee because the paper's own warm/two-row matched arm injects
+  in 4,099 of 43,898 stress cases.
+- Unanimous packet-level concerns are the absent promised code/CSV/host
+  supplement and missing assigned paper ID. Recurring scientific/evaluation
+  concerns are conservative `c=1` motion at `kappa=2`, one-host/three-scene
+  coverage, lack of end-to-end timing and a `c`-family quality/cost Pareto, and
+  unavailable companion-overlap details.
+- End-of-panel hashes match the frozen artifacts exactly. The PDF still has
+  zero embedded files; no reviewer was exposed to another review or to
+  historical workspace conclusions.

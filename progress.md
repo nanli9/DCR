@@ -1587,3 +1587,23 @@ edit. Committed-core body is done.
   six-reviewer MIG short-paper assessment.
 - Locked the current artifact hashes and reconfirmed the official MIG 2026
   short-paper rubric from the live conference call.
+- Extracted the complete PDF text, rendered all seven pages, decoded all 1,506
+  video frames without error, and sampled the video at one-second intervals.
+- Completed J1 after full-resolution page/frame checks and primary-source
+  novelty spot checks. Three first-wave reviewers are working in sealed,
+  zero-context threads.
+- Reviewer 1 completed the sealed mathematical review at 5/7 weak accept,
+  confidence 4/5, after 789 exact-rational check groups found no fatal core
+  error. Reviewer 4 was launched in the released slot with a fresh sealed
+  clarity/presentation remit.
+- Reviewers 2 and 3 completed independent novelty and evaluation reviews, both
+  at 5/7 weak accept and confidence 4/5. Reviewers 5 and 6 were launched in
+  fresh sealed practitioner and senior-generalist contexts; all six reviewer
+  prompts are now fixed without cross-review exposure.
+- Reviewers 4, 5, and 6 completed at 5/7 weak accept, confidence 4/5. All six
+  reports are now sealed and complete; end-of-panel artifact hashes match the
+  frozen originals.
+- Completed J3/J4 reconciliation and saved the self-contained panel report to
+  `paper/committee_review_onesweep_short_2026-07-30.md`. Verified its artifact
+  hashes, six reviewer sections, score table, video adjudication, prior-work
+  fact check, area-chair verdict, and prioritized revisions.
